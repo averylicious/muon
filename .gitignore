@@ -1,0 +1,22 @@
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.idea/
+*.iml
+research/upstream/
+proof-private/
+
+.local/
+
+__pycache__/
+*.pyc
+
+# Signing materials and recovery bundles must never enter source control.
+*.keystore
+*.jks
+*.p12
+*.pfx
+.env
+.env.*
+signing-backup*

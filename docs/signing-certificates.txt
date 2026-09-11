@@ -1,0 +1,2 @@
+Debug certificate SHA-256: d3d79b0ec48ff937b0dc3093f8a47ac8b946d4bd6ac38e2bef54a87d10525fb7
+Release certificate SHA-256: fb5e1219816246a5ddaa2fc3a632550f3c2d97db2b3cebf31676c1b483e255cf

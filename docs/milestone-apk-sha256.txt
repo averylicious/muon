@@ -1,0 +1,2 @@
+# Original 2026-09-11 milestone debug APK, before CI/release configuration.
+fe8f30e877edec02c047cdbef73f9d565a3420d16425fd41af1b2a61fe2b1005  app/build/outputs/apk/debug/app-debug.apk
