@@ -15,7 +15,9 @@ See [feasibility and protocol](docs/feasibility.md) and [measured validation](do
 
 ## GitHub builds
 
-The private [repository](https://github.com/averylicious/muon) builds signed debug and optimized release APKs on every push, with a manual run option. Download them from [Actions](https://github.com/averylicious/muon/actions/workflows/android.yml). Debug updates the milestone app; Muon Release installs alongside it. Artifacts expire after 14 days. See [CI and signing recovery](docs/ci.md) before switching builds or backing up keys.
+The private [repository](https://github.com/averylicious/muon) builds signed APKs on every branch push. Successful `main` builds publish **Muon Canary** prereleases; explicit `vMAJOR.MINOR.PATCH` tags publish **Muon** stable releases. Both can be installed together and updated separately using Obtainium. See the **[Obtainium and PAT setup guide](docs/obtainium.md)** and [Releases](https://github.com/averylicious/muon/releases).
+
+Canary keeps the milestone/debug app's identity and gains an amber icon. Stable keeps the previous Muon Release identity and green icon. [Actions](https://github.com/averylicious/muon/actions/workflows/android.yml) also retains debug/release APK artifacts for 14 days; published release assets have no such expiry. See [CI and signing recovery](docs/ci.md).
 
 ## Build
 

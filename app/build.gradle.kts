@@ -29,11 +29,14 @@ android {
         }
     }
     buildTypes {
-        getByName("debug") { resValue("string", "app_name", "Muon") }
+        getByName("debug") {
+            resValue("string", "app_name", "Muon Canary")
+            versionNameSuffix = "-canary." + providers.environmentVariable("MUON_VERSION_CODE").getOrElse("local")
+        }
         getByName("release") {
             // Install beside the original milestone/debug app, preserving its settings.
             applicationIdSuffix = ".release"
-            resValue("string", "app_name", "Muon Release")
+            resValue("string", "app_name", "Muon")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

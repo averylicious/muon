@@ -2,6 +2,8 @@ name: Android APKs
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -9,21 +11,46 @@ permissions:
 
 concurrency:
   group: android-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 jobs:
   build:
     name: Build, test and sign
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      channel: ${{ steps.version.outputs.channel }}
+      version: ${{ steps.version.outputs.version }}
     env:
       MUON_VERSION_CODE: ${{ github.run_number }}
-      MUON_VERSION_NAME: 0.1.0-ci.${{ github.run_number }}
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+
+      - name: Select version and publication channel
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version=0.1.0
+          channel=none
+          if [[ "$REF_TYPE" == tag ]]; then
+            [[ "$REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo 'Stable tags must be vMAJOR.MINOR.PATCH'; exit 1; }
+            version="${REF_NAME#v}"
+            channel=stable
+          elif [[ "$REF_NAME" == main ]]; then
+            channel=canary
+          fi
+          echo "MUON_VERSION_NAME=$version" >> "$GITHUB_ENV"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check release publication safeguards
+        run: python3 -m unittest discover -s tools -p 'test_release.py'
 
       - name: Set up Java 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
@@ -69,12 +96,14 @@ jobs:
           apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           "$apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
           "$apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          python3 tools/verify-apks.py "$ANDROID_HOME/build-tools/36.0.0"
           mkdir -p artifacts/debug artifacts/release
           cp app/build/outputs/apk/debug/app-debug.apk artifacts/debug/
           cp app/build/outputs/apk/release/app-release.apk artifacts/release/
           (cd artifacts/debug && sha256sum app-debug.apk > SHA256SUMS)
           (cd artifacts/release && sha256sum app-release.apk > SHA256SUMS)
-          printf 'Commit: %s\nRun: %s\nVersion: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" | tee artifacts/debug/BUILD.txt artifacts/release/BUILD.txt
+          printf 'Commit: %s\nRun: %s\nVersion: %s-canary.%s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" "$GITHUB_RUN_NUMBER" > artifacts/debug/BUILD.txt
+          printf 'Commit: %s\nRun: %s\nVersion: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" > artifacts/release/BUILD.txt
 
       - name: Upload debug APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -109,3 +138,34 @@ jobs:
       - name: Remove signing files
         if: always()
         run: rm -rf "$RUNNER_TEMP/muon-signing"
+
+  publish:
+    name: Publish private release
+    needs: build
+    if: needs.build.outputs.channel != 'none'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # Serialize publications. Completed releases are never overwritten on reruns.
+    concurrency:
+      group: muon-release-publication
+      cancel-in-progress: false
+    steps:
+      - name: Check out publication script
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Download verified APK artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: app-${{ needs.build.outputs.channel == 'canary' && 'debug' || 'release' }}-${{ github.sha }}
+          path: release-input
+
+      - name: Publish APK and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ needs.build.outputs.channel }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: python3 tools/publish-release.py
