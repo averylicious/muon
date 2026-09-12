@@ -3,12 +3,15 @@ package dev.avery.muon
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.platform.LocalContext
 
 private val MuonDarkColors = darkColorScheme(
@@ -35,6 +38,27 @@ private val MuonLightColors = lightColorScheme(
     onSurfaceVariant = Color(0xFF454A40),
 )
 
+/**
+ * Muon's own face, on headings only. Body text, labels and controls stay on the system face, which
+ * keeps list rows and controls legible at small sizes and large font scales.
+ *
+ * The family ships one weight, so headings must not ask for a bolder one: Android would synthesise
+ * it and smear a face with this much stroke contrast. The weight lives here rather than at each
+ * call site for that reason.
+ */
+private val DisplayFamily = FontFamily(Font(R.font.dm_serif_display))
+
+private val MuonTypography = Typography().run {
+    copy(
+        displayLarge = displayLarge.copy(fontFamily = DisplayFamily),
+        displayMedium = displayMedium.copy(fontFamily = DisplayFamily),
+        displaySmall = displaySmall.copy(fontFamily = DisplayFamily),
+        headlineLarge = headlineLarge.copy(fontFamily = DisplayFamily),
+        headlineMedium = headlineMedium.copy(fontFamily = DisplayFamily),
+        headlineSmall = headlineSmall.copy(fontFamily = DisplayFamily),
+    )
+}
+
 @Composable
 fun MuonTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -56,5 +80,5 @@ fun MuonTheme(
     val scheme = if (blackSurfaces && darkTheme) {
         colors.copy(background = Color.Black, surface = Color.Black)
     } else colors
-    MaterialTheme(colorScheme = scheme, content = content)
+    MaterialTheme(colorScheme = scheme, typography = MuonTypography, content = content)
 }
