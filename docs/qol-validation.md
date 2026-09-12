@@ -107,3 +107,17 @@ render any of this:
   when the list changes; a playlist containing the same track twice must show both entries.
 - Check a long title, a long artist/album line, and an unavailable track's explanatory second line at
   a large font size.
+
+## Follow-up: Connect vs Settings, and pure black
+
+- On a disconnected install, only the Connect screen appears: address, scan, and the trusted-LAN
+  note. No Appearance section and no navigation bar until a server is connected.
+- After connecting, Settings in the navigation bar shows the server address, Refresh, Disconnect and
+  Appearance. Disconnecting returns to the Connect screen without stranding the user.
+- Run a scan: discovered servers should read as list entries with a name, address and a Use action,
+  not as two-line buttons. Tapping one fills the address field.
+- Turn on Pure black with the system in dark mode: backgrounds go true black while cards, the mini
+  player and artwork placeholders stay visible against them, and accent colours do not change.
+  Check it with both Material You and the Muon palette.
+- With the system in light mode, Pure black should change nothing. Reopen the app to confirm the
+  switch persists, and disconnect/reconnect to confirm it survives a server change.

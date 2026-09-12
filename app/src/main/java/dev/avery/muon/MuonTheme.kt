@@ -39,6 +39,7 @@ private val MuonLightColors = lightColorScheme(
 fun MuonTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
+    blackSurfaces: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -50,5 +51,10 @@ fun MuonTheme(
         darkTheme -> MuonDarkColors
         else -> MuonLightColors
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    // Only the ground goes black. Containers keep their own colour so cards, the mini player and
+    // artwork placeholders stay visible against it, and accents are left alone entirely.
+    val scheme = if (blackSurfaces && darkTheme) {
+        colors.copy(background = Color.Black, surface = Color.Black)
+    } else colors
+    MaterialTheme(colorScheme = scheme, content = content)
 }

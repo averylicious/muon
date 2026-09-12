@@ -17,6 +17,12 @@ enum class PaletteChoice { MaterialYou, Muon }
 internal fun paletteChoiceFrom(stored: String?): PaletteChoice =
     if (stored == PaletteChoice.Muon.name) PaletteChoice.Muon else PaletteChoice.MaterialYou
 
+/**
+ * Pure black backgrounds only mean anything while the system is in dark mode, and they are a
+ * modifier on the chosen palette rather than a third palette: accents stay where they came from.
+ */
+internal fun useBlackSurfaces(amoled: Boolean, darkTheme: Boolean): Boolean = amoled && darkTheme
+
 /** Dynamic colour arrived in Android 12; Muon still supports Android 9. */
 internal fun dynamicColorAvailable(sdkInt: Int): Boolean = sdkInt >= Build.VERSION_CODES.S
 
@@ -45,6 +51,8 @@ internal fun paletteDescription(choice: PaletteChoice): String = when (choice) {
 class AppearanceSettings(private val prefs: SharedPreferences) {
     var palette by mutableStateOf(paletteChoiceFrom(prefs.getString(KEY_PALETTE, null)))
         private set
+    var amoled by mutableStateOf(prefs.getBoolean(KEY_AMOLED, false))
+        private set
 
     fun choose(choice: PaletteChoice) {
         if (choice == palette) return
@@ -52,7 +60,16 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         prefs.edit().putString(KEY_PALETTE, choice.name).apply()
     }
 
-    private companion object { const val KEY_PALETTE = "palette" }
+    fun chooseAmoled(enabled: Boolean) {
+        if (enabled == amoled) return
+        amoled = enabled
+        prefs.edit().putBoolean(KEY_AMOLED, enabled).apply()
+    }
+
+    private companion object {
+        const val KEY_PALETTE = "palette"
+        const val KEY_AMOLED = "amoled"
+    }
 }
 
 @Composable
