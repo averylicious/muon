@@ -1,6 +1,7 @@
 <resources>
+    <!-- Below Android 12 there is no dynamic colour, so the Compose theme always resolves to the
+         Muon palette and the launch background can match it exactly. -->
     <style name="Theme.Muon" parent="android:style/Theme.Material.NoActionBar">
-        <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:colorAccent">#3D6800</item>
