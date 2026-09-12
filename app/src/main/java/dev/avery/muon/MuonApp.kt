@@ -284,30 +284,53 @@ private fun NowPlaying(p: PlaybackUi, position: () -> Long, player: MediaControl
         Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) { Text("Choose a track from your library to start listening.") }
         return
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    var showVolume by rememberSaveable { mutableStateOf(false) }
+    // Everything below the artwork has a fixed height and the artwork takes what is left, so the
+    // controls cannot be pushed off the bottom of the screen the way the scrolling layout did.
+    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("PLAYING ON THIS DEVICE", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-        Artwork(p.item.mediaMetadata.artworkUri?.toString(), Modifier.widthIn(max = 400.dp).fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(24.dp)))
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Artwork(p.item.mediaMetadata.artworkUri?.toString(),
+                Modifier.widthIn(max = 400.dp).aspectRatio(1f).clip(RoundedCornerShape(24.dp)))
+        }
         Column(Modifier.fillMaxWidth()) {
-            Text(p.item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(p.item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(p.item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(p.item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(p.item.mediaMetadata.albumTitle?.toString().orEmpty(), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (p.error != null) ErrorCard(p.error, "Retry stream") { player?.prepare(); player?.play() }
         if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
         SeekControls(p.item.mediaId, position, p.duration, p.seekable, player)
-        Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically) {
+            ToggleControl("shuffle", "Shuffle", if (p.shuffle) "On" else "Off", p.shuffle, player != null) {
+                player?.shuffleModeEnabled = !p.shuffle
+            }
             Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
             FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
                 modifier = Modifier.size(72.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
                 MuonIcon(if (p.playing) "pause" else "play", Modifier.size(32.dp))
             }
             Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
+            ToggleControl(repeatModeIcon(p.repeatMode), "Repeat",
+                repeatModeName(p.repeatMode), p.repeatMode != Player.REPEAT_MODE_OFF, player != null) {
+                player?.repeatMode = nextRepeatMode(p.repeatMode)
+            }
         }
-        PlaybackOptions(p, player)
-        TextButton(onClick = lyrics) { Text("Open lyrics") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = lyrics) { Text("Lyrics") }
+            TextButton(onClick = { showVolume = true }) {
+                MuonIcon("volume", Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Volume")
+            }
+        }
     }
+    if (showVolume) MediaVolumeDialog { showVolume = false }
 }
 
 @Composable
@@ -324,43 +347,6 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
             Text(formatTime(duration), style = MaterialTheme.typography.labelSmall)
         }
     }
-}
-
-@Composable
-private fun PlaybackOptions(p: PlaybackUi, player: MediaController?) {
-    var showVolume by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
-            onClick = { player?.shuffleModeEnabled = !p.shuffle },
-            enabled = player != null,
-            modifier = Modifier.fillMaxWidth().semantics {
-                stateDescription = if (p.shuffle) "On" else "Off"
-                contentDescription = "Shuffle"
-            },
-        ) {
-            MuonIcon("shuffle", Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(if (p.shuffle) "Shuffle On" else "Shuffle Off", maxLines = 1)
-        }
-        OutlinedButton(
-            onClick = { player?.repeatMode = nextRepeatMode(p.repeatMode) },
-            enabled = player != null,
-            modifier = Modifier.fillMaxWidth().semantics {
-                stateDescription = repeatModeName(p.repeatMode)
-                contentDescription = "Repeat"
-            },
-        ) {
-            MuonIcon("repeat", Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Repeat ${repeatModeName(p.repeatMode)}", maxLines = 1)
-        }
-        OutlinedButton(onClick = { showVolume = true }, modifier = Modifier.fillMaxWidth()) {
-            MuonIcon("volume", Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Media volume")
-        }
-    }
-    if (showVolume) MediaVolumeDialog { showVolume = false }
 }
 
 @Composable
@@ -430,6 +416,13 @@ private fun Control(kind: String, label: String, enabled: Boolean = true, action
     IconButton(onClick = action, enabled = enabled, modifier = Modifier.semantics { contentDescription = label }) { MuonIcon(kind) }
 }
 @Composable
+private fun ToggleControl(kind: String, label: String, state: String, active: Boolean, enabled: Boolean, action: () -> Unit) {
+    IconButton(onClick = action, enabled = enabled,
+        colors = IconButtonDefaults.iconButtonColors(
+            contentColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant),
+        modifier = Modifier.semantics { contentDescription = label; stateDescription = state }) { MuonIcon(kind) }
+}
+@Composable
 private fun MuonIcon(kind: String, modifier: Modifier = Modifier) {
     val color = LocalContentColor.current
     Canvas(modifier.size(24.dp)) {
@@ -452,8 +445,9 @@ private fun MuonIcon(kind: String, modifier: Modifier = Modifier) {
             "shuffle" -> { line(4f,7f,8f,7f); line(8f,7f,16f,17f); line(16f,17f,20f,17f)
                 line(17f,14f,20f,17f); line(17f,20f,20f,17f); line(4f,17f,8f,17f); line(8f,17f,16f,7f); line(16f,7f,20f,7f)
                 line(17f,4f,20f,7f); line(17f,10f,20f,7f) }
-            "repeat" -> { line(6f,7f,18f,7f); line(15f,4f,18f,7f); line(15f,10f,18f,7f)
-                line(18f,17f,6f,17f); line(9f,14f,6f,17f); line(9f,20f,6f,17f) }
+            "repeat", "repeat-one" -> { line(6f,7f,18f,7f); line(15f,4f,18f,7f); line(15f,10f,18f,7f)
+                line(18f,17f,6f,17f); line(9f,14f,6f,17f); line(9f,20f,6f,17f)
+                if (kind == "repeat-one") { line(12f,9.5f,12f,14.5f); line(10.6f,11f,12f,9.5f) } }
             "volume" -> { val speaker = Path().apply { moveTo(4*s,10*s); lineTo(8*s,10*s); lineTo(13*s,6*s); lineTo(13*s,18*s); lineTo(8*s,14*s); lineTo(4*s,14*s); close() }
                 drawPath(speaker, color); drawArc(color, -50f, 100f, false, topLeft = point(10f,7f), size = androidx.compose.ui.geometry.Size(9*s,10*s), style = Stroke(2*s)) }
             else -> { line(3f,6f,21f,6f); line(3f,12f,21f,12f); line(3f,18f,21f,18f)
