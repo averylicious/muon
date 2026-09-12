@@ -125,3 +125,13 @@ render any of this:
   Check it with both Material You and the Muon palette.
 - With the system in light mode, Pure black should change nothing. Reopen the app to confirm the
   switch persists, and disconnect/reconnect to confirm it survives a server change.
+
+## Follow-up: loading states
+
+- Refresh a connected library from the Library bar. The list must not shift down and back as the
+  busy indicator appears and disappears; the indicator occupies its strip either way.
+- Connect to a server with the app open on Library. While the first load runs, the list area should
+  show placeholder rows rather than "This playlist is empty", which was the wrong message while it
+  was still working.
+- Check the placeholders at a large font scale and in both palettes; they should read as muted rows,
+  not as content.
