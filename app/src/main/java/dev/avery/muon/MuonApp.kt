@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -43,7 +44,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private enum class Screen { Library, Search, Playing, Lyrics, Settings }
+private enum class Screen { Library, Search, Playing, Lyrics, Settings, Connect }
 
 /**
  * Everything about playback that changes only on a player event. The moving position is kept out
@@ -96,7 +97,8 @@ private fun rememberPlayback(player: MediaController?): PlaybackState {
 fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryModel = viewModel(),
     darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme()) {
     val appearance = rememberAppearanceSettings()
-    MuonTheme(darkTheme = darkTheme, dynamicColor = appearance.palette == PaletteChoice.MaterialYou) {
+    MuonTheme(darkTheme = darkTheme, dynamicColor = appearance.palette == PaletteChoice.MaterialYou,
+        blackSurfaces = useBlackSurfaces(appearance.amoled, darkTheme)) {
         val colors = MaterialTheme.colorScheme
         var screen by rememberSaveable { mutableStateOf(Screen.Library) }
         var selected by rememberSaveable { mutableStateOf<String?>(null) }
@@ -117,7 +119,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
         }
         val connected = model.endpoint != null
-        val shownScreen = if (!connected) Screen.Settings else screen
+        val shownScreen = if (!connected) Screen.Connect else screen
         BackHandler(connected && screen != Screen.Library) { screen = Screen.Library }
         fun startQueue(list: List<TauonTrack>, track: TauonTrack) {
             val endpoint = model.endpoint ?: return
@@ -152,7 +154,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }
                 if (model.busy && connected) LinearProgressIndicator(Modifier.fillMaxWidth())
                 when (shownScreen) {
-                    Screen.Settings -> ConnectionScreen(model, connected, appearance) {
+                    Screen.Connect -> ConnectScreen(model)
+                    Screen.Settings -> SettingsScreen(model, appearance) {
                         player?.stop(); player?.clearMediaItems(); model.disconnect(); selected = null; screen = Screen.Library
                     }
                     Screen.Library -> {
@@ -187,8 +190,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
 }
 
 @Composable
-private fun ConnectionScreen(model: LibraryModel, connected: Boolean, appearance: AppearanceSettings,
-    disconnect: () -> Unit) {
+private fun ConnectScreen(model: LibraryModel) {
     val context = LocalContext.current
     var discovered by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var discoveryMessage by remember { mutableStateOf("") }
@@ -197,35 +199,84 @@ private fun ConnectionScreen(model: LibraryModel, connected: Boolean, appearance
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Spacer(Modifier.height(18.dp))
         Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        Text(if (connected) "Your connection" else "Bring your\nlibrary along.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Text("Stream your Tauon collection to this device. Original audio, your playlists, wherever your LAN reaches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(if (connected) "Tauon desktop · connected" else "Connect to Tauon desktop", style = MaterialTheme.typography.titleMedium)
-                if (!connected) Text("Enable remote control in Tauon and restart it. Keep both devices on the same trusted LAN.")
-                OutlinedTextField(model.address, { model.address = it }, label = { Text("Server address") },
-                    placeholder = { Text("192.168.1.10:7814") }, singleLine = true,
-                    enabled = !model.busy && !connected, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { model.connect() }, enabled = !model.busy && model.address.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                    Text(if (model.busy) "Connecting…" else if (connected) "Refresh connection & library" else "Connect")
-                }
-                if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall)
-                if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                if (connected) TextButton(onClick = disconnect) { Text("Disconnect & stop playback") }
+        SettingsCard("Connect to Tauon desktop") {
+            Text("Enable remote control in Tauon and restart it. Keep both devices on the same trusted LAN.")
+            OutlinedTextField(model.address, { model.address = it }, label = { Text("Server address") },
+                placeholder = { Text("192.168.1.10:7814") }, singleLine = true,
+                enabled = !model.busy, modifier = Modifier.fillMaxWidth())
+            Button(onClick = { model.connect() }, enabled = !model.busy && model.address.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                Text(if (model.busy) "Connecting…" else "Connect")
             }
+            if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall)
+            if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
         model.error?.let { ErrorCard(it) }
-        if (!connected) {
-            OutlinedButton(onClick = { discovered = emptyMap(); discovery.start() }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Find Tauon on my LAN") }
+        SettingsCard("Find Tauon on my LAN") {
+            Text("Discovery needs Tauon to advertise itself. Typing the address always works.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onClick = { discovered = emptyMap(); discovery.start() }, enabled = !model.busy,
+                modifier = Modifier.fillMaxWidth()) { Text("Scan this network") }
             if (discoveryMessage.isNotEmpty()) Text(discoveryMessage, style = MaterialTheme.typography.bodySmall)
-            discovered.forEach { (url, name) -> OutlinedButton(onClick = { model.address = url }, modifier = Modifier.fillMaxWidth()) { Text("$name\n$url") } }
+            discovered.forEach { (url, name) -> DiscoveredServer(name, url) { model.address = url } }
         }
-        AppearanceSection(appearance)
-        HorizontalDivider()
-        Text("A private connection", style = MaterialTheme.typography.titleMedium)
-        Text("Tauon's remote API is for trusted LANs. It has no login or encryption over HTTP. Never expose port 7814 to the Internet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Direct original audio · No transcoding\nAndroid playback · Desktop playback stays independent", style = MaterialTheme.typography.bodySmall)
+        PrivacyNote()
     }
+}
+
+@Composable
+private fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings, disconnect: () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Spacer(Modifier.height(18.dp))
+        Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+        Text("Settings", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        SettingsCard("Tauon desktop · connected") {
+            Text(model.address, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = { model.connect() }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) {
+                Text(if (model.busy) "Refreshing…" else "Refresh connection & library")
+            }
+            if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            TextButton(onClick = disconnect) { Text("Disconnect & stop playback") }
+        }
+        model.error?.let { ErrorCard(it) }
+        AppearanceSection(appearance)
+        PrivacyNote()
+    }
+}
+
+@Composable
+private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun DiscoveredServer(name: String, url: String, use: () -> Unit) {
+    // A found server is a list entry, not a button with two lines of text crammed into it.
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = use)
+        .padding(vertical = 10.dp, horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text("Use", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+private fun PrivacyNote() {
+    HorizontalDivider()
+    Text("A private connection", style = MaterialTheme.typography.titleMedium)
+    Text("Tauon's remote API is for trusted LANs. It has no login or encryption over HTTP. Never expose port 7814 to the Internet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("Direct original audio · No transcoding\nAndroid playback · Desktop playback stays independent", style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
@@ -245,6 +296,17 @@ private fun AppearanceSection(appearance: AppearanceSettings) {
             }
             if (!dynamicAvailable) Text("Material You needs Android 12 or newer, so this device uses the Muon palette.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                .toggleable(value = appearance.amoled, role = Role.Switch) { appearance.setAmoled(it) }
+                .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Pure black", style = MaterialTheme.typography.bodyLarge)
+                    Text("Backgrounds go fully black on OLED screens. Accents are unchanged, and this only applies while your system is in dark mode.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = appearance.amoled, onCheckedChange = null)
+            }
         }
     }
 }
