@@ -34,35 +34,54 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 private enum class Screen { Library, Search, Playing, Lyrics, Settings }
+
+/**
+ * Everything about playback that changes only on a player event. The moving position is kept out
+ * of this value deliberately: it is compared for equality on every event, so screens that do not
+ * show a clock are not recomposed while a track plays.
+ */
+@Immutable
 private data class PlaybackUi(val item: MediaItem? = null, val playing: Boolean = false,
-    val position: Long = 0, val duration: Long = 0, val seekable: Boolean = false,
+    val duration: Long = 0, val seekable: Boolean = false,
     val buffering: Boolean = false, val error: String? = null, val previous: Boolean = false,
     val next: Boolean = false, val shuffle: Boolean = false,
     @Player.RepeatMode val repeatMode: Int = Player.REPEAT_MODE_OFF)
 
+/** Playback state split so that the ticking position invalidates only the widgets that draw it. */
+@Stable
+private class PlaybackState {
+    var ui by mutableStateOf(PlaybackUi())
+    var position by mutableLongStateOf(0L)
+}
+
 @Composable
-private fun rememberPlayback(player: MediaController?): PlaybackUi {
-    var state by remember { mutableStateOf(PlaybackUi()) }
+private fun rememberPlayback(player: MediaController?): PlaybackState {
+    val state = remember { PlaybackState() }
     DisposableEffect(player) {
         fun update() {
-            state = if (player == null) PlaybackUi() else PlaybackUi(player.currentMediaItem, player.isPlaying,
-                player.currentPosition.coerceAtLeast(0), player.duration.coerceAtLeast(0),
+            state.ui = if (player == null) PlaybackUi() else PlaybackUi(player.currentMediaItem, player.isPlaying,
+                player.duration.coerceAtLeast(0),
                 player.isCurrentMediaItemSeekable, player.playbackState == Player.STATE_BUFFERING,
                 player.playerError?.let { "${it.errorCodeName}: ${it.cause?.let(::friendlyError) ?: it.message}" },
                 player.hasPreviousMediaItem(), player.hasNextMediaItem(), player.shuffleModeEnabled,
                 player.repeatMode)
+            state.position = player?.currentPosition?.coerceAtLeast(0) ?: 0L
         }
         val listener = object : Player.Listener { override fun onEvents(p: Player, events: Player.Events) { update() } }
         player?.addListener(listener); update()
         onDispose { player?.removeListener(listener) }
     }
-    LaunchedEffect(player) {
+    val playing = state.ui.playing
+    LaunchedEffect(player, playing) {
+        if (player == null || !playing) return@LaunchedEffect
         while (true) {
-            player?.let { state = state.copy(position = it.currentPosition.coerceAtLeast(0)) }
-            delay(500)
+            state.position = player.currentPosition.coerceAtLeast(0)
+            delay(POSITION_TICK_MS)
         }
     }
     return state
@@ -77,7 +96,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var selected by rememberSaveable { mutableStateOf<String?>(null) }
         var query by rememberSaveable { mutableStateOf("") }
         val playback = rememberPlayback(player)
+        val ui = playback.ui
+        val position = remember(playback) { { playback.position } }
         val all = remember(model.tracksByPlaylist) { model.allTracks }
+        // Filtering a large library on the composition thread stalled typing. Debounced, kept off
+        // the main thread, and hoisted here so results survive a trip to another tab.
+        val results by produceState(emptyList<TauonTrack>(), all, query) {
+            if (query.isBlank()) { value = emptyList(); return@produceState }
+            delay(SEARCH_DEBOUNCE_MS)
+            value = withContext(Dispatchers.Default) { searchTracks(all, query) }
+        }
         val connected = model.endpoint != null
         val shownScreen = if (!connected) Screen.Settings else screen
         BackHandler(connected && screen != Screen.Library) { screen = Screen.Library }
@@ -91,9 +119,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         Scaffold(containerColor = colors.background, bottomBar = {
             Column {
-                if (playback.item != null && shownScreen != Screen.Playing) {
-                    MiniPlayer(playback, player != null, { screen = Screen.Playing }, {
-                        if (playback.playing) player?.pause() else player?.play()
+                if (ui.item != null && shownScreen != Screen.Playing) {
+                    MiniPlayer(ui, position, player != null, { screen = Screen.Playing }, {
+                        if (ui.playing) player?.pause() else player?.play()
                     })
                 }
                 if (connected) NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
@@ -137,16 +165,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 Text("${tracks.size} tracks", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                                 TextButton(onClick = { model.connect() }, enabled = !model.busy) { Text("Refresh") }
                             }
-                            TrackList(tracks, model.endpoint, playback.item?.mediaId, player != null,
+                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
                                 emptyText = "This playlist is empty. Add local music in Tauon, then refresh.") { startQueue(tracks, it) }
                         }
                     }
                     Screen.Search -> {
-                        val results = remember(all, query) {
-                            if (query.isBlank()) emptyList() else all.filter { t ->
-                                listOf(t.title, t.artist, t.album).any { it.contains(query.trim(), ignoreCase = true) }
-                            }
-                        }
                         Column {
                             Text("Find your next listen", style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold, modifier = Modifier.padding(24.dp))
@@ -156,12 +179,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("Clear") } })
                             Text("Search across loaded Tauon playlists", color = colors.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
-                            TrackList(results, model.endpoint, playback.item?.mediaId, player != null,
+                            TrackList(results, model.endpoint, ui.item?.mediaId, player != null,
                                 emptyText = if (query.isBlank()) "Your collection, one search away." else "No matching tracks in the loaded playlists.") { startQueue(results, it) }
                         }
                     }
-                    Screen.Playing -> NowPlaying(playback, player, { screen = Screen.Lyrics })
-                    Screen.Lyrics -> LyricsScreen(playback.item) { screen = Screen.Playing }
+                    Screen.Playing -> NowPlaying(ui, position, player) { screen = Screen.Lyrics }
+                    Screen.Lyrics -> LyricsScreen(ui.item) { screen = Screen.Playing }
                 }
             }
         }
@@ -234,7 +257,7 @@ private fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curre
 }
 
 @Composable
-private fun MiniPlayer(p: PlaybackUi, ready: Boolean, open: () -> Unit, toggle: () -> Unit) {
+private fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, open: () -> Unit, toggle: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp),
         modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().clickable(onClick = open)) {
         Column {
@@ -249,14 +272,14 @@ private fun MiniPlayer(p: PlaybackUi, ready: Boolean, open: () -> Unit, toggle: 
                 }
                 Control(if (p.playing) "pause" else "play", if (p.playing) "Pause" else "Play", ready, toggle)
             }
-            LinearProgressIndicator(progress = { if (p.duration > 0) (p.position.toFloat() / p.duration).coerceIn(0f, 1f) else 0f },
+            LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
                 modifier = Modifier.fillMaxWidth().height(2.dp))
         }
     }
 }
 
 @Composable
-private fun NowPlaying(p: PlaybackUi, player: MediaController?, lyrics: () -> Unit) {
+private fun NowPlaying(p: PlaybackUi, position: () -> Long, player: MediaController?, lyrics: () -> Unit) {
     if (p.item == null) {
         Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) { Text("Choose a track from your library to start listening.") }
         return
@@ -273,17 +296,7 @@ private fun NowPlaying(p: PlaybackUi, player: MediaController?, lyrics: () -> Un
         }
         if (p.error != null) ErrorCard(p.error, "Retry stream") { player?.prepare(); player?.play() }
         if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
-        var scrub by remember(p.item.mediaId) { mutableStateOf<Float?>(null) }
-        Column {
-            Slider(value = scrub ?: p.position.toFloat().coerceIn(0f, p.duration.coerceAtLeast(1).toFloat()),
-                onValueChange = { scrub = it }, valueRange = 0f..p.duration.coerceAtLeast(1).toFloat(),
-                onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
-                enabled = p.seekable && player != null, modifier = Modifier.semantics { contentDescription = "Seek position" })
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatTime(scrub?.toLong() ?: p.position), style = MaterialTheme.typography.labelSmall)
-                Text(formatTime(p.duration), style = MaterialTheme.typography.labelSmall)
-            }
-        }
+        SeekControls(p.item.mediaId, position, p.duration, p.seekable, player)
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
             Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
             FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
@@ -294,6 +307,22 @@ private fun NowPlaying(p: PlaybackUi, player: MediaController?, lyrics: () -> Un
         }
         PlaybackOptions(p, player)
         TextButton(onClick = lyrics) { Text("Open lyrics") }
+    }
+}
+
+@Composable
+private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, seekable: Boolean, player: MediaController?) {
+    var scrub by remember(mediaId) { mutableStateOf<Float?>(null) }
+    val range = duration.coerceAtLeast(1).toFloat()
+    val elapsed = scrub ?: position().toFloat().coerceIn(0f, range)
+    Column {
+        Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
+            onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
+            enabled = seekable && player != null, modifier = Modifier.semantics { contentDescription = "Seek position" })
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(formatTime(elapsed.toLong()), style = MaterialTheme.typography.labelSmall)
+            Text(formatTime(duration), style = MaterialTheme.typography.labelSmall)
+        }
     }
 }
 
