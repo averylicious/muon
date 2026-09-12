@@ -298,7 +298,7 @@ private fun AppearanceSection(appearance: AppearanceSettings) {
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                .toggleable(value = appearance.amoled, role = Role.Switch) { appearance.setAmoled(it) }
+                .toggleable(value = appearance.amoled, role = Role.Switch) { appearance.chooseAmoled(it) }
                 .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
                     Text("Pure black", style = MaterialTheme.typography.bodyLarge)

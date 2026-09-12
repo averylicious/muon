@@ -60,7 +60,7 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         prefs.edit().putString(KEY_PALETTE, choice.name).apply()
     }
 
-    fun setAmoled(enabled: Boolean) {
+    fun chooseAmoled(enabled: Boolean) {
         if (enabled == amoled) return
         amoled = enabled
         prefs.edit().putBoolean(KEY_AMOLED, enabled).apply()
