@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -25,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -92,7 +95,8 @@ private fun rememberPlayback(player: MediaController?): PlaybackState {
 @Composable
 fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryModel = viewModel(),
     darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme()) {
-    MuonTheme(darkTheme = darkTheme) {
+    val appearance = rememberAppearanceSettings()
+    MuonTheme(darkTheme = darkTheme, dynamicColor = appearance.palette == PaletteChoice.MaterialYou) {
         val colors = MaterialTheme.colorScheme
         var screen by rememberSaveable { mutableStateOf(Screen.Library) }
         var selected by rememberSaveable { mutableStateOf<String?>(null) }
@@ -148,7 +152,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }
                 if (model.busy && connected) LinearProgressIndicator(Modifier.fillMaxWidth())
                 when (shownScreen) {
-                    Screen.Settings -> ConnectionScreen(model, connected) {
+                    Screen.Settings -> ConnectionScreen(model, connected, appearance) {
                         player?.stop(); player?.clearMediaItems(); model.disconnect(); selected = null; screen = Screen.Library
                     }
                     Screen.Library -> {
@@ -198,7 +202,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
 }
 
 @Composable
-private fun ConnectionScreen(model: LibraryModel, connected: Boolean, disconnect: () -> Unit) {
+private fun ConnectionScreen(model: LibraryModel, connected: Boolean, appearance: AppearanceSettings,
+    disconnect: () -> Unit) {
     val context = LocalContext.current
     var discovered by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var discoveryMessage by remember { mutableStateOf("") }
@@ -230,10 +235,47 @@ private fun ConnectionScreen(model: LibraryModel, connected: Boolean, disconnect
             if (discoveryMessage.isNotEmpty()) Text(discoveryMessage, style = MaterialTheme.typography.bodySmall)
             discovered.forEach { (url, name) -> OutlinedButton(onClick = { model.address = url }, modifier = Modifier.fillMaxWidth()) { Text("$name\n$url") } }
         }
+        AppearanceSection(appearance)
         HorizontalDivider()
         Text("A private connection", style = MaterialTheme.typography.titleMedium)
         Text("Tauon's remote API is for trusted LANs. It has no login or encryption over HTTP. Never expose port 7814 to the Internet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Direct original audio · No transcoding\nAndroid playback · Desktop playback stays independent", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun AppearanceSection(appearance: AppearanceSettings) {
+    val dynamicAvailable = dynamicColorAvailable(Build.VERSION.SDK_INT)
+    // Show what will actually render: a device without dynamic colour cannot honour Material You.
+    val shown = effectivePalette(appearance.palette, dynamicAvailable)
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Appearance", style = MaterialTheme.typography.titleMedium)
+            Text("Light and dark still follow your system setting. This chooses where the colours come from.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(4.dp))
+            PaletteChoice.entries.forEach { choice ->
+                PaletteOption(choice, shown == choice,
+                    enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable) { appearance.choose(choice) }
+            }
+            if (!dynamicAvailable) Text("Material You needs Android 12 or newer, so this device uses the Muon palette.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun PaletteOption(choice: PaletteChoice, selected: Boolean, enabled: Boolean, select: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+        .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = select)
+        .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        // A radio mark, not a tint, so the choice is readable without relying on colour.
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
+        Column(Modifier.padding(start = 12.dp)) {
+            Text(paletteLabel(choice), style = MaterialTheme.typography.bodyLarge)
+            Text(paletteDescription(choice), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

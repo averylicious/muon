@@ -39,6 +39,14 @@ restoration remains outside the MVP.
 - On Android 12 or newer, verify the app follows the device's dynamic colour
   palette. Check both light and dark system themes, including status/navigation
   bar legibility. On Android 9–11, check the fallback light/dark palettes.
+- In Settings → Appearance, switch between Material You and Muon. The whole app
+  should recolour immediately without a restart, in both light and dark. Confirm
+  the selected option is marked by the radio control rather than colour alone.
+- Reopen Muon after switching: the choice must persist. Disconnect from the
+  server and reconnect: the appearance choice must survive, since disconnecting
+  clears the connection preferences.
+- On Android 9–11, Material You should be unavailable rather than silently doing
+  nothing, with the Muon palette shown as the one in use.
 - Check library, search, connection, lyrics, and Now Playing, including errors,
   selected navigation items, disabled controls, and artwork placeholders.
 - Check Now Playing at a narrow width and with enlarged font/display settings;
