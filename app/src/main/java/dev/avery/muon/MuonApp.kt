@@ -345,21 +345,13 @@ private fun MediaVolumeDialog(dismiss: () -> Unit) {
         title = { Text("Media volume") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = if (state.fixed) "Volume is fixed by this device." else "${state.percent}%",
+                if (state.fixed) Text(
+                    text = "Volume is fixed by this device.",
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
-                    style = if (state.fixed) MaterialTheme.typography.bodyMedium
-                        else MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
-                Slider(
-                    value = state.current.toFloat(),
-                    onValueChange = { volume.setVolume(it.toInt()) },
-                    valueRange = state.minimum.toFloat()..maxOf(state.maximum, state.minimum + 1).toFloat(),
-                    steps = (state.maximum - state.minimum - 1).coerceAtLeast(0),
-                    enabled = !state.fixed && state.maximum > state.minimum,
-                    modifier = Modifier.semantics { contentDescription = "Media volume level" },
-                )
+                MediaVolumeSlider(state, volume::setVolume)
                 volume.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
