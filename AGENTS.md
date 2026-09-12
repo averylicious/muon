@@ -1,0 +1,44 @@
+# Muon contributor instructions
+
+These instructions apply to all coding agents working in this repository. Read them before making changes. The user's explicit instructions for the current task take precedence.
+
+## Project boundaries
+
+- Muon is a Kotlin / Jetpack Compose / Media3 Android streaming client for Tauon. Keep the architecture small and dependencies minimal; follow the existing code before adding abstractions.
+- Tauon's unauthenticated HTTP API is trusted-LAN-only. Do not expose it publicly, open tunnels, or change the user's firewall/network configuration as part of feature work.
+- Preserve package IDs, signing identities, and the Stable/Canary update paths unless explicitly asked to change them. See `docs/ci.md` and `docs/obtainium.md`.
+- Always use the **1Password MCP server** when working with 1Password developer Environments. If unavailable, report that limitation instead of silently switching to another access method. Never print or commit secrets or upload signing material as an artifact.
+
+## Default role: implement and hand off
+
+1. Confirm the requested scope from the task and inspect the relevant code. Preserve unrelated local changes. Do not expand a small fix into a general refactor or repository-wide audit.
+2. Work on a dedicated branch, normally `codex/<short-topic>`, and open a PR targeting `main`. Use a separate worktree if another agent is editing the same checkout. Do not push feature changes directly to `main`.
+3. Add meaningful tests where behavior warrants them, and update relevant documentation. Prefer GitHub Actions for Android builds because the user's desktop is slow at building APKs. Run lightweight checks locally when useful.
+4. Push the branch and use the existing **Android APKs** workflow. It builds both signed variants, runs unit tests and lint, and checks publication safeguards and APK identities. Same-repository branch pushes trigger it; fork PRs do not currently receive this build. Do not broaden secret access to make an untrusted fork build.
+5. Inspect the run for the **latest PR head commit**. Fix failures within scope, push again, and refresh the build links. If a check is blocked or unavailable, report it accurately; never call an unrun check a pass.
+6. Complete the PR description using `.github/pull_request_template.md`, including model attribution, verification results, a test-build link, and a short manual QA checklist. Give the user the PR and test-build links in the handoff.
+7. **Leave the PR open.** Implementation agents do not self-merge, enable auto-merge, publish releases, or create release tags. Astra reviews and merges in a later cycle when the user explicitly requests it. Do not automatically start a review task or another agent.
+
+## Manual QA and test builds
+
+- The user performs phone QA. Do not use ADB, scrcpy, instrumentation on their phone, or change device settings unless the user explicitly asks for device testing in the current task. Historical device-debugging permission is not standing permission.
+- Provide the successful Actions run URL and the `app-debug-<full-commit-SHA>` artifact link/name. Record the commit, Canary version, and workflow run number. The artifact ZIP contains `app-debug.apk`, `SHA256SUMS`, and `BUILD.txt`.
+- This signed debug APK updates **Muon Canary** and preserves its data; it is not a separate per-PR app. Branch artifacts expire after 14 days and do not appear in Obtainium's GitHub Releases feed. The release-variant artifact is also available, but use Canary for routine manual QA.
+- Android prevents ordinary version-code downgrades. When testing several branches, use a fresh workflow run of the desired head if its APK is older than the installed build. Do not uninstall the user's app or change signing to bypass this.
+- Keep manual QA marked **pending user testing** until the user supplies results. Automated checks do not establish playback, visual quality, or real-device behavior. For documentation-only PRs, say that device QA is not needed; the existing workflow still produces APKs.
+
+## Attribution on every PR
+
+- Identify each contributing agent's actual model and role: implementation, review, or integration. Include the tool/client and effort setting when known. Do not infer an unknown model from its display name; write `not reported` where necessary.
+- Name the reviewer only after a review has occurred. Before that, use `Pending user-requested Astra review`. An author's self-check is not independent review.
+- Keep attribution current when another agent fixes or reviews the PR, including Astra's own PRs. A later Astra review must distinguish its review from its own authorship or fixes.
+
+## Astra review and promotion cycle
+
+When the user requests review, inspect the PR diff and relevant surrounding code, assess behavior and regressions, and check the latest head's CI and the user's QA results. Report specific findings and unresolved limitations. Keep review proportional to the change.
+
+Review alone does not authorize merging. When the user requests review **and merge**, resolve blocking findings, ensure required checks pass on the final head, and merge that reviewed commit. If fixes change behavior after manual QA, identify what needs retesting. Update the PR's attribution and validation evidence.
+
+A successful `main` build automatically publishes a private Canary prerelease. Verify that publication and provide its link; report build/publication failures without claiming an update is ready. Stable `vMAJOR.MINOR.PATCH` tags require an explicit stable-release request. Do not create per-PR prereleases under the existing Canary feed.
+
+See `docs/agent-workflow.md` for starter prompts and the human handoff sequence.
