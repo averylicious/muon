@@ -101,10 +101,14 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val all = remember(model.tracksByPlaylist) { model.allTracks }
         // Filtering a large library on the composition thread stalled typing. Debounced, kept off
         // the main thread, and hoisted here so results survive a trip to another tab.
-        val results by produceState(emptyList<TauonTrack>(), all, query) {
-            if (query.isBlank()) { value = emptyList(); return@produceState }
-            delay(SEARCH_DEBOUNCE_MS)
-            value = withContext(Dispatchers.Default) { searchTracks(all, query) }
+        // Reset immediately when the library changes; never offer old server track IDs while
+        // the replacement library's search is still debouncing.
+        val results by key(all) {
+            produceState(emptyList<TauonTrack>(), query) {
+                if (query.isBlank()) { value = emptyList(); return@produceState }
+                delay(SEARCH_DEBOUNCE_MS)
+                value = withContext(Dispatchers.Default) { searchTracks(all, query) }
+            }
         }
         val connected = model.endpoint != null
         val shownScreen = if (!connected) Screen.Settings else screen
