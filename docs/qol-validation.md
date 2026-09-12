@@ -36,6 +36,10 @@ restoration remains outside the MVP.
   remain unchanged.
 - Distinguish both launcher icons by their shapes at normal launcher size and in
   grayscale. Check circular and rounded-square launcher masks where available.
+  Both are adaptive icons: Canary splits the middle bar and adds a dot, so the
+  two differ in silhouette rather than only in colour.
+- Turn on themed icons in the launcher: both should adopt the launcher's tint
+  through their monochrome layer instead of falling back to a flat square.
 - On Android 12 or newer, verify the app follows the device's dynamic colour
   palette. Check both light and dark system themes, including status/navigation
   bar legibility. On Android 9–11, check the fallback light/dark palettes.
