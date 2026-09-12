@@ -25,6 +25,16 @@ class TrackSearchTest {
         assertEquals(listOf(2L), searchTracks(library, "  night  ").map { it.id })
     }
 
+    @Test fun emptyStateDistinguishesNotTypedSearchingAndNoMatches() {
+        assertEquals("Your collection, one search away.", searchEmptyText("", false, ""))
+        assertEquals("Your collection, one search away.", searchEmptyText("   ", false, "blue"))
+        assertEquals("Searching\u2026", searchEmptyText("blu", true, ""))
+        // A finished query must not be reported as missing while the next one is still running.
+        assertEquals("Searching\u2026", searchEmptyText("blue", true, "blu"))
+        assertEquals("Searching\u2026", searchEmptyText("blue", false, ""))
+        assertEquals("Nothing matches \u201cblue\u201d.", searchEmptyText("blue", false, "blue"))
+    }
+
     @Test fun unmatchedQueryReturnsNothing() {
         assertEquals(emptyList<TauonTrack>(), searchTracks(library, "orchestra"))
     }
