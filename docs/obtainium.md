@@ -4,8 +4,8 @@ Muon publishes two independent apps from the same private repository:
 
 | Channel | Launcher | Package ID | Release title | APK filename |
 | --- | --- | --- | --- | --- |
-| Canary | Muon Canary (amber icon, white corner mark) | `dev.avery.muon` | `Muon Canary …` | `muon-canary-….apk` |
-| Stable | Muon (green icon) | `dev.avery.muon.release` | `Muon Stable …` | `muon-stable-….apk` |
+| Canary | Muon Canary (diamond with a large C) | `dev.avery.muon` | `Muon Canary …` | `muon-canary-….apk` |
+| Stable | Muon (circle with three bars) | `dev.avery.muon.release` | `Muon Stable …` | `muon-stable-….apk` |
 
 Canary updates the original debug installation without uninstalling or losing settings. Stable updates previous “Muon Release” installations. Both keep their original certificates. They can coexist, but their server settings and app data are separate. Canary currently uses Android's debuggable build type; stable is optimized and non-debuggable.
 

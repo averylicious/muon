@@ -1,11 +1,13 @@
 package dev.avery.muon
 
 import android.content.ComponentName
+import android.media.AudioManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaController
@@ -17,9 +19,17 @@ class MainActivity : ComponentActivity() {
     private var controllerError by mutableStateOf<String?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
-        setContent { MuonApp(controller, controllerError) }
+        volumeControlStream = AudioManager.STREAM_MUSIC
+        setContent {
+            val darkTheme = isSystemInDarkTheme()
+            SideEffect {
+                val transparent = android.graphics.Color.TRANSPARENT
+                val style = if (darkTheme) SystemBarStyle.dark(transparent)
+                    else SystemBarStyle.light(transparent, transparent)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
+            MuonApp(controller, controllerError, darkTheme = darkTheme)
+        }
     }
     override fun onStart() {
         super.onStart()

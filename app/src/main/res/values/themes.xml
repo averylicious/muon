@@ -1,8 +1,9 @@
 <resources>
     <style name="Theme.Muon" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:colorAccent">#B7F36B</item>
-        <item name="android:windowBackground">#101310</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:colorAccent">#3D6800</item>
+        <item name="android:windowBackground">#F9FAF4</item>
     </style>
 </resources>
