@@ -14,3 +14,7 @@ internal fun repeatModeName(@Player.RepeatMode mode: Int): String = when (mode) 
     Player.REPEAT_MODE_ONE -> "One"
     else -> "Off"
 }
+
+/** Repeat-one needs its own glyph now that the mode is not spelled out in a button label. */
+internal fun repeatModeIcon(@Player.RepeatMode mode: Int): String =
+    if (mode == Player.REPEAT_MODE_ONE) "repeat-one" else "repeat"

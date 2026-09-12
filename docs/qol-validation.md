@@ -62,3 +62,19 @@ restoration remains outside the MVP.
 The initial QoL change receives CI builds, unit tests, lint, and APK identity checks.
 The phone checks above remain pending until performed and recorded; do not infer
 they passed from CI or from the original streaming milestone.
+
+## Follow-up audit: compact Now Playing and asynchronous search
+
+The PR #18 portrait layout is retained. The audit adds a scrolling fallback for short/narrow
+windows, larger text, or stream errors; narrow windows move Shuffle/Repeat to their own row.
+Active modes also show a dot so their state does not depend only on colour.
+These follow-up cases remain for user manual QA; no phone automation was performed:
+
+- Rotate or use split screen, then increase font/display size: reach every control without overlap;
+  Lyrics/Volume may wrap, and scrolling is allowed when needed.
+- Trigger a stream error: reach its Retry action and the remaining playback controls.
+- Toggle Shuffle and Repeat: the dot appears only while active; Repeat One also has a “1”.
+- Search, disconnect, and connect a different library: old-library results must disappear immediately.
+- Seek while paused/playing, change tracks, and return from another tab: progress remains correct.
+
+CI verifies compilation, existing unit tests, lint and signing, not layout rendering or frame timing.

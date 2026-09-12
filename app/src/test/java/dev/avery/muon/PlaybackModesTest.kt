@@ -17,4 +17,11 @@ class PlaybackModesTest {
         assertEquals(listOf("Off", "All", "One"), listOf(
             repeatModeName(off), repeatModeName(all), repeatModeName(one)))
     }
+
+    @Test
+    fun repeatOneHasItsOwnIcon() {
+        assertEquals("repeat", repeatModeIcon(Player.REPEAT_MODE_OFF))
+        assertEquals("repeat", repeatModeIcon(Player.REPEAT_MODE_ALL))
+        assertEquals("repeat-one", repeatModeIcon(Player.REPEAT_MODE_ONE))
+    }
 }
