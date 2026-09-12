@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -20,11 +19,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,18 +38,21 @@ import kotlinx.coroutines.delay
 private enum class Screen { Library, Search, Playing, Lyrics, Settings }
 private data class PlaybackUi(val item: MediaItem? = null, val playing: Boolean = false,
     val position: Long = 0, val duration: Long = 0, val seekable: Boolean = false,
-    val buffering: Boolean = false, val error: String? = null, val previous: Boolean = false, val next: Boolean = false)
+    val buffering: Boolean = false, val error: String? = null, val previous: Boolean = false,
+    val next: Boolean = false, val shuffle: Boolean = false,
+    @Player.RepeatMode val repeatMode: Int = Player.REPEAT_MODE_OFF)
 
 @Composable
 private fun rememberPlayback(player: MediaController?): PlaybackUi {
     var state by remember { mutableStateOf(PlaybackUi()) }
     DisposableEffect(player) {
         fun update() {
-            if (player != null) state = PlaybackUi(player.currentMediaItem, player.isPlaying,
+            state = if (player == null) PlaybackUi() else PlaybackUi(player.currentMediaItem, player.isPlaying,
                 player.currentPosition.coerceAtLeast(0), player.duration.coerceAtLeast(0),
                 player.isCurrentMediaItemSeekable, player.playbackState == Player.STATE_BUFFERING,
                 player.playerError?.let { "${it.errorCodeName}: ${it.cause?.let(::friendlyError) ?: it.message}" },
-                player.hasPreviousMediaItem(), player.hasNextMediaItem())
+                player.hasPreviousMediaItem(), player.hasNextMediaItem(), player.shuffleModeEnabled,
+                player.repeatMode)
         }
         val listener = object : Player.Listener { override fun onEvents(p: Player, events: Player.Events) { update() } }
         player?.addListener(listener); update()
@@ -66,12 +68,10 @@ private fun rememberPlayback(player: MediaController?): PlaybackUi {
 }
 
 @Composable
-fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryModel = viewModel()) {
-    val colors = darkColorScheme(primary = Color(0xFFBCF580), onPrimary = Color(0xFF152700),
-        background = Color(0xFF101411), surface = Color(0xFF101411), surfaceVariant = Color(0xFF252D27),
-        secondaryContainer = Color(0xFF283E2A), onSecondaryContainer = Color(0xFFD3F8B5),
-        onSurface = Color(0xFFF3F4EF), onSurfaceVariant = Color(0xFFA9B4A9))
-    MaterialTheme(colorScheme = colors) {
+fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryModel = viewModel(),
+    darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme()) {
+    MuonTheme(darkTheme = darkTheme) {
+        val colors = MaterialTheme.colorScheme
         var screen by rememberSaveable { mutableStateOf(Screen.Library) }
         var selected by rememberSaveable { mutableStateOf<String?>(null) }
         var query by rememberSaveable { mutableStateOf("") }
@@ -291,8 +291,72 @@ private fun NowPlaying(p: PlaybackUi, player: MediaController?, lyrics: () -> Un
             }
             Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
         }
+        PlaybackOptions(p, player)
         TextButton(onClick = lyrics) { Text("Open lyrics") }
     }
+}
+
+@Composable
+private fun PlaybackOptions(p: PlaybackUi, player: MediaController?) {
+    var showVolume by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+            onClick = { player?.shuffleModeEnabled = !p.shuffle },
+            enabled = player != null,
+            modifier = Modifier.fillMaxWidth().semantics {
+                stateDescription = if (p.shuffle) "On" else "Off"
+                contentDescription = "Shuffle"
+            },
+        ) {
+            MuonIcon("shuffle", Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (p.shuffle) "Shuffle On" else "Shuffle Off", maxLines = 1)
+        }
+        OutlinedButton(
+            onClick = { player?.repeatMode = nextRepeatMode(p.repeatMode) },
+            enabled = player != null,
+            modifier = Modifier.fillMaxWidth().semantics {
+                stateDescription = repeatModeName(p.repeatMode)
+                contentDescription = "Repeat"
+            },
+        ) {
+            MuonIcon("repeat", Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Repeat ${repeatModeName(p.repeatMode)}", maxLines = 1)
+        }
+        OutlinedButton(onClick = { showVolume = true }, modifier = Modifier.fillMaxWidth()) {
+            MuonIcon("volume", Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Media volume")
+        }
+    }
+    if (showVolume) MediaVolumeDialog { showVolume = false }
+}
+
+@Composable
+private fun MediaVolumeDialog(dismiss: () -> Unit) {
+    val volume = rememberMediaVolumeController()
+    val state = volume.state
+    AlertDialog(
+        onDismissRequest = dismiss,
+        confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
+        icon = { MuonIcon("volume") },
+        title = { Text("Media volume") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (state.fixed) "Volume is fixed by this device." else "${state.percent}%")
+                Slider(
+                    value = state.current.toFloat(),
+                    onValueChange = { volume.setVolume(it.toInt()) },
+                    valueRange = state.minimum.toFloat()..maxOf(state.maximum, state.minimum + 1).toFloat(),
+                    steps = (state.maximum - state.minimum - 1).coerceAtLeast(0),
+                    enabled = !state.fixed && state.maximum > state.minimum,
+                    modifier = Modifier.semantics { contentDescription = "Media volume level" },
+                )
+                volume.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+    )
 }
 
 @Composable
@@ -357,6 +421,13 @@ private fun MuonIcon(kind: String, modifier: Modifier = Modifier) {
             "search" -> { drawCircle(color,7*s,point(10f,10f),style=Stroke(2*s)); line(15f,15f,21f,21f) }
             "library" -> { line(4f,4f,4f,20f); line(9f,4f,9f,20f); line(15f,4f,20f,20f) }
             "music" -> { line(10f,4f,10f,17f); line(10f,4f,20f,2f); line(20f,2f,20f,15f); drawCircle(color,3*s,point(7f,18f)); drawCircle(color,3*s,point(17f,16f)) }
+            "shuffle" -> { line(4f,7f,8f,7f); line(8f,7f,16f,17f); line(16f,17f,20f,17f)
+                line(17f,14f,20f,17f); line(17f,20f,20f,17f); line(4f,17f,8f,17f); line(8f,17f,16f,7f); line(16f,7f,20f,7f)
+                line(17f,4f,20f,7f); line(17f,10f,20f,7f) }
+            "repeat" -> { line(6f,7f,18f,7f); line(15f,4f,18f,7f); line(15f,10f,18f,7f)
+                line(18f,17f,6f,17f); line(9f,14f,6f,17f); line(9f,20f,6f,17f) }
+            "volume" -> { val speaker = Path().apply { moveTo(4*s,10*s); lineTo(8*s,10*s); lineTo(13*s,6*s); lineTo(13*s,18*s); lineTo(8*s,14*s); lineTo(4*s,14*s); close() }
+                drawPath(speaker, color); drawArc(color, -50f, 100f, false, topLeft = point(10f,7f), size = androidx.compose.ui.geometry.Size(9*s,10*s), style = Stroke(2*s)) }
             else -> { line(3f,6f,21f,6f); line(3f,12f,21f,12f); line(3f,18f,21f,18f)
                 drawCircle(color,3*s,point(8f,6f)); drawCircle(color,3*s,point(16f,12f)); drawCircle(color,3*s,point(10f,18f)) }
         }

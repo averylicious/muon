@@ -17,7 +17,7 @@ See [feasibility and protocol](docs/feasibility.md) and [measured validation](do
 
 The private [repository](https://github.com/averylicious/muon) builds signed APKs on every branch push. Successful `main` builds publish **Muon Canary** prereleases; explicit `vMAJOR.MINOR.PATCH` tags publish **Muon** stable releases. Both can be installed together and updated separately using Obtainium. See the **[Obtainium and PAT setup guide](docs/obtainium.md)** and [Releases](https://github.com/averylicious/muon/releases).
 
-Canary keeps the milestone/debug app's identity and gains an amber icon. Stable keeps the previous Muon Release identity and green icon. [Actions](https://github.com/averylicious/muon/actions/workflows/android.yml) also retains debug/release APK artifacts for 14 days; published release assets have no such expiry. See [CI and signing recovery](docs/ci.md).
+Canary keeps the milestone/debug app's identity and uses a diamond with a large C. Stable keeps the previous Muon Release identity and uses a circle with three bars. Their shapes distinguish the channels without relying on colour. [Actions](https://github.com/averylicious/muon/actions/workflows/android.yml) also retains debug/release APK artifacts for 14 days; published release assets have no such expiry. See [CI and signing recovery](docs/ci.md).
 
 ## Build
 
@@ -67,6 +67,11 @@ These addresses are specific to this LAN. DHCP address changes require reviewing
 - Connect with a numeric private LAN address, or try **Find Tauon on my LAN**. Discovery requires Tauon to advertise `_tauon-remote._tcp`; manual connection is the reliable fallback.
 - The library combines exposed playlists and removes duplicate track IDs. Choose a playlist chip to browse it. **Refresh** reloads desktop changes. Search matches titles, artists and albums across the loaded playlists.
 - Tap a track to play. The current list becomes the Android queue; unavailable network/CUE tracks are skipped. The mini-player opens Now Playing. Use the slider, play/pause and previous/next controls, or the Android media notification.
+- In Now Playing, **Shuffle** changes the queue order and **Repeat** cycles Off → All → One. Repeat All loops the active Android queue (including a search-results queue), not the whole desktop library. The modes remain active while the playback service lives; they are not saved after process death.
+- **Volume** opens the Android media-volume slider; hardware volume changes are reflected while it is open. It controls the device media stream, including the current headphone/Bluetooth route, rather than desktop volume. Fixed-volume devices cannot be adjusted here.
+- Colours follow the system light/dark theme and, on Android 12+, the system dynamic colour palette. Older Android versions use Muon's fallback palettes.
 - **Open lyrics** displays stored lyrics for the phone's current track, independent of what Tauon is playing.
 - Short transport failures receive Media3's bounded retries. Persistent failures show a retry action; the queue/position stay in the service. Library refresh failures retain the prior in-memory list. Changing servers requires Disconnect, which stops the queue to avoid mixing server track IDs.
 - The last server is saved; reopening the app reconnects. Queue restoration after process death is not implemented. Android battery policies and vendor codec differences need broader device testing.
+
+For the playback and appearance changes, see the [device acceptance checklist](docs/qol-validation.md).
