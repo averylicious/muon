@@ -151,7 +151,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 if (connected && model.error != null && shownScreen != Screen.Settings) {
                     ErrorCard(model.error!!, "Retry") { model.connect() }
                 }
-                if (model.busy && connected) LinearProgressIndicator(Modifier.fillMaxWidth())
+                BusyStrip(model.busy && connected)
                 when (shownScreen) {
                     Screen.Connect -> ConnectScreen(model)
                     Screen.Settings -> SettingsScreen(model, appearance) {
@@ -163,7 +163,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             LibraryBar(model.busy) { model.connect() }
                             PlaylistChips(model.playlists, all.size, selected) { selected = it }
                             TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
-                                emptyText = "This playlist is empty. Add local music in Tauon, then refresh.") { startQueue(tracks, it) }
+                                emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
+                                loading = model.busy) { startQueue(tracks, it) }
                         }
                     }
                     Screen.Search -> {
@@ -187,6 +188,17 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
 @Immutable
 private data class SearchResults(val tracks: List<TauonTrack> = emptyList(),
     val searching: Boolean = false, val completed: String = "")
+
+/**
+ * A busy indicator that occupies its space whether or not it is showing. Inserting one into the
+ * column shifted every screen down as a refresh started and back again as it finished.
+ */
+@Composable
+private fun BusyStrip(busy: Boolean) {
+    Box(Modifier.fillMaxWidth().height(4.dp)) {
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().height(4.dp))
+    }
+}
 
 @Composable
 private fun SearchField(query: String, onQuery: (String) -> Unit, searching: Boolean) {
@@ -341,8 +353,9 @@ private fun PaletteOption(choice: PaletteChoice, selected: Boolean, enabled: Boo
 
 @Composable
 private fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
-    emptyText: String, play: (TauonTrack) -> Unit) {
-    if (tracks.isEmpty()) Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+    emptyText: String, loading: Boolean = false, play: (TauonTrack) -> Unit) {
+    if (tracks.isEmpty() && loading) PlaceholderRows()
+    else if (tracks.isEmpty()) Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
         Text(emptyText, color = MaterialTheme.colorScheme.onSurfaceVariant)
     } else {
         val keys = remember(tracks) { trackKeys(tracks) }
@@ -381,6 +394,31 @@ private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean,
         Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End,
             maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
+    }
+}
+
+/**
+ * Shown while the first library load runs. Without it the screen reads as an empty library until
+ * every playlist has been fetched, which is the wrong message while it is still working.
+ */
+@Composable
+private fun PlaceholderRows() {
+    val colour = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
+    Column(Modifier.fillMaxWidth()) {
+        repeat(8) { index ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(colour))
+                Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                    // Uneven widths so it reads as a list of titles rather than as a broken grid.
+                    Box(Modifier.fillMaxWidth(if (index % 3 == 0) 0.7f else 0.5f).height(12.dp)
+                        .clip(RoundedCornerShape(6.dp)).background(colour))
+                    Spacer(Modifier.height(8.dp))
+                    Box(Modifier.fillMaxWidth(if (index % 2 == 0) 0.35f else 0.45f).height(10.dp)
+                        .clip(RoundedCornerShape(5.dp)).background(colour))
+                }
+            }
+        }
     }
 }
 
