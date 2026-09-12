@@ -301,10 +301,11 @@ private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall)
         }
-        // A fixed width keeps the durations on one right edge instead of ragging down the list.
+        // A minimum width keeps the durations on one right edge; a long duration or a large font
+        // scale grows the column instead of clipping, taking the space from the title beside it.
         Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End,
-            modifier = Modifier.width(44.dp))
+            maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
     }
 }
 
