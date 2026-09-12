@@ -167,7 +167,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     Screen.Search -> {
                         Column {
                             Text("Find your next listen", style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold, modifier = Modifier.padding(24.dp))
+                                modifier = Modifier.padding(24.dp))
                             OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
                                 placeholder = { Text("Songs, artists, albums") }, leadingIcon = { MuonIcon("search") },
                                 singleLine = true, shape = RoundedCornerShape(18.dp),
@@ -196,7 +196,7 @@ private fun ConnectScreen(model: LibraryModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Spacer(Modifier.height(18.dp))
         Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.headlineLarge)
         Text("Stream your Tauon collection to this device. Original audio, your playlists, wherever your LAN reaches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         SettingsCard("Connect to Tauon desktop") {
             Text("Enable remote control in Tauon and restart it. Keep both devices on the same trusted LAN.")
@@ -227,7 +227,7 @@ private fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings, 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Spacer(Modifier.height(18.dp))
         Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        Text("Settings", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Text("Settings", style = MaterialTheme.typography.headlineLarge)
         SettingsCard("Tauon desktop · connected") {
             Text(model.address, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall,
@@ -371,7 +371,7 @@ private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean,
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LibraryBar(busy: Boolean, refresh: () -> Unit) {
-    TopAppBar(title = { Text("Library") },
+    TopAppBar(title = { Text("Library", style = MaterialTheme.typography.headlineSmall) },
         actions = { TextButton(onClick = refresh, enabled = !busy) { Text("Refresh") } },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
         // The scaffold already applies the status bar inset to this content.
@@ -448,7 +448,7 @@ private fun NowPlaying(p: PlaybackUi, position: () -> Long, player: MediaControl
             }
             Column(Modifier.fillMaxWidth()) {
                 Text(p.item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(p.item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(p.item.mediaMetadata.albumTitle?.toString().orEmpty(), style = MaterialTheme.typography.bodySmall,
@@ -559,7 +559,7 @@ private fun LyricsScreen(item: MediaItem?, back: () -> Unit) {
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         TextButton(onClick = back) { Text("‹ Now Playing") }
-        Text("Lyrics", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Text("Lyrics", style = MaterialTheme.typography.headlineLarge)
         Text(item?.mediaMetadata?.title?.toString().orEmpty(), color = MaterialTheme.colorScheme.primary)
         if (failure) ErrorCard(lyrics, "Retry") { attempt++ }
         else SelectionContainer { Text(lyrics, style = MaterialTheme.typography.titleLarge, lineHeight = MaterialTheme.typography.headlineMedium.lineHeight) }
