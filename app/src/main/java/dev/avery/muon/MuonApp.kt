@@ -131,9 +131,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         Scaffold(containerColor = colors.background, bottomBar = {
             Column {
                 if (ui.item != null && shownScreen != Screen.Playing) {
-                    MiniPlayer(ui, position, player != null, { screen = Screen.Playing }, {
-                        if (ui.playing) player?.pause() else player?.play()
-                    })
+                    MiniPlayer(ui, position, player != null, { screen = Screen.Playing },
+                        toggle = { if (ui.playing) player?.pause() else player?.play() },
+                        next = { player?.seekToNextMediaItem() })
                 }
                 if (connected) NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
                     listOf(Screen.Library, Screen.Search, Screen.Playing, Screen.Settings).forEach { destination ->
@@ -415,12 +415,19 @@ private fun LibraryChip(label: String, selected: Boolean, select: () -> Unit) {
 }
 
 @Composable
-private fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, open: () -> Unit, toggle: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().clickable(onClick = open)) {
+private fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, open: () -> Unit,
+    toggle: () -> Unit, next: () -> Unit) {
+    // Attached to the navigation bar rather than floating above it: it was a card wedged against
+    // the bottom chrome, so it now shares an edge with it and only rounds its top corners.
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClickLabel = "Open Now Playing", onClick = open)) {
         Column {
-            Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(p.item?.mediaMetadata?.artworkUri?.toString(), Modifier.size(44.dp).clip(RoundedCornerShape(9.dp)))
+            LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
+                modifier = Modifier.fillMaxWidth().height(2.dp))
+            Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Artwork(p.item?.mediaMetadata?.artworkUri?.toString(), Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     Text(p.item?.mediaMetadata?.title?.toString().orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleSmall)
@@ -428,10 +435,13 @@ private fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, open
                         maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Control(if (p.playing) "pause" else "play", if (p.playing) "Pause" else "Play", ready, toggle)
+                // The primary action is filled so it reads as the control rather than as decoration.
+                FilledTonalIconButton(onClick = toggle, enabled = ready,
+                    modifier = Modifier.semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
+                    MuonIcon(if (p.playing) "pause" else "play", Modifier.size(20.dp))
+                }
+                Control("next", "Next track", p.next && ready, next)
             }
-            LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
-                modifier = Modifier.fillMaxWidth().height(2.dp))
         }
     }
 }
