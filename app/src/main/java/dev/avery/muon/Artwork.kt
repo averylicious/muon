@@ -3,6 +3,8 @@ package dev.avery.muon
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -44,12 +46,18 @@ fun Artwork(url: String?, modifier: Modifier = Modifier) {
     // Seeded from the cache during composition so art already decoded draws in the same frame
     // instead of flashing the placeholder every time a row scrolls back into view.
     var bitmap by remember(url) { mutableStateOf(url?.let(artCache::get)) }
+    // Already in memory: it was drawn in this frame, so there is nothing to fade in.
+    val fromCache = remember(url) { bitmap != null }
     LaunchedEffect(url) {
         if (url != null && bitmap == null) bitmap = fetchArtwork(url)
     }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-        if (bitmap != null) Image(bitmap!!.asImageBitmap(), contentDescription = null,
-            contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        else Text("♪", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
+        Crossfade(bitmap, animationSpec = if (fromCache) snap() else motionMedium(), label = "artwork") { art ->
+            if (art != null) Image(art.asImageBitmap(), contentDescription = null,
+                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("♪", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
+            }
+        }
     }
 }

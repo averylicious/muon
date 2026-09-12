@@ -145,3 +145,18 @@ render any of this:
   defaults: Material You on Android 12+, and the Muon palette below it. Choosing the Muon palette on
   Android 12+, or turning on Pure black, will still show a brief mismatch at launch. Report how
   noticeable that is rather than treating it as a pass or fail.
+
+## Follow-up: motion pass
+
+- Switch tabs: content should fade with a small lift rather than cutting. It must not feel slower
+  than before; report it if it does.
+- Start playback from a stopped state: the mini player should slide up rather than appear. Disconnect
+  and reconnect: the navigation bar should do the same.
+- Scroll a long list past loaded artwork and back: covers already in memory must still appear
+  instantly, with no fade and no placeholder flash. Newly loaded covers fade in.
+- Switch playlists, and refresh a library: rows should settle rather than jump. Watch for jank here
+  specifically, since this is the one animation that touches the track list while #23 is open.
+- Tap play/pause in the mini player and on Now Playing: the glyph should cross-fade.
+- Trigger a stream error: the card should grow into place rather than shoving the screen down.
+- Turn on Developer options → Animator duration scale → Off, or the accessibility "Remove
+  animations" setting. Every animation above should stop; the app must stay fully usable.

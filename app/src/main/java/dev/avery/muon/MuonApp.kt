@@ -2,6 +2,16 @@ package dev.avery.muon
 
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -130,12 +140,17 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         Scaffold(containerColor = colors.background, bottomBar = {
             Column {
-                if (ui.item != null && shownScreen != Screen.Playing) {
+                AnimatedVisibility(visible = ui.item != null && shownScreen != Screen.Playing,
+                    enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
+                    exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
                     MiniPlayer(ui, position, player != null, { screen = Screen.Playing },
                         toggle = { if (ui.playing) player?.pause() else player?.play() },
                         next = { player?.seekToNextMediaItem() })
                 }
-                if (connected) NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
+                AnimatedVisibility(visible = connected,
+                    enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
+                    exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
+                    NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
                     listOf(Screen.Library, Screen.Search, Screen.Playing, Screen.Settings).forEach { destination ->
                         NavigationBarItem(selected = shownScreen == destination || (destination == Screen.Playing && shownScreen == Screen.Lyrics),
                             onClick = { screen = destination },
@@ -143,16 +158,28 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 Screen.Library -> "library"; Screen.Search -> "search"; Screen.Playing -> "music"; else -> "settings"
                             }) }, label = { Text(if (destination == Screen.Playing) "Playing" else destination.name) })
                     }
+                    }
                 }
             }
         }) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
-                if (controllerError != null) ErrorCard(controllerError)
-                if (connected && model.error != null && shownScreen != Screen.Settings) {
-                    ErrorCard(model.error!!, "Retry") { model.connect() }
+                AnimatedVisibility(controllerError != null,
+                    enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
+                    exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
+                    ErrorCard(controllerError.orEmpty())
+                }
+                AnimatedVisibility(connected && model.error != null && shownScreen != Screen.Settings,
+                    enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
+                    exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
+                    ErrorCard(model.error.orEmpty(), "Retry") { model.connect() }
                 }
                 BusyStrip(model.busy && connected)
-                when (shownScreen) {
+                // Tabs are siblings, so this fades with a small lift rather than sliding sideways.
+                AnimatedContent(shownScreen, transitionSpec = {
+                    (fadeIn(motionMedium()) + slideInVertically(motionMedium()) { it / 24 })
+                        .togetherWith(fadeOut(motionShort()))
+                }, label = "screen") { shown ->
+                when (shown) {
                     Screen.Connect -> ConnectScreen(model)
                     Screen.Settings -> SettingsScreen(model, appearance) {
                         player?.stop(); player?.clearMediaItems(); model.disconnect(); selected = null; screen = Screen.Library
@@ -178,6 +205,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     }
                     Screen.Playing -> NowPlaying(ui, position, player) { screen = Screen.Lyrics }
                     Screen.Lyrics -> LyricsScreen(ui.item) { screen = Screen.Playing }
+                }
                 }
             }
         }
@@ -361,15 +389,17 @@ private fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curre
         val keys = remember(tracks) { trackKeys(tracks) }
         LazyColumn(contentPadding = PaddingValues(bottom = 12.dp)) {
             itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
-                TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready) { play(t) }
+                TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready,
+                    Modifier.animateItem(placementSpec = motionMedium())) { play(t) }
             }
         }
     }
 }
 
 @Composable
-private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, ready: Boolean, play: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
+private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, ready: Boolean,
+    modifier: Modifier = Modifier, play: () -> Unit) {
+    Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
         .clickable(enabled = t.playable && ready, onClick = play)
         .padding(horizontal = 24.dp, vertical = 8.dp)
         .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
@@ -476,7 +506,9 @@ private fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, open
                 // The primary action is filled so it reads as the control rather than as decoration.
                 FilledTonalIconButton(onClick = toggle, enabled = ready,
                     modifier = Modifier.semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
-                    MuonIcon(if (p.playing) "pause" else "play", Modifier.size(20.dp))
+                    Crossfade(p.playing, animationSpec = motionShort(), label = "mini play/pause") { playing ->
+                        MuonIcon(if (playing) "pause" else "play", Modifier.size(20.dp))
+                    }
                 }
                 Control("next", "Next track", p.next && ready, next)
             }
@@ -527,7 +559,9 @@ private fun NowPlaying(p: PlaybackUi, position: () -> Long, player: MediaControl
                 Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
                 FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
                     modifier = Modifier.size(72.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
-                    MuonIcon(if (p.playing) "pause" else "play", Modifier.size(32.dp))
+                    Crossfade(p.playing, animationSpec = motionShort(), label = "play/pause") { playing ->
+                        MuonIcon(if (playing) "pause" else "play", Modifier.size(32.dp))
+                    }
                 }
                 Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
                 if (!narrow) RepeatControl(p, player)
