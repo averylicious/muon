@@ -21,8 +21,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -158,23 +164,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     Screen.Library -> {
                         val tracks = if (selected == null) all else model.tracksByPlaylist[selected].orEmpty()
                         Column {
-                            Column(Modifier.padding(horizontal = 24.dp, vertical = 18.dp)) {
-                                Text("MUON  /  YOUR LIBRARY", style = MaterialTheme.typography.labelMedium,
-                                    color = colors.primary, letterSpacing = MaterialTheme.typography.labelMedium.letterSpacing)
-                                Spacer(Modifier.height(10.dp))
-                                Text("Your music,\nnearby.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.height(8.dp))
-                                Text("${all.size} tracks · Streaming from Tauon", color = colors.onSurfaceVariant)
-                            }
-                            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 24.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(selected == null, { selected = null }, label = { Text("All music") })
-                                model.playlists.forEach { p -> FilterChip(selected == p.id, { selected = p.id }, label = { Text("${p.name} · ${p.count}") }) }
-                            }
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("${tracks.size} tracks", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                                TextButton(onClick = { model.connect() }, enabled = !model.busy) { Text("Refresh") }
-                            }
+                            LibraryBar(model.busy) { model.connect() }
+                            PlaylistChips(model.playlists, all.size, selected) { selected = it }
                             TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
                                 emptyText = "This playlist is empty. Add local music in Tauon, then refresh.") { startQueue(tracks, it) }
                         }
@@ -284,24 +275,82 @@ private fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curre
     emptyText: String, play: (TauonTrack) -> Unit) {
     if (tracks.isEmpty()) Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
         Text(emptyText, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else LazyColumn(contentPadding = PaddingValues(bottom = 12.dp)) {
-        itemsIndexed(tracks, key = { i, t -> "$i:${t.id}" }) { _, t ->
-            val current = currentId == "${endpoint?.origin}/${t.id}"
-            Row(Modifier.fillMaxWidth().clickable(enabled = t.playable && ready) { play(t) }
-                .padding(horizontal = 24.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(endpoint?.url("/api1/pic/small/${t.id}"), Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
-                Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                    Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Medium)
-                    Text(if (t.playable) "${t.artist} · ${t.album}" else "Unavailable for direct streaming · ${t.artist}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall)
-                }
-                Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else {
+        val keys = remember(tracks) { trackKeys(tracks) }
+        LazyColumn(contentPadding = PaddingValues(bottom = 12.dp)) {
+            itemsIndexed(tracks, key = { i, _ -> keys[i] }) { _, t ->
+                TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready) { play(t) }
             }
         }
     }
+}
+
+@Composable
+private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, ready: Boolean, play: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
+        .clickable(enabled = t.playable && ready, onClick = play)
+        .padding(horizontal = 24.dp, vertical = 8.dp)
+        .semantics { if (current) stateDescription = "Now playing" },
+        verticalAlignment = Alignment.CenterVertically) {
+        // The current track is marked by something appearing, not only by a change of hue. The
+        // marker reserves its width either way so every row starts on the same line.
+        Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp))
+            .then(if (current) Modifier.background(MaterialTheme.colorScheme.primary) else Modifier))
+        Spacer(Modifier.width(9.dp))
+        Artwork(endpoint?.url("/api1/pic/small/${t.id}"), Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
+        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+            Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
+            Text(if (t.playable) "${t.artist} · ${t.album}" else "Unavailable for direct streaming · ${t.artist}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall)
+        }
+        // A fixed width keeps the durations on one right edge instead of ragging down the list.
+        Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End,
+            modifier = Modifier.width(44.dp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryBar(busy: Boolean, refresh: () -> Unit) {
+    TopAppBar(title = { Text("Library") },
+        actions = { TextButton(onClick = refresh, enabled = !busy) { Text("Refresh") } },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+        // The scaffold already applies the status bar inset to this content.
+        windowInsets = WindowInsets(0, 0, 0, 0))
+}
+
+@Composable
+private fun PlaylistChips(playlists: List<TauonPlaylist>, total: Int, selected: String?, select: (String?) -> Unit) {
+    val scroll = rememberScrollState()
+    Row(Modifier.fillMaxWidth()
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        // Fade whichever edge has more chips behind it, so the row reads as scrollable.
+        .drawWithContent {
+            drawContent()
+            val fade = 24.dp.toPx()
+            if (scroll.canScrollBackward) drawRect(
+                Brush.horizontalGradient(listOf(Color.Black, Color.Transparent), 0f, fade),
+                blendMode = BlendMode.DstOut)
+            if (scroll.canScrollForward) drawRect(
+                Brush.horizontalGradient(listOf(Color.Transparent, Color.Black), size.width - fade, size.width),
+                blendMode = BlendMode.DstOut)
+        }
+        .horizontalScroll(scroll).padding(horizontal = 24.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LibraryChip("All music · $total", selected == null) { select(null) }
+        playlists.forEach { p -> LibraryChip("${p.name} · ${p.count}", selected == p.id) { select(p.id) } }
+    }
+}
+
+@Composable
+private fun LibraryChip(label: String, selected: Boolean, select: () -> Unit) {
+    FilterChip(selected, select, label = { Text(label, maxLines = 1) },
+        // A check mark, so the selected chip is not distinguished by its fill colour alone.
+        leadingIcon = if (selected) { { MuonIcon("check", Modifier.size(18.dp)) } } else null)
 }
 
 @Composable
@@ -519,6 +568,7 @@ private fun MuonIcon(kind: String, modifier: Modifier = Modifier) {
             "pause" -> { line(8f,5f,8f,19f); line(16f,5f,16f,19f) }
             "next" -> { triangle(); line(20f,5f,20f,19f) }
             "previous" -> { triangle(true); line(4f,5f,4f,19f) }
+            "check" -> { line(5f,13f,10f,18f); line(10f,18f,20f,7f) }
             "search" -> { drawCircle(color,7*s,point(10f,10f),style=Stroke(2*s)); line(15f,15f,21f,21f) }
             "library" -> { line(4f,4f,4f,20f); line(9f,4f,9f,20f); line(15f,4f,20f,20f) }
             "music" -> { line(10f,4f,10f,17f); line(10f,4f,20f,2f); line(20f,2f,20f,15f); drawCircle(color,3*s,point(7f,18f)); drawCircle(color,3*s,point(17f,16f)) }

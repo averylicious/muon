@@ -86,3 +86,21 @@ These follow-up cases remain for user manual QA; no phone automation was perform
 - Seek while paused/playing, change tracks, and return from another tab: progress remains correct.
 
 CI verifies compilation, existing unit tests, lint and signing, not layout rendering or frame timing.
+
+## Follow-up: Library screen
+
+The marketing header is replaced by a Library bar, the duplicated track counts are consolidated into
+the playlist chips, and list items are keyed by track identity rather than list position. CI does not
+render any of this:
+
+- The list should start near the top of the screen, with Refresh in the bar and no second track-count
+  row. Refresh is disabled while a load is running.
+- Scroll the playlist chips: the row should fade at whichever edge still has chips behind it, and not
+  fade when every chip fits. The selected chip carries a check mark, not only a fill colour.
+- Chip counts should match the playlist sizes, and "All music" should match the combined library.
+- Track rows should be comfortable to tap, with durations aligned on one right edge.
+- Play a track: its row gains a bar at the start, and TalkBack announces it as "Now playing".
+- Scroll a long playlist, switch playlists, then refresh the library. Rows should not jump or flicker
+  when the list changes; a playlist containing the same track twice must show both entries.
+- Check a long title, a long artist/album line, and an unavailable track's explanatory second line at
+  a large font size.
