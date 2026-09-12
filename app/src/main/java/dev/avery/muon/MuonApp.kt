@@ -108,11 +108,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // the main thread, and hoisted here so results survive a trip to another tab.
         // Reset immediately when the library changes; never offer old server track IDs while
         // the replacement library's search is still debouncing.
-        val results by key(all) {
-            produceState(emptyList<TauonTrack>(), query) {
-                if (query.isBlank()) { value = emptyList(); return@produceState }
+        val search by key(all) {
+            produceState(SearchResults(), query) {
+                if (query.isBlank()) { value = SearchResults(); return@produceState }
+                value = value.copy(searching = true)
                 delay(SEARCH_DEBOUNCE_MS)
-                value = withContext(Dispatchers.Default) { searchTracks(all, query) }
+                val found = withContext(Dispatchers.Default) { searchTracks(all, query) }
+                value = SearchResults(found, searching = false, completed = query.trim())
             }
         }
         val connected = model.endpoint != null
@@ -166,22 +168,36 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     }
                     Screen.Search -> {
                         Column {
-                            Text("Find your next listen", style = MaterialTheme.typography.headlineMedium,
-                                modifier = Modifier.padding(24.dp))
-                            OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                                placeholder = { Text("Songs, artists, albums") }, leadingIcon = { MuonIcon("search") },
-                                singleLine = true, shape = RoundedCornerShape(18.dp),
-                                trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("Clear") } })
-                            Text("Search across loaded Tauon playlists", color = colors.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
-                            TrackList(results, model.endpoint, ui.item?.mediaId, player != null,
-                                emptyText = if (query.isBlank()) "Your collection, one search away." else "No matching tracks in the loaded playlists.") { startQueue(results, it) }
+                            SearchField(query, { query = it }, search.searching)
+                            TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                emptyText = searchEmptyText(query, search.searching, search.completed)) {
+                                startQueue(search.tracks, it)
+                            }
                         }
                     }
                     Screen.Playing -> NowPlaying(ui, position, player) { screen = Screen.Lyrics }
                     Screen.Lyrics -> LyricsScreen(ui.item) { screen = Screen.Playing }
                 }
             }
+        }
+    }
+}
+
+/** Results plus enough state to tell "nothing typed" from "still searching" from "no matches". */
+@Immutable
+private data class SearchResults(val tracks: List<TauonTrack> = emptyList(),
+    val searching: Boolean = false, val completed: String = "")
+
+@Composable
+private fun SearchField(query: String, onQuery: (String) -> Unit, searching: Boolean) {
+    Column(Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
+        OutlinedTextField(query, onQuery, modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Songs, artists, albums") }, leadingIcon = { MuonIcon("search") },
+            singleLine = true, shape = RoundedCornerShape(18.dp),
+            trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = { onQuery("") }) { Text("Clear") } })
+        // Reserved either way, so starting a search does not shift the results under the finger.
+        Box(Modifier.fillMaxWidth().height(4.dp).padding(top = 2.dp)) {
+            if (searching) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
         }
     }
 }
