@@ -135,3 +135,13 @@ render any of this:
   was still working.
 - Check the placeholders at a large font scale and in both palettes; they should read as muted rows,
   not as content.
+
+## Follow-up: launch background
+
+- Cold start Muon from the launcher several times, in light and in dark. The window behind the app
+  should already be close to the theme's background; there should be no white or pale flash before
+  the first frame.
+- A static theme resource cannot follow a runtime choice, so an exact match is only expected for the
+  defaults: Material You on Android 12+, and the Muon palette below it. Choosing the Muon palette on
+  Android 12+, or turning on Pure black, will still show a brief mismatch at launch. Report how
+  noticeable that is rather than treating it as a pass or fail.

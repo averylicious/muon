@@ -2,7 +2,7 @@
     <style name="Theme.Muon" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <item name="android:colorAccent">#BCF580</item>
-        <item name="android:windowBackground">#101411</item>
+        <item name="android:colorAccent">@android:color/system_accent1_200</item>
+        <item name="android:windowBackground">@android:color/system_neutral1_900</item>
     </style>
 </resources>
