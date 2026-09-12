@@ -2,7 +2,6 @@ package dev.avery.muon
 
 import android.os.Build
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -22,10 +21,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
@@ -601,35 +598,5 @@ private fun ToggleControl(kind: String, label: String, state: String, active: Bo
 }
 @Composable
 private fun MuonIcon(kind: String, modifier: Modifier = Modifier) {
-    val color = LocalContentColor.current
-    Canvas(modifier.size(24.dp)) {
-        val s = size.minDimension / 24f
-        fun point(x: Float, y: Float) = Offset(x*s, y*s)
-        fun line(x: Float, y: Float, x2: Float, y2: Float) = drawLine(color, point(x,y), point(x2,y2), 2*s)
-        fun triangle(reverse: Boolean = false) {
-            val p = Path().apply { if (reverse) { moveTo(16*s,5*s); lineTo(6*s,12*s); lineTo(16*s,19*s) }
-                else { moveTo(8*s,5*s); lineTo(18*s,12*s); lineTo(8*s,19*s) }; close() }
-            drawPath(p,color)
-        }
-        when(kind) {
-            "play" -> triangle()
-            "pause" -> { line(8f,5f,8f,19f); line(16f,5f,16f,19f) }
-            "next" -> { triangle(); line(20f,5f,20f,19f) }
-            "previous" -> { triangle(true); line(4f,5f,4f,19f) }
-            "check" -> { line(5f,13f,10f,18f); line(10f,18f,20f,7f) }
-            "search" -> { drawCircle(color,7*s,point(10f,10f),style=Stroke(2*s)); line(15f,15f,21f,21f) }
-            "library" -> { line(4f,4f,4f,20f); line(9f,4f,9f,20f); line(15f,4f,20f,20f) }
-            "music" -> { line(10f,4f,10f,17f); line(10f,4f,20f,2f); line(20f,2f,20f,15f); drawCircle(color,3*s,point(7f,18f)); drawCircle(color,3*s,point(17f,16f)) }
-            "shuffle" -> { line(4f,7f,8f,7f); line(8f,7f,16f,17f); line(16f,17f,20f,17f)
-                line(17f,14f,20f,17f); line(17f,20f,20f,17f); line(4f,17f,8f,17f); line(8f,17f,16f,7f); line(16f,7f,20f,7f)
-                line(17f,4f,20f,7f); line(17f,10f,20f,7f) }
-            "repeat", "repeat-one" -> { line(6f,7f,18f,7f); line(15f,4f,18f,7f); line(15f,10f,18f,7f)
-                line(18f,17f,6f,17f); line(9f,14f,6f,17f); line(9f,20f,6f,17f)
-                if (kind == "repeat-one") { line(12f,9.5f,12f,14.5f); line(10.6f,11f,12f,9.5f) } }
-            "volume" -> { val speaker = Path().apply { moveTo(4*s,10*s); lineTo(8*s,10*s); lineTo(13*s,6*s); lineTo(13*s,18*s); lineTo(8*s,14*s); lineTo(4*s,14*s); close() }
-                drawPath(speaker, color); drawArc(color, -50f, 100f, false, topLeft = point(10f,7f), size = androidx.compose.ui.geometry.Size(9*s,10*s), style = Stroke(2*s)) }
-            else -> { line(3f,6f,21f,6f); line(3f,12f,21f,12f); line(3f,18f,21f,18f)
-                drawCircle(color,3*s,point(8f,6f)); drawCircle(color,3*s,point(16f,12f)); drawCircle(color,3*s,point(10f,18f)) }
-        }
-    }
+    Icon(painterResource(iconRes(kind)), contentDescription = null, modifier = modifier.size(24.dp))
 }
