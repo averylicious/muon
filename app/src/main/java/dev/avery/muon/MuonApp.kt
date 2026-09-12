@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -22,6 +23,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
@@ -289,52 +291,78 @@ private fun NowPlaying(p: PlaybackUi, position: () -> Long, player: MediaControl
         return
     }
     var showVolume by rememberSaveable { mutableStateOf(false) }
-    // Everything below the artwork has a fixed height and the artwork takes what is left, so the
-    // controls cannot be pushed off the bottom of the screen the way the scrolling layout did.
-    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("PLAYING ON THIS DEVICE", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Artwork(p.item.mediaMetadata.artworkUri?.toString(),
-                Modifier.widthIn(max = 400.dp).aspectRatio(1f).clip(RoundedCornerShape(24.dp)))
-        }
-        Column(Modifier.fillMaxWidth()) {
-            Text(p.item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(p.item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(p.item.mediaMetadata.albumTitle?.toString().orEmpty(), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        if (p.error != null) ErrorCard(p.error, "Retry stream") { player?.prepare(); player?.play() }
-        if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
-        SeekControls(p.item.mediaId, position, p.duration, p.seekable, player)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically) {
-            ToggleControl("shuffle", "Shuffle", if (p.shuffle) "On" else "Off", p.shuffle, player != null) {
-                player?.shuffleModeEnabled = !p.shuffle
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val fontScale = LocalDensity.current.fontScale
+        val narrow = maxWidth < 360.dp
+        // Keep the compact portrait design, but allow every control to remain reachable in
+        // landscape, split screen, large text, or when an error needs additional space.
+        val scrollable = maxHeight < 600.dp * fontScale || narrow || p.error != null
+        val scroll = rememberScrollState()
+        Column(Modifier.fillMaxSize()
+            .then(if (scrollable) Modifier.verticalScroll(scroll) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("PLAYING ON THIS DEVICE", color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelMedium)
+            Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
+                contentAlignment = Alignment.Center) {
+                Artwork(p.item.mediaMetadata.artworkUri?.toString(),
+                    Modifier.widthIn(max = 400.dp).aspectRatio(1f).clip(RoundedCornerShape(24.dp)))
             }
-            Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
-            FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
-                modifier = Modifier.size(72.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
-                MuonIcon(if (p.playing) "pause" else "play", Modifier.size(32.dp))
+            Column(Modifier.fillMaxWidth()) {
+                Text(p.item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(p.item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(p.item.mediaMetadata.albumTitle?.toString().orEmpty(), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
-            ToggleControl(repeatModeIcon(p.repeatMode), "Repeat",
-                repeatModeName(p.repeatMode), p.repeatMode != Player.REPEAT_MODE_OFF, player != null) {
-                player?.repeatMode = nextRepeatMode(p.repeatMode)
+            if (p.error != null) ErrorCard(p.error, "Retry stream") { player?.prepare(); player?.play() }
+            if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
+            SeekControls(p.item.mediaId, position, p.duration, p.seekable, player)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically) {
+                if (!narrow) ShuffleControl(p, player)
+                Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
+                FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
+                    modifier = Modifier.size(72.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
+                    MuonIcon(if (p.playing) "pause" else "play", Modifier.size(32.dp))
+                }
+                Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
+                if (!narrow) RepeatControl(p, player)
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = lyrics) { Text("Lyrics") }
-            TextButton(onClick = { showVolume = true }) {
-                MuonIcon("volume", Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Volume")
+            if (narrow) Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                ShuffleControl(p, player)
+                RepeatControl(p, player)
+            }
+            // Wrapping preserves readable labels at large font/display sizes.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = lyrics) { Text("Lyrics") }
+                TextButton(onClick = { showVolume = true }) {
+                    MuonIcon("volume", Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Volume")
+                }
             }
         }
     }
     if (showVolume) MediaVolumeDialog { showVolume = false }
+}
+
+@Composable
+private fun ShuffleControl(p: PlaybackUi, player: MediaController?) {
+    ToggleControl("shuffle", "Shuffle", if (p.shuffle) "On" else "Off", p.shuffle, player != null) {
+        player?.shuffleModeEnabled = !p.shuffle
+    }
+}
+
+@Composable
+private fun RepeatControl(p: PlaybackUi, player: MediaController?) {
+    ToggleControl(repeatModeIcon(p.repeatMode), "Repeat", repeatModeName(p.repeatMode),
+        p.repeatMode != Player.REPEAT_MODE_OFF, player != null) {
+        player?.repeatMode = nextRepeatMode(p.repeatMode)
+    }
 }
 
 @Composable
@@ -424,7 +452,13 @@ private fun ToggleControl(kind: String, label: String, state: String, active: Bo
     IconButton(onClick = action, enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
             contentColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant),
-        modifier = Modifier.semantics { contentDescription = label; stateDescription = state }) { MuonIcon(kind) }
+        modifier = Modifier.semantics { contentDescription = label; stateDescription = state }) {
+        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+            MuonIcon(kind)
+            if (active) Box(Modifier.align(Alignment.BottomCenter).size(4.dp)
+                .background(LocalContentColor.current, CircleShape))
+        }
+    }
 }
 @Composable
 private fun MuonIcon(kind: String, modifier: Modifier = Modifier) {
