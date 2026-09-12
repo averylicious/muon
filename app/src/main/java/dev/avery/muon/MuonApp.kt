@@ -21,14 +21,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -278,7 +272,7 @@ private fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curre
     } else {
         val keys = remember(tracks) { trackKeys(tracks) }
         LazyColumn(contentPadding = PaddingValues(bottom = 12.dp)) {
-            itemsIndexed(tracks, key = { i, _ -> keys[i] }) { _, t ->
+            itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
                 TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready) { play(t) }
             }
         }
@@ -290,12 +284,13 @@ private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean,
     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
         .clickable(enabled = t.playable && ready, onClick = play)
         .padding(horizontal = 24.dp, vertical = 8.dp)
-        .semantics { if (current) stateDescription = "Now playing" },
+        .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
         verticalAlignment = Alignment.CenterVertically) {
         // The current track is marked by something appearing, not only by a change of hue. The
         // marker reserves its width either way so every row starts on the same line.
-        Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp))
-            .then(if (current) Modifier.background(MaterialTheme.colorScheme.primary) else Modifier))
+        Box(Modifier.width(3.dp).height(32.dp)
+            .then(if (current) Modifier.background(MaterialTheme.colorScheme.primary,
+                RoundedCornerShape(2.dp)) else Modifier))
         Spacer(Modifier.width(9.dp))
         Artwork(endpoint?.url("/api1/pic/small/${t.id}"), Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
@@ -325,21 +320,11 @@ private fun LibraryBar(busy: Boolean, refresh: () -> Unit) {
 
 @Composable
 private fun PlaylistChips(playlists: List<TauonPlaylist>, total: Int, selected: String?, select: (String?) -> Unit) {
-    val scroll = rememberScrollState()
-    Row(Modifier.fillMaxWidth()
-        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-        // Fade whichever edge has more chips behind it, so the row reads as scrollable.
-        .drawWithContent {
-            drawContent()
-            val fade = 24.dp.toPx()
-            if (scroll.canScrollBackward) drawRect(
-                Brush.horizontalGradient(listOf(Color.Black, Color.Transparent), 0f, fade),
-                blendMode = BlendMode.DstOut)
-            if (scroll.canScrollForward) drawRect(
-                Brush.horizontalGradient(listOf(Color.Transparent, Color.Black), size.width - fade, size.width),
-                blendMode = BlendMode.DstOut)
-        }
-        .horizontalScroll(scroll).padding(horizontal = 24.dp, vertical = 4.dp),
+    // Deliberately plain: an earlier edge fade used an offscreen compositing layer and a DstOut
+    // blend, which the user reported as a scroll regression. The chips overflow past the padding
+    // instead, which costs nothing to draw.
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+        .padding(horizontal = 24.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         LibraryChip("All music · $total", selected == null) { select(null) }
         playlists.forEach { p -> LibraryChip("${p.name} · ${p.count}", selected == p.id) { select(p.id) } }

@@ -95,8 +95,11 @@ render any of this:
 
 - The list should start near the top of the screen, with Refresh in the bar and no second track-count
   row. Refresh is disabled while a load is running.
-- Scroll the playlist chips: the row should fade at whichever edge still has chips behind it, and not
-  fade when every chip fits. The selected chip carries a check mark, not only a fill colour.
+- Scroll the playlist chips: the row should scroll smoothly and the selected chip carries a check
+  mark, not only a fill colour.
+- Fling a long track list hard, in this build and in the previous Canary. Frame pacing should be at
+  least as good as the older build; an earlier edge-fade effect on the chip row was removed for this
+  reason and the difference needs a human eye.
 - Chip counts should match the playlist sizes, and "All music" should match the combined library.
 - Track rows should be comfortable to tap, with durations aligned on one right edge.
 - Play a track: its row gains a bar at the start, and TalkBack announces it as "Now playing".
