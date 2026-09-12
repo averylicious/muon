@@ -15,6 +15,8 @@ See [feasibility and protocol](docs/feasibility.md) and [measured validation](do
 
 ## GitHub builds
 
+For contributing with coding agents, read [AGENTS.md](AGENTS.md) and the [PR workflow and starter prompts](docs/agent-workflow.md). Implementation agents supply a PR and signed test APK; the user handles phone QA, then requests Astra review and merging in a later cycle.
+
 The private [repository](https://github.com/averylicious/muon) builds signed APKs on every branch push. Successful `main` builds publish **Muon Canary** prereleases; explicit `vMAJOR.MINOR.PATCH` tags publish **Muon** stable releases. Both can be installed together and updated separately using Obtainium. See the **[Obtainium and PAT setup guide](docs/obtainium.md)** and [Releases](https://github.com/averylicious/muon/releases).
 
 Canary keeps the milestone/debug app's identity and uses a diamond with a large C. Stable keeps the previous Muon Release identity and uses a circle with three bars. Their shapes distinguish the channels without relying on colour. [Actions](https://github.com/averylicious/muon/actions/workflows/android.yml) also retains debug/release APK artifacts for 14 days; published release assets have no such expiry. See [CI and signing recovery](docs/ci.md).
