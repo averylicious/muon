@@ -186,11 +186,28 @@ def keyboard(img, d, suggestions):
 def snackbar(d, y, message, action):
     rr(d, 16, y, W - 32, 52, 4, fill=P["inv"])
     T(d, (32, y + 16), message, 15, 500, P["inv_on"]); T(d, (W - 32, y + 16), action, 15, 600, P["inv_acc"], "ra")
-def button(img, d, x, y, w, label, ic, filled):
-    rr(d, x, y, w, 48, 24, fill=P["acc"] if filled else P["tonal"])
+def text_mid(d, x, cy, s, sp, w, fill, align="l"):
+    """One line of text with its capital height centred on cy."""
+    f = fr(sp, w); cap = -f.getbbox("H", anchor="ls")[1]
+    d.text((dp(x), dp(cy) + cap / 2), s, font=f, fill=fill, anchor=align + "s")
+def icon_text_width(ic, isize, label, sp, weight, gap=8):
+    l, _, r, _ = icon_img(ic, dp(isize), (0, 0, 0)).getchannel("A").getbbox()
+    tl, _, tr, _ = fr(sp, weight).getbbox(label, anchor="ls")
+    return ((r - l) + dp(gap) + (tr - tl)) / S
+def icon_text(img, d, x, cy, ic, isize, label, sp, weight, icolor, tcolor=None, gap=8):
+    """An icon beside one line of text, aligned by what is actually drawn: the icon's shape and the
+    text's capital height share a centre line, and the gap runs between the two drawn edges.
+    Aligning the icon's 24dp frame instead left glyphs such as play visibly off-centre."""
+    im = icon_img(ic, dp(isize), icolor)
+    l, t, r, b = im.getchannel("A").getbbox()
+    f = fr(sp, weight); tl = f.getbbox(label, anchor="ls")[0]; cap = -f.getbbox("H", anchor="ls")[1]
+    px, pcy = dp(x), dp(cy)
+    img.paste(im, (px - l, pcy - (t + b) // 2), im)
+    d.text((px + (r - l) + dp(gap) - tl, pcy + cap / 2), label, font=f, fill=tcolor or icolor, anchor="ls")
+def button(img, d, x, y, w, label, ic, filled, h=48):
+    rr(d, x, y, w, h, h / 2, fill=P["acc"] if filled else P["tonal"])
     fg = P["on_acc"] if filled else P["ink"]
-    lw = tw(label, 16, 600); x0 = x + (w - (lw + 28)) / 2
-    icon(img, ic, x0 + 10, y + 24, 20, fg); T(d, (x0 + 28, y + 13), label, 16, 600, fg)
+    icon_text(img, d, x + (w - icon_text_width(ic, 20, label, 16, 500)) / 2, y + h / 2, ic, 20, label, 16, 500, fg)
 
 SONGS = [("Blinding Lights", "The Weeknd", "3:22", "After Hours"), ("Unite", "Ahrix", "3:03", "Unite"),
          ("Chasing Dreams", "Jim Yosef; Valentina Franco", "3:00", "Chasing Dreams"), ("Hope", "Shiv; Dylan Smith", "2:49", "Hope"),
@@ -264,7 +281,7 @@ def s06():
     mini_nav(img, d, 0); return img
 def search_bar_top(img, d):
     rr(d, 16, 50, W - 32, 56, 28, fill=P["sch"])
-    icon(img, "search", 44, 78, 22, P["muted"]); T(d, (72, 68), "Search songs, artists, albums", 16, 400, P["muted"])
+    icon_text(img, d, 34, 78, "search", 22, "Search songs, artists, albums", 16, 400, P["muted"], gap=16)
 def s07():
     img, d = frame("bg", "Search"); search_bar_top(img, d)
     T(d, (20, 134), "Artists", 17, 700, P["ink"])
@@ -278,10 +295,10 @@ def s07():
 def search_header(img, d, query):
     icon(img, "back", 30, 78, 22, P["ink"])
     if query:
-        T(d, (76, 68), query, 16, 400, P["ink"]); rr(d, 76 + tw(query, 16, 400) + 2, 64, 2, 28, 1, fill=P["acc"])
+        text_mid(d, 76, 78, query, 16, 400, P["ink"]); rr(d, 76 + tw(query, 16, 400) + 2, 64, 2, 28, 1, fill=P["acc"])
         icon(img, "close", W - 34, 78, 22, P["muted"])
     else:
-        rr(d, 70, 64, 2, 28, 1, fill=P["acc"]); T(d, (76, 68), "Search songs, artists, albums", 16, 400, P["muted"])
+        rr(d, 70, 64, 2, 28, 1, fill=P["acc"]); text_mid(d, 76, 78, "Search songs, artists, albums", 16, 400, P["muted"])
     d.rectangle([0, dp(114), 1080, dp(114) + max(1, dp(1))], fill=P["div"])
 def s08():
     img, d = frame("sch", "Search · tapped"); search_header(img, d, "")
@@ -333,8 +350,8 @@ def s11():
     rr(d, 52, fy - 6, fx - 58, 12, 6, fill=P["acc"]); rr(d, fx + 6, fy - 6, W - 52 - fx - 6, 12, 6, fill=P["off"])
     rr(d, fx - 2, fy - 20, 4, 40, 2, fill=P["acc"]); icon(img, "vol_high", W - 30, fy, 22, P["muted"])
     by = fy + 58
-    icon(img, "lyrics", 36, by, 22, P["acc"]); T(d, (54, by - 10), "Lyrics", 15, 600, P["acc"])
-    icon(img, "queue", W - 104, by, 22, P["acc"]); T(d, (W - 86, by - 10), "Queue", 15, 600, P["acc"])
+    icon_text(img, d, 26, by, "lyrics", 22, "Lyrics", 15, 600, P["acc"])
+    icon_text(img, d, W - 24 - icon_text_width("queue", 22, "Queue", 15, 600), by, "queue", 22, "Queue", 15, 600, P["acc"])
     gesture(d); return img
 def s12():
     img, d = frame("bg", "Lyrics"); back(img, d); large_title(d, "Unite", "Ahrix")
@@ -374,7 +391,7 @@ def s14():
     T(d, (90, top + 90), "After Hours", 13, 400, P["muted"])
     d.rectangle([dp(20), dp(top + 120), dp(W - 20), dp(top + 120) + max(1, dp(1))], fill=P["div"])
     for i, (ic, lab) in enumerate([("play_next", "Play next"), ("add_queue", "Add to queue"), ("album", "Go to album"), ("artist", "Go to artist")]):
-        y = top + 132 + i * 56; icon(img, ic, 40, y + 28, 24, P["ink"]); T(d, (76, y + 17), lab, 16, 500, P["ink"])
+        y = top + 132 + i * 56; icon_text(img, d, 28, y + 28, ic, 24, lab, 16, 500, P["ink"], gap=24)
     gesture(d); return img
 def settings_screen(label):
     img, d = frame("ground", label); large_title(d, "Settings")
@@ -414,7 +431,7 @@ def s17():
     group(img, 16, 240, W - 32, [190])
     T(d, (36, 258), "Server address", 13, 500, P["muted"])
     rr(d, 36, 280, W - 72, 56, 14, outline=P["outline"], width=1.5); T(d, (54, 298), "192.168.1.10:7814", 16, 400, P["outline"])
-    rr(d, 36, 350, W - 72, 52, 26, fill=P["acc"]); T(d, (W / 2, 366), "Connect", 16, 600, P["on_acc"], "ma")
+    rr(d, 36, 350, W - 72, 52, 26, fill=P["acc"]); text_mid(d, W / 2, 376, "Connect", 16, 500, P["on_acc"], "m")
     T(d, (24, 460), "On this network", 14, 600, P["muted"])
     ys = group(img, 16, 484, W - 32, [72, 56])
     two(d, 36, ys[0], "Tauon", "192.168.100.69:7814"); T(d, (W - 36, ys[0] + 26), "Use", 15, 600, P["acc"], "ra")
