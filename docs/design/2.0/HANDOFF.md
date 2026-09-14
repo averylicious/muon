@@ -143,10 +143,10 @@ Items 1–4 could be fixed on #52 before merge. That was not done in this checkp
 
 ## Next steps
 
-1. **User:** compact the session.
-2. **User:** says "continue" to authorise Part 2 (below).
-3. **Claude:** Part 2, a documentation-only implementation map and batch plan.
-4. **Joint session (Astra and Claude):** agree batch order and file ownership.
+1. ~~**User:** compact the session.~~ Done.
+2. ~~**User:** says "continue" to authorise Part 2 (below).~~ Done.
+3. ~~**Claude:** Part 2, a documentation-only implementation map and batch plan.~~ Done: [`IMPLEMENTATION-MAP.md`](IMPLEMENTATION-MAP.md), proposed and not yet reviewed.
+4. **Joint session (Astra and Claude):** agree batch order, file ownership and the decisions in the map's section 7.
 5. **User:** authorises the first batch. Nothing is implemented before that.
 
 ## Part 2: preserved instructions

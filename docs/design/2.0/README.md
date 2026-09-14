@@ -10,6 +10,7 @@ Implementation PRs should match these screens. Audits compare against them, so d
 - `overview-light.png` and `overview-dark.png`: every screen on one sheet.
 - `generate.py`: regenerates all of the above.
 - `HANDOFF.md`: the checkpoint for resuming 2.0 work. Read it before starting.
+- `IMPLEMENTATION-MAP.md`: the proposed mockup-to-code map and work batches, pending the joint planning session.
 
 | Screen | File | Build step |
 |---|---|---|
