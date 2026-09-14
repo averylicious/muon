@@ -9,6 +9,7 @@ Implementation PRs should match these screens. Audits compare against them, so d
 - `light/` and `dark/`: 17 screens each, at 1080×2400 (Pixel 8 resolution).
 - `overview-light.png` and `overview-dark.png`: every screen on one sheet.
 - `generate.py`: regenerates all of the above.
+- `HANDOFF.md`: the checkpoint for resuming 2.0 work. Read it before starting.
 
 | Screen | File | Build step |
 |---|---|---|
