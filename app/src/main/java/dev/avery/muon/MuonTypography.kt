@@ -1,6 +1,7 @@
 package dev.avery.muon
 
 import androidx.compose.material3.Typography
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -15,10 +16,11 @@ import androidx.compose.ui.unit.sp
  * Google Sans Flex, the face the 2.0 mockups are drawn in, at roundness 100 to match the phone's
  * own interface.
  *
- * One variable font ships rather than a set of static weights. Roundness, grade, slant and width
- * are instanced away; weight and optical size stay variable, which is both smaller than shipping
- * four static weights and the only way to honour #40's requirement that the optical-size axis
- * follows the rendered size. `docs/fonts.md` records the source, the command and the measurements.
+ * One variable font ships rather than a set of static files. Roundness, grade, slant and width are
+ * instanced away; weight and optical size stay variable. Of the options measured, this is the
+ * smallest that keeps #40's optical-size axis following the rendered size; four fixed-weight files
+ * would keep it too, at more than twice the bytes. The app registers only the four approved
+ * weights below. `docs/fonts.md` records the source, the command and the measurements.
  */
 private val Weights = listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold)
 
@@ -26,7 +28,11 @@ private val Weights = listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.Se
  * The family for one rendered size. Optical size is a property of the typeface, not of the text
  * style, so each role gets a family asking the font for its own size: at 36sp the face opens up,
  * and at 11sp it tightens. Every family reads the same font file.
+ *
+ * `FontVariation.Settings` is still experimental in ui-text 1.9.3, so the opt-in sits on this one
+ * function rather than on the file or the module.
  */
+@OptIn(ExperimentalTextApi::class)
 private fun googleSansFlex(opticalSize: TextUnit): FontFamily = FontFamily(
     Weights.map { weight ->
         Font(R.font.google_sans_flex, weight, FontStyle.Normal,

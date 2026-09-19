@@ -22,21 +22,43 @@ fully rounded. It is baked into the file rather than set at runtime, because it 
 
 | | |
 |---|---|
-| Upstream | `illogical-impulse-google-sans-flex`, the package installed on the maintainer's machine at `~/.local/share/fonts/illogical-impulse-google-sans-flex/` |
+| Public source | [`end-4/google-sans-flex`](https://github.com/end-4/google-sans-flex) at commit `251aa5abd30496368f634e54ce2a508fe5a2fdfa` |
 | File | `GoogleSansFlex-VariableFont_GRAD,ROND,opsz,slnt,wdth,wght.ttf`, 3,997,148 bytes |
 | sha256 | `2510a8b7a24beb1fe8163e9a49813ccfe96b5453444b9443d42665ca4fa320c9` |
-| Version | `Version 3.007;[58cd9cb9b]`, name ID 5; unique ID `3.007;GOOG;GoogleSansFlex-Regular` |
+| Version | `197067` in `head.fontRevision`, which is `Version 3.007;[58cd9cb9b]` in name ID 5 |
 | Copyright | `Copyright 2015 Google LLC. All Rights Reserved.`, name ID 0 |
 
-The same source file rendered the mockups in `docs/design/2.0/`, so the app and the mockups use one
-face. `docs/design/2.0/HANDOFF.md` records this font's version as `197067`; that number does not
-appear anywhere in the binary, and the version above is read from its `name` table. The sha256
-matches, so it is the same file and only the version label was wrong.
+Fetch and check the source before instancing:
 
-**Note on the upstream licence file:** the package's `LICENSE` is the OFL template with its header
-placeholders (`<Copyright Holder>`) unfilled. The copyright line in `docs/licenses/GoogleSansFlex-OFL.txt`
-is therefore taken from the font binary's own `name` table, which is authoritative, and the licence
-body is the OFL 1.1 text as shipped upstream.
+```bash
+curl -sSL -o GoogleSansFlex.ttf \
+  "https://raw.githubusercontent.com/end-4/google-sans-flex/251aa5abd30496368f634e54ce2a508fe5a2fdfa/GoogleSansFlex-VariableFont_GRAD,ROND,opsz,slnt,wdth,wght.ttf"
+echo "2510a8b7a24beb1fe8163e9a49813ccfe96b5453444b9443d42665ca4fa320c9  GoogleSansFlex.ttf" | sha256sum -c
+```
+
+The same file is installed locally at `~/.local/share/fonts/illogical-impulse-google-sans-flex/`; the
+pinned download was compared against it byte for byte.
+
+**Do not substitute the font currently published by `google/fonts`:** it is a different binary. Pin
+this commit, or re-record the hashes and measurements here after checking what changed.
+
+The same source file rendered the mockups in `docs/design/2.0/`, so the app and the mockups use one
+face.
+
+**On the version number:** `docs/design/2.0/HANDOFF.md` records `197067`, and that is correct. It is
+the raw `head.fontRevision` in its 16.16 fixed-point encoding: `3.0070037841796875 × 65536 = 197067`,
+the same version the `name` table spells as `3.007`. Both forms describe this one file.
+
+**Licence provenance.** The font declares its own terms, and the shipped instance keeps them: name
+ID 0 carries the Google copyright, name ID 13 the OFL 1.1 statement and name ID 14 the licence URL.
+Those embedded declarations travel with the binary in the APK.
+
+`docs/licenses/GoogleSansFlex-OFL.txt` reproduces the licence for the repository. Its body is the
+OFL 1.1 text distributed with the upstream package, unaltered; no licence text was drafted here. The
+upstream package left the template's header placeholders (`<Copyright Holder>`) unfilled, so the
+header quotes the font's own embedded declarations instead. Google publishes the authoritative
+notice for this family as `OFL.txt` in
+[`googlefonts/googlesans-flex`](https://github.com/googlefonts/googlesans-flex).
 
 ## Reproducing the shipped file
 
@@ -67,12 +89,21 @@ frozen at one value for every size on screen. Measured, on this source:
 | **Shipped: `wght` + `opsz` variable** | **465,284** | **yes** | **continuous** |
 | `wght` variable, `opsz` pinned at 18 | 282,932 | no | continuous |
 | Four static weights, `opsz` pinned at 18 | 515,476 (4 files) | no | 400/500/600/700 only |
+| Four files, weight pinned per file, `opsz` variable | 1,139,996 (4 files) | yes | 400/500/600/700 only |
 
-The shipped file is smaller than the four static weights it replaces *and* keeps optical sizing, so
-the approved intent is met without the approved mechanism. Pinning `opsz` would save a further
-180 KB; that trade is available if the size ever matters more than the optical axis.
+The last row was measured by the reviewing agent and is the alternative that keeps optical sizing
+with fixed-weight files; it costs more than twice the shipped file. So the shipped file is the
+smallest measured option that keeps optical sizing, and it is also smaller than the four static
+weights it replaces.
 
-Variable-font settings need API 26; Muon's `minSdk` is 28.
+**This changes the mechanism #42 approved**, which was static instance files, while keeping what #40
+asked for. The app still registers only the four approved weights — 400, 500, 600 and 700 — even
+though the file could serve any weight. Pinning `opsz` would save a further 180 KB and is one command
+away if the size ever matters more than the optical axis.
+
+Variable-font settings need API 26; Muon's `minSdk` is 28. `FontVariation.Settings` is marked
+`@ExperimentalTextApi` in ui-text 1.9.3, so `MuonTypography.kt` opts in on the one function that
+builds a family.
 
 ## How the app uses it
 
