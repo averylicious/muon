@@ -51,7 +51,8 @@ the same version the `name` table spells as `3.007`. Both forms describe this on
 
 **Licence provenance.** The font declares its own terms, and the shipped instance keeps them: name
 ID 0 carries the Google copyright, name ID 13 the OFL 1.1 statement and name ID 14 the licence URL.
-Those embedded declarations travel with the binary in the APK.
+Those embedded declarations travel with the binary in the APK. The complete notice is also
+packaged as `assets/licenses/GoogleSansFlex-OFL.txt`, matching the repository licence file.
 
 `docs/licenses/GoogleSansFlex-OFL.txt` reproduces the licence for the repository. Its body is the
 OFL 1.1 text distributed with the upstream package, unaltered; no licence text was drafted here. The
@@ -68,7 +69,7 @@ Python 3.14.
 ```bash
 fonttools varLib.instancer --no-recalc-timestamp \
   -o app/src/main/res/font/google_sans_flex.ttf \
-  "GoogleSansFlex-VariableFont_GRAD,ROND,opsz,slnt,wdth,wght.ttf" \
+  GoogleSansFlex.ttf \
   ROND=100 GRAD=0 slnt=0 wdth=100
 ```
 
