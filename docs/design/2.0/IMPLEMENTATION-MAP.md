@@ -408,3 +408,27 @@ The order follows #40's delivery sequence. Batches 15 and 16 can move earlier on
 ```
 
 Save incrementally, not at a limit warning. Keep commits coherent, with no secrets and no unrelated work. If an interruption happens mid-edit, record it honestly.
+
+## 10. Loading states, and what waits for a later revision
+
+Raised by the user on 2026-09-19: is a skeleton loading system worth building, given that this is a LAN app? **Conclusion: 2.0 keeps the one placeholder that already exists and adds no loading design.** New treatments wait for a revision after 2.0, because there are no mockups for them.
+
+**Where the waits actually are** (verified):
+
+- **The first library load is the only long one.** `LibraryModel.connect()` runs sequentially: a version check, the playlist list, then one `/api1/tracklist/<id>` request per playlist, each parsed as JSON. The cost is the number of round trips and the parsing, not LAN latency.
+- **Thumbnail loading**, which the user observed on canary.38. That is #23, not a loading state: `Artwork` already draws a placeholder box while a bitmap is missing.
+- **Everything else is in memory.** Search filters `allTracks`, the album and artist grouping in #44 works on the same loaded list, and Queue reads the player. A placeholder on those screens would flash for a frame or two and read as jank.
+
+**In 2.0, preserve rather than design:**
+
+- Keep `PlaceholderRows` for the first library load, through the split in batch 1 and the Library work in batches 7 and 8. Albums and Artists may reuse the same shape in grid form, for the first load only.
+- Keep the `Artwork` placeholder. #23 is the real fix for thumbnail lag.
+- Pull to refresh keeps the last library on screen. No skeleton on refresh, and no skeleton for Queue, search or switching views.
+
+**Deferred to a later revision, with no mockups today:**
+
+- Skeleton lines for the Lyrics fetch, which is one request and currently shows *Loading lyrics…*.
+- A delay of roughly 150ms before any placeholder appears, so a fast LAN never flashes one.
+- **Slow, dropped or absent connections.** What the app should show when Tauon answers slowly, stops answering part-way through a load, or cannot be found. Today this is `friendlyError` text in an `ErrorCard`, the `progress` string, and #39's discovery states. **Verified behaviour worth designing for:** if one playlist request fails, `connect()` abandons the whole load, shows the error and keeps the previously loaded library, so a refresh is all-or-nothing.
+
+These need mockups before implementation, and a milestone decision. They are not in #40 and not in any batch above.
