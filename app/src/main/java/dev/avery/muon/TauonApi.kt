@@ -16,6 +16,7 @@ data class TauonPlaylist(val id: String, val name: String, val count: Int)
 data class TauonTrack(
     val id: Long, val title: String, val artist: String, val album: String,
     val durationMs: Long, val playable: Boolean, val hasLyrics: Boolean,
+    val albumArtist: String = artist, val trackNumber: String = "",
 )
 class TauonApi(val endpoint: ServerEndpoint) {
     private suspend fun json(path: String): JSONObject = withContext(Dispatchers.IO) {
@@ -51,9 +52,12 @@ class TauonApi(val endpoint: ServerEndpoint) {
         val a = json("/api1/tracklist/$playlistId").getJSONArray("tracks")
         return List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getLong("id"); require(id >= 0)
-            TauonTrack(id, it.optString("title", "Untitled"), it.optString("artist"),
+            val artist = it.optString("artist")
+            TauonTrack(id, it.optString("title", "Untitled"), artist,
                 it.optString("album"), it.optLong("duration"),
-                it.optBoolean("can_download", false), it.optBoolean("has_lyrics"))
+                it.optBoolean("can_download", false), it.optBoolean("has_lyrics"),
+                albumArtist = albumArtistTag(it.opt("album_artist"), artist),
+                trackNumber = trackNumberTag(it.opt("track_number")))
         } }
     }
     suspend fun lyrics(trackId: Long): String {
