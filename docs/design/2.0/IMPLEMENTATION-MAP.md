@@ -431,4 +431,4 @@ Raised by the user on 2026-09-19: is a skeleton loading system worth building, g
 - A delay of roughly 150ms before any placeholder appears, so a fast LAN never flashes one.
 - **Slow, dropped or absent connections.** What the app should show when Tauon answers slowly, stops answering part-way through a load, or cannot be found. Today this is `friendlyError` text in an `ErrorCard`, the `progress` string, and #39's discovery states. **Verified behaviour worth designing for:** if one playlist request fails, `connect()` abandons the whole load, shows the error and keeps the previously loaded library, so a refresh is all-or-nothing.
 
-These need mockups before implementation, and a milestone decision. They are not in #40 and not in any batch above.
+The loading behaviour underneath the last of these is now tracked as **#53**; its visual treatment still needs mockups. None of this is in #40 or in any batch above.
