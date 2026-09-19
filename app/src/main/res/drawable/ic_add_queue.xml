@@ -3,16 +3,17 @@
     android:viewportWidth="24" android:viewportHeight="24">
     <path android:fillColor="#00000000" android:strokeColor="#FF000000"
         android:strokeWidth="2" android:strokeLineCap="butt"
-        android:strokeLineJoin="miter" android:pathData="M6.5,7 H18 V12"/>
+        android:strokeLineJoin="miter" android:pathData="M4,7 H15"/>
     <path android:fillColor="#00000000" android:strokeColor="#FF000000"
         android:strokeWidth="2" android:strokeLineCap="butt"
-        android:strokeLineJoin="miter" android:pathData="M17.5,17 H6 V12"/>
-    <path android:fillColor="#FF000000" android:pathData="M15,11.5 L18,16 L21,11.5 Z"/>
-    <path android:fillColor="#FF000000" android:pathData="M3,12.5 L6,8 L9,12.5 Z"/>
+        android:strokeLineJoin="miter" android:pathData="M4,12 H15"/>
     <path android:fillColor="#00000000" android:strokeColor="#FF000000"
         android:strokeWidth="2" android:strokeLineCap="butt"
-        android:strokeLineJoin="miter" android:pathData="M12,9.5 V14.5"/>
+        android:strokeLineJoin="miter" android:pathData="M4,17 H11"/>
     <path android:fillColor="#00000000" android:strokeColor="#FF000000"
         android:strokeWidth="2" android:strokeLineCap="butt"
-        android:strokeLineJoin="miter" android:pathData="M10.5,11 L12,9.5"/>
+        android:strokeLineJoin="miter" android:pathData="M18,13.5 V20.5"/>
+    <path android:fillColor="#00000000" android:strokeColor="#FF000000"
+        android:strokeWidth="2" android:strokeLineCap="butt"
+        android:strokeLineJoin="miter" android:pathData="M14.5,17 H21.5"/>
 </vector>
