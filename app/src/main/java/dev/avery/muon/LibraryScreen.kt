@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LibraryBar(busy: Boolean, refresh: () -> Unit) {
-    TopAppBar(title = { Text("Library", style = MaterialTheme.typography.headlineSmall) },
+    TopAppBar(title = { Text("Library", style = MaterialTheme.typography.titleLarge) },
         actions = { TextButton(onClick = refresh, enabled = !busy) { Text("Refresh") } },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
         // The scaffold already applies the status bar inset to this content.

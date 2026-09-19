@@ -21,7 +21,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Spacer(Modifier.height(18.dp))
         Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        Text("Settings", style = MaterialTheme.typography.headlineLarge)
+        Text("Settings", style = MaterialTheme.typography.displaySmall)
         SettingsCard("Tauon desktop · connected") {
             Text(model.address, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall,

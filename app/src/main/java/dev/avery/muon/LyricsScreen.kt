@@ -29,7 +29,7 @@ internal fun LyricsScreen(item: MediaItem?, back: () -> Unit) {
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         TextButton(onClick = back) { Text("‹ Now Playing") }
-        Text("Lyrics", style = MaterialTheme.typography.headlineLarge)
+        Text("Lyrics", style = MaterialTheme.typography.displaySmall)
         Text(item?.mediaMetadata?.title?.toString().orEmpty(), color = MaterialTheme.colorScheme.primary)
         if (failure) ErrorCard(lyrics, "Retry") { attempt++ }
         else SelectionContainer { Text(lyrics, style = MaterialTheme.typography.titleLarge, lineHeight = MaterialTheme.typography.headlineMedium.lineHeight) }

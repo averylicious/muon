@@ -37,7 +37,8 @@ MainActivity ──binds──▶ PlaybackService (Media3 MediaSessionService)
 | `ServerDiscovery.kt` | NSD lookup of `_tauon-remote._tcp` |
 | `Artwork.kt` | Cover fetch, decode, and the in-memory `LruCache` |
 | `Appearance.kt` | Palette choice and Pure black; owns `appearance` prefs |
-| `MuonTheme.kt` | Colour schemes, the display typeface, black-surface override |
+| `MuonTheme.kt` | Colour schemes and the black-surface override |
+| `MuonTypography.kt` | Google Sans Flex and the Material 3 type roles; see `docs/fonts.md` |
 | `MuonIcons.kt` + `res/drawable/ic_*.xml` | The icon set; `iconRes` maps a kind string to a drawable |
 | `Motion.kt` | Animation durations and easing |
 | `PlaybackModes.kt`, `PlaybackProgress.kt`, `TrackSearch.kt`, `TrackIdentity.kt`, `MediaVolume.kt` | Pure helpers, all unit-tested |

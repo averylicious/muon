@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -24,7 +25,8 @@ internal fun ConnectScreen(model: LibraryModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Spacer(Modifier.height(18.dp))
         Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.headlineLarge)
+        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.displaySmall,
+            fontWeight = FontWeight.Bold)
         Text("Stream your Tauon collection to this device. Original audio, your playlists, wherever your LAN reaches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         SettingsCard("Connect to Tauon desktop") {
             Text("Enable remote control in Tauon and restart it. Keep both devices on the same trusted LAN.")
