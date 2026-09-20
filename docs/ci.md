@@ -5,7 +5,17 @@ Workflow: [Android APKs](https://github.com/averylicious/muon/actions/workflows/
 
 ## What runs
 
-Every push to any branch starts a build; **Actions → Android APKs → Run workflow** also works. A newer push to the same branch cancels an unfinished older run. This builds each pushed branch tip, not every intermediate commit inside a multi-commit push. Successful `main` builds publish private Canary prereleases; pushed `vMAJOR.MINOR.PATCH` tags publish stable releases. Other branches only build artifacts. See [release channels and Obtainium setup](obtainium.md). Nothing is published publicly.
+Every push to any branch starts a check; **Actions → Android APKs → Run workflow** also works. A newer push to the same branch cancels an unfinished older run. This builds each pushed branch tip, not every intermediate commit inside a multi-commit push. Successful `main` builds publish private Canary prereleases; pushed `vMAJOR.MINOR.PATCH` tags publish stable releases. Other branches only build artifacts. See [release channels and Obtainium setup](obtainium.md). Nothing is published publicly.
+
+### Documentation-only checks
+
+The workflow keeps the existing **Build, test and sign** check name, but its scope summary explains what actually ran. Documentation-only pushes run Python scope/publication tests and validate changed Markdown/text for UTF-8, unresolved conflict markers and unclosed fences. They skip Java/SDK/Gradle setup, signing-key restoration, APK/report artifacts and release publication. No phone QA or APK installation is needed.
+
+The conservative allowlist is root README/AGENTS/CHANGELOG/CONTRIBUTING/LICENSE, the PR template, and Markdown/text/image/PDF files under `docs/`. Changes to app resources/source, Gradle, workflows, tools, documentation generator scripts or unknown paths take the full Android path. Renames inspect both old and new paths. Main pushes compare the entire before/after push; other branches also compare all unmerged changes against their merge base with main. Thus a README-only follow-up on an app feature branch still builds the app. New branches compare against main; missing history or empty comparisons default to a full build. A new documentation push on main does not itself publish a Canary; if it cancels an earlier main run before publication, use a manual main run when that release is wanted.
+
+Tags and **Run workflow** always take the full signed build path. Avoid commit-message skip directives and top-level path filters: those can leave required checks pending ([GitHub documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)). This change does not enable fork builds, broaden secret permissions or alter package/signing identities. No branch protection is configured as of 2026-09-20; the existing check name remains available if protection is added later.
+
+Full builds still produce the artifacts described below; documentation-only runs produce none. Workflow run numbers continue increasing on docs-only runs, so version codes may have gaps. Only compare APK versions for runs that actually built them.
 
 The Ubuntu 24.04 runner installs JDK 17 and Android SDK 36 / Build Tools 36.0.0, validates the Gradle wrapper, and runs:
 

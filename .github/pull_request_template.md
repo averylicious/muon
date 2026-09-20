@@ -17,6 +17,8 @@
 
 ## Test build
 
+<!-- If CI selected documentation-only checks, link the successful run and write "No APK generated; device QA not needed". Do not force an APK build just to fill this section. -->
+
 - Actions run: <!-- URL -->
 - Canary APK artifact: <!-- artifact URL and app-debug-<full-SHA> name -->
 - Version / run number: <!-- from BUILD.txt / workflow metadata -->
