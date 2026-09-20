@@ -7,26 +7,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 
+/**
+ * Now Playing, as the overlay that grows out of the mini player. The host closes it when playback
+ * stops, so there is no empty state here.
+ */
 @Composable
-internal fun NowPlaying(p: PlaybackUi, position: () -> Long, player: MediaController?, lyrics: () -> Unit) {
-    if (p.item == null) {
-        Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) { Text("Choose a track from your library to start listening.") }
-        return
-    }
-    var showVolume by rememberSaveable { mutableStateOf(false) }
+internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, player: MediaController?,
+    collapse: () -> Unit, lyrics: () -> Unit) {
+    if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
         val narrow = maxWidth < 360.dp
@@ -39,8 +38,13 @@ internal fun NowPlaying(p: PlaybackUi, position: () -> Long, player: MediaContro
             .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("PLAYING ON THIS DEVICE", color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.labelMedium)
+            // A visible way out, so a gesture is never the only exit (#40).
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                FilledTonalIconButton(onClick = collapse,
+                    modifier = Modifier.semantics { contentDescription = "Collapse the player" }) {
+                    MuonIcon("collapse", Modifier.size(20.dp))
+                }
+            }
             Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
                 contentAlignment = Alignment.Center) {
                 Artwork(p.item.mediaMetadata.artworkUri?.toString(),
@@ -74,18 +78,42 @@ internal fun NowPlaying(p: PlaybackUi, position: () -> Long, player: MediaContro
                 ShuffleControl(p, player)
                 RepeatControl(p, player)
             }
-            // Wrapping preserves readable labels at large font/display sizes.
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = lyrics) { Text("Lyrics") }
-                TextButton(onClick = { showVolume = true }) {
-                    MuonIcon("volume", Modifier.size(18.dp))
+            VolumeRow()
+            // Wrapping preserves readable labels at large font/display sizes. Queue joins this row
+            // when #47 builds it; there is no point offering a button that leads nowhere.
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = lyrics) {
+                    MuonIcon("lyrics", Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Volume")
+                    Text("Lyrics")
                 }
             }
         }
     }
-    if (showVolume) MediaVolumeDialog { showVolume = false }
+}
+
+/**
+ * Volume lives in the player now rather than behind a dialog. The slider keeps its floating
+ * percentage, and the speakers mark the ends the way the mockup does.
+ */
+@Composable
+private fun VolumeRow() {
+    val volume = rememberMediaVolumeController()
+    val state = volume.state
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            MuonIcon("volume-low", Modifier.size(18.dp))
+            Box(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                MediaVolumeSlider(state, volume::setVolume)
+            }
+            MuonIcon("volume", Modifier.size(18.dp))
+        }
+        if (state.fixed) Text("Volume is fixed by this device.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        volume.error?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+    }
 }
 
 @Composable
@@ -117,28 +145,4 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
             Text(formatTime(duration), style = MaterialTheme.typography.labelSmall)
         }
     }
-}
-
-@Composable
-private fun MediaVolumeDialog(dismiss: () -> Unit) {
-    val volume = rememberMediaVolumeController()
-    val state = volume.state
-    AlertDialog(
-        onDismissRequest = dismiss,
-        confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
-        icon = { MuonIcon("volume") },
-        title = { Text("Media volume") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (state.fixed) Text(
-                    text = "Volume is fixed by this device.",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                MediaVolumeSlider(state, volume::setVolume)
-                volume.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            }
-        },
-    )
 }

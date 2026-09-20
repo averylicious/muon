@@ -20,14 +20,15 @@ MainActivity ──binds──▶ PlaybackService (Media3 MediaSessionService)
    MuonApp ◀──state── LibraryModel (AndroidViewModel)
       │                        │
       │                        └──▶ TauonApi ──HTTP──▶ Tauon desktop (LAN)
-      └──▶ screens: Connect │ Library │ Search │ Playing │ Lyrics │ Settings
+      └──▶ tabs: Library │ Search │ Settings, or Connect when there is no server
+             └──▶ overlay: Now Playing │ Lyrics, above whichever tab is showing
 ```
 
 | File | Holds |
 |---|---|
 | `MainActivity.kt` | Activity lifecycle, `MediaController` binding, edge-to-edge and system bar style |
 | `PlaybackService.kt` | The Media3 session and player; owns the queue and survives the UI |
-| `MuonApp.kt` | The shell: tabs, which screen shows, the scaffold, and queue start |
+| `MuonApp.kt` | The shell: three tabs, the Now Playing overlay above them, the scaffold, and queue start |
 | `PlaybackState.kt` | `PlaybackUi`, the ticking position, and the player listener |
 | `LibraryScreen.kt`, `SearchScreen.kt`, `NowPlayingScreen.kt`, `LyricsScreen.kt`, `SettingsScreen.kt`, `ConnectScreen.kt` | One file per screen |
 | `TrackList.kt`, `MiniPlayer.kt`, `Components.kt` | Shared UI: the track list and row, the mini player, and the icon, control, error and busy pieces |
