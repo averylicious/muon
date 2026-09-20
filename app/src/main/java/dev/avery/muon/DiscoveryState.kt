@@ -1,5 +1,7 @@
 package dev.avery.muon
 
+import java.util.Locale
+
 /** A discovered address has passed the same validation as manual entry; it is not authenticated. */
 data class DiscoveredServer(val name: String, val origin: String)
 enum class DiscoveryStatus { IDLE, SEARCHING, COMPLETE, UNAVAILABLE }
@@ -53,3 +55,7 @@ internal class DiscoveryScan<T>(private val limit: Int = 64) {
         entries.values.mapNotNull { it.server }.distinctBy { it.origin },
         entries.values.count { it.server == null } + if (overflow) 1 else 0)
 }
+
+/** DNS names are case-insensitive; Android may include root/local-domain suffixes. */
+internal fun normalizedDiscoveryType(value: String): String =
+    value.trim().trim('.').lowercase(Locale.ROOT).removeSuffix(".local")

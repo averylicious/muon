@@ -33,9 +33,17 @@ The min-SDK-compatible [`resolveService` API](https://developer.android.com/refe
 is retained. Its pending operation is not cancellable on our oldest supported
 Android releases. A stopped scan's completion is ignored, but its resolution slot
 is kept until its callback arrives so a rapid restart does not overlap operations.
-If the platform never returns that callback, later scans may finish unresolved;
-manual connection is the fallback. Newer callback-based NSD APIs can be evaluated
+A five-second per-request deadline releases the application slot even if no
+platform callback arrives; late callbacks are ignored, so later candidates/scans
+can proceed. On older releases the underlying platform request cannot be cancelled;
+it may still consume an OS resolver slot and make another request fail. Such
+failures stay unresolved, and manual connection remains available. This is not a
+claim that the OS operation was cancelled. The deadline survives scan disposal for
+at most five seconds; NSD is obtained from application context, not Activity context. Newer callback-based NSD APIs can be evaluated
 separately, including IPv6 multi-address support and platform/network permissions.
+
+Service types normalize case and optional root/local-domain suffixes; unrelated
+service types/domains are rejected.
 
 JVM tests cover queueing, duplicate/lost services, restart/cancellation races,
 deadline/failure states and bounded results. They do not execute Android's NSD

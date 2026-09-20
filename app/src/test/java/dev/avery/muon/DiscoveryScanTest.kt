@@ -90,4 +90,22 @@ class DiscoveryScanTest {
         assertEquals(listOf(one), before.servers)
         assertTrue(scan.snapshot().servers.isEmpty())
     }
+
+    @Test fun timedOutRequestDoesNotPreventResolvingTheNextCandidate() {
+        val scan = DiscoveryScan<String>(); val token = scan.begin()
+        scan.found(token, "desk", "first"); scan.found(token, "laptop", "second")
+        val expired = scan.nextRequest()!!
+        scan.resolved(expired, null)
+        val next = scan.nextRequest()!!
+        scan.resolved(next, two); scan.finish(token)
+        assertEquals(listOf(two), scan.snapshot().servers)
+        assertEquals(1, scan.snapshot().unresolvedCount)
+        assertFalse(scan.resolved(expired, one))
+    }
+    @Test fun serviceTypesNormalizeCaseAndLocalRootWithoutAcceptingOtherServices() {
+        assertEquals("_tauon-remote._tcp", normalizedDiscoveryType(" _TAUON-REMOTE._TCP. "))
+        assertEquals("_tauon-remote._tcp", normalizedDiscoveryType("._tauon-remote._tcp.local."))
+        assertNotEquals("_tauon-remote._tcp", normalizedDiscoveryType("_http._tcp."))
+        assertNotEquals("_tauon-remote._tcp", normalizedDiscoveryType("_tauon-remote._tcp.example.com."))
+    }
 }

@@ -13,14 +13,15 @@ class ServerDiscovery(
     private val message: (String) -> Unit,
     private val stateChanged: (DiscoverySnapshot) -> Unit = {},
 ) {
-    private val manager = context.getSystemService(NsdManager::class.java)
+    private val manager = context.applicationContext.getSystemService(NsdManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
     private val scan = DiscoveryScan<NsdServiceInfo>()
     private var listener: NsdManager.DiscoveryListener? = null
     private var timeout: Runnable? = null
     // API 28's resolveService cannot be cancelled. Keep its slot across scan restarts;
-    // its completion can drain the next scan, but cannot insert an old result into it.
+    // until completion or a bounded timeout. Old completions cannot insert into a new scan.
     private var resolving: DiscoveryRequest<NsdServiceInfo>? = null
+    private var resolutionTimeout: Runnable? = null
 
     fun start() {
         stop()
@@ -30,7 +31,7 @@ class ServerDiscovery(
         val callback = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(type: String) = Unit
             override fun onServiceFound(info: NsdServiceInfo) { handler.post {
-                if (info.serviceType.trimEnd('.') != "_tauon-remote._tcp") return@post
+                if (normalizedDiscoveryType(info.serviceType) != "_tauon-remote._tcp") return@post
                 scan.found(token, key(info), info)
                 drain()
             } }
@@ -57,6 +58,8 @@ class ServerDiscovery(
         if (resolving != null) return
         val request = scan.nextRequest() ?: return
         resolving = request
+        // A platform callback may never arrive. Do not let one request lock every later scan.
+        resolutionTimeout = Runnable { resolved(request, null) }.also { handler.postDelayed(it, 5_000) }
         try {
             @Suppress("DEPRECATION")
             manager.resolveService(request.value, object : NsdManager.ResolveListener {
@@ -81,6 +84,7 @@ class ServerDiscovery(
 
     private fun resolved(request: DiscoveryRequest<NsdServiceInfo>, server: DiscoveredServer?) {
         if (resolving != request) return
+        resolutionTimeout?.let(handler::removeCallbacks); resolutionTimeout = null
         resolving = null
         if (scan.resolved(request, server)) {
             publish()
@@ -107,5 +111,5 @@ class ServerDiscovery(
         if (old != null) runCatching { manager.stopServiceDiscovery(old) }
     }
     private fun publish() = stateChanged(scan.snapshot())
-    private fun key(info: NsdServiceInfo) = "${info.serviceType.trimEnd('.')}/${info.serviceName}"
+    private fun key(info: NsdServiceInfo) = "${normalizedDiscoveryType(info.serviceType)}/${info.serviceName}"
 }
