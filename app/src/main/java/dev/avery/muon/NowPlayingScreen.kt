@@ -1,6 +1,10 @@
 package dev.avery.muon
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,13 +14,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import kotlinx.coroutines.launch
 
 /**
  * Now Playing, as the overlay that grows out of the mini player. The host closes it when playback
@@ -47,8 +56,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, player: Medi
             }
             Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
                 contentAlignment = Alignment.Center) {
-                Artwork(p.item.mediaMetadata.artworkUri?.toString(),
-                    Modifier.widthIn(max = 400.dp).aspectRatio(1f).clip(RoundedCornerShape(24.dp)))
+                SwipeableArtwork(p, player, Modifier.widthIn(max = 400.dp).aspectRatio(1f))
             }
             Column(Modifier.fillMaxWidth()) {
                 Text(p.item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
@@ -113,6 +121,69 @@ private fun VolumeRow() {
         volume.error?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
+    }
+}
+
+/** A deliberate drag, not a flick: below this the artwork springs back. */
+private val SwipeMinimum = 48.dp
+private val SwipeSpring = spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy,
+    stiffness = Spring.StiffnessMediumLow)
+
+/**
+ * Artwork that follows a horizontal drag and changes track when the drag commits.
+ *
+ * The Previous and Next buttons remain the reliable way to do this; the gesture is the shortcut.
+ * Nothing here is read during composition while a finger is down: the distance lives inside the
+ * pointer handler, and the offset is read in the draw phase through [graphicsLayer], so dragging
+ * does not recompose the player. The current playback snapshot and controller are captured through
+ * [rememberUpdatedState], so a track ending mid-drag cannot dispatch against a stale queue.
+ */
+@Composable
+private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, modifier: Modifier = Modifier) {
+    val offset = remember { Animatable(0f) }
+    val state = rememberUpdatedState(p)
+    val controller = rememberUpdatedState(player)
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    // Whoever changed the track — this gesture, a button, or the queue moving on — the artwork
+    // belongs back under the finger's starting point.
+    LaunchedEffect(p.item?.mediaId) { offset.snapTo(0f) }
+    Box(modifier
+        .pointerInput(Unit) {
+            val minimum = SwipeMinimum.toPx()
+            // Kept here rather than in state: a drag must not recompose anything to move pixels.
+            var drag = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { drag = 0f },
+                onDragCancel = {
+                    drag = 0f
+                    scope.launch { offset.animateTo(0f, SwipeSpring) }
+                },
+                onDragEnd = {
+                    val ui = state.value
+                    val live = controller.value
+                    val action = if (live == null) SwipeAction.None
+                        else swipeAction(drag, size.width, minimum, ui.next, ui.previous)
+                    // Cleared before dispatching, so a second gesture cannot repeat this one.
+                    drag = 0f
+                    if (action != SwipeAction.None) {
+                        haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                        if (action == SwipeAction.Next) live?.seekToNextMediaItem()
+                        else live?.seekToPreviousMediaItem()
+                    }
+                    scope.launch { offset.animateTo(0f, SwipeSpring) }
+                },
+                onHorizontalDrag = { change, delta ->
+                    change.consume()
+                    val ui = state.value
+                    drag += delta
+                    scope.launch { offset.snapTo(swipeOffset(drag, ui.next, ui.previous)) }
+                },
+            )
+        }
+        .graphicsLayer { translationX = offset.value }) {
+        Artwork(p.item?.mediaMetadata?.artworkUri?.toString(),
+            Modifier.fillMaxSize().clip(RoundedCornerShape(24.dp)))
     }
 }
 
