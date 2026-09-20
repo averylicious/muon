@@ -10,8 +10,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -64,8 +62,14 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
         }
         val connected = model.endpoint != null
-        // Nothing to show a player for: close it rather than leaving an empty surface on top.
-        LaunchedEffect(ui.item) { if (ui.item == null) { lyricsOpen = false; playerOpen = false } }
+        // The queue was emptied while the overlay was open: close it rather than leaving an empty
+        // surface on top. Reading the controller directly, because the snapshot above can still be
+        // the empty one for a frame after a controller reconnects.
+        LaunchedEffect(player, ui.item) {
+            if (overlayShouldClose(player != null, player?.currentMediaItem != null)) {
+                lyricsOpen = false; playerOpen = false
+            }
+        }
         val overlayOpen = connected && playerOpen && ui.item != null
         val lyricsShown = overlayOpen && lyricsOpen
         BackHandler(connected && (overlayOpen || tab != Tab.Library)) {
@@ -170,18 +174,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
 }
 
 /**
- * A surface that covers the tabs, insets itself because the scaffold below cannot, and swallows
- * taps so nothing behind it reacts to a press that lands on its own background.
+ * A surface that covers the tabs and insets itself, because the scaffold below cannot reach it.
+ * Material's own `Surface` already blocks touches from reaching what it covers, so nothing here
+ * adds a click target that a screen reader would announce.
  */
 @Composable
 private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
     AnimatedVisibility(visible = visible,
         enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
         exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-        Surface(Modifier.fillMaxSize()
-            .clickable(interactionSource = interaction, indication = null, enabled = true) {},
-            color = MaterialTheme.colorScheme.background) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.safeDrawingPadding()) { content() }
         }
     }

@@ -25,6 +25,17 @@ internal class PlaybackState {
     var position by mutableLongStateOf(0L)
 }
 
+/**
+ * Whether an open Now Playing overlay should close itself.
+ *
+ * Only a live controller can answer this. `MainActivity` releases the controller in `onStop`, and a
+ * rotation restores the overlay's saved flag before the new controller has connected, so "no
+ * controller" means "not known yet", never "nothing is playing". Closing on that would throw away
+ * the user's place every time the app went to the background.
+ */
+internal fun overlayShouldClose(controllerAttached: Boolean, hasCurrentItem: Boolean): Boolean =
+    controllerAttached && !hasCurrentItem
+
 @Composable
 internal fun rememberPlayback(player: MediaController?): PlaybackState {
     val state = remember { PlaybackState() }
