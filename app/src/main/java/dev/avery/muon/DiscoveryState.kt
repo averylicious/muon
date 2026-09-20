@@ -17,7 +17,7 @@ internal data class DiscoveryRequest<T>(val generation: Long, val id: Long, val 
 /** Main-thread scan bookkeeping, isolated from NSD so delayed/lost callbacks can be tested. */
 internal class DiscoveryScan<T>(private val limit: Int = 64) {
     private data class Entry<T>(val request: DiscoveryRequest<T>, var started: Boolean = false,
-        var server: DiscoveredServer? = null)
+        var server: DiscoveredServer? = null, var finished: Boolean = false)
     private val entries = linkedMapOf<String, Entry<T>>()
     private var generation = 0L
     private var nextId = 0L
@@ -44,6 +44,8 @@ internal class DiscoveryScan<T>(private val limit: Int = 64) {
     fun resolved(request: DiscoveryRequest<T>, server: DiscoveredServer?): Boolean {
         if (!accepts(request.generation)) return false
         val entry = entries[request.key]?.takeIf { it.request.id == request.id } ?: return false
+        if (entry.finished) return false
+        entry.finished = true
         entry.server = server
         return true
     }

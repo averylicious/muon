@@ -96,6 +96,7 @@ class DiscoveryScanTest {
         scan.found(token, "desk", "first"); scan.found(token, "laptop", "second")
         val expired = scan.nextRequest()!!
         scan.resolved(expired, null)
+        assertFalse(scan.resolved(expired, one)) // Late success cannot revive the timed-out request.
         val next = scan.nextRequest()!!
         scan.resolved(next, two); scan.finish(token)
         assertEquals(listOf(two), scan.snapshot().servers)
