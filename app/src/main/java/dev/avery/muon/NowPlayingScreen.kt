@@ -28,8 +28,9 @@ import androidx.media3.session.MediaController
 import kotlinx.coroutines.launch
 
 /**
- * Now Playing, as the overlay that grows out of the mini player. The host closes it when playback
- * stops, so there is no empty state here.
+ * Now Playing, as the overlay that grows out of the mini player. The host closes it when the queue
+ * is emptied — pausing and reaching the end both keep the current track — so there is no empty
+ * state here.
  */
 @Composable
 internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, player: MediaController?,
@@ -133,15 +134,23 @@ private val SwipeSpring = spring<Float>(dampingRatio = Spring.DampingRatioLowBou
  * Artwork that follows a horizontal drag and changes track when the drag commits.
  *
  * The Previous and Next buttons remain the reliable way to do this; the gesture is the shortcut.
- * Nothing here is read during composition while a finger is down: the distance lives inside the
- * pointer handler, and the offset is read in the draw phase through [graphicsLayer], so dragging
- * does not recompose the player. The current playback snapshot and controller are captured through
- * [rememberUpdatedState], so a track ending mid-drag cannot dispatch against a stale queue.
+ *
+ * The drag distance lives inside the pointer handler, and the offset is read in the draw phase
+ * through [graphicsLayer] rather than in composition, so moving the artwork does not recompose the
+ * player.
+ *
+ * A gesture belongs to the track and controller it began on. Both are captured at the start and
+ * must still match at the end, because a track ending by itself mid-drag would otherwise make the
+ * release skip the track that replaced it. Availability is read from the controller at the moment
+ * of commit, not from the event-driven snapshot, which can lag behind it.
  */
+/** The player's own answer to "what is playing, and where is it", taken on the calling thread. */
+private fun swipeTarget(player: MediaController) =
+    SwipeTarget(player.currentMediaItem?.mediaId, player.currentMediaItemIndex, player.mediaItemCount)
+
 @Composable
 private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, modifier: Modifier = Modifier) {
     val offset = remember { Animatable(0f) }
-    val state = rememberUpdatedState(p)
     val controller = rememberUpdatedState(player)
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -153,19 +162,28 @@ private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, modifier: 
             val minimum = SwipeMinimum.toPx()
             // Kept here rather than in state: a drag must not recompose anything to move pixels.
             var drag = 0f
+            var began: MediaController? = null
+            var startedOn: SwipeTarget? = null
+            fun release() { drag = 0f; began = null; startedOn = null }
             detectHorizontalDragGestures(
-                onDragStart = { drag = 0f },
-                onDragCancel = {
+                onDragStart = {
                     drag = 0f
+                    began = controller.value
+                    startedOn = began?.let(::swipeTarget)
+                },
+                onDragCancel = {
+                    release()
                     scope.launch { offset.animateTo(0f, SwipeSpring) }
                 },
                 onDragEnd = {
-                    val ui = state.value
                     val live = controller.value
-                    val action = if (live == null) SwipeAction.None
-                        else swipeAction(drag, size.width, minimum, ui.next, ui.previous)
+                    // Same controller, same track, same place in the same queue, or nothing.
+                    val valid = live != null && live === began && swipeTargetUnchanged(startedOn, swipeTarget(live))
+                    val action = if (!valid || live == null) SwipeAction.None
+                        else swipeAction(drag, size.width, minimum,
+                            live.hasNextMediaItem(), live.hasPreviousMediaItem())
                     // Cleared before dispatching, so a second gesture cannot repeat this one.
-                    drag = 0f
+                    release()
                     if (action != SwipeAction.None) {
                         haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                         if (action == SwipeAction.Next) live?.seekToNextMediaItem()
@@ -175,9 +193,13 @@ private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, modifier: 
                 },
                 onHorizontalDrag = { change, delta ->
                     change.consume()
-                    val ui = state.value
                     drag += delta
-                    scope.launch { offset.snapTo(swipeOffset(drag, ui.next, ui.previous)) }
+                    // The artwork resists towards a track that is not there, asked of the player
+                    // itself so it agrees with what a release would actually do.
+                    val live = controller.value?.takeIf { it === began }
+                    val next = live?.hasNextMediaItem() == true
+                    val previous = live?.hasPreviousMediaItem() == true
+                    scope.launch { offset.snapTo(swipeOffset(drag, next, previous)) }
                 },
             )
         }

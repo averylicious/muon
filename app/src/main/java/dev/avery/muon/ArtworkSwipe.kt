@@ -29,3 +29,20 @@ internal fun swipeAction(drag: Float, width: Int, minimum: Float,
  */
 internal fun swipeOffset(drag: Float, hasNext: Boolean, hasPrevious: Boolean): Float =
     if ((drag < 0f && !hasNext) || (drag > 0f && !hasPrevious)) drag / 3f else drag
+
+/**
+ * What the player was showing when a drag began: the track, where it sits in the queue, and how
+ * long the queue was. Repeated tracks share a media ID, so the index is part of the identity.
+ */
+internal data class SwipeTarget(val mediaId: String?, val index: Int, val queueSize: Int)
+
+/**
+ * Whether a gesture may still act.
+ *
+ * A drag belongs to the track it started on. If that track ends by itself mid-drag, releasing must
+ * not skip the track that replaced it, so anything that moved — the track, its position, or the
+ * length of the queue — cancels the gesture. Being conservative costs a spring-back; being
+ * permissive skips a track the user never asked to skip.
+ */
+internal fun swipeTargetUnchanged(start: SwipeTarget?, now: SwipeTarget?): Boolean =
+    start != null && start == now
