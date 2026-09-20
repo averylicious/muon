@@ -64,5 +64,8 @@ fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builde
     .setMediaId("${endpoint.origin}/$id")
     .setUri(endpoint.url("/api1/file/$id"))
     .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist).setAlbumTitle(album)
+        .setAlbumArtist(albumArtist)
+        // Queue display only. Seek/Now Playing must keep using the player's stream duration.
+        .setDurationMs(durationMs.takeIf { it > 0 })
         .setArtworkUri(android.net.Uri.parse(endpoint.url("/api1/pic/medium/$id"))).build())
     .build()

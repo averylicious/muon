@@ -24,3 +24,24 @@ year are not part of the inspected response shape.
 
 Current playback, search, track identity, metadata display and playlist ordering are unchanged.
 The fields are available for the later frontend/grouping work; no new screen consumes them yet.
+
+## MediaSession metadata for future queue rows
+
+`TauonTrack.mediaItem` now copies `albumArtist` and a positive `durationMs` into
+Media3's `MediaMetadata`. Missing/zero/negative Tauon durations become null
+(unknown), rather than a fabricated zero-length song or a rejected metadata
+builder. Queue totals must distinguish unknown durations instead of claiming an
+exact total from partial data. The existing performer, album, artwork, stream URI
+and origin/track mediaId remain unchanged.
+
+The pinned Media3 common 1.11.0 source defines `setDurationMs(Long?)` as optional,
+non-negative milliseconds for informational use only. Actual playback duration
+still comes from `Player.getDuration()`; no seek, timeline or transport behavior
+is changed. No track-number parsing, queue identity, reorder, shuffle or Undo rule
+is introduced. This is a small prerequisite for implementation-map B4 / #47,
+not the Queue feature itself.
+
+Validation: build/lint and existing tests in Actions; source checked against the
+pinned Media3 API. No device/MediaSession round-trip test was performed. The
+simple metadata copy adds no new test dependency. Later Queue QA must check known
+and unknown lengths and repeated occurrences separately.
