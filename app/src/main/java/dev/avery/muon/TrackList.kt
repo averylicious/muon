@@ -60,7 +60,10 @@ private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean,
             Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
-            Text(if (t.playable) "${t.artist} · ${t.album}" else "Unavailable for direct streaming · ${t.artist}",
+            // An untagged file has nothing to say here, so the line is left out rather than
+            // printed as a stray separator.
+            val subtitle = trackSubtitle(t.artist, t.album, t.playable)
+            if (subtitle.isNotEmpty()) Text(subtitle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall)
         }
@@ -96,5 +99,23 @@ private fun PlaceholderRows() {
         }
     }
 }
+
+/**
+ * The line under a track's title.
+ *
+ * Only what the file actually carries: a tag that is missing or blank is left out, and so is the
+ * separator that would have introduced it, rather than showing a dot with nothing either side of
+ * it. Nothing is invented to fill the gap — a file with no tags simply has no second line.
+ *
+ * A track the server will not stream says so first, and keeps its artist for recognition; its
+ * album is left out, as it always has been, because the reason it cannot play is the more useful
+ * half of a single line.
+ */
+internal fun trackSubtitle(artist: String, album: String, playable: Boolean): String =
+    listOfNotNull(
+        if (playable) null else "Unavailable for direct streaming",
+        artist.trim().ifBlank { null },
+        if (playable) album.trim().ifBlank { null } else null,
+    ).joinToString(" · ")
 
 internal fun formatTime(ms: Long): String = "${ms / 60000}:${(ms / 1000 % 60).toString().padStart(2, '0')}"
