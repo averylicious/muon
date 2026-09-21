@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first. Latest recorded checkpoint: [2026-09-20, Muon 2.0](handoffs/2026-09-20-muon-2.md). Update this pointer when adding a newer checkpoint. Checkpoints are dated evidence, not automatic authorization or live status.
+This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first. Latest recorded checkpoint: [2026-09-21, Muon 2.0](handoffs/2026-09-21-muon-2.md). Update this pointer when adding a newer checkpoint. Checkpoints are dated evidence, not automatic authorization or live status.
 
 ## Start with a small refresh
 
@@ -42,6 +42,17 @@ On the original host, consult the dated checkpoint for the existing session ID a
 - Record source, time/window and whether a percentage means used or remaining. Treat missing data as unknown. If tool/dashboard readings disagree, retain the discrepancy and the user's corrected reading instead of inventing precision. No need to poll during every edit.
 - Reserve enough capacity for review fixes, commit/push and the checkpoint. Exact capacity per feature cannot be promised. Stop adding scope when a safe finish is uncertain. Never redeem reset credits or change billing/model settings without the required user authorization.
 - Keep a short durable checkpoint after each slice, before broad exploration or compaction. Link existing evidence instead of pasting whole transcripts. Do not claim that an agent hit a hard limit merely because the cycle stopped conservatively.
+
+## Rotate coordinators in either direction
+
+The same process applies to a new contributor and to the original Astra returning after a reset. Neither account's older conversation is authoritative over newer committed evidence.
+
+1. **Outgoing coordinator:** finish or explicitly park the current slice; record commits, dirty files, running commands, Claude's active assignment and remaining checks using [the checkpoint template](handoffs/TEMPLATE.md). Push safe commits and link the checkpoint in issue #40. Record whether Claude is idle or still working; do not terminate or discard work merely to hand over.
+2. **Incoming coordinator:** verify the outgoing agent has stopped dispatching and inspect live state. Announce the takeover and owned slice in issue #40 before giving Claude new instructions. If another coordinator is still active, resolve ownership before overlapping edits. A user-assigned takeover is sufficient; do not require a reply from an agent already cut off.
+3. **At every completed slice:** update the checkpoint and PR evidence. At a cutoff, mark the outcome unknown until inspected. Keep one current pointer here; retain dated checkpoints as history. A checkpoint may be updated within its documentation PR; record its revision commit in the shared issue rather than embedding a self-referential SHA.
+4. **On return:** repeat the incoming procedure even if you created the original plan. Inspect intervening diffs, user decisions and Claude's current assignment. Do not restart a completed slice, restore an old branch, or silently override the new contributor's work.
+
+No account credentials, raw session transcripts or signing material belong in the handoff. Local session IDs are optional recovery hints; the receiving contributor supplies their own authorized tooling. Record each model's actual contribution on its PR, including a returning coordinator's fixes or review.
 
 ## Recover after interruption
 
