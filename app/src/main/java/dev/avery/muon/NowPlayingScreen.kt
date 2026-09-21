@@ -201,19 +201,30 @@ private fun neighbours(player: MediaController?, target: SwipeTarget?): Neighbou
 @Composable
 private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, revision: () -> Int,
     modifier: Modifier = Modifier) {
+    // One gesture per controller and event revision. When the player moves on, the gesture below
+    // is disposed and rebuilt: its pointer coroutine is cancelled, its settling job dies with its
+    // scope, and it returns centred with fresh covers — even if the finger never moved. A finger
+    // still down cannot resume, because a new detector waits for a new press.
+    val shown = revision()
+    key(player, shown) { ArtworkGesture(p, player, shown, revision, modifier) }
+}
+
+/**
+ * The gesture as it exists for one snapshot of the player. [shown] is the revision these covers
+ * were chosen from; [revision] is read again live, to catch an event that has not yet reached
+ * composition.
+ */
+@Composable
+private fun ArtworkGesture(p: PlaybackUi, player: MediaController?, shown: Int,
+    revision: () -> Int, modifier: Modifier) {
     val offset = remember { Animatable(0f) }
     val controller = rememberUpdatedState(player)
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    // Read here so a queue change repaints the covers. The gesture below calls revision() itself
-    // instead of reusing this, because a player event can land before the next composition.
-    val shown = revision()
-    val displayed = remember(shown, p.item?.mediaId, player) { player?.let { swipeTarget(it, shown) } }
-    // The covers load through the usual bounded Artwork cache, once per track or queue change.
-    val sides = remember(displayed) { neighbours(player, displayed) }
-    // Whoever changed the track — this gesture, a button, or the queue moving on — the artwork
-    // belongs back under the finger's starting point.
-    LaunchedEffect(p.item?.mediaId) { offset.snapTo(0f) }
+    // The snapshot these covers were chosen from. A gesture may only act on this exact state.
+    val displayed = remember { player?.let { swipeTarget(it, shown) } }
+    // The covers load through the usual bounded Artwork cache, once per group.
+    val sides = remember { neighbours(player, displayed) }
     Box(modifier
         // The neighbours wait outside the viewport until a drag pulls them in.
         .clip(RoundedCornerShape(24.dp))
@@ -233,8 +244,14 @@ private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, revision: 
                 onDragStart = {
                     moving?.cancel()
                     drag = 0f
-                    began = controller.value
-                    startedOn = began?.let { swipeTarget(it, revision()) }
+                    // A player event can land before the composition that would rebuild this
+                    // group, so a drag starting in that window would be acting on covers that are
+                    // already stale. Start only if the player still agrees with what is drawn.
+                    val live = controller.value
+                    val now = live?.let { swipeTarget(it, revision()) }
+                    val agrees = live === player && displayed != null && now == displayed
+                    began = if (agrees) live else null
+                    startedOn = if (agrees) displayed else null
                 },
                 onDragCancel = {
                     release()
