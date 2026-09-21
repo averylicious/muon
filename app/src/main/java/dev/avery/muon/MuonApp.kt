@@ -161,31 +161,28 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 }
                                 Tab.Library -> {
                                     val open = openList
-                                    Column {
-                                        if (open == null) {
-                                            LibraryBar()
-                                            LibraryChips(library.view, library::choose)
-                                        } else {
-                                            PlaylistBar(open.name, open.count) { openId = null }
-                                        }
-                                        // Only the list pulls: the bar and the chips stay put, and
-                                        // the chips keep their own horizontal scrolling.
-                                        LibraryPane(model.busy, { model.connect() }) {
-                                            when {
-                                                open != null -> {
-                                                    val tracks = model.tracksByPlaylist[open.id].orEmpty()
-                                                    TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
-                                                        emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
-                                                        loading = model.busy) { startQueue(tracks, it) }
-                                                }
-                                                library.view == LibraryView.Songs ->
-                                                    TrackList(all, model.endpoint, ui.item?.mediaId, player != null,
-                                                        emptyText = "No music yet. Add local music in Tauon, then refresh.",
-                                                        loading = model.busy) { startQueue(all, it) }
-                                                else -> PlaylistRows(model.playlists, model.busy) {
-                                                    openOrigin = origin; openId = it
-                                                }
+                                    if (open == null) {
+                                        // Greeting, chips, then the list; only the list pulls, and
+                                        // the greeting unfolds before a pull begins.
+                                        LibraryTop(all.size, library.view, library::choose,
+                                            model.busy, { model.connect() }) {
+                                            if (library.view == LibraryView.Songs)
+                                                TrackList(all, model.endpoint, ui.item?.mediaId, player != null,
+                                                    emptyText = "No music yet. Add local music in Tauon, then refresh.",
+                                                    loading = model.busy) { startQueue(all, it) }
+                                            else PlaylistRows(model.playlists, model.busy) {
+                                                openOrigin = origin; openId = it
                                             }
+                                        }
+                                    } else Column {
+                                        // One playlist keeps its own compact bar: its name is the
+                                        // heading, and a greeting would be in the way.
+                                        PlaylistBar(open.name, open.count) { openId = null }
+                                        LibraryPane(model.busy, { model.connect() }) {
+                                            val tracks = model.tracksByPlaylist[open.id].orEmpty()
+                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                                emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
+                                                loading = model.busy) { startQueue(tracks, it) }
                                         }
                                     }
                                 }

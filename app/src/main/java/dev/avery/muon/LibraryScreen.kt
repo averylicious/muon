@@ -11,6 +11,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -18,15 +21,103 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+/** Material's large bar asks for this much height when expanded, before any font scaling. */
+internal const val LIBRARY_HEADER = 152f
+
+/** Below this much room for the list, a greeting is taking space the music needs. */
+internal const val LIBRARY_MINIMUM_LIST = 240f
+
+/**
+ * How tall the greeting may be, or `null` when the window cannot afford one.
+ *
+ * The greeting is two lines of 36sp above a count, so it grows with the text, and so does the
+ * space a useful stretch of list needs: both sides of the comparison scale together, at the size
+ * the system actually reports. A tall portrait window affords the greeting; a short landscape or
+ * split-screen one does not, and spending most of it on a welcome rather than on music would be
+ * the wrong trade.
+ */
+internal fun libraryHeaderHeight(windowHeight: Float, fontScale: Float): Float? {
+    val scale = fontScale.coerceAtLeast(1f)
+    val header = LIBRARY_HEADER * scale
+    return header.takeIf { windowHeight - it >= LIBRARY_MINIMUM_LIST * scale }
+}
+
+/**
+ * The greeting, folding into a compact bar as the list scrolls up.
+ *
+ * The Refresh button is gone: pulling the list down refreshes it (#44). The action itself is
+ * still reachable without the gesture, as a custom accessibility action on the list below.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun LibraryBar() {
-    // The Refresh button is gone: pulling the list down refreshes it (#44). The action itself is
-    // still reachable without the gesture, as a custom accessibility action on the list below.
-    TopAppBar(title = { Text("Library", style = MaterialTheme.typography.titleLarge) },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-        // The scaffold already applies the status bar inset to this content.
-        windowInsets = WindowInsets(0, 0, 0, 0))
+private fun LibraryHeader(tracks: Int, expandedHeight: Float?,
+    scrollBehavior: TopAppBarScrollBehavior) {
+    val colors = TopAppBarDefaults.topAppBarColors(
+        containerColor = MaterialTheme.colorScheme.background,
+        scrolledContainerColor = MaterialTheme.colorScheme.background)
+    // The scaffold already applies the status bar inset to this content.
+    val insets = WindowInsets(0, 0, 0, 0)
+    if (expandedHeight == null) {
+        TopAppBar(title = { Text("Library", style = MaterialTheme.typography.titleLarge) },
+            colors = colors, windowInsets = insets)
+    } else {
+        LargeTopAppBar(
+            title = { Greeting(tracks) },
+            colors = colors,
+            expandedHeight = expandedHeight.dp,
+            windowInsets = insets,
+            scrollBehavior = scrollBehavior,
+        )
+    }
+}
+
+/**
+ * Bold, as #40 decided: regular weight read wrong on a two-line greeting. The bar hands its
+ * expanded slot `headlineMedium` and its collapsed slot `titleLarge`, so reading the style it was
+ * given says which slot this is, without watching the scroll position from composition.
+ */
+@Composable
+private fun Greeting(tracks: Int) {
+    val collapsed = LocalTextStyle.current.fontSize == MaterialTheme.typography.titleLarge.fontSize
+    if (collapsed) {
+        Text("Library", style = MaterialTheme.typography.titleLarge,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    } else Column {
+        Text("Your music,\nnearby.", style = MaterialTheme.typography.displaySmall,
+            fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (tracks > 0) Text("$tracks ${if (tracks == 1) "track" else "tracks"} from your desktop",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * The top-level library: greeting, view chips, and the list under a pull to refresh.
+ *
+ * The collapsing bar's nested scroll sits *inside* the pull container, so an upward scroll folds
+ * the greeting first and a downward one unfolds it before the pull begins: a drag at the top
+ * restores the greeting, and only a further pull refreshes.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LibraryTop(tracks: Int, view: LibraryView, choose: (LibraryView) -> Unit,
+    refreshing: Boolean, refresh: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val expanded = libraryHeaderHeight(maxHeight.value, LocalDensity.current.fontScale)
+        val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+        Column(Modifier.fillMaxSize()) {
+            LibraryHeader(tracks, expanded, scrollBehavior)
+            LibraryChips(view, choose)
+            LibraryPane(refreshing, refresh) {
+                Box(Modifier.fillMaxSize().then(
+                    if (expanded != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+                    else Modifier)) {
+                    content()
+                }
+            }
+        }
+    }
 }
 
 /**
