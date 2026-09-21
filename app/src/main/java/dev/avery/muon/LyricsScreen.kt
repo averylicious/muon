@@ -29,9 +29,12 @@ internal const val LYRICS_MINIMUM_BODY = 200f
  * needs, so both sides of the comparison scale together. A tall portrait window affords the big
  * title; a short landscape or split-screen one, especially at large text sizes, does not, and
  * spending two thirds of it on a title the reader already knows would leave a few lines of song.
+ *
+ * The scale is used as the system reports it, with no ceiling: the text really is that big, and
+ * reserving space for smaller text than is drawn would defeat the point of asking.
  */
 internal fun lyricsHeaderHeight(windowHeight: Float, fontScale: Float): Float? {
-    val scale = fontScale.coerceIn(1f, 2f)
+    val scale = fontScale.coerceAtLeast(1f)
     val header = LYRICS_LARGE_HEADER * scale
     return header.takeIf { windowHeight - it >= LYRICS_MINIMUM_BODY * scale }
 }

@@ -25,8 +25,17 @@ class LyricsHeaderTest {
         assertNull(lyricsHeaderHeight(windowHeight = 351f, fontScale = 1f))
     }
 
-    /** A font scale beyond the clamp must not make the header grow without bound. */
-    @Test fun anExtremeFontScaleIsClamped() {
-        assertEquals(304f, lyricsHeaderHeight(windowHeight = 2000f, fontScale = 5f)!!, 0.01f)
+    /**
+     * At accessibility text sizes the words are drawn that big, so the header is measured that big
+     * too: an ordinary tall window no longer affords one.
+     */
+    @Test fun anExtremeTextSizeFallsBackEvenInATallWindow() {
+        assertNull(lyricsHeaderHeight(windowHeight = 800f, fontScale = 3f))
+        assertEquals(456f, lyricsHeaderHeight(windowHeight = 1400f, fontScale = 3f)!!, 0.01f)
+    }
+
+    /** A scale below one is treated as one; nothing shrinks the header below its design size. */
+    @Test fun aSmallTextSizeDoesNotShrinkTheHeader() {
+        assertEquals(152f, lyricsHeaderHeight(windowHeight = 800f, fontScale = 0.85f)!!, 0.01f)
     }
 }
