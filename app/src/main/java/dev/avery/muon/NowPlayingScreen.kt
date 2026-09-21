@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.launch
@@ -33,8 +34,8 @@ import kotlinx.coroutines.launch
  * state here.
  */
 @Composable
-internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, player: MediaController?,
-    collapse: () -> Unit, lyrics: () -> Unit) {
+internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: Int,
+    player: MediaController?, collapse: () -> Unit, lyrics: () -> Unit) {
     if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
@@ -57,7 +58,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, player: Medi
             }
             Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
                 contentAlignment = Alignment.Center) {
-                SwipeableArtwork(p, player, Modifier.widthIn(max = 400.dp).aspectRatio(1f))
+                SwipeableArtwork(p, player, revision, Modifier.widthIn(max = 400.dp).aspectRatio(1f))
             }
             Column(Modifier.fillMaxWidth()) {
                 Text(p.item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
@@ -132,33 +133,76 @@ private val SwipeSpring = spring<Float>(dampingRatio = Spring.DampingRatioLowBou
     stiffness = Spring.StiffnessMediumLow)
 
 /**
+ * The player's own answer to "what is playing, what is either side of it, and would you move".
+ *
+ * The neighbour indices come from the player rather than from arithmetic, so shuffle is already
+ * accounted for and Repeat One is ignored exactly as it is for the buttons.
+ */
+private fun swipeTarget(player: MediaController, revision: Int): SwipeTarget {
+    val timeline = player.isCommandAvailable(Player.COMMAND_GET_TIMELINE)
+    return SwipeTarget(
+        revision = revision,
+        mediaId = player.currentMediaItem?.mediaId,
+        index = player.currentMediaItemIndex,
+        queueSize = player.mediaItemCount,
+        nextIndex = if (timeline) player.nextMediaItemIndex else C.INDEX_UNSET,
+        previousIndex = if (timeline) player.previousMediaItemIndex else C.INDEX_UNSET,
+        canNext = player.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) && player.hasNextMediaItem(),
+        canPrevious = player.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            && player.hasPreviousMediaItem(),
+    )
+}
+
+/** The covers either side of the current one. A null cover still means the track is there. */
+@Immutable
+private data class Neighbours(val previous: String?, val hasPrevious: Boolean,
+    val next: String?, val hasNext: Boolean)
+
+/** Read once per track or queue change, never while a finger is moving. */
+private fun neighbours(player: MediaController?): Neighbours {
+    if (player == null || !player.isCommandAvailable(Player.COMMAND_GET_TIMELINE)) {
+        return Neighbours(null, false, null, false)
+    }
+    val count = player.mediaItemCount
+    fun art(index: Int): String? = player.getMediaItemAt(index).mediaMetadata.artworkUri?.toString()
+    val previous = player.previousMediaItemIndex.takeIf { it != C.INDEX_UNSET && it in 0 until count }
+    val next = player.nextMediaItemIndex.takeIf { it != C.INDEX_UNSET && it in 0 until count }
+    return Neighbours(previous?.let(::art), previous != null, next?.let(::art), next != null)
+}
+
+/**
  * Artwork that follows a horizontal drag and changes track when the drag commits.
  *
  * The Previous and Next buttons remain the reliable way to do this; the gesture is the shortcut.
  *
- * The drag distance lives inside the pointer handler, and the offset is read in the draw phase
- * through [graphicsLayer] rather than in composition, so moving the artwork does not recompose the
- * player.
+ * The covers either side slide in with it, so what is revealed is the track that a release would
+ * actually select — the player's own next and previous, shuffle included.
  *
- * A gesture belongs to the track and controller it began on. Both are captured at the start and
- * must still match at the end, because a track ending by itself mid-drag would otherwise make the
- * release skip the track that replaced it. Availability is read from the controller at the moment
- * of commit, not from the event-driven snapshot, which can lag behind it.
+ * The drag distance lives inside the pointer handler, and all three covers read the offset in the
+ * draw phase through [graphicsLayer] rather than in composition, so moving them does not recompose
+ * the player.
+ *
+ * A gesture belongs to the track, the neighbours and the controller it began on. All of them are
+ * captured at the start and must still match at the end: a track ending by itself mid-drag would
+ * otherwise make the release skip its replacement, and a queue replaced with one of the same
+ * length, or shuffle being toggled, would commit to a cover the user was never shown.
  */
-/** The player's own answer to "what is playing, and where is it", taken on the calling thread. */
-private fun swipeTarget(player: MediaController) =
-    SwipeTarget(player.currentMediaItem?.mediaId, player.currentMediaItemIndex, player.mediaItemCount)
-
 @Composable
-private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, modifier: Modifier = Modifier) {
+private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, revision: Int,
+    modifier: Modifier = Modifier) {
     val offset = remember { Animatable(0f) }
     val controller = rememberUpdatedState(player)
+    val generation = rememberUpdatedState(revision)
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    // The covers load through the usual bounded Artwork cache, once per track or queue change.
+    val sides = remember(revision, p.item?.mediaId, player) { neighbours(player) }
     // Whoever changed the track — this gesture, a button, or the queue moving on — the artwork
     // belongs back under the finger's starting point.
     LaunchedEffect(p.item?.mediaId) { offset.snapTo(0f) }
     Box(modifier
+        // The neighbours wait outside the viewport until a drag pulls them in.
+        .clip(RoundedCornerShape(24.dp))
         .pointerInput(Unit) {
             val minimum = SwipeMinimum.toPx()
             // Kept here rather than in state: a drag must not recompose anything to move pixels.
@@ -170,7 +214,7 @@ private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, modifier: 
                 onDragStart = {
                     drag = 0f
                     began = controller.value
-                    startedOn = began?.let(::swipeTarget)
+                    startedOn = began?.let { swipeTarget(it, generation.value) }
                 },
                 onDragCancel = {
                     release()
@@ -179,10 +223,10 @@ private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, modifier: 
                 onDragEnd = {
                     val live = controller.value
                     // Same controller, same track, same place in the same queue, or nothing.
-                    val valid = live != null && live === began && swipeTargetUnchanged(startedOn, swipeTarget(live))
-                    val action = if (!valid || live == null) SwipeAction.None
-                        else swipeAction(drag, size.width, minimum,
-                            live.hasNextMediaItem(), live.hasPreviousMediaItem())
+                    val now = live?.let { swipeTarget(it, generation.value) }
+                    val valid = live != null && live === began && swipeTargetUnchanged(startedOn, now)
+                    val action = if (!valid || now == null) SwipeAction.None
+                        else swipeAction(drag, size.width, minimum, now.canNext, now.canPrevious)
                     // Cleared before dispatching, so a second gesture cannot repeat this one.
                     release()
                     if (action != SwipeAction.None) {
@@ -195,18 +239,22 @@ private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, modifier: 
                 onHorizontalDrag = { change, delta ->
                     change.consume()
                     drag += delta
-                    // The artwork resists towards a track that is not there, asked of the player
-                    // itself so it agrees with what a release would actually do.
-                    val live = controller.value?.takeIf { it === began }
-                    val next = live?.hasNextMediaItem() == true
-                    val previous = live?.hasPreviousMediaItem() == true
-                    scope.launch { offset.snapTo(swipeOffset(drag, next, previous)) }
+                    // Resistance follows what the gesture began on, so the artwork cannot promise
+                    // a move that the commit check is about to refuse.
+                    val start = startedOn
+                    scope.launch {
+                        offset.snapTo(swipeOffset(drag, start?.canNext == true, start?.canPrevious == true))
+                    }
                 },
             )
         }
-        .graphicsLayer { translationX = offset.value }) {
+    ) {
+        if (sides.hasPrevious) Artwork(sides.previous,
+            Modifier.matchParentSize().graphicsLayer { translationX = offset.value - size.width })
+        if (sides.hasNext) Artwork(sides.next,
+            Modifier.matchParentSize().graphicsLayer { translationX = offset.value + size.width })
         Artwork(p.item?.mediaMetadata?.artworkUri?.toString(),
-            Modifier.fillMaxSize().clip(RoundedCornerShape(24.dp)))
+            Modifier.matchParentSize().graphicsLayer { translationX = offset.value })
     }
 }
 

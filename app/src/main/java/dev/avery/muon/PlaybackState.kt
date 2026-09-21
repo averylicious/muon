@@ -23,6 +23,15 @@ internal data class PlaybackUi(val item: MediaItem? = null, val playing: Boolean
 internal class PlaybackState {
     var ui by mutableStateOf(PlaybackUi())
     var position by mutableLongStateOf(0L)
+    /**
+     * Bumped when the queue, its order or what the player will accept changes.
+     *
+     * A gesture that shows the next cover has to be invalidated by more than the current track's
+     * identity: replacing a queue with one of the same length, or toggling shuffle, changes which
+     * track is next without changing the media ID, the index or the count. The position ticker
+     * deliberately does not touch this.
+     */
+    var revision by mutableIntStateOf(0)
 }
 
 /**
@@ -49,7 +58,16 @@ internal fun rememberPlayback(player: MediaController?): PlaybackState {
                 player.repeatMode)
             state.position = player?.currentPosition?.coerceAtLeast(0) ?: 0L
         }
-        val listener = object : Player.Listener { override fun onEvents(p: Player, events: Player.Events) { update() } }
+        val listener = object : Player.Listener {
+            override fun onEvents(p: Player, events: Player.Events) {
+                update()
+                if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
+                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED,
+                        Player.EVENT_AVAILABLE_COMMANDS_CHANGED)) {
+                    state.revision++
+                }
+            }
+        }
         player?.addListener(listener); update()
         onDispose { player?.removeListener(listener) }
     }

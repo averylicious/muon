@@ -31,18 +31,32 @@ internal fun swipeOffset(drag: Float, hasNext: Boolean, hasPrevious: Boolean): F
     if ((drag < 0f && !hasNext) || (drag > 0f && !hasPrevious)) drag / 3f else drag
 
 /**
- * What the player was showing when a drag began: the track, where it sits in the queue, and how
- * long the queue was. Repeated tracks share a media ID, so the index is part of the identity.
+ * What the player was showing when a drag began, and what it would have done on release.
+ *
+ * Repeated tracks share a media ID, so the index is part of the identity, and a queue can be
+ * replaced by one of the same length, so [revision] carries the player's own event history. The
+ * neighbour indices are the player's answers rather than index arithmetic, so shuffle and repeat
+ * are already accounted for; the command flags say whether it would accept the move at all.
  */
-internal data class SwipeTarget(val mediaId: String?, val index: Int, val queueSize: Int)
+internal data class SwipeTarget(
+    val revision: Int,
+    val mediaId: String?,
+    val index: Int,
+    val queueSize: Int,
+    val nextIndex: Int,
+    val previousIndex: Int,
+    val canNext: Boolean,
+    val canPrevious: Boolean,
+)
 
 /**
  * Whether a gesture may still act.
  *
- * A drag belongs to the track it started on. If that track ends by itself mid-drag, releasing must
- * not skip the track that replaced it, so anything that moved — the track, its position, or the
- * length of the queue — cancels the gesture. Being conservative costs a spring-back; being
- * permissive skips a track the user never asked to skip.
+ * A drag belongs to the track it started on, and to the neighbours it was showing. If that track
+ * ends by itself mid-drag, releasing must not skip the track that replaced it, so anything that
+ * moved — the track, its position, the queue, its order, or what the player will accept — cancels
+ * the gesture. Being conservative costs a spring-back; being permissive skips a track the user
+ * never asked to skip, or commits to a cover they were never shown.
  */
 internal fun swipeTargetUnchanged(start: SwipeTarget?, now: SwipeTarget?): Boolean =
     start != null && start == now

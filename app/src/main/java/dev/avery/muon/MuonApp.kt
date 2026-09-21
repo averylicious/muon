@@ -164,7 +164,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
             // The overlay rises from the bottom, where the mini player it grew out of sits.
             FullScreenOverlay(visible = overlayOpen && !lyricsShown) {
-                NowPlayingOverlay(ui, position, player, collapse = { playerOpen = false }) { lyricsOpen = true }
+                NowPlayingOverlay(ui, position, playback.revision, player,
+                    collapse = { playerOpen = false }) { lyricsOpen = true }
             }
             FullScreenOverlay(visible = lyricsShown) {
                 LyricsScreen(ui.item) { lyricsOpen = false }

@@ -45,7 +45,10 @@ class ArtworkSwipeTest {
         assertEquals(40f, swipeOffset(120f, hasNext = true, hasPrevious = false), 0.01f)
     }
 
-    private val playing = SwipeTarget(mediaId = "http://10.0.0.2:7814/12", index = 3, queueSize = 20)
+    private val playing = SwipeTarget(
+        revision = 7, mediaId = "http://10.0.0.2:7814/12", index = 3, queueSize = 20,
+        nextIndex = 4, previousIndex = 2, canNext = true, canPrevious = true,
+    )
 
     @Test fun aGestureActsWhenNothingMovedUnderIt() {
         assertTrue(swipeTargetUnchanged(playing, playing.copy()))
@@ -54,6 +57,26 @@ class ArtworkSwipeTest {
     /** The track ended by itself mid-drag: releasing must not skip whatever replaced it. */
     @Test fun aTrackChangeDuringTheDragCancelsIt() {
         assertFalse(swipeTargetUnchanged(playing, playing.copy(mediaId = "http://10.0.0.2:7814/13", index = 4)))
+    }
+
+    /**
+     * A queue replaced by one of the same length, or shuffle toggled: the media ID, index and
+     * count can all survive that, so the player's own event revision is what catches it.
+     */
+    @Test fun aQueueOrModeChangeCancelsItEvenWhenTheVisibleFieldsMatch() {
+        assertFalse(swipeTargetUnchanged(playing, playing.copy(revision = 8)))
+    }
+
+    /** Shuffle reordered what comes next: the cover on screen is no longer what release selects. */
+    @Test fun aChangedNeighbourCancelsIt() {
+        assertFalse(swipeTargetUnchanged(playing, playing.copy(nextIndex = 11)))
+        assertFalse(swipeTargetUnchanged(playing, playing.copy(previousIndex = 11)))
+    }
+
+    /** The player stopped accepting the move while the finger was down. */
+    @Test fun losingASeekCommandCancelsIt() {
+        assertFalse(swipeTargetUnchanged(playing, playing.copy(canNext = false)))
+        assertFalse(swipeTargetUnchanged(playing, playing.copy(canPrevious = false)))
     }
 
     /** The same track can appear twice, so the media ID alone cannot identify the gesture. */
