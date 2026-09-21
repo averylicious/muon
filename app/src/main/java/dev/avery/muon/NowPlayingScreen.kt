@@ -110,12 +110,13 @@ private fun VolumeRow() {
     val volume = rememberMediaVolumeController()
     val state = volume.state
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            MuonIcon("volume-low", Modifier.size(18.dp))
-            Box(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                MediaVolumeSlider(state, volume::setVolume)
-            }
-            MuonIcon("volume", Modifier.size(18.dp))
+        // Aligned to the track the slider publishes, not to the middle of the control: the space
+        // it reserves for the percentage bubble would otherwise push the speakers above the track.
+        Row(Modifier.fillMaxWidth()) {
+            MuonIcon("volume-low", Modifier.size(18.dp).alignBy { it.measuredHeight / 2 })
+            MediaVolumeSlider(state, volume::setVolume,
+                Modifier.weight(1f).padding(horizontal = 8.dp).alignBy(VolumeTrackCenter))
+            MuonIcon("volume", Modifier.size(18.dp).alignBy { it.measuredHeight / 2 })
         }
         if (state.fixed) Text("Volume is fixed by this device.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

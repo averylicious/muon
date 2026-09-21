@@ -14,7 +14,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.HorizontalAlignmentLine
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -22,11 +24,23 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlin.math.min
 import kotlin.math.roundToInt
+
+/**
+ * Where the volume track's centre sits inside this control.
+ *
+ * The slider reserves space above itself for the floating percentage, so the middle of the whole
+ * control is not the middle of the track. Anything that should line up with the track — the speaker
+ * icons beside it — aligns to this line instead, which keeps them right at any font scale and
+ * whether or not the bubble is reserved.
+ */
+internal val VolumeTrackCenter = HorizontalAlignmentLine(::min)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit) {
+internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit,
+    modifier: Modifier = Modifier) {
     val interaction = remember { MutableInteractionSource() }
     val labelStyle = MaterialTheme.typography.labelLarge
     val labelSize = rememberTextMeasurer().measure("100%", style = labelStyle).size
@@ -42,10 +56,18 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
         steps = (state.maximum - state.minimum - 1).coerceAtLeast(0),
         enabled = enabled,
         interactionSource = interaction,
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
             // Reserve room for the bubble at both endpoints and at larger font scales.
             .padding(horizontal = labelWidth / 2, vertical = 0.dp)
             .padding(top = if (state.fixed) 0.dp else labelHeight + 8.dp)
+            // Measured inside that reserved space, so the line lands on the track itself; the
+            // padding above offsets it as it propagates out to whoever is aligning with it.
+            .layout { measurable, constraints ->
+                val slider = measurable.measure(constraints)
+                layout(slider.width, slider.height, mapOf(VolumeTrackCenter to slider.height / 2)) {
+                    slider.place(0, 0)
+                }
+            }
             .semantics { contentDescription = "Media volume level" },
         thumb = {
             Layout(content = {
