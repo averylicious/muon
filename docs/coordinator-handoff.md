@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first. Latest recorded checkpoint: [2026-09-21, Muon 2.0](handoffs/2026-09-21-muon-2.md). Update this pointer when adding a newer checkpoint. Checkpoints are dated evidence, not automatic authorization or live status.
+This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first. Latest recorded checkpoint: [2026-09-22, missing metadata](handoffs/2026-09-22-missing-metadata.md). Update this pointer when adding a newer checkpoint. Checkpoints are dated evidence, not automatic authorization or live status.
 
 ## Start with a small refresh
 
