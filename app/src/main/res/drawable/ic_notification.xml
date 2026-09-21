@@ -1,0 +1,16 @@
+<!-- Monochrome Muon mark without adaptive-launcher padding; Android supplies the tint. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="54" android:viewportHeight="54">
+    <group android:translateX="-27" android:translateY="-27">
+        <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="10" android:strokeLineCap="round"
+            android:pathData="M39.6,47.6 V62"/>
+        <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="10" android:strokeLineCap="round"
+            android:pathData="M54,39.6 V68.4"/>
+        <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="10" android:strokeLineCap="round"
+            android:pathData="M68.4,44.4 V65.2"/>
+    </group>
+</vector>
