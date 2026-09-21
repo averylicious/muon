@@ -12,7 +12,8 @@ SHA = re.compile(r'[0-9a-f]{40}')
 
 
 def is_documentation(path):
-    # This lives under docs but is an input to APK identity verification.
+    # Keep verification inputs out of the prose allowlist, even under docs/.
+    # Add future build/verification inputs here when introducing their consumers.
     if path == 'docs/signing-certificates.txt':
         return False
     p = PurePosixPath(path)
@@ -34,6 +35,8 @@ def classify(event_name, ref, head, event):
     """Return (build_apks, reason, changed paths). Unknown history builds, never skips."""
     if event_name != 'push' or not ref.startswith('refs/heads/'):
         return True, 'Manual, tag or non-branch event: full build.', set()
+    if event.get('deleted'):
+        return False, 'Deleted branch: no APK build required.', set()
     if not SHA.fullmatch(head):
         return True, 'Unknown head commit: full build.', set()
     try:
@@ -63,7 +66,7 @@ def check_documents(paths):
         if path.suffix.lower() not in {'.md', '.txt'} or not path.is_file():
             continue  # Deleted files and binary design assets need no prose check.
         text = path.read_text(encoding='utf-8')
-        if '\0' in text or re.search(r'^(?:<{7}|={7}|>{7})(?: |$)', text, re.MULTILINE):
+        if '\0' in text or re.search(r'^(?:<{7}|>{7})(?: |$)', text, re.MULTILINE):
             raise ValueError(f'Invalid text or unresolved merge marker: {name}')
         # GitHub-style backtick and tilde fences; closing fences may be longer.
         fence = None

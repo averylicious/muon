@@ -88,6 +88,10 @@ class ScopeTest(unittest.TestCase):
         head = self.commit('README.md', '# Updated')
         self.assertTrue(self.scope(head))
 
+    def test_deleted_branch_needs_no_apks(self):
+        self.assertFalse(ci_scope.classify('push', 'refs/heads/old', self.base,
+                                          {'deleted': True, 'after': '0' * 40})[0])
+
     def test_manual_and_tag_always_build(self):
         for event, ref in [('workflow_dispatch', 'refs/heads/docs'), ('push', 'refs/tags/v1.0.0')]:
             self.assertTrue(ci_scope.classify(event, ref, self.base, {})[0])
@@ -95,7 +99,7 @@ class ScopeTest(unittest.TestCase):
     def test_document_checks(self):
         Path('docs').mkdir()
         path = Path('docs/check.md')
-        path.write_text('~~~text\n```\n~~~~\n')
+        path.write_text('Heading\n=======\n~~~text\n```\n~~~~\n')
         ci_scope.check_documents([str(path), 'docs/deleted.md'])
         for bad in ['```python\nmissing close', '<<<<<<< HEAD\ntext', 'bad\0text']:
             path.write_text(bad)
