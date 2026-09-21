@@ -17,15 +17,48 @@ internal fun libraryViewFrom(stored: String?): LibraryView =
     if (stored == LibraryView.Playlists.name) LibraryView.Playlists else LibraryView.Songs
 
 /**
- * The playlist a detail view should show, or `null` to go back to the list.
+ * The playlist an identifier names, if it still names one with music in it.
  *
- * A refresh can empty a playlist or remove it entirely, and a different server can reuse the same
- * identifier for something else. Rather than watch for those, the screen asks this question every
- * time it draws, so an identifier that no longer names a playlist with music in it simply stops
- * opening one.
+ * A refresh can empty a playlist or remove it entirely, so the screen asks this every time it
+ * draws rather than watching for those events.
  */
 internal fun openPlaylist(id: String?, playlists: List<TauonPlaylist>): TauonPlaylist? =
     id?.let { wanted -> playlists.firstOrNull { it.id == wanted && it.count > 0 } }
+
+/** What to do with a playlist selection that outlived the composition that made it. */
+internal enum class StoredSelection {
+    /** Nothing was stored. */
+    None,
+
+    /** Stored, but there is no loaded library to judge it against yet. Show the list meanwhile. */
+    Wait,
+
+    /** Still names a playlist with music on the server it was made for. */
+    Open,
+
+    /** The server changed, or the playlist was emptied or removed. Forget it. */
+    Discard,
+}
+
+/**
+ * Whether a saved selection may still be opened.
+ *
+ * The selection is bound to the server it was made on, because identifiers mean nothing across
+ * servers and one could name something else entirely. Judging it needs a loaded library, so until
+ * there is one the answer is [Wait] rather than [Discard]: an app reopened from scratch has a
+ * saved selection and an empty model for a moment, and discarding then would throw away a choice
+ * that is about to become valid again. Once a library is loaded the answer is final, so a
+ * selection that cannot be opened is forgotten rather than left to reappear if a later refresh
+ * brings that identifier back.
+ */
+internal fun storedSelection(savedOrigin: String?, savedId: String?, origin: String?,
+    playlists: List<TauonPlaylist>, libraryLoaded: Boolean): StoredSelection = when {
+    savedId == null || savedOrigin == null -> StoredSelection.None
+    origin == null || !libraryLoaded -> StoredSelection.Wait
+    savedOrigin != origin -> StoredSelection.Discard
+    openPlaylist(savedId, playlists) == null -> StoredSelection.Discard
+    else -> StoredSelection.Open
+}
 
 /**
  * How the library is browsed, kept apart from the connection preferences that `disconnect()`
