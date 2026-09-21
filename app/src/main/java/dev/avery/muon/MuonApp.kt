@@ -71,8 +71,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         val connected = model.endpoint != null
         val origin = model.endpoint?.origin
-        val selection = storedSelection(openOrigin, openId, origin, model.playlists,
-            libraryLoaded = model.playlists.isNotEmpty())
+        // An endpoint exists only after a complete load succeeded, so it is both the identity of
+        // the server and the signal that there is something to judge a saved selection against.
+        val selection = storedSelection(openOrigin, openId, origin, model.playlists)
         val openList = if (selection == StoredSelection.Open) openPlaylist(openId, model.playlists) else null
         if (selection == StoredSelection.Discard) {
             // Cleared as soon as there is a library to judge against, so Back has nothing phantom

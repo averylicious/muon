@@ -30,7 +30,7 @@ internal enum class StoredSelection {
     /** Nothing was stored. */
     None,
 
-    /** Stored, but there is no loaded library to judge it against yet. Show the list meanwhile. */
+    /** Stored, but no server is loaded to judge it against yet. Show the list meanwhile. */
     Wait,
 
     /** Still names a playlist with music on the server it was made for. */
@@ -44,17 +44,20 @@ internal enum class StoredSelection {
  * Whether a saved selection may still be opened.
  *
  * The selection is bound to the server it was made on, because identifiers mean nothing across
- * servers and one could name something else entirely. Judging it needs a loaded library, so until
- * there is one the answer is [Wait] rather than [Discard]: an app reopened from scratch has a
- * saved selection and an empty model for a moment, and discarding then would throw away a choice
- * that is about to become valid again. Once a library is loaded the answer is final, so a
- * selection that cannot be opened is forgotten rather than left to reappear if a later refresh
- * brings that identifier back.
+ * servers and one could name something else entirely.
+ *
+ * [origin] is the load signal as well as the identity: `LibraryModel` publishes an endpoint only
+ * after a connection and a complete playlist load succeed, and keeps it through a failed refresh.
+ * So a null origin means there is nothing to judge against yet — an app reopened from scratch has
+ * a saved selection and an empty model for a moment, and discarding then would throw away a
+ * choice about to become valid again. A non-null origin means the answer is final, including for
+ * a server that genuinely has no playlists: the selection is forgotten rather than left to
+ * reappear if a later refresh brings that identifier back.
  */
 internal fun storedSelection(savedOrigin: String?, savedId: String?, origin: String?,
-    playlists: List<TauonPlaylist>, libraryLoaded: Boolean): StoredSelection = when {
+    playlists: List<TauonPlaylist>): StoredSelection = when {
     savedId == null || savedOrigin == null -> StoredSelection.None
-    origin == null || !libraryLoaded -> StoredSelection.Wait
+    origin == null -> StoredSelection.Wait
     savedOrigin != origin -> StoredSelection.Discard
     openPlaylist(savedId, playlists) == null -> StoredSelection.Discard
     else -> StoredSelection.Open
