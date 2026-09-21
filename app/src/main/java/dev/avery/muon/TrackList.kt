@@ -22,8 +22,14 @@ import androidx.compose.ui.unit.dp
 internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
     emptyText: String, loading: Boolean = false, play: (TauonTrack) -> Unit) {
     if (tracks.isEmpty() && loading) PlaceholderRows()
-    else if (tracks.isEmpty()) Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Text(emptyText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // A list of one full-height item rather than a plain box: an empty library is exactly when a
+    // refresh is wanted, and a pull gesture needs something scrollable to pull.
+    else if (tracks.isEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+        item {
+            Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                Text(emptyText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     } else {
         val keys = remember(tracks) { trackKeys(tracks) }
         LazyColumn(contentPadding = PaddingValues(bottom = 12.dp)) {

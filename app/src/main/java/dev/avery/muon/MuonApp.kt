@@ -144,11 +144,15 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 Tab.Library -> {
                                     val tracks = if (selected == null) all else model.tracksByPlaylist[selected].orEmpty()
                                     Column {
-                                        LibraryBar(model.busy) { model.connect() }
+                                        LibraryBar()
                                         PlaylistChips(model.playlists, all.size, selected) { selected = it }
-                                        TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
-                                            emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
-                                            loading = model.busy) { startQueue(tracks, it) }
+                                        // Only the list pulls: the bar and the chips stay put, and
+                                        // the chips keep their own horizontal scrolling.
+                                        LibraryPane(model.busy, { model.connect() }) {
+                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                                emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
+                                                loading = model.busy) { startQueue(tracks, it) }
+                                        }
                                     }
                                 }
                                 Tab.Search -> {
