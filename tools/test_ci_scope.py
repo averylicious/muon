@@ -54,7 +54,7 @@ class ScopeTest(unittest.TestCase):
 
     def test_sensitive_and_unknown_paths_build(self):
         for path in ['app/a.md', '.github/workflows/android.yml', 'gradle/x',
-                     'tools/x.py', 'docs/generate.py', '.gitignore', 'unknown.file']:
+                     'tools/x.py', 'docs/generate.py', 'docs/signing-certificates.txt', '.gitignore', 'unknown.file']:
             with self.subTest(path=path):
                 self.assertFalse(ci_scope.is_documentation(path))
         for path in ['AGENTS.md', 'docs/design/dark/player.png', '.github/pull_request_template.md']:

@@ -12,6 +12,9 @@ SHA = re.compile(r'[0-9a-f]{40}')
 
 
 def is_documentation(path):
+    # This lives under docs but is an input to APK identity verification.
+    if path == 'docs/signing-certificates.txt':
+        return False
     p = PurePosixPath(path)
     return (path in ROOT_DOCS or path == '.github/pull_request_template.md'
             or (p.parts[0] == 'docs' and p.suffix.lower() in DOC_SUFFIXES))
