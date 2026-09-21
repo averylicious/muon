@@ -47,6 +47,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val playback = rememberPlayback(player)
         val ui = playback.ui
         val position = remember(playback) { { playback.position } }
+        // Read through a lambda so a player event reaches a gesture already in progress, without
+        // waiting for a recomposition to carry the new value down.
+        val revision = remember(playback) { { playback.revision } }
         val all = remember(model.tracksByPlaylist) { model.allTracks }
         // Filtering a large library on the composition thread stalled typing. Debounced, kept off
         // the main thread, and hoisted here so results survive a trip to another tab.
@@ -164,7 +167,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
             // The overlay rises from the bottom, where the mini player it grew out of sits.
             FullScreenOverlay(visible = overlayOpen && !lyricsShown) {
-                NowPlayingOverlay(ui, position, playback.revision, player,
+                NowPlayingOverlay(ui, position, revision, player,
                     collapse = { playerOpen = false }) { lyricsOpen = true }
             }
             FullScreenOverlay(visible = lyricsShown) {

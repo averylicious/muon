@@ -60,3 +60,11 @@ internal data class SwipeTarget(
  */
 internal fun swipeTargetUnchanged(start: SwipeTarget?, now: SwipeTarget?): Boolean =
     start != null && start == now
+
+/**
+ * How far the artwork is allowed to be drawn from home: one artwork width, so a long drag cannot
+ * push every cover out of the viewport. The finger's raw distance still decides what a release
+ * does, so clamping the picture never changes the outcome.
+ */
+internal fun clampedSwipeOffset(offset: Float, width: Int): Float =
+    offset.coerceIn(-width.toFloat(), width.toFloat())

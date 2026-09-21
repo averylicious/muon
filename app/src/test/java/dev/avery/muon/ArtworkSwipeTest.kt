@@ -95,4 +95,22 @@ class ArtworkSwipeTest {
         assertFalse(swipeTargetUnchanged(playing, null))
         assertFalse(swipeTargetUnchanged(null, null))
     }
+
+    @Test fun theDrawnOffsetIsBoundedByTheArtworkWidth() {
+        assertEquals(-800f, clampedSwipeOffset(-5000f, width), 0.01f)
+        assertEquals(800f, clampedSwipeOffset(5000f, width), 0.01f)
+        assertEquals(-120f, clampedSwipeOffset(-120f, width), 0.01f)
+    }
+
+    /** Bounding the picture must not change what a release does: the finger's distance decides. */
+    @Test fun boundingTheDrawingDoesNotChangeTheDecision() {
+        val far = -5000f
+        assertEquals(SwipeAction.Next, swipeAction(far, width, minimum, hasNext = true, hasPrevious = true))
+        assertEquals(-800f, clampedSwipeOffset(swipeOffset(far, hasNext = true, hasPrevious = true), width), 0.01f)
+    }
+
+    /** A not-yet-measured artwork must not let a drag escape to an arbitrary position. */
+    @Test fun anUnmeasuredArtworkDrawsNoOffset() {
+        assertEquals(0f, clampedSwipeOffset(-500f, width = 0), 0.01f)
+    }
 }
