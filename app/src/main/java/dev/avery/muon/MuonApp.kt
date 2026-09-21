@@ -42,7 +42,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // this, and that is the point at which a real back stack earns its keep.
         var playerOpen by rememberSaveable { mutableStateOf(false) }
         var lyricsOpen by rememberSaveable { mutableStateOf(false) }
-        var selected by rememberSaveable { mutableStateOf<String?>(null) }
+        val library = rememberLibrarySettings()
+        // Which playlist is open is about this sitting, not a preference: it survives rotation but
+        // not a different server, and a refresh that removes or empties it closes it by itself.
+        var openId by rememberSaveable { mutableStateOf<String?>(null) }
         var query by rememberSaveable { mutableStateOf("") }
         val playback = rememberPlayback(player)
         val ui = playback.ui
@@ -65,6 +68,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
         }
         val connected = model.endpoint != null
+        // Identifiers are only meaningful for the server that issued them.
+        LaunchedEffect(model.endpoint?.origin) { openId = null }
         // The queue was emptied while the overlay was open: close it rather than leaving an empty
         // surface on top. Reading the controller directly, because the snapshot above can still be
         // the empty one for a frame after a controller reconnects.
@@ -75,11 +80,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         val overlayOpen = connected && playerOpen && ui.item != null
         val lyricsShown = overlayOpen && lyricsOpen
-        BackHandler(connected && (overlayOpen || tab != Tab.Library)) {
+        BackHandler(connected && (overlayOpen || tab != Tab.Library || openId != null)) {
             when {
                 lyricsShown -> lyricsOpen = false
                 overlayOpen -> playerOpen = false
-                else -> tab = Tab.Library
+                tab != Tab.Library -> tab = Tab.Library
+                else -> openId = null
             }
         }
         fun startQueue(list: List<TauonTrack>, track: TauonTrack) {
@@ -139,19 +145,35 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 null -> ConnectScreen(model)
                                 Tab.Settings -> SettingsScreen(model, appearance) {
                                     player?.stop(); player?.clearMediaItems(); model.disconnect()
-                                    selected = null; lyricsOpen = false; playerOpen = false; tab = Tab.Library
+                                    openId = null; lyricsOpen = false; playerOpen = false; tab = Tab.Library
                                 }
                                 Tab.Library -> {
-                                    val tracks = if (selected == null) all else model.tracksByPlaylist[selected].orEmpty()
+                                    // Asked every time it draws, so a playlist that a refresh
+                                    // removed or emptied simply stops being open.
+                                    val open = openPlaylist(openId, model.playlists)
                                     Column {
-                                        LibraryBar()
-                                        PlaylistChips(model.playlists, all.size, selected) { selected = it }
+                                        if (open == null) {
+                                            LibraryBar()
+                                            LibraryChips(library.view, library::choose)
+                                        } else {
+                                            PlaylistBar(open.name, open.count) { openId = null }
+                                        }
                                         // Only the list pulls: the bar and the chips stay put, and
                                         // the chips keep their own horizontal scrolling.
                                         LibraryPane(model.busy, { model.connect() }) {
-                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
-                                                emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
-                                                loading = model.busy) { startQueue(tracks, it) }
+                                            when {
+                                                open != null -> {
+                                                    val tracks = model.tracksByPlaylist[open.id].orEmpty()
+                                                    TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                                        emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
+                                                        loading = model.busy) { startQueue(tracks, it) }
+                                                }
+                                                library.view == LibraryView.Songs ->
+                                                    TrackList(all, model.endpoint, ui.item?.mediaId, player != null,
+                                                        emptyText = "No music yet. Add local music in Tauon, then refresh.",
+                                                        loading = model.busy) { startQueue(all, it) }
+                                                else -> PlaylistRows(model.playlists, model.busy) { openId = it }
+                                            }
                                         }
                                     }
                                 }
