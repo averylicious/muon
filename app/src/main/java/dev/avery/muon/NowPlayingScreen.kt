@@ -111,14 +111,20 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
 private fun VolumeRow() {
     val volume = rememberMediaVolumeController()
     val state = volume.state
+    // The bubble needs room past each end of the track. Spending it between the speakers and the
+    // track pushed the speakers out to the screen edges and left a gap either side; spending it
+    // outside the row instead keeps them beside the track, and the bubble floats over them, which
+    // it can do because it rides above the track line rather than on it. Only the part the
+    // speakers do not already provide is added, so at ordinary text sizes there is none.
+    val overhang = (volumeBubbleMargin() - (VolumeIconSize + VolumeIconGap)).coerceAtLeast(0.dp)
     Column(Modifier.fillMaxWidth()) {
         // Aligned to the track the slider publishes, not to the middle of the control: the space
-        // it reserves for the percentage bubble would otherwise push the speakers above the track.
-        Row(Modifier.fillMaxWidth()) {
-            MuonIcon("volume-low", Modifier.size(18.dp).alignBy { it.measuredHeight / 2 })
+        // it reserves above for the percentage bubble would otherwise push the speakers up.
+        Row(Modifier.fillMaxWidth().padding(horizontal = overhang)) {
+            MuonIcon("volume-low", Modifier.size(VolumeIconSize).alignBy { it.measuredHeight / 2 })
             MediaVolumeSlider(state, volume::setVolume,
-                Modifier.weight(1f).padding(horizontal = 8.dp).alignBy(VolumeTrackCenter))
-            MuonIcon("volume", Modifier.size(18.dp).alignBy { it.measuredHeight / 2 })
+                Modifier.weight(1f).padding(horizontal = VolumeIconGap).alignBy(VolumeTrackCenter))
+            MuonIcon("volume", Modifier.size(VolumeIconSize).alignBy { it.measuredHeight / 2 })
         }
         if (state.fixed) Text("Volume is fixed by this device.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -127,6 +133,10 @@ private fun VolumeRow() {
         }
     }
 }
+
+/** The speakers marking each end of the volume track, and their distance from it. */
+private val VolumeIconSize = 18.dp
+private val VolumeIconGap = 8.dp
 
 /** A deliberate drag, not a flick: below this the artwork springs back. */
 private val SwipeMinimum = 48.dp

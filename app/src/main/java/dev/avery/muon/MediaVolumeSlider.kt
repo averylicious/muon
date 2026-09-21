@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -37,6 +38,23 @@ import kotlin.math.roundToInt
  */
 internal val VolumeTrackCenter = HorizontalAlignmentLine(::min)
 
+/**
+ * How far the floating percentage reaches beyond each end of the track.
+ *
+ * At either extreme the bubble is centred on a thumb sitting at the very end of the track, so half
+ * of it hangs past that end. Whoever lays the slider out has to leave that much room somewhere —
+ * but it need not be between the track and what sits beside it, because the bubble floats above
+ * the track line rather than beside it.
+ */
+@Composable
+internal fun volumeBubbleMargin(): Dp {
+    val label = rememberTextMeasurer().measure("100%", style = MaterialTheme.typography.labelLarge).size
+    return (with(LocalDensity.current) { label.width.toDp() } + BubblePadding * 2) / 2
+}
+
+/** The bubble's own horizontal padding, on each side of its text. */
+private val BubblePadding = 10.dp
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit,
@@ -45,7 +63,7 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
     val labelStyle = MaterialTheme.typography.labelLarge
     val labelSize = rememberTextMeasurer().measure("100%", style = labelStyle).size
     val density = LocalDensity.current
-    val labelWidth = with(density) { labelSize.width.toDp() } + 20.dp
+    val labelWidth = volumeBubbleMargin() * 2
     val labelHeight = with(density) { labelSize.height.toDp() } + 8.dp
     val enabled = !state.fixed && state.maximum > state.minimum
 
@@ -57,8 +75,8 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
         enabled = enabled,
         interactionSource = interaction,
         modifier = modifier.fillMaxWidth()
-            // Reserve room for the bubble at both endpoints and at larger font scales.
-            .padding(horizontal = labelWidth / 2, vertical = 0.dp)
+            // The bubble's room is reserved by the caller, around the whole row, so the track can
+            // run right up to whatever sits beside it.
             .padding(top = if (state.fixed) 0.dp else labelHeight + 8.dp)
             // Measured inside that reserved space, so the line lands on the track itself; the
             // padding above offsets it as it propagates out to whoever is aligning with it.
@@ -78,7 +96,7 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.width(labelWidth).clearAndSetSemantics { },
                 ) {
-                    Text("${state.percent}%", Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    Text("${state.percent}%", Modifier.padding(horizontal = BubblePadding, vertical = 4.dp),
                         style = labelStyle, textAlign = TextAlign.Center, maxLines = 1)
                 }
             }) { measurables, constraints ->
