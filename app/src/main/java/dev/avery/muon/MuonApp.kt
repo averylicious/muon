@@ -92,10 +92,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val lyricsShown = overlayOpen && lyricsOpen
         val playerShown = overlayOpen && !lyricsShown
         // Held outside the player's own composition so it survives the closing animation, and
-        // wound back whenever the player appears or goes away, so a drag can never be left on
-        // screen for the next opening.
+        // wound back as the player appears rather than as it leaves, so a drag is never left on
+        // screen for the next opening and a closing one is not snatched back mid-flight.
         val dismiss = rememberPlayerDismiss()
-        LaunchedEffect(playerShown) { dismiss.settle?.cancel(); dismiss.shown.snapTo(0f) }
+        LaunchedEffect(playerShown) {
+            if (playerShown) { dismiss.settle?.cancel(); dismiss.shown.snapTo(0f) }
+        }
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
         val target = backTarget(connected, lyricsShown, overlayOpen,

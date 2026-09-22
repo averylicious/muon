@@ -81,11 +81,11 @@ internal fun Modifier.dismissDrag(state: PlayerDismiss?, height: Float, collapse
                 },
                 onDragCancel = { settleBack() },
                 onDragEnd = {
-                    val closes = playerDismissCloses(drag, PLAYER_DISMISS_DROP.toPx())
-                    // Always settles back, so the surface is never left pushed down behind the
-                    // screen that replaced it, nor when the player is opened again.
-                    settleBack()
-                    if (closes) collapse()
+                    // A pull that puts the player away leaves the surface where the finger left
+                    // it, so the closing animation carries on down from there rather than
+                    // snatching it back first. Opening the player again winds it back.
+                    if (playerDismissCloses(drag, PLAYER_DISMISS_DROP.toPx())) collapse()
+                    else settleBack()
                 })
         }
     }
