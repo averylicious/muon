@@ -96,7 +96,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // screen for the next opening and a closing one is not snatched back mid-flight.
         val dismiss = rememberPlayerDismiss()
         LaunchedEffect(playerShown) {
-            if (playerShown) { dismiss.settle?.cancel(); dismiss.shown.snapTo(0f) }
+            // Every appearance and disappearance is a new presentation, so a drag begun on the
+            // last one cannot put this one away, and the player only takes a drag while it is
+            // actually on screen rather than on its way off.
+            dismiss.generation++
+            dismiss.presented = playerShown
+            if (playerShown) dismiss.present()
         }
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
