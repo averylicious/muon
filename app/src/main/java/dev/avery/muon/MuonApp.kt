@@ -90,8 +90,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         val overlayOpen = connected && playerOpen && ui.item != null
         val lyricsShown = overlayOpen && lyricsOpen
-        // Only a detail that is actually on screen takes a Back press.
-        BackHandler(connected && (overlayOpen || tab != Tab.Library || openList != null)) {
+        val playerShown = overlayOpen && !lyricsShown
+        // Only a detail that is actually on screen takes a Back press. This decides where Back
+        // goes for the whole app; the player's predictive handler previews its own case but defers
+        // to this for the answer, so the two cannot disagree.
+        fun goBack() {
             when {
                 lyricsShown -> lyricsOpen = false
                 overlayOpen -> playerOpen = false
@@ -99,6 +102,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 else -> { openOrigin = null; openId = null }
             }
         }
+        BackHandler(connected && (overlayOpen || tab != Tab.Library || openList != null)) { goBack() }
         fun startQueue(list: List<TauonTrack>, track: TauonTrack) {
             val endpoint = model.endpoint ?: return
             val queue = list.filter { it.playable }
@@ -200,8 +204,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     }
                 }
             }
-            // The overlay rises from the bottom, where the mini player it grew out of sits.
-            FullScreenOverlay(visible = overlayOpen && !lyricsShown) {
+            // The overlay rises from the bottom, where the mini player it grew out of sits, and
+            // shrinks while a Back gesture is deciding whether to close it.
+            FullScreenOverlay(visible = playerShown,
+                preview = { rememberPlayerBackPreview(playerShown) { goBack() } }) {
                 NowPlayingOverlay(ui, position, revision, player,
                     collapse = { playerOpen = false }) { lyricsOpen = true }
             }
@@ -216,13 +222,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
  * A surface that covers the tabs and insets itself, because the scaffold below cannot reach it.
  * Material's own `Surface` already blocks touches from reaching what it covers, so nothing here
  * adds a click target that a screen reader would announce.
+ *
+ * [preview] is remembered inside the transition rather than handed in from outside, so the Back
+ * gesture state it owns lasts exactly as long as this overlay is on screen.
  */
 @Composable
-private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
+private fun FullScreenOverlay(visible: Boolean,
+    preview: @Composable () -> PlayerBackPreview? = { null }, content: @Composable () -> Unit) {
     AnimatedVisibility(visible = visible,
         enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
         exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(Modifier.fillMaxSize().playerBackPreview(preview()),
+            color = MaterialTheme.colorScheme.background) {
             Box(Modifier.safeDrawingPadding()) { content() }
         }
     }
