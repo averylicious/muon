@@ -97,10 +97,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val dismiss = rememberPlayerDismiss()
         LaunchedEffect(playerShown) {
             // Every appearance and disappearance is a new presentation, so a drag begun on the
-            // last one cannot put this one away, and the player only takes a drag while it is
-            // actually on screen rather than on its way off.
+            // last one cannot put this one away.
             dismiss.generation++
-            dismiss.presented = playerShown
             if (playerShown) dismiss.present()
         }
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
@@ -223,7 +221,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             FullScreenOverlay(visible = playerShown, dismiss = dismiss, preview = {
                 rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
             }) {
-                NowPlayingOverlay(ui, position, revision, player, dismiss,
+                // Only a player that is actually on screen carries the drag: an outgoing one hands
+                // nothing down, so its detector goes with it rather than moving what comes next.
+                NowPlayingOverlay(ui, position, revision, player, dismiss.takeIf { playerShown },
                     // Guarded, so a drag that ends after Lyrics opened over the player, or after
                     // the player has gone, cannot put away whatever took its place.
                     collapse = { if (playerShown) playerOpen = false }) { lyricsOpen = true }

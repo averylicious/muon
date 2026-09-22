@@ -45,6 +45,10 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
         // landscape, split screen, large text, or when an error needs additional space.
         val scrollable = maxHeight < 600.dp * fontScale || narrow || p.error != null
         val scroll = rememberScrollState()
+        // Taken here, where this scope's own height is in reach, rather than down inside the
+        // column and a density block, where the outer receiver is no longer resolvable.
+        val tall = maxHeight
+        val dragHeight = with(LocalDensity.current) { tall.toPx() }
         Column(Modifier.fillMaxSize()
             .then(if (scrollable) Modifier.verticalScroll(scroll) else Modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -54,8 +58,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
             // one place the player can be dragged away from, which leaves the content below it
             // scrolling, the artwork swiping and the sliders seeking as they did.
             val away by rememberUpdatedState(collapse)
-            Row(Modifier.fillMaxWidth()
-                .dismissDrag(dismiss, with(LocalDensity.current) { maxHeight.toPx() }) { away() },
+            Row(Modifier.fillMaxWidth().dismissDrag(dismiss, dragHeight) { away() },
                 verticalAlignment = Alignment.CenterVertically) {
                 FilledTonalIconButton(onClick = collapse,
                     modifier = Modifier.semantics { contentDescription = "Collapse the player" }) {

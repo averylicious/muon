@@ -36,16 +36,12 @@ internal fun playerDismissOffset(drag: Float, height: Float): Float =
 internal fun playerDismissCloses(drag: Float, threshold: Float): Boolean = drag >= threshold
 
 /**
- * Whether the drag that is ending may still put the player away.
- *
- * The gesture outlives the presentation it began in: the detector survives the player's closing
- * animation, so a player that closed and opened again would otherwise be dismissed by a drag aimed
- * at the one before it. [startedAt] is the presentation the finger went down on and [now] the one
- * it came up on, and a drag that did not [engage] on a player that was actually on screen never
- * counted in the first place.
+ * Whether the drag that is ending may still put the player away. [startedAt] is the presentation
+ * the finger went down on and [now] the one it came up on: a drag is only ever good for the player
+ * it began on, never for the one that replaced it.
  */
-internal fun playerDismissCommits(engaged: Boolean, startedAt: Int, now: Int, drag: Float,
-    threshold: Float): Boolean = engaged && startedAt == now && playerDismissCloses(drag, threshold)
+internal fun playerDismissCommits(startedAt: Int, now: Int, drag: Float, threshold: Float): Boolean =
+    startedAt == now && playerDismissCloses(drag, threshold)
 
 /**
  * How far the drag has come, held outside the player's own composition so that it survives the
@@ -62,25 +58,33 @@ internal class PlayerDismiss(private val scope: CoroutineScope) {
     var settle: Job? = null
     /** Which presentation of the player is on screen. A drag is only good for the one it began in. */
     var generation = 0
-    /** Whether the player is on screen to be dragged at all, rather than on its way off. */
-    var presented = false
     /** Set by a drag that put the player away, so its parting offset is not taken back off it. */
     var committed = false
 
+    /**
+     * Gives up whatever was moving the surface. Worth doing even when the surface is already at
+     * rest, because a move can be waiting to run and would otherwise land on the next player.
+     */
+    fun stop() {
+        settle?.cancel()
+        settle = null
+    }
+
     /** Follows the finger. Runs on the app's scope for the same reason the settle does. */
     fun moveTo(offset: Float) {
+        stop()
         settle = scope.launch { shown.snapTo(offset) }
     }
 
-    /** Cancels whatever was moving the surface and puts it back where it rests. */
+    /** Puts the surface back where it rests. */
     fun settleBack() {
-        settle?.cancel()
+        stop()
         settle = scope.launch { shown.animateTo(0f, motionShort()) }
     }
 
     /** The player is on screen again: forget any drag aimed at the one before it. */
     suspend fun present() {
-        settle?.cancel()
+        stop()
         committed = false
         shown.snapTo(0f)
     }
@@ -112,44 +116,42 @@ internal fun Modifier.playerDismiss(state: PlayerDismiss?): Modifier =
  * may have gone.
  */
 internal fun Modifier.dismissDrag(state: PlayerDismiss?, height: Float, collapse: () -> Unit): Modifier =
-    if (state == null) this else pointerInput(height) {
+    // No state means the player is not on screen to be dragged. The detector goes with it, so a
+    // drag cannot outlive the player it began on and carry on moving the next one: it is torn
+    // down when the player leaves and built again when the next one arrives.
+    if (state == null) this else pointerInput(state, height) {
         var drag = 0f
         var startedAt = state.generation
-        var engaged = false
         try {
             detectVerticalDragGestures(
                 onDragStart = {
-                    // A new drag takes the surface over from one that is still settling, and a
-                    // player already on its way off the screen accepts none at all.
-                    state.settle?.cancel()
+                    // A new drag takes the surface over from whatever was still moving it,
+                    // including a settle left behind by the detector before this one.
+                    state.stop()
                     drag = 0f
                     startedAt = state.generation
-                    engaged = state.presented
-                    // Only a drag that takes hold clears the last one's parting offset; a touch
-                    // on a player already leaving must not claw it back.
-                    if (engaged) state.committed = false
+                    state.committed = false
                 },
                 onVerticalDrag = { _, amount ->
-                    if (engaged) {
-                        drag += amount
-                        state.moveTo(playerDismissOffset(drag, height))
-                    }
+                    drag += amount
+                    state.moveTo(playerDismissOffset(drag, height))
                 },
-                onDragCancel = { if (engaged) state.settleBack() },
+                onDragCancel = { state.settleBack() },
                 onDragEnd = {
                     // A pull that puts the player away leaves the surface where the finger left
                     // it, so the closing animation carries on down from there rather than
                     // snatching it back first. Opening the player again winds it back.
-                    if (playerDismissCommits(engaged, startedAt, state.generation, drag,
-                            PLAYER_DISMISS_DROP.toPx())) {
+                    if (playerDismissCommits(startedAt, state.generation, drag, PLAYER_DISMISS_DROP.toPx())) {
                         state.committed = true
                         collapse()
-                    } else if (engaged) state.settleBack()
+                    } else state.settleBack()
                 })
         } finally {
-            // Resizing the window restarts this detector and cancels whatever it was running, but
-            // the offset it was moving lives on outside it. Put the surface back through the app's
-            // own scope, unless a drag has just sent the player away with it.
-            if (!state.committed && state.shown.value != 0f) state.settleBack()
+            // Resizing the window restarts this detector, and the player leaving tears it down,
+            // but the offset it was moving lives on outside it. Give up this detector's work
+            // whatever the surface is showing, because a move can still be waiting to run, and
+            // put the surface back unless a drag has just sent the player away with it.
+            state.stop()
+            if (!state.committed) state.settleBack()
         }
     }

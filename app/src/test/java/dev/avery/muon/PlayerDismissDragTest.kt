@@ -36,21 +36,13 @@ class PlayerDismissDragTest {
     @Test fun aDragOnlyPutsAwayThePlayerItBeganOn() {
         // Closed and opened again under a finger that never lifted: the same long drag must not
         // put the new presentation away.
-        assertFalse(playerDismissCommits(engaged = true, startedAt = 7, now = 8, drag = 900f,
-            threshold = 264f))
-        assertTrue(playerDismissCommits(engaged = true, startedAt = 7, now = 7, drag = 900f,
-            threshold = 264f))
+        assertFalse(playerDismissCommits(startedAt = 7, now = 8, drag = 900f, threshold = 264f))
+        assertTrue(playerDismissCommits(startedAt = 7, now = 7, drag = 900f, threshold = 264f))
     }
 
-    @Test fun aPlayerOnItsWayOffTheScreenTakesNoDrag() {
-        // Begun on outgoing content, so it never counted, however far it went.
-        assertFalse(playerDismissCommits(engaged = false, startedAt = 7, now = 7, drag = 900f,
-            threshold = 264f))
-    }
-
-    @Test fun aLiveDragStillHasToBeLongEnough() {
-        assertFalse(playerDismissCommits(engaged = true, startedAt = 3, now = 3, drag = 263f,
-            threshold = 264f))
+    @Test fun aDragOnTheRightPlayerStillHasToBeLongEnough() {
+        assertFalse(playerDismissCommits(startedAt = 3, now = 3, drag = 263f, threshold = 264f))
+        assertTrue(playerDismissCommits(startedAt = 3, now = 3, drag = 264f, threshold = 264f))
     }
 
     @Test fun theDecisionIsTakenFromTheFingerNotFromTheSurface() {

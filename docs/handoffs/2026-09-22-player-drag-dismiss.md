@@ -27,9 +27,9 @@ No backend file is touched.
   #84 in turn depends on #82.**
 - Commits: `e044a345fdef09f578bcfe1582d12246cae585a8` (the slice),
   `f7aed921abf4f00330d18ad3094429e323c3d7cd` (stop the commit settle fighting the closing
-  animation) and `97e86d08e0d81738baf8358f0d68a3c7f9c559fb` (Astra's two review findings). Exact
-  diff range
-  `b3ca7768af35d36fb46ab6d413d44164c4be1a4a..97e86d08e0d81738baf8358f0d68a3c7f9c559fb`.
+  animation), `97e86d08e0d81738baf8358f0d68a3c7f9c559fb` (Astra's first two findings) and the head
+  below (the compile failure and Astra's follow-up findings). The exact diff range is from the
+  base to the current head, which this note is committed in.
 
 ## Deliberately limited region
 
@@ -56,19 +56,37 @@ both fixed in `97e86d08e0d81738baf8358f0d68a3c7f9c559fb`.
    not when a drag has just committed, so the parting offset is still preserved and a closing
    player is not snatched back.
 
+A follow-up review of `97e86d0` found the first attempt incomplete, and CI run 105 failed to
+compile. All three points are fixed in the head below.
+
+3. **`NowPlayingScreen.kt` did not compile.** `maxHeight` could not be resolved through the nested
+   implicit receiver inside a density block within the column. The height is now taken in the
+   `BoxWithConstraints` scope itself, before any other receiver is entered, and converted there.
+4. **The generation guard protected only the commit.** An old drag's `onVerticalDrag` kept moving
+   the surface after a visibility change. The detector is now torn down with the player: the drag
+   state is handed to the player only while it is on screen (`dismiss.takeIf { playerShown }`) and
+   the detector is keyed on it, so a stale gesture cannot move or restore a newer presentation.
+   The commit guard is kept as well.
+5. **Cleanup skipped a queued move when the surface was at rest.** A `moveTo` could still be
+   waiting to run and would land after the detector exited. Cleanup is now unconditional: the
+   detector gives up its own work whatever the surface shows, a move cancels the previous one
+   before scheduling itself, and a new drag cancels a settle left by the detector before it. Only
+   a committed dismissal still keeps its parting offset.
+
 Astra's findings are fixed but **not yet re-reviewed**, and full-device behaviour was not
-established by that review.
+established by those reviews.
 
 ## Validation performed
 
-- Eight unit tests: the drag policy — following the finger down; upward and reversed drags resting
+- Seven unit tests: the drag policy — following the finger down; upward and reversed drags resting
   where they began; never falling past the screen, including an unmeasured one; the close
   threshold; and that the finger's travel rather than the surface's decides — plus the lifecycle
-  policy from Astra's first finding: a drag does not put away a presentation it did not begin on,
-  a player on its way off takes no drag, and a live drag still has to be long enough.
+  policy: a drag does not put away a presentation it did not begin on, and one on the right player
+  still has to be long enough.
 - These are pure policy tests. They do **not** verify Compose pointer input or lifecycle: that the
-  generation actually changes on a visibility transition, that the detector's cancellation path
-  runs on resize, and that the app scope outlives the detector are only established on a device.
+  detector is really torn down with the player, that its cleanup runs on resize, and that the app
+  scope outlives it are only established on a device. A player on its way off now takes no drag
+  because it has no detector at all, which is a structural property rather than a testable one.
 - Re-checked the staleness and transform reasoning against the #82 fix: the close action is read at
   drag end and guarded by live `playerShown`, and the drag draws in its own layer so it does not
   compete with the Back preview's scale, drift and corners.
@@ -77,8 +95,9 @@ established by that review.
 
 - CI: triggered by the push, **not inspected**. Compilation, unit tests, lint and both APK builds
   are unverified here; nothing may be called a pass. Astra owns verification.
-- Astra source review: one round done on `81a895e`, raising the two findings above. The fixes in
-  `97e86d0` are **not** reviewed.
+- Astra source review: two rounds, on `81a895e` and `97e86d0`. The fixes for the follow-up round
+  are **not** reviewed. CI run 105 failed to compile `97e86d0`; the compile fault is fixed here but
+  no run has been inspected since.
 - Phone QA: pending the user; fourteen steps are in PR #85, covering slop, cancellation, repeated
   drags, scrolling, the artwork swipe, the sliders, TalkBack, Lyrics, quick close and reopen,
   queue-emptied and disconnect cleanup, and the combination with the Back gesture.
