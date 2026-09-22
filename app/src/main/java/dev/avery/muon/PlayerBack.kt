@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
@@ -48,6 +49,8 @@ internal fun playerBackSlide(progress: Float, edge: Int, slide: Float): Float {
 internal class PlayerBackPreview {
     val shown = Animatable(0f)
     var edge by mutableIntStateOf(BackEventCompat.EDGE_NONE)
+    /** The animation putting the player back after a cancelled gesture, while it is still running. */
+    var restore: Job? = null
 }
 
 /**
@@ -56,9 +59,10 @@ internal class PlayerBackPreview {
  * Remember this inside the overlay's own transition, so the gesture state is created when the
  * player appears and discarded once it has gone rather than outliving it.
  *
- * [back] is the app's whole Back action rather than "close the player", because this handler is
- * enabled a frame behind the composition that asked for it. A gesture arriving in that frame then
- * navigates the same way the plain handler behind it would have.
+ * [back] is the app's whole Back action rather than "close the player", and is read when the
+ * gesture is let go rather than when it began: the handler passes the lambda it holds at the start
+ * of a gesture to a coroutine that keeps it, so capturing it would commit a decision the app has
+ * since moved on from. The caller decides whether a gesture whose target has gone acts at all.
  */
 @Composable
 internal fun rememberPlayerBackPreview(enabled: Boolean, back: () -> Unit): PlayerBackPreview {
@@ -66,11 +70,15 @@ internal fun rememberPlayerBackPreview(enabled: Boolean, back: () -> Unit): Play
     // player back cannot run inside it.
     val scope = rememberCoroutineScope()
     val preview = remember { PlayerBackPreview() }
+    val current by rememberUpdatedState(back)
     // Reopening the player before its closing animation ends reuses this composition, which would
     // otherwise still be holding the finished gesture's shrink. Nothing resets on the way out,
     // because the player should leave at the size the gesture left it.
     LaunchedEffect(enabled) { if (enabled) preview.shown.snapTo(0f) }
     PredictiveBackHandler(enabled) { gesture ->
+        // A restore launched by the previous gesture can still be queued when this one starts, and
+        // would then pull the preview back to rest under the finger. This gesture owns it now.
+        preview.restore?.cancel()
         try {
             // Collected even when there is nothing to preview: a Back button completes the flow
             // immediately, with no events, and the handler requires it to be collected either way.
@@ -78,9 +86,9 @@ internal fun rememberPlayerBackPreview(enabled: Boolean, back: () -> Unit): Play
                 preview.edge = it.swipeEdge
                 preview.shown.snapTo(PredictiveBackEasing.transform(it.progress.coerceIn(0f, 1f)))
             }
-            back()
+            current()
         } catch (cancelled: CancellationException) {
-            scope.launch { preview.shown.animateTo(0f, motionMedium()) }
+            preview.restore = scope.launch { preview.shown.animateTo(0f, motionMedium()) }
         }
     }
     return preview

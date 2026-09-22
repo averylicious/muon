@@ -91,18 +91,20 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val overlayOpen = connected && playerOpen && ui.item != null
         val lyricsShown = overlayOpen && lyricsOpen
         val playerShown = overlayOpen && !lyricsShown
-        // Only a detail that is actually on screen takes a Back press. This decides where Back
-        // goes for the whole app; the player's predictive handler previews its own case but defers
-        // to this for the answer, so the two cannot disagree.
+        // Only a detail that is actually on screen takes a Back press. Both handlers read this one
+        // decision, so they cannot disagree about where Back goes.
+        val target = backTarget(connected, lyricsShown, overlayOpen,
+            onLibraryTab = tab == Tab.Library, playlistOpen = openList != null)
         fun goBack() {
-            when {
-                lyricsShown -> lyricsOpen = false
-                overlayOpen -> playerOpen = false
-                tab != Tab.Library -> tab = Tab.Library
-                else -> { openOrigin = null; openId = null }
+            when (target) {
+                BackTarget.Lyrics -> lyricsOpen = false
+                BackTarget.Player -> playerOpen = false
+                BackTarget.Tab -> tab = Tab.Library
+                BackTarget.Playlist -> { openOrigin = null; openId = null }
+                BackTarget.None -> Unit
             }
         }
-        BackHandler(connected && (overlayOpen || tab != Tab.Library || openList != null)) { goBack() }
+        BackHandler(target != BackTarget.None) { goBack() }
         fun startQueue(list: List<TauonTrack>, track: TauonTrack) {
             val endpoint = model.endpoint ?: return
             val queue = list.filter { it.playable }
@@ -206,8 +208,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
             // The overlay rises from the bottom, where the mini player it grew out of sits, and
             // shrinks while a Back gesture is deciding whether to close it.
-            FullScreenOverlay(visible = playerShown,
-                preview = { rememberPlayerBackPreview(playerShown) { goBack() } }) {
+            FullScreenOverlay(visible = playerShown, preview = {
+                rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
+            }) {
                 NowPlayingOverlay(ui, position, revision, player,
                     collapse = { playerOpen = false }) { lyricsOpen = true }
             }
@@ -217,6 +220,32 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
     }
 }
+
+/** What a Back press acts on, named in the order the screens are stacked. */
+internal enum class BackTarget { None, Lyrics, Player, Tab, Playlist }
+
+internal fun backTarget(connected: Boolean, lyricsShown: Boolean, overlayOpen: Boolean,
+    onLibraryTab: Boolean, playlistOpen: Boolean): BackTarget = when {
+    !connected -> BackTarget.None
+    lyricsShown -> BackTarget.Lyrics
+    overlayOpen -> BackTarget.Player
+    !onLibraryTab -> BackTarget.Tab
+    playlistOpen -> BackTarget.Playlist
+    else -> BackTarget.None
+}
+
+/**
+ * Whether a Back gesture that began over the player should still act when it is let go.
+ *
+ * A held gesture outlives the state it started in: `PredictiveBackHandler` hands it to a coroutine
+ * and, in activity-compose 1.11.0, does not cancel it when the handler stops being enabled. Lyrics
+ * can open over the player meanwhile, or the player can be closed by its own button or by the
+ * queue emptying. Lyrics is part of what the gesture was aiming at, so Back acts on it; a player
+ * that has gone is not, and sending the user back a tab they never aimed at would be a surprise,
+ * so the gesture is let go without navigating.
+ */
+internal fun playerGestureCommits(target: BackTarget): Boolean =
+    target == BackTarget.Lyrics || target == BackTarget.Player
 
 /**
  * A surface that covers the tabs and insets itself, because the scaffold below cannot reach it.
