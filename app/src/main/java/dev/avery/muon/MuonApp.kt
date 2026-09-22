@@ -132,7 +132,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         AnimatedVisibility(visible = ui.item != null && !overlayOpen,
                             enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-                            MiniPlayer(ui, position, player != null, { playerOpen = true },
+                            MiniPlayer(ui, position, player != null,
+                                active = connected && player != null && ui.item != null && !overlayOpen,
+                                open = {
+                                    if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
+                                        playerOpen = true
+                                },
                                 toggle = { if (ui.playing) player?.pause() else player?.play() },
                                 next = { player?.seekToNextMediaItem() })
                         }

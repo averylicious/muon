@@ -21,10 +21,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, open: () -> Unit,
+internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, active: Boolean, open: () -> Unit,
     toggle: () -> Unit, next: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val lift = remember { Animatable(0f) }
+    // A new eligibility window gets its own lift: cleanup from an outgoing detector must
+    // never move the next presentation of this mini player.
+    val lift = remember(active) { Animatable(0f) }
+    val canOpen by rememberUpdatedState(active)
     // A drag hands the player over when it ends, which can be a long time after it began, so the
     // action is read then rather than captured when the gesture detector was set up.
     val current by rememberUpdatedState(open)
@@ -38,27 +41,37 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, ope
             // Tap still opens, with its own label, and the controls inside still take their own
             // taps: a drag only becomes a drag once it has passed the touch slop that the detector
             // applies before it reports anything.
-            .clickable(onClickLabel = "Open Now Playing", onClick = open)
-            .pointerInput(Unit) {
-                // Kept here rather than in state: where the finger is has no business recomposing
-                // anything, and the surface is drawn from the animation instead.
+            .clickable(enabled = active, onClickLabel = "Open Now Playing", onClick = open)
+            .pointerInput(active, lift) {
+                if (!active) return@pointerInput
                 var drag = 0f
                 var settle: Job? = null
-                detectVerticalDragGestures(
-                    // A new pull takes the surface over from one that is still settling.
-                    onDragStart = { drag = 0f; settle?.cancel() },
-                    onVerticalDrag = { _, amount ->
-                        drag += amount
-                        settle = scope.launch { lift.snapTo(miniDragOffset(drag, MINI_DRAG_LIFT.toPx())) }
-                    },
-                    onDragCancel = { settle = scope.launch { lift.animateTo(0f, motionShort()) } },
-                    onDragEnd = {
-                        val opens = miniDragOpens(drag, MINI_DRAG_OPEN.toPx())
-                        // Always settles back, so the mini player is never left lifted behind the
-                        // player it just opened, nor when it comes back.
-                        settle = scope.launch { lift.animateTo(0f, motionShort()) }
-                        if (opens) current()
-                    })
+                fun restore() {
+                    settle?.cancel()
+                    settle = scope.launch { lift.animateTo(0f, motionShort()) }
+                }
+                try {
+                    detectVerticalDragGestures(
+                        onDragStart = { drag = 0f; settle?.cancel() },
+                        onVerticalDrag = { _, amount ->
+                            drag += amount
+                            val offset = miniDragOffset(drag, MINI_DRAG_LIFT.toPx())
+                            // Cancel even if the prior snap is only queued, and capture this
+                            // event's offset instead of reading a later accumulated distance.
+                            settle?.cancel()
+                            settle = scope.launch { lift.snapTo(offset) }
+                        },
+                        onDragCancel = { restore() },
+                        onDragEnd = {
+                            val opens = miniDragOpens(drag, MINI_DRAG_OPEN.toPx(), canOpen)
+                            restore()
+                            if (opens) current()
+                        })
+                } finally {
+                    // Pointer-input cancellation cannot run its own animation. The composition
+                    // scope survives detector restart; disposal cancels it automatically.
+                    restore()
+                }
             }) {
         Column {
             LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },

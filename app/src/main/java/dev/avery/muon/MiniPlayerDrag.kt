@@ -24,4 +24,5 @@ internal fun miniDragOffset(drag: Float, maximum: Float): Float =
     if (drag >= 0f) 0f else -minOf(-drag / MINI_DRAG_RESISTANCE, maximum)
 
 /** Whether letting go here opens the player, judged on the finger's own travel. */
-internal fun miniDragOpens(drag: Float, threshold: Float): Boolean = -drag >= threshold
+internal fun miniDragOpens(drag: Float, threshold: Float, eligible: Boolean = true): Boolean =
+    eligible && -drag >= threshold

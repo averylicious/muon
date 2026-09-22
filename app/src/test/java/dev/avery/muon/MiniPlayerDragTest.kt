@@ -6,6 +6,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MiniPlayerDragTest {
+    @Test fun aLongDragCannotOpenAfterEligibilityIsLost() {
+        assertTrue(miniDragOpens(-400f, 132f, eligible = true))
+        // The same completed distance must not open outgoing/empty/disconnected content.
+        assertFalse(miniDragOpens(-400f, 132f, eligible = false))
+    }
+
     @Test fun pullingDownDoesNothingAtAll() {
         assertEquals(0f, miniDragOffset(200f, 66f), 0f)
         assertEquals(0f, miniDragOffset(0f, 66f), 0f)
