@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first. Latest recorded checkpoint: [2026-09-22, predictive Back](handoffs/2026-09-22-predictive-back-cycle.md). Update this pointer when adding a newer checkpoint. Checkpoints are dated evidence, not automatic authorization or live status.
+This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first. Latest recorded checkpoint: [2026-09-22, player gestures recovery](handoffs/2026-09-22-player-gestures-recovery.md). Update this pointer when adding a newer checkpoint. Checkpoints are dated evidence, not automatic authorization or live status.
 
 ## Start with a small refresh
 
