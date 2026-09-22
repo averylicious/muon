@@ -14,8 +14,11 @@ Files changed, all frontend:
 - `app/src/main/java/dev/avery/muon/PlayerBack.kt` (new) — gesture state, the handler and the
   preview modifier.
 - `app/src/test/java/dev/avery/muon/PlayerBackTest.kt` (new) — the preview's arithmetic.
-- `app/src/main/java/dev/avery/muon/MuonApp.kt` — Back action shared by both handlers; the player
-  overlay remembers the preview inside its transition.
+- `app/src/main/java/dev/avery/muon/MuonApp.kt` — `backTarget`/`playerGestureCommits`, the single
+  Back decision both handlers consult; the player overlay remembers the preview inside its
+  transition.
+- `app/src/test/java/dev/avery/muon/BackTargetTest.kt` (new) — Back priority and when a held
+  gesture may act.
 - `app/src/main/java/dev/avery/muon/Motion.kt` — Material's predictive-back easing, added beside
   the existing motion values.
 
@@ -30,6 +33,25 @@ metadata work.
 - Base: PR #81 head `2983ac09303a3ff5c53bc543cd84ee45f1303ec9`. **#81 should merge first.**
 - Head at handoff: see the PR body, which carries the exact diff range.
 
+## Astra's review finding, and the fix
+
+Astra reviewed the source and found that the first implementation was wrong about in-flight
+gestures, and that PR #82's description overclaimed. `PredictiveBackHandler` passes the lambda it
+holds **at the moment a gesture starts** to a coroutine that keeps it (`OnBackInstance` takes
+`onBack` as a constructor argument), and `setIsEnabled` does not cancel a gesture that is already
+active. A held gesture therefore outlived the state it closed over: opening Lyrics over the player
+mid-gesture and then completing it closed the player rather than the Lyrics on top of it.
+
+Fixed by reading the action when the gesture is let go (`rememberUpdatedState`) instead of
+capturing it, by making where Back goes a single decision (`backTarget`) that both handlers
+consult, and by refusing to navigate when the gesture's player has gone underneath it
+(`playerGestureCommits`). A restore animation left over from a previous gesture is now also
+cancelled when a new gesture starts.
+
+Residual, stated plainly: the action is the one from the latest composition, so a state change and
+a gesture completing inside the same frame can still use the previous frame's answer. That is the
+ordinary Compose contract and is bounded to a frame, not to the length of the gesture.
+
 ## Checks actually run
 
 - Read the pinned sources to confirm behavior rather than assuming it: `PredictiveBackHandler` and
@@ -42,9 +64,11 @@ metadata work.
 
 ## Pending
 
-- CI: triggered by the push, **not inspected**. Compilation, unit tests, lint and both APK builds
-  are unverified. Nothing here may be called a pass.
-- Astra source review: deferred, not passed.
+- CI: Actions run 35686386948 (number 100) passed on head `575ea9caecefed3ed8ef4a7d5b261a6d630efe58`,
+  as reported by Astra, who owns CI. The later fix commit is **not** covered by that run; its own
+  run was triggered by the push and is **not inspected** here.
+- Astra source review: one round done, and it found the in-flight gesture issue above. The fix
+  itself has not been reviewed.
 - Manual QA: pending the user. Steps are in PR #82 — the ten checks cover held, cancelled and
   completed gestures, Lyrics priority, the collapse button, closing from a non-Library tab,
   reopening inside the closing animation, artwork swipe, queue/disconnect cleanup, and 3-button
