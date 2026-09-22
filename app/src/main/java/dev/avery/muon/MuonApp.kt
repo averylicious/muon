@@ -91,6 +91,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val overlayOpen = connected && playerOpen && ui.item != null
         val lyricsShown = overlayOpen && lyricsOpen
         val playerShown = overlayOpen && !lyricsShown
+        // Held outside the player's own composition so it survives the closing animation, and
+        // wound back whenever the player appears or goes away, so a drag can never be left on
+        // screen for the next opening.
+        val dismiss = rememberPlayerDismiss()
+        LaunchedEffect(playerShown) { dismiss.settle?.cancel(); dismiss.shown.snapTo(0f) }
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
         val target = backTarget(connected, lyricsShown, overlayOpen,
@@ -208,11 +213,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
             // The overlay rises from the bottom, where the mini player it grew out of sits, and
             // shrinks while a Back gesture is deciding whether to close it.
-            FullScreenOverlay(visible = playerShown, preview = {
+            FullScreenOverlay(visible = playerShown, dismiss = dismiss, preview = {
                 rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
             }) {
-                NowPlayingOverlay(ui, position, revision, player,
-                    collapse = { playerOpen = false }) { lyricsOpen = true }
+                NowPlayingOverlay(ui, position, revision, player, dismiss,
+                    // Guarded, so a drag that ends after Lyrics opened over the player, or after
+                    // the player has gone, cannot put away whatever took its place.
+                    collapse = { if (playerShown) playerOpen = false }) { lyricsOpen = true }
             }
             FullScreenOverlay(visible = lyricsShown) {
                 LyricsScreen(ui.item) { lyricsOpen = false }
@@ -256,12 +263,14 @@ internal fun playerGestureCommits(target: BackTarget): Boolean =
  * gesture state it owns lasts exactly as long as this overlay is on screen.
  */
 @Composable
-private fun FullScreenOverlay(visible: Boolean,
+private fun FullScreenOverlay(visible: Boolean, dismiss: PlayerDismiss? = null,
     preview: @Composable () -> PlayerBackPreview? = { null }, content: @Composable () -> Unit) {
     AnimatedVisibility(visible = visible,
         enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
         exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-        Surface(Modifier.fillMaxSize().playerBackPreview(preview()),
+        // Two layers, each owning its own properties: the drag moves the surface down, the Back
+        // preview scales and drifts it, and neither writes what the other reads.
+        Surface(Modifier.fillMaxSize().playerDismiss(dismiss).playerBackPreview(preview()),
             color = MaterialTheme.colorScheme.background) {
             Box(Modifier.safeDrawingPadding()) { content() }
         }

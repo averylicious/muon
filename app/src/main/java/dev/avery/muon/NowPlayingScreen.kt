@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: () -> Int,
-    player: MediaController?, collapse: () -> Unit, lyrics: () -> Unit) {
+    player: MediaController?, dismiss: PlayerDismiss?, collapse: () -> Unit, lyrics: () -> Unit) {
     if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
@@ -50,8 +50,13 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
             .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // A visible way out, so a gesture is never the only exit (#40).
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // A visible way out, so a gesture is never the only exit (#40). The bar is also the
+            // one place the player can be dragged away from, which leaves the content below it
+            // scrolling, the artwork swiping and the sliders seeking as they did.
+            val away by rememberUpdatedState(collapse)
+            Row(Modifier.fillMaxWidth()
+                .dismissDrag(dismiss, with(LocalDensity.current) { maxHeight.toPx() }) { away() },
+                verticalAlignment = Alignment.CenterVertically) {
                 FilledTonalIconButton(onClick = collapse,
                     modifier = Modifier.semantics { contentDescription = "Collapse the player" }) {
                     MuonIcon("collapse", Modifier.size(20.dp))
