@@ -58,10 +58,17 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
             // one place the player can be dragged away from, which leaves the content below it
             // scrolling, the artwork swiping and the sliders seeking as they did.
             val away by rememberUpdatedState(collapse)
-            Row(Modifier.fillMaxWidth().dismissDrag(dismiss, dragHeight) { away() },
-                verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.fillMaxWidth().dismissDrag(dismiss, dragHeight) { away() },
+                contentAlignment = Alignment.Center) {
+                // A decorative grabber marks the existing draggable bar without adding another
+                // control or shrinking its touch area. Center it on the player, not the space
+                // left beside the collapse button, and use the active theme's surface contrast.
+                Surface(modifier = Modifier.size(width = 32.dp, height = 4.dp),
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant) {}
                 FilledTonalIconButton(onClick = collapse,
-                    modifier = Modifier.semantics { contentDescription = "Collapse the player" }) {
+                    modifier = Modifier.align(Alignment.CenterStart)
+                        .semantics { contentDescription = "Collapse the player" }) {
                     MuonIcon("collapse", Modifier.size(20.dp))
                 }
             }
