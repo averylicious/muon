@@ -25,10 +25,11 @@ No backend file is touched.
 - Base: PR #84 head `b3ca7768af35d36fb46ab6d413d44164c4be1a4a` — Astra reviewed, Actions run
   35712616201 (#103) passed, artifact verified. **#84 is a prerequisite and should merge first;
   #84 in turn depends on #82.**
-- Commits: `e044a345fdef09f578bcfe1582d12246cae585a8` (the slice) and
+- Commits: `e044a345fdef09f578bcfe1582d12246cae585a8` (the slice),
   `f7aed921abf4f00330d18ad3094429e323c3d7cd` (stop the commit settle fighting the closing
-  animation). Exact diff range
-  `b3ca7768af35d36fb46ab6d413d44164c4be1a4a..f7aed921abf4f00330d18ad3094429e323c3d7cd`.
+  animation) and `97e86d08e0d81738baf8358f0d68a3c7f9c559fb` (Astra's two review findings). Exact
+  diff range
+  `b3ca7768af35d36fb46ab6d413d44164c4be1a4a..97e86d08e0d81738baf8358f0d68a3c7f9c559fb`.
 
 ## Deliberately limited region
 
@@ -36,12 +37,38 @@ Only the bar holding the collapse button drags. Content scrolling, the artwork's
 the seek and volume sliders and every button keep their own gestures. Widening the drag to the
 whole player needs a nested-scroll design and was not attempted here.
 
+## Astra's review findings, and the fixes
+
+Astra reviewed `81a895e1c7dc9cf62089ff8bb6adf3afde7e6a74` and raised two P2 lifecycle findings,
+both fixed in `97e86d08e0d81738baf8358f0d68a3c7f9c559fb`.
+
+1. **A visibility reset did not invalidate the drag in progress.** The detector is keyed only by
+   height and the offset is held outside the player's composition, so a drag survived the closing
+   animation; closing and reopening under a finger that never lifted could let the old accumulator
+   dismiss the new presentation, and outgoing content still accepted new drags. Every appearance
+   and disappearance now counts as a new presentation, recorded when the visibility changes, and a
+   drag commits only if it ends on the presentation it began on and took hold while the player was
+   actually on screen (`playerDismissCommits`).
+2. **Pointer-input restart could strand the offset.** The restore was a child of the pointer-input
+   coroutine, so resizing the window mid-drag cancelled it while the hoisted offset stayed non-zero
+   and `playerShown` never changed. The drag and its settle now run on the app's own scope, held by
+   `PlayerDismiss`, and the detector puts the surface back when it is cancelled or restarted — but
+   not when a drag has just committed, so the parting offset is still preserved and a closing
+   player is not snatched back.
+
+Astra's findings are fixed but **not yet re-reviewed**, and full-device behaviour was not
+established by that review.
+
 ## Validation performed
 
-- Five unit tests on the drag policy: following the finger down; upward and reversed drags resting
+- Eight unit tests: the drag policy — following the finger down; upward and reversed drags resting
   where they began; never falling past the screen, including an unmeasured one; the close
-  threshold; and that the finger's travel rather than the surface's decides, which is the pair most
-  easily merged by mistake later.
+  threshold; and that the finger's travel rather than the surface's decides — plus the lifecycle
+  policy from Astra's first finding: a drag does not put away a presentation it did not begin on,
+  a player on its way off takes no drag, and a live drag still has to be long enough.
+- These are pure policy tests. They do **not** verify Compose pointer input or lifecycle: that the
+  generation actually changes on a visibility transition, that the detector's cancellation path
+  runs on resize, and that the app scope outlives the detector are only established on a device.
 - Re-checked the staleness and transform reasoning against the #82 fix: the close action is read at
   drag end and guarded by live `playerShown`, and the drag draws in its own layer so it does not
   compete with the Back preview's scale, drift and corners.
@@ -50,14 +77,16 @@ whole player needs a nested-scroll design and was not attempted here.
 
 - CI: triggered by the push, **not inspected**. Compilation, unit tests, lint and both APK builds
   are unverified here; nothing may be called a pass. Astra owns verification.
-- Astra source review: not started for this slice.
+- Astra source review: one round done on `81a895e`, raising the two findings above. The fixes in
+  `97e86d0` are **not** reviewed.
 - Phone QA: pending the user; fourteen steps are in PR #85, covering slop, cancellation, repeated
   drags, scrolling, the artwork swipe, the sliders, TalkBack, Lyrics, quick close and reopen,
   queue-emptied and disconnect cleanup, and the combination with the Back gesture.
 
 Not covered by any test, and needing the device: touch slop, cancellation, rapid re-interaction,
-the two layers together, and the bar's drag against the surrounding scroll in short or narrow
-windows. The 96.dp threshold and the 1:1 follow are untuned on real hardware.
+the two layers together, the bar's drag against the surrounding scroll in short or narrow windows,
+and both of Astra's paths — window resizing mid-drag, and closing and reopening the player under a
+finger that never lifted. The 96.dp threshold and the 1:1 follow are untuned on real hardware.
 
 ## Status
 
