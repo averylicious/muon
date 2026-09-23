@@ -10,11 +10,13 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -221,6 +223,14 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     }
                 }
             }
+            // Dims the library under the player, so a player being dragged, closed or previewed
+            // by Back reads as a sheet over it rather than more of the same surface. It stays
+            // put while the sheet moves, follows only the player's own visibility, and is gone
+            // entirely once the player has closed.
+            AnimatedVisibility(visible = playerShown, enter = fadeIn(motionMedium()),
+                exit = fadeOut(motionMedium())) {
+                PlayerScrim()
+            }
             // The overlay rises from the bottom, where the mini player it grew out of sits, and
             // shrinks while a Back gesture is deciding whether to close it.
             FullScreenOverlay(visible = playerShown, dismiss = dismiss, preview = {
@@ -265,6 +275,20 @@ internal fun backTarget(connected: Boolean, lyricsShown: Boolean, overlayOpen: B
  */
 internal fun playerGestureCommits(target: BackTarget): Boolean =
     target == BackTarget.Lyrics || target == BackTarget.Player
+
+/** Material's modal-sheet scrim opacity (`ScrimTokens.ContainerOpacity` in material3 1.4.0). */
+private const val PLAYER_SCRIM_ALPHA = 0.32f
+
+/**
+ * Blocks touches to the library it dims, the same way Material's own `Surface` does, and adds
+ * nothing a screen reader could focus or activate: closing stays with the collapse button and Back.
+ */
+@Composable
+private fun PlayerScrim() {
+    Box(Modifier.fillMaxSize()
+        .background(MaterialTheme.colorScheme.scrim.copy(alpha = PLAYER_SCRIM_ALPHA))
+        .pointerInput(Unit) {})
+}
 
 /**
  * A surface that covers the tabs and insets itself, because the scaffold below cannot reach it.

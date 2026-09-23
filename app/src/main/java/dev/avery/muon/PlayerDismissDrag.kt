@@ -2,6 +2,7 @@ package dev.avery.muon
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -97,6 +98,15 @@ internal fun rememberPlayerDismiss(): PlayerDismiss {
 }
 
 /**
+ * The dragged player's top edge: rounded like the sheet in the opening mockup, lifted by Material's
+ * own modal-sheet elevation (Level1 in material3 1.4.0). Both grow over the first pixels of a drag
+ * rather than appearing at once, and are nothing at rest, so the open player shows no corners or
+ * shadow tucked under the status bar.
+ */
+internal val PLAYER_SHEET_CORNER: Dp = 28.dp
+internal val PLAYER_SHEET_ELEVATION: Dp = 1.dp
+
+/**
  * Moves the surface with the drag, in its own layer: the predictive Back preview owns scale,
  * sideways drift and corners in a layer of its own, and neither writes what the other reads.
  * Drawn from the animation, so following a finger never recomposes the player.
@@ -104,7 +114,13 @@ internal fun rememberPlayerDismiss(): PlayerDismiss {
 internal fun Modifier.playerDismiss(state: PlayerDismiss?): Modifier =
     if (state == null) this else graphicsLayer {
         val dropped = state.shown.value
-        if (dropped > 0f) translationY = dropped
+        if (dropped <= 0f) return@graphicsLayer
+        translationY = dropped
+        val corner = minOf(dropped, PLAYER_SHEET_CORNER.toPx())
+        shape = RoundedCornerShape(topStart = corner, topEnd = corner)
+        clip = true
+        // A layer draws its own shadow outside its clip, so the edge stays visible.
+        shadowElevation = minOf(dropped, PLAYER_SHEET_ELEVATION.toPx())
     }
 
 /**
