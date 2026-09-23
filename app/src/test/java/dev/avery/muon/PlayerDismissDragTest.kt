@@ -107,4 +107,22 @@ class PlayerDismissDragTest {
         assertTrue(playerDismissCommits(startedAt = 1, now = 1, drag = 252f, threshold = 252f))
     }
 
+    @Test fun theGrabberMovesExactlyWithTheFinger() {
+        // The edge is drawn lower by the inset the content gives back, so the content's own
+        // displacement — edge minus what it rose by — equals the finger's at every point.
+        listOf(0f, 1f, 30f, 119f, 120f, 121f, 600f).forEach { finger ->
+            val content = playerSheetEdgeDrop(finger, topInset = 120f) - playerInsetReclaimed(finger, 120f)
+            assertEquals(finger, content, 0f)
+        }
+    }
+
+    @Test fun theEdgeClosesTheInsetGapAboveTheGrabber() {
+        // At rest nothing moves; once the sheet is a whole inset down, the edge sits that much
+        // lower than the finger's displacement, which is the blank space it no longer shows.
+        assertEquals(0f, playerSheetEdgeDrop(0f, topInset = 120f), 0f)
+        assertEquals(60f, playerSheetEdgeDrop(30f, topInset = 120f), 0f)
+        assertEquals(720f, playerSheetEdgeDrop(600f, topInset = 120f), 0f)
+        // With no inset to give back, the edge simply follows the finger.
+        assertEquals(600f, playerSheetEdgeDrop(600f, topInset = 0f), 0f)
+    }
 }

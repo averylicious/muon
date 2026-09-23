@@ -227,6 +227,17 @@ internal fun playerInsetReclaimed(dropped: Float, topInset: Float): Float =
     dropped.coerceIn(0f, maxOf(topInset, 0f))
 
 /**
+ * Where the sheet's top edge is drawn when the finger has moved the sheet [dropped] pixels. The
+ * content rises inside the sheet by [playerInsetReclaimed] as the sheet leaves the status bar, so the
+ * edge is drawn that much lower again. The content, and the grabber under the finger, then moves
+ * exactly with the finger from the first pixel, while the edge still closes the blank inset above it.
+ * Before this, the edge followed the finger and the content lagged behind it by up to the whole top
+ * inset, which is how the grabber slid out from under the finger while the corners appeared.
+ */
+internal fun playerSheetEdgeDrop(dropped: Float, topInset: Float): Float =
+    if (dropped <= 0f) 0f else dropped + playerInsetReclaimed(dropped, topInset)
+
+/**
  * Lets the player's content rise by [playerInsetReclaimed] as the sheet is dragged down, reading the
  * drag in the placement phase only. It moves placement rather than padding on purpose: the content
  * keeps the size it was measured at, because changing its constraints mid-drag would restart the
@@ -248,12 +259,14 @@ internal fun Modifier.reclaimTopInset(state: PlayerSheet?, insets: WindowInsets)
  * [edge] is the outline colour for a pure black theme, or null where the scrim and shadow already
  * separate the player from the library.
  */
-internal fun Modifier.playerSheet(state: PlayerSheet, edge: Color? = null): Modifier =
+internal fun Modifier.playerSheet(state: PlayerSheet, insets: WindowInsets, edge: Color? = null): Modifier =
     run {
         val outline = Path()
         graphicsLayer {
             // The only vertical translation the player has: opening, closing and dragging alike.
-            val dropped = state.position.value * size.height
+            // Drawn lower than the finger's displacement by the inset its content gives back, so the
+            // content itself — the grabber under the finger — moves exactly with the finger.
+            val dropped = playerSheetEdgeDrop(state.position.value * size.height, insets.getTop(this).toFloat())
             if (dropped <= 0f) return@graphicsLayer
             translationY = dropped
             val corner = minOf(dropped, PLAYER_SHEET_CORNER.toPx())
@@ -263,7 +276,7 @@ internal fun Modifier.playerSheet(state: PlayerSheet, edge: Color? = null): Modi
             shadowElevation = minOf(dropped, PLAYER_SHEET_ELEVATION.toPx())
         }.drawWithContent {
             drawContent()
-            val dropped = state.position.value * size.height
+            val dropped = playerSheetEdgeDrop(state.position.value * size.height, insets.getTop(this).toFloat())
             if (!playerSheetEdgeShown(dropped, pureBlack = edge != null) || edge == null) return@drawWithContent
             drawTopEdge(outline, edge, minOf(dropped, PLAYER_SHEET_CORNER.toPx()), PLAYER_SHEET_EDGE.toPx())
         }

@@ -45,19 +45,23 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                 try {
                     detectVerticalDragGestures(
                         onDragStart = {
+                            // The detector reports this once touch slop is crossed in either
+                            // direction, so nothing begins here: a drag down from rest must neither
+                            // dim the library nor take it out of TalkBack's reach.
                             travel = 0f
-                            // Wherever the sheet already is — usually closed, but perhaps still
-                            // settling away from a moment ago — is where the finger takes it from.
-                            baseline = sheet.position.value
-                            startedAt = sheet.beginPreview()
+                            startedAt = -1
                         },
                         onVerticalDrag = { _, amount ->
+                            travel += amount
+                            if (startedAt < 0 && playerPreviewMayBegin(travel)) {
+                                // Wherever the sheet already is — usually closed, but perhaps still
+                                // settling away from a moment ago — is where the finger takes it from.
+                                baseline = sheet.position.value
+                                startedAt = sheet.beginPreview()
+                            }
                             // Refused once Back or a new presentation has ended this preview, even
                             // though the finger is still down.
-                            if (owned()) {
-                                travel += amount
-                                sheet.moveTo(playerSheetDragged(baseline, travel, sheet.height))
-                            }
+                            if (owned()) sheet.moveTo(playerSheetDragged(baseline, travel, sheet.height))
                         },
                         onDragCancel = { if (owned()) sheet.endPreview() },
                         onDragEnd = {

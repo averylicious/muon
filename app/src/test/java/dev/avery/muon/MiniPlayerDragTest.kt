@@ -59,4 +59,21 @@ class MiniPlayerDragTest {
         assertFalse(playerPreviewOpens(previewing = true, startedAt = 1, now = 1, travel = -48f,
             threshold = 132f, eligible = true))
     }
+
+    @Test fun aDragDownFromRestBeginsNothing() {
+        // Slop crossed downwards: no preview, so no scrim and the library stays accessible.
+        assertFalse(playerPreviewMayBegin(travel = 30f))
+        assertFalse(playerPreviewMayBegin(travel = 0f))
+        assertTrue(playerPreviewMayBegin(travel = -1f))
+    }
+
+    @Test fun aDragThatDipsBeforeRisingBeginsOnlyOnceItGoesUp() {
+        // Down 30, then up 32: it begins at the moment the finger is above where it started.
+        var travel = 30f
+        assertFalse(playerPreviewMayBegin(travel))
+        travel -= 32f
+        assertTrue(playerPreviewMayBegin(travel))
+        // And the sheet then sits just that far up, not where the dip left off.
+        assertEquals(1f - 2f / 2400f, playerSheetDragged(baseline = 1f, travel = travel, height = 2400f), 1e-6f)
+    }
 }
