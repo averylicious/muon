@@ -88,6 +88,22 @@ internal fun playerPreviewOpens(previewing: Boolean, startedAt: Int, now: Int, t
     playerPreviewOwned(previewing, startedAt, now) && miniDragOpens(travel, threshold, eligible)
 
 /**
+ * How previews and presentations are ordered, kept pure so the sequencing itself can be tested.
+ *
+ * Each preview gets a [generation] of its own when it begins, as does each presentation, so a gesture
+ * cancelled and restarted before anything is presented cannot share a token with the one before it.
+ * Each preview that ends adds to [completions], so its ending is a new value even if the preview began
+ * and ended before composition ever saw it running; whatever settles the sheet keys on that, not on a
+ * flag that may have flipped and flipped back unseen.
+ */
+internal data class SheetTurn(val generation: Int = 0, val previewing: Boolean = false,
+    val completions: Int = 0) {
+    fun begin() = copy(generation = generation + 1, previewing = true)
+    fun end() = if (previewing) copy(previewing = false, completions = completions + 1) else this
+    fun present() = copy(generation = generation + 1)
+}
+
+/**
  * Where the player sits: the single owner of its vertical position, for opening and closing as much
  * as for a drag, so no two translations ever add up.
  *
@@ -105,9 +121,15 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
     /** The one animation or drag moving the sheet, while it still runs. */
     var settle: Job? = null
         private set
-    /** Which presentation of the player is on screen. A drag is only good for the one it began in. */
-    var generation = 0
+    /**
+     * The ordering of previews and presentations, as one immutable value in snapshot state: every
+     * change replaces it, so composition sees each preview's completion even if it began and ended
+     * between two frames, and every owner holds a token no other gesture can share.
+     */
+    var turn by mutableStateOf(SheetTurn())
         private set
+    /** Which presentation or preview is current. A drag is only good for the one it began in. */
+    val generation get() = turn.generation
     /** Whether the player is logically open, as opposed to leaving or gone. */
     var open = openAtStart
         private set
@@ -115,8 +137,7 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
      * Whether the finger is carrying a closed player up from the mini player. Snapshot state that
      * flips twice per gesture, so composition can react to it without ever reading the position.
      */
-    var previewing by mutableStateOf(false)
-        private set
+    val previewing get() = turn.previewing
 
     /**
      * The finger takes a closed player up from the mini player. Holds the sheet where it is, which is
@@ -125,8 +146,8 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
      */
     fun beginPreview(): Int {
         moveTo(position.value)
-        previewing = true
-        return generation
+        turn = turn.begin()
+        return turn.generation
     }
 
     /**
@@ -134,7 +155,7 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
      * decides what happens next, opening it if the player was opened and putting it away otherwise.
      */
     fun endPreview() {
-        previewing = false
+        turn = turn.end()
     }
 
     /**
@@ -164,7 +185,7 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
      * the player away carries on down from where the finger left it, and a quick reopen turns back.
      */
     fun present(open: Boolean) {
-        generation++
+        turn = turn.present()
         this.open = open
         stop()
         settle = scope.launch { position.animateTo(if (open) 0f else 1f, motionMedium()) }

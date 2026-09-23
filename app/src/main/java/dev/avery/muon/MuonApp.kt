@@ -103,8 +103,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // player ends. A preview that opened the player ends in the same event, so the sheet carries
         // on up from where the finger left it; every other ending — short, cancelled, Back, lost
         // eligibility, a refused open — leaves the player closed, so the sheet is put away rather
-        // than left part-way. The gesture never has the last word.
-        LaunchedEffect(playerShown, sheet.previewing) { if (!sheet.previewing) sheet.present(playerShown) }
+        // than left part-way. The gesture never has the last word. Keyed on the count of completed
+        // previews as well, because a preview can begin and end before any frame sees it running,
+        // and a flag that flipped and flipped back would leave the keys unchanged.
+        val turn = sheet.turn
+        LaunchedEffect(playerShown, turn.previewing, turn.completions) {
+            if (!turn.previewing) sheet.present(playerShown)
+        }
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
         val target = backTarget(connected, lyricsShown, overlayOpen,
@@ -137,7 +142,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         Box(Modifier.fillMaxSize().onSizeChanged { sheet.height = it.height.toFloat() }) {
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
             // out of the accessibility tree, so TalkBack cannot wander into hidden content.
-            Box(if (overlayOpen) Modifier.clearAndSetSemantics {} else Modifier) {
+            // A rising preview obscures them just the same, so they leave the tree for it too, and
+            // come back as soon as it is cancelled. Only semantics change: the mini player's own
+            // gesture detector, which is carrying the preview, is not touched.
+            Box(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier) {
                 Scaffold(containerColor = colors.background, bottomBar = {
                     Column {
                         AnimatedVisibility(visible = ui.item != null && !overlayOpen,

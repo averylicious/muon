@@ -98,6 +98,36 @@ animations turned off, which should jump straight open or closed.
 Known limits: the player's content is first composed on the first frame of a preview, which may cost
 that one frame; and the scrim fades in over 250 ms rather than tracking the finger.
 
+## Astra review of `afd9ede`, and the fix
+
+Astra found two blocking cases, both fixed in the head after `afd9ede`.
+
+1. **A preview could end unseen and strand the sheet.** The driver was keyed only on the booleans
+   `(playerShown, previewing)`. A short or cancelled preview that began and ended before a frame
+   observed it left those keys exactly as they were, so `present(false)` never ran and a queued move
+   could leave the sheet part-way. And a preview's token was the presentation's generation, so a
+   preview cancelled and restarted before anything was presented shared its token with the one
+   before, letting an old detector own the new preview.
+   Fixed with `SheetTurn`, one immutable value in snapshot state: every preview gets a generation of
+   its own when it begins, as every presentation does, and every preview that ends adds to a
+   completion count. The driver now keys on `(playerShown, previewing, completions)`, so each ending
+   is observed even if composition never saw the preview running. Accepted and refused opens keep
+   their meaning: an accepted open writes `playerOpen` in the same event that ends the preview, so the
+   driver presents it open; a refused one leaves it closed, so the driver puts the sheet away.
+2. **The library stayed in TalkBack's tree under a rising preview.** Background semantics were
+   cleared only for `overlayOpen`. They are now cleared for `overlayOpen || previewing`, and return
+   as soon as a preview is cancelled. Only the ancestor's semantics modifier changes, so the mini
+   player's pointer detector carrying the preview is not recreated. A sheet settling away after a
+   cancel is already out of the tree and under #91's cover, and a fully closed sheet is unmounted, so
+   nothing closed is left inaccessible and nothing open is left hidden.
+
+Tests: `SheetTurnTest` exercises real sequences on the pure value — a preview begun and ended unseen
+still completes; a restarted preview never shares its token; Back ends a preview for a finger still
+down; a presentation retires earlier tokens, including a dismiss drag's; ending twice counts once;
+and presenting does not look like a completed preview, so settling cannot retrigger itself. The
+ordering sits in a pure value rather than tests constructing the sheet, because the unit-test
+classpath has only JUnit and the sheet holds Android-backed Compose state.
+
 ## Status
 
 Clean and idle once pushed. Stop after this slice; no further feature work this cycle.
