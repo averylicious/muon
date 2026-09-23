@@ -7,6 +7,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
@@ -105,23 +111,59 @@ internal fun rememberPlayerDismiss(): PlayerDismiss {
  */
 internal val PLAYER_SHEET_CORNER: Dp = 28.dp
 internal val PLAYER_SHEET_ELEVATION: Dp = 1.dp
+internal val PLAYER_SHEET_EDGE: Dp = 1.dp
+
+/**
+ * Whether the dragged player draws an outline along its top edge. Only over pure black: there the
+ * player and library are both black, so neither the scrim nor a shadow can tell them apart, and
+ * only while the player is displaced, so the open player stays truly black edge to edge.
+ */
+internal fun playerSheetEdgeShown(dropped: Float, pureBlack: Boolean): Boolean = pureBlack && dropped > 0f
 
 /**
  * Moves the surface with the drag, in its own layer: the predictive Back preview owns scale,
  * sideways drift and corners in a layer of its own, and neither writes what the other reads.
  * Drawn from the animation, so following a finger never recomposes the player.
+ *
+ * [edge] is the outline colour for a pure black theme, or null where the scrim and shadow already
+ * separate the player from the library.
  */
-internal fun Modifier.playerDismiss(state: PlayerDismiss?): Modifier =
-    if (state == null) this else graphicsLayer {
-        val dropped = state.shown.value
-        if (dropped <= 0f) return@graphicsLayer
-        translationY = dropped
-        val corner = minOf(dropped, PLAYER_SHEET_CORNER.toPx())
-        shape = RoundedCornerShape(topStart = corner, topEnd = corner)
-        clip = true
-        // A layer draws its own shadow outside its clip, so the edge stays visible.
-        shadowElevation = minOf(dropped, PLAYER_SHEET_ELEVATION.toPx())
+internal fun Modifier.playerDismiss(state: PlayerDismiss?, edge: Color? = null): Modifier =
+    if (state == null) this else {
+        val outline = Path()
+        graphicsLayer {
+            val dropped = state.shown.value
+            if (dropped <= 0f) return@graphicsLayer
+            translationY = dropped
+            val corner = minOf(dropped, PLAYER_SHEET_CORNER.toPx())
+            shape = RoundedCornerShape(topStart = corner, topEnd = corner)
+            clip = true
+            // A layer draws its own shadow outside its clip, so the edge stays visible.
+            shadowElevation = minOf(dropped, PLAYER_SHEET_ELEVATION.toPx())
+        }.drawWithContent {
+            drawContent()
+            val dropped = state.shown.value
+            if (!playerSheetEdgeShown(dropped, pureBlack = edge != null) || edge == null) return@drawWithContent
+            drawTopEdge(outline, edge, minOf(dropped, PLAYER_SHEET_CORNER.toPx()), PLAYER_SHEET_EDGE.toPx())
+        }
     }
+
+/**
+ * Traces the top of the sheet along the same corners the layer clips to. Drawn half a stroke inside
+ * the edge, on a concentric radius, so the clip cannot shave the line thin; the sides and bottom are
+ * left alone, because they sit at the screen's own edges.
+ */
+private fun DrawScope.drawTopEdge(path: Path, color: Color, corner: Float, width: Float) {
+    val inset = width / 2f
+    val radius = (corner - inset).coerceAtLeast(0f)
+    val right = size.width - inset
+    path.reset()
+    path.moveTo(inset, inset + radius)
+    if (radius > 0f) path.arcTo(Rect(inset, inset, inset + 2 * radius, inset + 2 * radius), 180f, 90f, false)
+    path.lineTo(right - radius, inset)
+    if (radius > 0f) path.arcTo(Rect(right - 2 * radius, inset, right, inset + 2 * radius), 270f, 90f, false)
+    drawPath(path, color, style = Stroke(width))
+}
 
 /**
  * The drag itself, on the bar alone. The travel is kept inside the pointer handler rather than in

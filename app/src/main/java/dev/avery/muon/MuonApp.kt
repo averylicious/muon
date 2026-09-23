@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
@@ -305,9 +306,12 @@ private fun FullScreenOverlay(visible: Boolean, dismiss: PlayerDismiss? = null,
         enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
         exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
         // Two layers, each owning its own properties: the drag moves the surface down, the Back
-        // preview scales and drifts it, and neither writes what the other reads.
-        Surface(Modifier.fillMaxSize().playerDismiss(dismiss).playerBackPreview(preview()),
-            color = MaterialTheme.colorScheme.background) {
+        // preview scales and drifts it, and neither writes what the other reads. On pure black the
+        // drag layer also outlines the top edge, since nothing else can show where the player ends.
+        val colors = MaterialTheme.colorScheme
+        val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
+        Surface(Modifier.fillMaxSize().playerDismiss(dismiss, edge).playerBackPreview(preview()),
+            color = colors.background) {
             Box(Modifier.safeDrawingPadding()) { content() }
         }
     }

@@ -45,6 +45,17 @@ class PlayerDismissDragTest {
         assertTrue(playerDismissCommits(startedAt = 3, now = 3, drag = 264f, threshold = 264f))
     }
 
+    @Test fun anOpenPlayerStaysTrulyBlackEdgeToEdge() {
+        // At rest there is nothing to separate, so pure black keeps no outline at all.
+        assertFalse(playerSheetEdgeShown(dropped = 0f, pureBlack = true))
+        assertTrue(playerSheetEdgeShown(dropped = 1f, pureBlack = true))
+    }
+
+    @Test fun onlyPureBlackNeedsTheOutline() {
+        // Elsewhere the scrim and shadow already separate the player; the outline would be noise.
+        assertFalse(playerSheetEdgeShown(dropped = 400f, pureBlack = false))
+    }
+
     @Test fun theDecisionIsTakenFromTheFingerNotFromTheSurface() {
         // The surface has stopped at the bottom of a short screen long before the threshold, so
         // the two must not be judged by the same number.

@@ -4,6 +4,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -63,9 +64,10 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                 // A decorative grabber marks the existing draggable bar without adding another
                 // control or shrinking its touch area. Center it on the player, not the space
                 // left beside the collapse button, and use the active theme's surface contrast.
-                Surface(modifier = Modifier.size(width = 32.dp, height = 4.dp),
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant) {}
+                // Painted rather than a Surface, which would add an empty node for a screen reader
+                // to land on and a touch target of its own.
+                Box(Modifier.size(width = 32.dp, height = 4.dp)
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant, RoundedCornerShape(50)))
                 FilledTonalIconButton(onClick = collapse,
                     modifier = Modifier.align(Alignment.CenterStart)
                         .semantics { contentDescription = "Collapse the player" }) {
