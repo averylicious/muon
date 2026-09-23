@@ -24,8 +24,10 @@ from the top bar:
   slow drift back after a long pull does not undo it.
 
 Velocity comes from Compose's `VelocityTracker` (stable in ui 1.9.3; `addPosition`,
-`calculateVelocity`, `resetTracking`), fitted over recent movement and zero after the finger pauses, so
-the last tiny delta before lifting is not mistaken for a flick or a reversal. It is fed the **finger's
+`calculateVelocity`, `resetTracking`), fitted over recent movement, so the last tiny delta before
+lifting is not mistaken for a flick or a reversal. The tracker does **not** by itself forget a flick
+when the finger stops (an earlier revision of this note wrongly said so); the release now expires it
+explicitly — see the review fix below. It is fed the **finger's
 own accumulated travel**, not the pointer's position within the grabber: since #98 the grabber moves
 with the finger, so its local position barely changes and would read almost no velocity.
 
