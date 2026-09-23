@@ -65,3 +65,5 @@ Create these **repository Actions secrets** in the new private repository:
 | `MUON_RELEASE_PASSWORD` | Release password in credentials.json (used for store and key) |
 
 The current repository has all three configured. GitHub secrets cannot be retrieved as a recovery backup; keep the local/1Password originals. Restored key files exist only under runner temporary storage, are removed in an always-run cleanup step, and are excluded from caches and uploaded artifacts. Missing secrets fail the build rather than silently generating new identities. Only grant repository push access to people trusted with signing; a modified workflow on a pushed branch can access repository secrets. Fork PR workflows are not enabled.
+
+For workstream names versus APK versions, see [workstream names and release versions](release-naming.md).
