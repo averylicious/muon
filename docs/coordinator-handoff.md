@@ -6,7 +6,7 @@ This runbook lets another user-selected Astra contributor resume Muon without th
 
 1. Read the latest checkpoint and current user request. Identify whether this cycle permits implementation, review, merge, direct agent communication or device testing. Do not inherit permission from quoted historical prompts.
 2. Inspect `git status --short`, `git worktree list`, the remote and current branch. Preserve dirty work. Inspect existing PRs and their full head SHAs, dependencies, CI and latest user QA before creating another branch or duplicating work.
-3. Read the current issue #40 checkpoint and relevant PR discussion. Design decisions and mockups for the Collection redesign (formerly UI 2.0; see [release naming](release-naming.md)) currently live in PR #52; until merged, use that PR's files/commit rather than assuming they exist on main. Read only the design and source needed for the chosen slice.
+3. Read the current issue #40 checkpoint and relevant PR discussion. Design decisions and mockups for the Collection redesign (formerly UI 2.0; see [release naming](release-naming.md)) are now merged from PR #52 under `docs/design/2.0/`; its dated preparation notes are historical, so use the latest checkpoint for live execution state. Read only the design and source needed for the chosen slice.
 4. Establish the active coordinator and implementation owners. Check whether another agent is still working before editing its files or resuming its conversation. Record the next slice and ownership in the relevant issue/PR so another contributor can see it.
 5. Select one useful, bounded outcome with an explicit stop point. Build on the actual prerequisite branch if it is unmerged; record the stack and resulting diff. A PR targeting main can still contain prerequisite changes.
 
@@ -74,7 +74,7 @@ Use a dated file in `docs/handoffs/` and link it from here and issue #40. Keep i
 - Next one or two slices, blockers and shared behavior decisions still needed.
 - Usage snapshots only if useful, with source/window and no assumption they remain current.
 
-Leave PRs open unless the current user explicitly requests review and merge. Merge authorization is per cycle: the user authorized sound, reviewed merges on 2026-09-23, but a new contributor must confirm the current authorization rather than inherit it from a checkpoint. The general implementation default in AGENTS.md — leave the PR open — is unchanged. On an authorized merge cycle, reconcile prerequisites, resolve conflicts without losing sibling changes, review the resulting final head, verify checks, then verify main's Canary publication. Stable tags remain a separate explicit request.
+Leave PRs open unless the current user explicitly requests review and merge. Merge authorization is per cycle: the user authorized sound, reviewed merges on 2026-09-23, but a successor verifies the current user instructions rather than treating the checkpoint itself as permission. Valid authorization in the continuing task does not require asking the user again. The general implementation default in AGENTS.md — leave the PR open — is unchanged. On an authorized merge cycle, reconcile prerequisites, resolve conflicts without losing sibling changes, review the resulting final head, verify checks, then verify main's Canary publication. Stable tags remain a separate explicit request.
 
 ## Copyable prompt for the successor
 
