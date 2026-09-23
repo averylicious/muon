@@ -99,7 +99,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // closing animation. Opening and closing drive it from the logical state; progress never
         // decides where Back goes.
         val sheet = rememberPlayerSheet(openAtStart = playerShown)
-        LaunchedEffect(playerShown) { sheet.present(playerShown) }
+        // Re-presents the logical state whenever it changes and whenever a preview from the mini
+        // player ends. A preview that opened the player ends in the same event, so the sheet carries
+        // on up from where the finger left it; every other ending — short, cancelled, Back, lost
+        // eligibility, a refused open — leaves the player closed, so the sheet is put away rather
+        // than left part-way. The gesture never has the last word.
+        LaunchedEffect(playerShown, sheet.previewing) { if (!sheet.previewing) sheet.present(playerShown) }
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
         val target = backTarget(connected, lyricsShown, overlayOpen,
@@ -114,6 +119,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
         }
         BackHandler(target != BackTarget.None) { goBack() }
+        // While the finger is carrying a closed player up, Back cancels that and nothing else: the
+        // library underneath is hidden by the rising player and must not be navigated. Registered
+        // after the app's own handler, so the dispatcher gives it the press while it is enabled.
+        BackHandler(sheet.previewing) { sheet.endPreview() }
         fun startQueue(list: List<TauonTrack>, track: TauonTrack) {
             val endpoint = model.endpoint ?: return
             val queue = list.filter { it.playable }
@@ -122,7 +131,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             player.setMediaItems(queue.map { it.mediaItem(endpoint) }, index, 0L)
             player.prepare(); player.play()
         }
-        Box(Modifier.fillMaxSize()) {
+        // Measured here rather than on the player's host, which is not composed until a preview has
+        // moved it: the root is always measured and is the size the sheet will be, so the first move
+        // of a preview can already be turned into a position, and that position mounts the host.
+        Box(Modifier.fillMaxSize().onSizeChanged { sheet.height = it.height.toFloat() }) {
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
             // out of the accessibility tree, so TalkBack cannot wander into hidden content.
             Box(if (overlayOpen) Modifier.clearAndSetSemantics {} else Modifier) {
@@ -133,6 +145,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
                             MiniPlayer(ui, position, player != null,
                                 active = connected && player != null && ui.item != null && !overlayOpen,
+                                sheet = sheet,
                                 open = {
                                     if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
                                         playerOpen = true
@@ -224,7 +237,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // by Back reads as a sheet over it rather than more of the same surface. It stays
             // put while the sheet moves, follows only the player's own visibility, and is gone
             // entirely once the player has closed.
-            AnimatedVisibility(visible = playerShown, enter = fadeIn(motionMedium()),
+            // Also shown while a preview is rising, so new touches cannot reach the library under
+            // it; a finger already down keeps its own stream, so the drag itself carries on.
+            AnimatedVisibility(visible = playerShown || sheet.previewing, enter = fadeIn(motionMedium()),
                 exit = fadeOut(motionMedium())) {
                 PlayerScrim()
             }
@@ -326,7 +341,6 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean,
     val colors = MaterialTheme.colorScheme
     val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
     Surface(Modifier.fillMaxSize()
-        .onSizeChanged { sheet.height = it.height.toFloat() }
         .playerSheet(sheet, edge).playerBackPreview(preview()),
         color = colors.background) {
         // The content gives back the top inset as the sheet drops below the status bar.

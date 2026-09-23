@@ -1,7 +1,6 @@
 package dev.avery.muon
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
@@ -11,22 +10,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 
 @Composable
-internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, active: Boolean, open: () -> Unit,
-    toggle: () -> Unit, next: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    // A new eligibility window gets its own lift: cleanup from an outgoing detector must
-    // never move the next presentation of this mini player.
-    val lift = remember(active) { Animatable(0f) }
+internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, active: Boolean,
+    sheet: PlayerSheet?, open: () -> Unit, toggle: () -> Unit, next: () -> Unit) {
     val canOpen by rememberUpdatedState(active)
     // A drag hands the player over when it ends, which can be a long time after it began, so the
     // action is read then rather than captured when the gesture detector was set up.
@@ -36,41 +28,52 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
     Surface(color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier.fillMaxWidth()
-            // Drawn from the animation, so following a finger never recomposes the mini player.
-            .graphicsLayer { translationY = lift.value }
             // Tap still opens, with its own label, and the controls inside still take their own
             // taps: a drag only becomes a drag once it has passed the touch slop that the detector
             // applies before it reports anything.
             .clickable(enabled = active, onClickLabel = "Open Now Playing", onClick = open)
-            .pointerInput(active, lift) {
-                if (!active) return@pointerInput
-                var drag = 0f
-                var settle: Job? = null
-                fun restore() {
-                    settle?.cancel()
-                    settle = scope.launch { lift.animateTo(0f, motionShort()) }
-                }
+            // The mini player itself stays put: the whole player rises under the finger instead,
+            // through the sheet that owns its only vertical position. The keys do not change
+            // during a preview — the player is still logically closed — so the stream that began
+            // the drag is never torn down while it is carrying the player.
+            .pointerInput(active, sheet) {
+                if (!active || sheet == null) return@pointerInput
+                var travel = 0f
+                var baseline = 1f
+                var startedAt = -1
+                fun owned() = playerPreviewOwned(sheet.previewing, startedAt, sheet.generation)
                 try {
                     detectVerticalDragGestures(
-                        onDragStart = { drag = 0f; settle?.cancel() },
-                        onVerticalDrag = { _, amount ->
-                            drag += amount
-                            val offset = miniDragOffset(drag, MINI_DRAG_LIFT.toPx())
-                            // Cancel even if the prior snap is only queued, and capture this
-                            // event's offset instead of reading a later accumulated distance.
-                            settle?.cancel()
-                            settle = scope.launch { lift.snapTo(offset) }
+                        onDragStart = {
+                            travel = 0f
+                            // Wherever the sheet already is — usually closed, but perhaps still
+                            // settling away from a moment ago — is where the finger takes it from.
+                            baseline = sheet.position.value
+                            startedAt = sheet.beginPreview()
                         },
-                        onDragCancel = { restore() },
+                        onVerticalDrag = { _, amount ->
+                            // Refused once Back or a new presentation has ended this preview, even
+                            // though the finger is still down.
+                            if (owned()) {
+                                travel += amount
+                                sheet.moveTo(playerSheetDragged(baseline, travel, sheet.height))
+                            }
+                        },
+                        onDragCancel = { if (owned()) sheet.endPreview() },
                         onDragEnd = {
-                            val opens = miniDragOpens(drag, MINI_DRAG_OPEN.toPx(), canOpen)
-                            restore()
+                            val opens = playerPreviewOpens(sheet.previewing, startedAt, sheet.generation,
+                                travel, MINI_DRAG_OPEN.toPx(), canOpen)
+                            val mine = owned()
+                            // Opening and ending the preview together lets the presentation carry the
+                            // sheet on up from here; any other ending lets it put the sheet away.
                             if (opens) current()
+                            if (mine) sheet.endPreview()
                         })
                 } finally {
-                    // Pointer-input cancellation cannot run its own animation. The composition
-                    // scope survives detector restart; disposal cancels it automatically.
-                    restore()
+                    // Torn down mid-preview — the controller or queue went, or the mini player
+                    // left: end the preview this detector still owns, and the presentation puts
+                    // the sheet away rather than leaving it part-way.
+                    if (owned()) sheet.endPreview()
                 }
             }) {
         Column {

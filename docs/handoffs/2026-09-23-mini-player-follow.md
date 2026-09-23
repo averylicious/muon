@@ -55,6 +55,49 @@ app's own, so the dispatcher gives it the press: it cancels the preview and navi
 system animation scale and finish at once with animations off, but changing the curve for every
 opening and closing is left to a tuning pass rather than bundled here.
 
+## Implemented
+
+The design above was implemented as written, in one code commit after the design commit.
+
+- `PlayerDismissDrag.kt` — `PlayerSheet.previewing`, `beginPreview` (holds the sheet and returns the
+  token) and `endPreview`; `playerPreviewOwned` and `playerPreviewOpens`.
+- `MiniPlayer.kt` — the resisted lift and its animation are gone; the drag begins a preview, moves
+  the sheet from its takeover baseline, refuses moves once no longer owned, and on release opens the
+  player and ends the preview together, or just ends it. A detector torn down mid-preview ends the
+  preview it owns.
+- `MiniPlayerDrag.kt` — only the 48 dp threshold and `miniDragOpens` remain.
+- `MuonApp.kt` — the sheet's height is measured on the root `Box`; the driver is keyed on
+  `(playerShown, sheet.previewing)`; the scrim also shows during a preview; a second `BackHandler`,
+  enabled only while previewing, ends the preview; the mini player receives the sheet.
+
+## Branch and base
+
+- Branch `codex/mini-player-follow`, worktree `/home/avery/.codex/worktrees/muon-mini-follow/muon`.
+- Base: PR #91 head `f2d733a7391ad26ffaad3267b87ef84a977aad79` (Astra re-review, no remaining
+  blocker; run 117 passed). **#91 is a prerequisite**, stacked on #90 → #89 → #88 → #87 → #86 → #85.
+- Two commits: the design checkpoint, then the implementation with this completed note.
+
+## Validated vs pending
+
+- Tests: the mini-player tests are restated for the sheet (it follows the finger with no resistance;
+  pulling down does nothing; opening needs the threshold), and new policy tests cover a preview opening
+  only while still owned — not after Back, not across a new presentation, not after eligibility is lost
+  — late moves refused, and where the sheet already was not counting towards opening. These do not
+  verify Compose input, the pointer stream surviving the scrim, or rendering.
+- Read the diff; the APIs are those already verified in earlier slices. **No local build** — no Gradle
+  cache and no installed `platforms;android-36`.
+- CI: triggered by the push, **not inspected**; Astra owns final-head CI and review.
+- Astra review: pending. Phone QA: pending.
+
+Needs the device most: that the drag carries on after the scrim appears over the mini player; Back
+mid-preview with the finger still down (then keep moving and let go — nothing should happen); the
+queue emptying or disconnecting mid-preview; rotating mid-preview; grabbing the sheet again while it
+is settling away; tapping controls and TalkBack on the partly risen player; and opening with system
+animations turned off, which should jump straight open or closed.
+
+Known limits: the player's content is first composed on the first frame of a preview, which may cost
+that one frame; and the scrim fades in over 250 ms rather than tracking the finger.
+
 ## Status
 
-Design checkpoint committed before implementation; the sections below record what was implemented.
+Clean and idle once pushed. Stop after this slice; no further feature work this cycle.

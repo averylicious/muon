@@ -8,8 +8,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
@@ -69,6 +71,23 @@ internal fun playerDismissCommits(startedAt: Int, now: Int, drag: Float, thresho
 internal fun playerSheetPresent(open: Boolean, onScreen: Boolean): Boolean = open || onScreen
 
 /**
+ * Whether a preview still belongs to the gesture that began it. Back ends a preview at once, and a
+ * new presentation bumps the generation, so a finger still down afterwards can neither move nor open
+ * the player.
+ */
+internal fun playerPreviewOwned(previewing: Boolean, startedAt: Int, now: Int): Boolean =
+    previewing && startedAt == now
+
+/**
+ * Whether letting go of a preview opens the player: only a preview still owned by this gesture, only
+ * while the player may be opened at all, and only for 48 dp of the finger's own travel upwards —
+ * where the sheet already was when the finger took it does not count.
+ */
+internal fun playerPreviewOpens(previewing: Boolean, startedAt: Int, now: Int, travel: Float,
+    threshold: Float, eligible: Boolean): Boolean =
+    playerPreviewOwned(previewing, startedAt, now) && miniDragOpens(travel, threshold, eligible)
+
+/**
  * Where the player sits: the single owner of its vertical position, for opening and closing as much
  * as for a drag, so no two translations ever add up.
  *
@@ -92,6 +111,31 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
     /** Whether the player is logically open, as opposed to leaving or gone. */
     var open = openAtStart
         private set
+    /**
+     * Whether the finger is carrying a closed player up from the mini player. Snapshot state that
+     * flips twice per gesture, so composition can react to it without ever reading the position.
+     */
+    var previewing by mutableStateOf(false)
+        private set
+
+    /**
+     * The finger takes a closed player up from the mini player. Holds the sheet where it is, which is
+     * itself motion the preview owns, and returns the presentation it began on, so callbacks arriving
+     * after Back or a change of presentation can be recognised and refused.
+     */
+    fun beginPreview(): Int {
+        moveTo(position.value)
+        previewing = true
+        return generation
+    }
+
+    /**
+     * The preview is over, however it ended. The position is left where it is: the presentation
+     * decides what happens next, opening it if the player was opened and putting it away otherwise.
+     */
+    fun endPreview() {
+        previewing = false
+    }
 
     /**
      * Gives up whatever was moving the sheet. Worth doing even when it is already at rest, because a
