@@ -67,4 +67,37 @@ class SheetReleaseTest {
         assertTrue(sheetReleaseCommits(travel = 720f, velocity = 0f, distance = 720f, flick = SheetFlick.None))
         assertFalse(sheetReleaseCommits(travel = 719f, velocity = 99999f, distance = 720f, flick = SheetFlick.None))
     }
+
+    @Test fun aFastShortPullHeldStillThenReleasedReturns() {
+        // Flicked 120 px, then held still for half a second before lifting: the tracker still holds
+        // the flick's speed, but it has expired, so the pull is judged as a slow short one.
+        val up = sheetReleaseVelocity(measured = -2500f, lastMoveMillis = 1_000, releaseMillis = 1_500)
+        val down = sheetReleaseVelocity(measured = 2500f, lastMoveMillis = 1_000, releaseMillis = 1_500)
+        assertEquals(0f, up, 0f)
+        assertEquals(0f, down, 0f)
+        assertFalse(miniDragOpens(drag = -120f, threshold = distance, velocity = up, flick = flick))
+        assertFalse(playerDismissCloses(drag = 120f, threshold = distance, velocity = down, flick = flick))
+    }
+
+    @Test fun aFlickReleasedWhileStillMovingStillCommits() {
+        // Lifted one frame after the last movement: the flick is real and still counts.
+        val up = sheetReleaseVelocity(measured = -2500f, lastMoveMillis = 1_000, releaseMillis = 1_008)
+        val down = sheetReleaseVelocity(measured = 2500f, lastMoveMillis = 1_000, releaseMillis = 1_008)
+        assertTrue(miniDragOpens(drag = -120f, threshold = distance, velocity = up, flick = flick))
+        assertTrue(playerDismissCloses(drag = 120f, threshold = distance, velocity = down, flick = flick))
+    }
+
+    @Test fun velocityExpiresJustAfterTheTrackersOwnStopGap() {
+        val gap = SHEET_VELOCITY_EXPIRY_MILLIS
+        assertEquals(-2500f, sheetReleaseVelocity(-2500f, lastMoveMillis = 1_000, releaseMillis = 1_000 + gap), 0f)
+        assertEquals(0f, sheetReleaseVelocity(-2500f, lastMoveMillis = 1_000, releaseMillis = 1_001 + gap), 0f)
+        assertEquals(0f, sheetReleaseVelocity(2500f, lastMoveMillis = 1_000, releaseMillis = 1_001 + gap), 0f)
+    }
+
+    @Test fun aLongPullHeldStillStillCommitsOnDistance() {
+        // Expiry only removes the flick; a pull that already travelled far enough still commits.
+        val expired = sheetReleaseVelocity(measured = -2500f, lastMoveMillis = 1_000, releaseMillis = 2_000)
+        assertTrue(miniDragOpens(drag = -800f, threshold = distance, velocity = expired, flick = flick))
+        assertTrue(playerDismissCloses(drag = 800f, threshold = distance, velocity = -expired, flick = flick))
+    }
 }

@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import android.os.SystemClock
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -46,6 +47,7 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                 // Fed the finger's own accumulated travel, so a flick is measured on the finger
                 // rather than on anything that moves under it.
                 val tracker = VelocityTracker()
+                var lastMove = 0L
                 fun owned() = playerPreviewOwned(sheet.previewing, startedAt, sheet.generation)
                 try {
                     detectVerticalDragGestures(
@@ -59,6 +61,7 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                         },
                         onVerticalDrag = { change, amount ->
                             travel += amount
+                            lastMove = change.uptimeMillis
                             tracker.addPosition(change.uptimeMillis, Offset(0f, travel))
                             if (startedAt < 0 && playerPreviewMayBegin(travel)) {
                                 // Wherever the sheet already is — usually closed, but perhaps still
@@ -74,7 +77,8 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                         onDragEnd = {
                             val opens = playerPreviewOpens(sheet.previewing, startedAt, sheet.generation,
                                 travel, sheetReleaseDistance(sheet.height, MINI_DRAG_OPEN.toPx()), canOpen,
-                                tracker.calculateVelocity().y,
+                                // Pointer times are MotionEvent event times, on this same clock.
+                                sheetReleaseVelocity(tracker.calculateVelocity().y, lastMove, SystemClock.uptimeMillis()),
                                 SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
                             val mine = owned()
                             // Opening and ending the preview together lets the presentation carry the

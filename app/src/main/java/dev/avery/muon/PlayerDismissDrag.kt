@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.WindowInsets
@@ -71,6 +72,23 @@ internal data class SheetFlick(val velocity: Float, val travel: Float) {
         val None = SheetFlick(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
     }
 }
+
+/**
+ * How long after the finger's last movement its measured velocity still counts. The tracker only
+ * ever sees movement: the detector reports no events while the finger is held still, and none at the
+ * lift, and the tracker ages its samples against the newest one rather than the present. So a fast
+ * short pull followed by a still hold would otherwise lift with the old flick's speed. This is the
+ * same gap the tracker itself treats as the pointer having stopped (40 ms in ui 1.9.3).
+ */
+internal const val SHEET_VELOCITY_EXPIRY_MILLIS = 40L
+
+/**
+ * The velocity to judge a release by: the tracker's [measured] velocity if the finger was still
+ * moving when it lifted, and none at all if it had paused for longer than
+ * [SHEET_VELOCITY_EXPIRY_MILLIS]. Both times are pointer uptime.
+ */
+internal fun sheetReleaseVelocity(measured: Float, lastMoveMillis: Long, releaseMillis: Long): Float =
+    if (releaseMillis - lastMoveMillis > SHEET_VELOCITY_EXPIRY_MILLIS) 0f else measured
 
 /** The travel a slow release must cover: a share of the sheet's height, but never less than [minimum]. */
 internal fun sheetReleaseDistance(height: Float, minimum: Float): Float =
@@ -367,6 +385,7 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
         // Fed the finger's own accumulated travel rather than its position within the grabber, which
         // now moves with the finger and so would read almost no velocity at all.
         val tracker = VelocityTracker()
+        var lastMove = 0L
         // Only an open player rests at the top; a closing one belongs to the presentation.
         fun restore() { if (state.open) mine = state.settleBack() }
         try {
@@ -384,6 +403,7 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
                 },
                 onVerticalDrag = { change, amount ->
                     drag += amount
+                    lastMove = change.uptimeMillis
                     tracker.addPosition(change.uptimeMillis, Offset(0f, drag))
                     mine = state.moveTo(playerSheetDragged(baseline, drag, state.height))
                 },
@@ -394,7 +414,8 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
                     // carries on down from there, and this detector must not tidy it back up.
                     if (playerDismissCommits(startedAt, state.generation, drag,
                             sheetReleaseDistance(state.height, PLAYER_DISMISS_DROP.toPx()),
-                            tracker.calculateVelocity().y,
+                            // Pointer times are MotionEvent event times, on this same clock.
+                            sheetReleaseVelocity(tracker.calculateVelocity().y, lastMove, SystemClock.uptimeMillis()),
                             SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))) {
                         mine = null
                         collapse()
