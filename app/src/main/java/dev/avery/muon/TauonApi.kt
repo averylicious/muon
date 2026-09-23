@@ -51,7 +51,7 @@ class TauonApi(val endpoint: ServerEndpoint) {
         val a = json("/api1/tracklist/$playlistId").getJSONArray("tracks")
         return List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getLong("id"); require(id >= 0)
-            TauonTrack(id, it.optString("title", "Untitled"), it.optString("artist"),
+            TauonTrack(id, trackDisplayTitle(it.opt("title") as? String, it.opt("path") as? String), it.optString("artist"),
                 it.optString("album"), it.optLong("duration"),
                 it.optBoolean("can_download", false), it.optBoolean("has_lyrics"))
         } }

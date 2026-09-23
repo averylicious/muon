@@ -1,0 +1,222 @@
+package dev.avery.muon
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+
+/** Material's large bar asks for this much height when expanded, before any font scaling. */
+internal const val LIBRARY_HEADER = 152f
+
+/** Below this much room for the list, a greeting is taking space the music needs. */
+internal const val LIBRARY_MINIMUM_LIST = 240f
+
+/**
+ * How tall the greeting may be, or `null` when the window cannot afford one.
+ *
+ * The greeting is two lines of 36sp above a count, so it grows with the text, and so does the
+ * space a useful stretch of list needs: both sides of the comparison scale together, at the size
+ * the system actually reports. A tall portrait window affords the greeting; a short landscape or
+ * split-screen one does not, and spending most of it on a welcome rather than on music would be
+ * the wrong trade.
+ */
+internal fun libraryHeaderHeight(windowHeight: Float, fontScale: Float): Float? {
+    val scale = fontScale.coerceAtLeast(1f)
+    val header = LIBRARY_HEADER * scale
+    return header.takeIf { windowHeight - it >= LIBRARY_MINIMUM_LIST * scale }
+}
+
+/**
+ * The greeting, folding into a compact bar as the list scrolls up.
+ *
+ * The Refresh button is gone: pulling the list down refreshes it (#44). The action itself is
+ * still reachable without the gesture, as a custom accessibility action on the list below.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryHeader(tracks: Int, expandedHeight: Float?,
+    scrollBehavior: TopAppBarScrollBehavior) {
+    val colors = TopAppBarDefaults.topAppBarColors(
+        containerColor = MaterialTheme.colorScheme.background,
+        scrolledContainerColor = MaterialTheme.colorScheme.background)
+    // The scaffold already applies the status bar inset to this content.
+    val insets = WindowInsets(0, 0, 0, 0)
+    if (expandedHeight == null) {
+        TopAppBar(title = { Text("Library", style = MaterialTheme.typography.titleLarge) },
+            colors = colors, windowInsets = insets)
+    } else {
+        LargeTopAppBar(
+            title = { Greeting(tracks) },
+            colors = colors,
+            expandedHeight = expandedHeight.dp,
+            windowInsets = insets,
+            scrollBehavior = scrollBehavior,
+        )
+    }
+}
+
+/**
+ * Bold, as #40 decided: regular weight read wrong on a two-line greeting. The bar hands its
+ * expanded slot `headlineMedium` and its collapsed slot `titleLarge`, so reading the style it was
+ * given says which slot this is, without watching the scroll position from composition.
+ */
+@Composable
+private fun Greeting(tracks: Int) {
+    val collapsed = LocalTextStyle.current.fontSize == MaterialTheme.typography.titleLarge.fontSize
+    if (collapsed) {
+        Text("Library", style = MaterialTheme.typography.titleLarge,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    } else Column {
+        Text("Your music,\nnearby.", style = MaterialTheme.typography.displaySmall,
+            fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (tracks > 0) Text("$tracks ${if (tracks == 1) "track" else "tracks"} from your desktop",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * The top-level library: greeting, view chips, and the list under a pull to refresh.
+ *
+ * The collapsing bar's nested scroll sits *inside* the pull container, so an upward scroll folds
+ * the greeting first and a downward one unfolds it before the pull begins: a drag at the top
+ * restores the greeting, and only a further pull refreshes.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LibraryTop(tracks: Int, view: LibraryView, choose: (LibraryView) -> Unit,
+    refreshing: Boolean, refresh: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val expanded = libraryHeaderHeight(maxHeight.value, LocalDensity.current.fontScale)
+        val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+        Column(Modifier.fillMaxSize()) {
+            LibraryHeader(tracks, expanded, scrollBehavior)
+            LibraryChips(view, choose)
+            LibraryPane(refreshing, refresh) {
+                Box(Modifier.fillMaxSize().then(
+                    if (expanded != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+                    else Modifier)) {
+                    content()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The library list, refreshed by pulling it down.
+ *
+ * [refreshing] is the model's own busy flag and [refresh] its existing reload, so this adds a
+ * gesture rather than a second way to load a library. A pull gesture means nothing to a screen
+ * reader and the Refresh button it replaced is gone, so the same action stays available as an
+ * explicit accessibility action — declined while a refresh is already running, which is what the
+ * disabled button used to express.
+ */
+@Composable
+internal fun LibraryPane(refreshing: Boolean, refresh: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = refresh,
+        modifier = Modifier.fillMaxSize().semantics {
+            customActions = listOf(CustomAccessibilityAction("Refresh library") {
+                if (refreshing) false else { refresh(); true }
+            })
+        },
+        content = content,
+    )
+}
+
+/**
+ * Songs or Playlists. Albums and Artists belong here too, and are deliberately absent until they
+ * exist: a chip that opens nothing is worse than no chip.
+ */
+@Composable
+internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
+    // Deliberately plain: an earlier edge fade used an offscreen compositing layer and a DstOut
+    // blend, which the user reported as a scroll regression. The chips overflow past the padding
+    // instead, which costs nothing to draw.
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+        .padding(horizontal = 24.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LibraryView.entries.forEach { choice ->
+            LibraryChip(choice.name, view == choice) { choose(choice) }
+        }
+    }
+}
+
+/**
+ * The playlists, as rows rather than chips. Empty ones are left out: they cannot be opened to
+ * anything, and Tauon tends to accumulate them.
+ */
+@Composable
+internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, open: (String) -> Unit) {
+    val listed = playlists.filter { it.count > 0 }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
+        if (listed.isEmpty()) item {
+            // Full height so the list can still be pulled down to refresh.
+            Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                Text(if (loading) "Loading playlists…"
+                    else "No playlists with music yet. Make one in Tauon, then refresh.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else items(listed, key = { it.id }, contentType = { "playlist" }) { playlist ->
+            ListItem(
+                headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                supportingContent = {
+                    Text("${playlist.count} ${if (playlist.count == 1) "song" else "songs"}")
+                },
+                leadingContent = { MuonIcon("library") },
+                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                modifier = Modifier.clickable(onClickLabel = "Open playlist") { open(playlist.id) },
+            )
+        }
+    }
+}
+
+/** The bar over one playlist's songs: its name, its size, and the way back to the list. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PlaylistBar(name: String, count: Int, back: () -> Unit) {
+    TopAppBar(
+        title = { Text(name, style = MaterialTheme.typography.titleLarge,
+            maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        navigationIcon = {
+            IconButton(onClick = back,
+                modifier = Modifier.semantics { contentDescription = "Back to playlists" }) {
+                MuonIcon("back")
+            }
+        },
+        actions = {
+            Text("$count", style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 16.dp))
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+        // The scaffold already applies the status bar inset to this content.
+        windowInsets = WindowInsets(0, 0, 0, 0),
+    )
+}
+
+@Composable
+private fun LibraryChip(label: String, selected: Boolean, select: () -> Unit) {
+    FilterChip(selected, select, label = { Text(label, maxLines = 1) },
+        // A check mark, so the selected chip is not distinguished by its fill colour alone.
+        leadingIcon = if (selected) { { MuonIcon("check", Modifier.size(18.dp)) } } else null)
+}

@@ -10,6 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.session.CacheBitmapLoader
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -22,6 +23,10 @@ class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     override fun onCreate() {
         super.onCreate()
+        // Keep Media3's notification/actions and foreground handling; only supply our app mark.
+        setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply {
+            setSmallIcon(R.drawable.ic_notification)
+        })
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(Transport.client)))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
