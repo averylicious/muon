@@ -56,6 +56,22 @@ class PlayerDismissDragTest {
         assertFalse(playerSheetEdgeShown(dropped = 400f, pureBlack = false))
     }
 
+    @Test fun anOpenPlayerKeepsItsWholeTopInset() {
+        assertEquals(0f, playerInsetReclaimed(dropped = 0f, topInset = 120f), 0f)
+    }
+
+    @Test fun theInsetIsGivenBackAsTheSheetDropsBelowTheStatusBar() {
+        assertEquals(40f, playerInsetReclaimed(dropped = 40f, topInset = 120f), 0f)
+        // Past the status bar there is nothing more to give back: content never rises into it.
+        assertEquals(120f, playerInsetReclaimed(dropped = 900f, topInset = 120f), 0f)
+    }
+
+    @Test fun withNoTopInsetThereIsNothingToGiveBack() {
+        // Landscape or a window away from the status bar: content must not rise at all.
+        assertEquals(0f, playerInsetReclaimed(dropped = 300f, topInset = 0f), 0f)
+        assertEquals(0f, playerInsetReclaimed(dropped = -50f, topInset = 120f), 0f)
+    }
+
     @Test fun theDecisionIsTakenFromTheFingerNotFromTheSurface() {
         // The surface has stopped at the bottom of a short screen long before the threshold, so
         // the two must not be judged by the same number.

@@ -312,7 +312,9 @@ private fun FullScreenOverlay(visible: Boolean, dismiss: PlayerDismiss? = null,
         val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
         Surface(Modifier.fillMaxSize().playerDismiss(dismiss, edge).playerBackPreview(preview()),
             color = colors.background) {
-            Box(Modifier.safeDrawingPadding()) { content() }
+            // The player's content gives back the top inset as its sheet drops below the status
+            // bar; Lyrics passes no drag state and keeps its inset untouched.
+            Box(Modifier.reclaimTopInset(dismiss, WindowInsets.safeDrawing).safeDrawingPadding()) { content() }
         }
     }
 }

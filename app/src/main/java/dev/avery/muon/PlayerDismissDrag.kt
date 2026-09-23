@@ -2,6 +2,8 @@ package dev.avery.muon
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -16,10 +18,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Dragging the player's top bar downwards puts it away.
@@ -119,6 +123,29 @@ internal val PLAYER_SHEET_EDGE: Dp = 1.dp
  * only while the player is displaced, so the open player stays truly black edge to edge.
  */
 internal fun playerSheetEdgeShown(dropped: Float, pureBlack: Boolean): Boolean = pureBlack && dropped > 0f
+
+/**
+ * How far the player's content may rise inside a dragged sheet. The top system inset keeps content
+ * clear of the status bar and any cutout, but once the sheet's top edge has dropped below the
+ * screen's physical top, that much of the inset no longer covers anything and only reads as blank
+ * space above the handle. Never more than the inset, so content cannot rise into what the inset
+ * still protects against, and nothing at rest.
+ */
+internal fun playerInsetReclaimed(dropped: Float, topInset: Float): Float =
+    dropped.coerceIn(0f, maxOf(topInset, 0f))
+
+/**
+ * Lets the player's content rise by [playerInsetReclaimed] as the sheet is dragged down, reading the
+ * drag in the placement phase only. It moves placement rather than padding on purpose: the content
+ * keeps the size it was measured at, because changing its constraints mid-drag would restart the
+ * drag's own detector, which is keyed on the player's height, and could flip the player between its
+ * fixed and scrolling layouts, jumping the artwork. Only the top inset is reclaimed; the sides and
+ * bottom keep their full protection.
+ */
+internal fun Modifier.reclaimTopInset(state: PlayerDismiss?, insets: WindowInsets): Modifier =
+    if (state == null) this else offset {
+        IntOffset(0, -playerInsetReclaimed(state.shown.value, insets.getTop(this).toFloat()).roundToInt())
+    }
 
 /**
  * Moves the surface with the drag, in its own layer: the predictive Back preview owns scale,
