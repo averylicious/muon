@@ -134,6 +134,21 @@ internal fun playerDismissCommits(startedAt: Int, now: Int, drag: Float, thresho
 internal fun playerSheetPresent(open: Boolean, onScreen: Boolean): Boolean = open || onScreen
 
 /**
+ * Whether a presentation lets the running settle carry on. Only if one is still running and already
+ * going where the presentation wants: then a release's speed is kept. Anything else — no settle, one
+ * that finished, or one going the other way, as when an open was refused — is replaced.
+ */
+internal fun playerSheetKeepsSettle(heading: Float?, target: Float, running: Boolean): Boolean =
+    running && heading == target
+
+/**
+ * A finger's velocity in pixels per second as fractions of the sheet's height per second, the unit its
+ * position moves in. Positive is downwards, towards closed, in both. An unmeasured sheet takes none.
+ */
+internal fun sheetFractionVelocity(pixelsPerSecond: Float, height: Float): Float =
+    if (height > 0f) pixelsPerSecond / height else 0f
+
+/**
  * Whether a preview still belongs to the gesture that began it. Back ends a preview at once, and a
  * new presentation bumps the generation, so a finger still down afterwards can neither move nor open
  * the player.
@@ -177,6 +192,16 @@ internal data class SheetTurn(val generation: Int = 0, val previewing: Boolean =
  */
 internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boolean) {
     val position = Animatable(if (openAtStart) 0f else 1f)
+
+    init {
+        // A settle that carries a release's speed could otherwise overshoot: past open it would lift the
+        // sheet off the bottom of the screen and show the library beneath, and around closed it would
+        // flicker the host in and out. Bounded, an animation that reaches either end stops there.
+        position.updateBounds(0f, 1f)
+    }
+
+    /** Where the running settle is going, so the presentation can let it carry on rather than restart it. */
+    private var heading: Float? = null
     /** Whether any of the sheet is on screen. Composition sees this flip, never the float itself. */
     val onScreen by derivedStateOf { position.value < 1f }
     /** The sheet's measured height, for turning finger travel into [position]. */
@@ -228,6 +253,7 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
     fun stop() {
         settle?.cancel()
         settle = null
+        heading = null
     }
 
     /** Follows the finger, returning the job so the detector can tell later whether it still owns it. */
@@ -236,11 +262,18 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
         return scope.launch { position.snapTo(fraction) }.also { settle = it }
     }
 
-    /** Puts the sheet back where an open player rests. */
-    fun settleBack(): Job {
+    /**
+     * Springs the sheet to [target], starting at [velocity] in fractions of its height per second, so a
+     * release hands on the finger's speed instead of settling from rest.
+     */
+    fun settleTo(target: Float, velocity: Float = 0f): Job {
         stop()
-        return scope.launch { position.animateTo(0f, motionShort()) }.also { settle = it }
+        heading = target
+        return scope.launch { position.animateTo(target, SheetSpring, velocity) }.also { settle = it }
     }
+
+    /** Puts the sheet back where an open player rests. */
+    fun settleBack(velocity: Float = 0f): Job = settleTo(0f, velocity)
 
     /**
      * The player has been opened or closed. Every change is a new presentation, so a drag begun on the
@@ -250,8 +283,13 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
     fun present(open: Boolean) {
         turn = turn.present()
         this.open = open
+        val target = if (open) 0f else 1f
+        // A release that already sent the sheet this way keeps its speed rather than restarting.
+        if (playerSheetKeepsSettle(heading, target, settle?.isActive == true)) return
         stop()
-        settle = scope.launch { position.animateTo(if (open) 0f else 1f, motionMedium()) }
+        heading = target
+        // Carries on at whatever speed the sheet already has, so reopening mid-close turns it round.
+        settle = scope.launch { position.animateTo(target, SheetSpring) }
     }
 }
 
@@ -387,7 +425,7 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
         val tracker = VelocityTracker()
         var lastMove = 0L
         // Only an open player rests at the top; a closing one belongs to the presentation.
-        fun restore() { if (state.open) mine = state.settleBack() }
+        fun restore(velocity: Float = 0f) { if (state.open) mine = state.settleBack(velocity) }
         try {
             detectVerticalDragGestures(
                 onDragStart = {
@@ -412,14 +450,18 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
                     // A pull that puts the player away leaves the sheet where the finger left it and
                     // gives up ownership: closing hands the position to the presentation, which
                     // carries on down from there, and this detector must not tidy it back up.
+                    // Pointer times are MotionEvent event times, on this same clock.
+                    val velocity = sheetReleaseVelocity(tracker.calculateVelocity().y, lastMove,
+                        SystemClock.uptimeMillis())
+                    val speed = sheetFractionVelocity(velocity, state.height)
                     if (playerDismissCommits(startedAt, state.generation, drag,
-                            sheetReleaseDistance(state.height, PLAYER_DISMISS_DROP.toPx()),
-                            // Pointer times are MotionEvent event times, on this same clock.
-                            sheetReleaseVelocity(tracker.calculateVelocity().y, lastMove, SystemClock.uptimeMillis()),
+                            sheetReleaseDistance(state.height, PLAYER_DISMISS_DROP.toPx()), velocity,
                             SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))) {
+                        // Sets off down at the finger's speed; the presentation keeps that settle.
+                        state.settleTo(1f, speed)
                         mine = null
                         collapse()
-                    } else restore()
+                    } else restore(speed)
                 })
         } finally {
             // Resizing the window restarts this detector, and the player leaving tears it down.

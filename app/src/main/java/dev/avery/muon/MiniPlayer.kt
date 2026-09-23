@@ -75,12 +75,17 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                         },
                         onDragCancel = { if (owned()) sheet.endPreview() },
                         onDragEnd = {
+                            // Pointer times are MotionEvent event times, on this same clock.
+                            val velocity = sheetReleaseVelocity(tracker.calculateVelocity().y, lastMove,
+                                SystemClock.uptimeMillis())
                             val opens = playerPreviewOpens(sheet.previewing, startedAt, sheet.generation,
                                 travel, sheetReleaseDistance(sheet.height, MINI_DRAG_OPEN.toPx()), canOpen,
-                                // Pointer times are MotionEvent event times, on this same clock.
-                                sheetReleaseVelocity(tracker.calculateVelocity().y, lastMove, SystemClock.uptimeMillis()),
-                                SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
+                                velocity, SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
                             val mine = owned()
+                            // Sets off at the finger's speed towards where the release decided; the
+                            // presentation keeps that settle, or replaces it if the open is refused.
+                            if (mine) sheet.settleTo(if (opens) 0f else 1f,
+                                sheetFractionVelocity(velocity, sheet.height))
                             // Opening and ending the preview together lets the presentation carry the
                             // sheet on up from here; any other ending lets it put the sheet away.
                             if (opens) current()
