@@ -42,3 +42,12 @@ Review alone does not authorize merging. When the user requests review **and mer
 A successful `main` build automatically publishes a private Canary prerelease. Verify that publication and provide its link; report build/publication failures without claiming an update is ready. Stable `vMAJOR.MINOR.PATCH` tags require an explicit stable-release request. Do not create per-PR prereleases under the existing Canary feed.
 
 See `docs/agent-workflow.md` for starter prompts and the human handoff sequence.
+
+## Resuming or coordinating across agents
+
+- A user-selected successor Astra may take over backend work and coordination. Read [the coordinator runbook](docs/coordinator-handoff.md) and its linked latest checkpoint before broad exploration; verify live PR heads, checks, ownership and user authorization. A checkpoint records evidence, not new permission to merge or access devices.
+- Keep one active coordinator for a given batch. Agree file/worktree ownership before parallel work, and never concurrently resume the same Claude session. Claude owns frontend implementation; Astra owns backend implementation and integration review, with shared behavior agreed explicitly.
+- Work in small, independently reviewable slices. Before starting another, leave durable commit/PR/check/QA evidence for the previous slice. Reserve capacity for fixes and handoff; do not deliberately run into a hard limit with unrecorded edits.
+- Put portable state in repository documents and PR/issue comments. Local chat history, temporary files, tool memories and local session IDs are optional conveniences, never prerequisites for another contributor. Follow the existing attribution, secret-access and fork-build boundaries.
+
+- Coordinator rotation is reciprocal: a returning Astra follows the same live-state takeover checks as a new contributor. Before yielding, update the runbook checkpoint with active/idle ownership, exact commits, outstanding checks and the next bounded slice; never rely on the previous chat alone.
