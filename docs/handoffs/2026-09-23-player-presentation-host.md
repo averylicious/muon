@@ -114,6 +114,35 @@ queue and disconnect while open; try tapping controls and using TalkBack while t
 Visible difference to expect: opening and closing are a slide carrying the rounded edge, shadow and
 pure-black outline, without the old cross-fade.
 
+## Astra review of `df6ecff`, and the fix
+
+Astra reviewed `df6ecff38f1fd7b4816e41389f4e6d77d7f00dd3` (CI run 115 passed) and found two issues,
+both fixed in the head after it.
+
+1. **Grabbing a moving sheet snapped it.** `onDragStart` stopped the opening or settle animation but
+   reset the drag to zero, and each move derived the position from the new travel alone, so taking
+   hold of the header part-way through opening or settling back snapped the panel to near the top.
+   The detector now records the sheet's position at takeover as a **baseline** and places the sheet
+   at baseline plus the finger's travel (`playerSheetDragged`). The 96 dp threshold still counts only
+   the finger's own travel, so where the sheet already was never counts towards closing.
+2. **A drag stopped without moving could strand the sheet.** `onDragStart` cancelled the running
+   motion but owned nothing until the first move, so a detector torn down in between (a resize, or
+   the player leaving) had no job of its own to restore. Takeover now *holds* the sheet where it is
+   with a move of its own, so the detector owns the stopped motion from the start and teardown puts
+   it back while the player is open. A newer presentation still replaces the job, so teardown never
+   cancels it.
+
+Ownership, as it now stands: takeover owns a hold; each move replaces it; a short, reversed or
+cancelled drag owns the settle back; a committing drag gives ownership up to the presentation; the
+presentation (`present`) always replaces whatever is running; teardown acts only on a job the
+detector still owns, and only puts an open player back.
+
+`playerDismissOffset` and `playerSheetFraction` were replaced by the baseline-aware
+`playerSheetDragged` rather than left unused. Tests: the pixel-based drag tests are restated for it,
+and three are added — a sheet grabbed mid-opening holds its place and can be carried either way; where
+the sheet already was does not count towards closing; an unmeasured sheet stays where it was. The
+drag-versus-surface test they supersede is removed. None of this verifies Compose input on a device.
+
 ## Status
 
 Clean and idle once pushed. Stop after this slice; slice B is not started.

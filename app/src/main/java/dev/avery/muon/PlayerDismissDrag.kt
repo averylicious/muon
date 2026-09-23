@@ -38,12 +38,17 @@ import kotlin.math.roundToInt
 internal val PLAYER_DISMISS_DROP: Dp = 96.dp
 
 /**
- * How far the surface is drawn below its resting place, for a cumulative [drag] that is positive
- * downwards. It follows the finger exactly, because the surface is on its way out rather than
- * being held back, and never rises above where it sits or falls past the screen it is leaving.
+ * Where a dragged sheet sits, as a fraction of its height. [baseline] is where the sheet already was
+ * when the finger took it over — part-way through opening, or through settling back — and [travel]
+ * is the finger's own movement since, positive downwards. It follows the finger exactly from that
+ * baseline, so grabbing a moving sheet never snaps it, and it never rises above open or falls past
+ * closed. A sheet not yet measured stays where it was rather than dividing by nothing.
+ *
+ * Only [travel] decides whether the drag closes the player (see [playerDismissCommits]); the baseline
+ * is where the sheet happened to be, not something the finger did.
  */
-internal fun playerDismissOffset(drag: Float, height: Float): Float =
-    drag.coerceIn(0f, maxOf(height, 0f))
+internal fun playerSheetDragged(baseline: Float, travel: Float, height: Float): Float =
+    if (height > 0f) (baseline + travel / height).coerceIn(0f, 1f) else baseline.coerceIn(0f, 1f)
 
 /** Whether letting go here puts the player away, judged on the finger's own travel. */
 internal fun playerDismissCloses(drag: Float, threshold: Float): Boolean = drag >= threshold
@@ -55,13 +60,6 @@ internal fun playerDismissCloses(drag: Float, threshold: Float): Boolean = drag 
  */
 internal fun playerDismissCommits(startedAt: Int, now: Int, drag: Float, threshold: Float): Boolean =
     startedAt == now && playerDismissCloses(drag, threshold)
-
-/**
- * A drag's travel as a fraction of the sheet's height. A sheet not yet measured cannot be moved,
- * rather than dividing by nothing.
- */
-internal fun playerSheetFraction(offset: Float, height: Float): Float =
-    if (height > 0f) (offset / height).coerceIn(0f, 1f) else 0f
 
 /**
  * Whether the player's host is composed. The logical open state mounts it at once, even at zero
@@ -236,24 +234,30 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
     // drag cannot outlive the player it began on and carry on moving the next one: it is torn
     // down when the player leaves and built again when the next one arrives.
     if (state == null) this else pointerInput(state, height) {
+        // The finger's own travel since it took the sheet over, kept apart from where the sheet
+        // already was, because only the finger's travel counts towards closing.
         var drag = 0f
+        var baseline = 0f
         var startedAt = state.generation
-        // The last motion this detector started, so it only ever cleans up after itself.
+        // The last motion this detector owns, so it only ever cleans up after itself.
         var mine: Job? = null
         // Only an open player rests at the top; a closing one belongs to the presentation.
         fun restore() { if (state.open) mine = state.settleBack() }
         try {
             detectVerticalDragGestures(
                 onDragStart = {
-                    // A new drag takes the sheet over from whatever was still moving it,
-                    // including the opening animation or a settle left by the last detector.
-                    state.stop()
+                    // A new drag takes the sheet over from whatever was still moving it, including the
+                    // opening animation or a settle left by the last detector, and holds it exactly
+                    // where it was. Holding it is itself motion this detector owns, so a detector torn
+                    // down before the finger has moved still puts back the sheet it stopped.
+                    baseline = state.position.value
                     drag = 0f
                     startedAt = state.generation
+                    mine = state.moveTo(baseline)
                 },
                 onVerticalDrag = { _, amount ->
                     drag += amount
-                    mine = state.moveTo(playerSheetFraction(playerDismissOffset(drag, height), state.height))
+                    mine = state.moveTo(playerSheetDragged(baseline, drag, state.height))
                 },
                 onDragCancel = { restore() },
                 onDragEnd = {

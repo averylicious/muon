@@ -6,23 +6,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerDismissDragTest {
-    @Test fun theSurfaceFollowsTheFingerDown() {
-        assertEquals(120f, playerDismissOffset(120f, 2400f), 0f)
-        assertEquals(0f, playerDismissOffset(0f, 2400f), 0f)
+    @Test fun theSheetFollowsTheFingerDown() {
+        assertEquals(0.05f, playerSheetDragged(baseline = 0f, travel = 120f, height = 2400f), 1e-6f)
+        assertEquals(0f, playerSheetDragged(baseline = 0f, travel = 0f, height = 2400f), 0f)
     }
 
     @Test fun draggingUpOrBackPastTheStartRestsWhereItBegan() {
-        // Pulling the bar up is not a way to do anything here, and reversing a drag past its
-        // start puts the surface back rather than lifting it off the top of the screen.
-        assertEquals(0f, playerDismissOffset(-300f, 2400f), 0f)
-        assertEquals(0f, playerDismissOffset(-1f, 2400f), 0f)
+        // Pulling an open player's bar up is not a way to do anything here, and reversing a drag
+        // past its start puts the sheet back rather than lifting it off the top of the screen.
+        assertEquals(0f, playerSheetDragged(baseline = 0f, travel = -300f, height = 2400f), 0f)
+        assertEquals(0f, playerSheetDragged(baseline = 0f, travel = -1f, height = 2400f), 0f)
         assertFalse(playerDismissCloses(-300f, 264f))
     }
 
-    @Test fun theSurfaceNeverFallsPastTheScreenItIsLeaving() {
-        assertEquals(2400f, playerDismissOffset(9000f, 2400f), 0f)
-        // A screen that has not been measured yet cannot be dragged off it.
-        assertEquals(0f, playerDismissOffset(500f, 0f), 0f)
+    @Test fun theSheetNeverFallsPastClosed() {
+        assertEquals(1f, playerSheetDragged(baseline = 0f, travel = 9000f, height = 2400f), 0f)
     }
 
     @Test fun closingTakesADeliberatePullPastTheThreshold() {
@@ -30,7 +28,7 @@ class PlayerDismissDragTest {
         assertTrue(playerDismissCloses(900f, 264f))
         // A short drag moved the surface, but does not put the player away.
         assertFalse(playerDismissCloses(263f, 264f))
-        assertTrue(playerDismissOffset(263f, 2400f) > 0f)
+        assertTrue(playerSheetDragged(baseline = 0f, travel = 263f, height = 2400f) > 0f)
     }
 
     @Test fun aDragOnlyPutsAwayThePlayerItBeganOn() {
@@ -84,21 +82,29 @@ class PlayerDismissDragTest {
         assertFalse(playerSheetPresent(open = false, onScreen = false))
     }
 
-    @Test fun anUnmeasuredSheetCannotBeMoved() {
-        // Travel before the first measurement would divide by nothing; it moves nothing instead.
-        assertEquals(0f, playerSheetFraction(offset = 120f, height = 0f), 0f)
-        assertEquals(0.25f, playerSheetFraction(offset = 600f, height = 2400f), 1e-6f)
-        // Never past fully closed, and never above fully open.
-        assertEquals(1f, playerSheetFraction(offset = 9000f, height = 2400f), 0f)
-        assertEquals(0f, playerSheetFraction(offset = -40f, height = 2400f), 0f)
+    @Test fun anUnmeasuredSheetStaysWhereItWas() {
+        // Travel before the first measurement would divide by nothing; the sheet stays put instead,
+        // including one grabbed part-way.
+        assertEquals(0f, playerSheetDragged(baseline = 0f, travel = 500f, height = 0f), 0f)
+        assertEquals(0.6f, playerSheetDragged(baseline = 0.6f, travel = 500f, height = 0f), 0f)
     }
 
-    @Test fun theDecisionIsTakenFromTheFingerNotFromTheSurface() {
-        // The surface has stopped at the bottom of a short screen long before the threshold, so
-        // the two must not be judged by the same number.
-        val stopped = playerDismissOffset(900f, 200f)
-        assertEquals(200f, stopped, 0f)
-        assertFalse(playerDismissCloses(stopped, 264f))
-        assertTrue(playerDismissCloses(900f, 264f))
+    @Test fun grabbingASheetMidOpeningHoldsItWhereItIs() {
+        // Taken over 60% of the way from open, before the finger has moved: it stays there,
+        // rather than snapping to the top as if the drag had begun from rest.
+        assertEquals(0.6f, playerSheetDragged(baseline = 0.6f, travel = 0f, height = 2400f), 0f)
+        assertEquals(0.7f, playerSheetDragged(baseline = 0.6f, travel = 240f, height = 2400f), 1e-6f)
+        // From there the finger can carry it back up towards open, but not beyond.
+        assertEquals(0.35f, playerSheetDragged(baseline = 0.6f, travel = -600f, height = 2400f), 1e-6f)
+        assertEquals(0f, playerSheetDragged(baseline = 0.6f, travel = -9000f, height = 2400f), 0f)
     }
+
+    @Test fun whereTheSheetAlreadyWasDoesNotCountTowardsClosing() {
+        // Grabbed nearly closed and moved a little: the sheet is far down, but the finger has not
+        // pulled the threshold, so letting go must not put the player away.
+        assertTrue(playerSheetDragged(baseline = 0.9f, travel = 40f, height = 2400f) > 0.9f)
+        assertFalse(playerDismissCommits(startedAt = 1, now = 1, drag = 40f, threshold = 252f))
+        assertTrue(playerDismissCommits(startedAt = 1, now = 1, drag = 252f, threshold = 252f))
+    }
+
 }
