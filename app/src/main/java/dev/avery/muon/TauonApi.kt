@@ -53,7 +53,7 @@ class TauonApi(val endpoint: ServerEndpoint) {
         return List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getLong("id"); require(id >= 0)
             val artist = it.optString("artist")
-            TauonTrack(id, it.optString("title", "Untitled"), artist,
+            TauonTrack(id, trackDisplayTitle(it.opt("title") as? String, it.opt("path") as? String), artist,
                 it.optString("album"), it.optLong("duration"),
                 it.optBoolean("can_download", false), it.optBoolean("has_lyrics"),
                 albumArtist = albumArtistTag(it.opt("album_artist"), artist),
