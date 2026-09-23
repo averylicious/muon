@@ -21,15 +21,15 @@ checkpoint was written before. Dated evidence, not live status or authorization:
   Those September14 planning files are history; use this checkpoint and live issue40 comments for status.
 - PR96 carries this runbook forward and supersedes PR66 once merged. Its initial docs-only run124
   failed while cleaning a temporary Git test repository (`Directory not empty: .git`), not on a scope
-  assertion. The same-head retry passed; all17 scope/publication tests also passed locally. Cause is
+  assertion. The same-head retry passed; all 17 scope/publication tests also passed locally. Cause is
   unconfirmed; retain the failure record if it recurs. This final metadata update needs its own docs check.
 
 ## Still open
 
 - Backend: #56 (album metadata), #58, #61, #62. #56 conflicts textually with #79's title change in
   `TauonApi.tracks()`; the rebase is trivial.
-- Documentation: #52 (Collection redesign mockups) and #66 (the earlier runbook PR). The runbook PR
-  that carries this checkpoint supersedes #66 once merged; #66 is left for the coordinator to close.
+- Documentation: PR96 carries this checkpoint and supersedes the earlier runbook PR66 once merged.
+  PR52 is already merged; the coordinator closes PR66 after PR96 merges.
 - Issue #93: persist shuffle and repeat preferences across process death, force stop and reboot — a
   separate Astra backend slice before Stable.
 
@@ -45,7 +45,7 @@ checkpoint was written before. Dated evidence, not live status or authorization:
 ## Authorization and ownership
 
 - The user authorized sound, reviewed merges this cycle. A successor verifies the current user instructions before merging (without asking again for still-valid authorization); the AGENTS.md default for implementation remains leave-open. No phone
-  access, Stable publication, signing or network changes are authorized.
+  access, Stable publication, or changes to signing identities or network settings are authorized.
 - Coordinator: Astra. Frontend: Claude. Claude's session is idle after this documentation slice.
 
 ## Agreed sequence and deferred work
@@ -58,4 +58,4 @@ later point release.
 
 Claude Opus 5.5 (`claude-opus-5-5`, medium effort) wrote this; its latest reading, as given to it, was
 90% of the five-hour window and 43% weekly at completion. Astra's current account exposes a weekly reading
-only; its last observed reading was34% used before final publication checks. Treat both as snapshots, not current capacity.
+only; its last observed reading was 34% used before final publication checks. Treat both as snapshots, not current capacity.
