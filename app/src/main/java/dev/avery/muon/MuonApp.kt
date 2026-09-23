@@ -18,6 +18,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -94,16 +95,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val overlayOpen = connected && playerOpen && ui.item != null
         val lyricsShown = overlayOpen && lyricsOpen
         val playerShown = overlayOpen && !lyricsShown
-        // Held outside the player's own composition so it survives the closing animation, and
-        // wound back as the player appears rather than as it leaves, so a drag is never left on
-        // screen for the next opening and a closing one is not snatched back mid-flight.
-        val dismiss = rememberPlayerDismiss()
-        LaunchedEffect(playerShown) {
-            // Every appearance and disappearance is a new presentation, so a drag begun on the
-            // last one cannot put this one away.
-            dismiss.generation++
-            if (playerShown) dismiss.present()
-        }
+        // The player's one vertical position, held outside its composition so it outlives the
+        // closing animation. Opening and closing drive it from the logical state; progress never
+        // decides where Back goes.
+        val sheet = rememberPlayerSheet(openAtStart = playerShown)
+        LaunchedEffect(playerShown) { sheet.present(playerShown) }
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
         val target = backTarget(connected, lyricsShown, overlayOpen,
@@ -232,14 +228,14 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 exit = fadeOut(motionMedium())) {
                 PlayerScrim()
             }
-            // The overlay rises from the bottom, where the mini player it grew out of sits, and
+            // The player rises from the bottom, where the mini player it grew out of sits, and
             // shrinks while a Back gesture is deciding whether to close it.
-            FullScreenOverlay(visible = playerShown, dismiss = dismiss, preview = {
+            PlayerHost(sheet, open = playerShown, preview = {
                 rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
             }) {
                 // Only a player that is actually on screen carries the drag: an outgoing one hands
                 // nothing down, so its detector goes with it rather than moving what comes next.
-                NowPlayingOverlay(ui, position, revision, player, dismiss.takeIf { playerShown },
+                NowPlayingOverlay(ui, position, revision, player, sheet.takeIf { playerShown },
                     // Guarded, so a drag that ends after Lyrics opened over the player, or after
                     // the player has gone, cannot put away whatever took its place.
                     collapse = { if (playerShown) playerOpen = false }) { lyricsOpen = true }
@@ -294,27 +290,49 @@ private fun PlayerScrim() {
 /**
  * A surface that covers the tabs and insets itself, because the scaffold below cannot reach it.
  * Material's own `Surface` already blocks touches from reaching what it covers, so nothing here
- * adds a click target that a screen reader would announce.
- *
- * [preview] is remembered inside the transition rather than handed in from outside, so the Back
- * gesture state it owns lasts exactly as long as this overlay is on screen.
+ * adds a click target that a screen reader would announce. Lyrics uses this; the player has
+ * [PlayerHost], because its position is driven by gestures as well as by being opened.
  */
 @Composable
-private fun FullScreenOverlay(visible: Boolean, dismiss: PlayerDismiss? = null,
-    preview: @Composable () -> PlayerBackPreview? = { null }, content: @Composable () -> Unit) {
+private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
     AnimatedVisibility(visible = visible,
         enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
         exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-        // Two layers, each owning its own properties: the drag moves the surface down, the Back
-        // preview scales and drifts it, and neither writes what the other reads. On pure black the
-        // drag layer also outlines the top edge, since nothing else can show where the player ends.
-        val colors = MaterialTheme.colorScheme
-        val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
-        Surface(Modifier.fillMaxSize().playerDismiss(dismiss, edge).playerBackPreview(preview()),
-            color = colors.background) {
-            // The player's content gives back the top inset as its sheet drops below the status
-            // bar; Lyrics passes no drag state and keeps its inset untouched.
-            Box(Modifier.reclaimTopInset(dismiss, WindowInsets.safeDrawing).safeDrawingPadding()) { content() }
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Box(Modifier.safeDrawingPadding()) { content() }
+        }
+    }
+}
+
+/**
+ * The player's own host, positioned only by [sheet].
+ *
+ * It is composed while the player is logically [open], from zero progress, so an opening sheet can
+ * be measured and animated in; and kept while any of it is still on screen, so it can leave. Anything
+ * remembered inside — including [preview]'s Back gesture state — therefore lasts exactly as long as
+ * the player is on screen, as it did inside the old transition.
+ *
+ * On its way out the player is no longer the thing being used: its content leaves the accessibility
+ * tree and a non-semantic cover takes its touches, so partly visible controls cannot be tapped or
+ * focused while they slide away.
+ */
+@Composable
+private fun PlayerHost(sheet: PlayerSheet, open: Boolean,
+    preview: @Composable () -> PlayerBackPreview?, content: @Composable () -> Unit) {
+    if (!playerSheetPresent(open, sheet.onScreen)) return
+    // Two layers, each owning its own properties: the sheet moves the surface, the Back preview
+    // scales and drifts it, and neither writes what the other reads. On pure black the sheet also
+    // outlines its top edge, since nothing else can show where the player ends.
+    val colors = MaterialTheme.colorScheme
+    val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
+    Surface(Modifier.fillMaxSize()
+        .onSizeChanged { sheet.height = it.height.toFloat() }
+        .playerSheet(sheet, edge).playerBackPreview(preview()),
+        color = colors.background) {
+        // The content gives back the top inset as the sheet drops below the status bar.
+        Box(Modifier.reclaimTopInset(sheet, WindowInsets.safeDrawing).safeDrawingPadding()) {
+            Box(if (open) Modifier else Modifier.clearAndSetSemantics {}) { content() }
+            if (!open) Box(Modifier.matchParentSize().pointerInput(Unit) {})
         }
     }
 }

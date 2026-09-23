@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -55,56 +57,83 @@ internal fun playerDismissCommits(startedAt: Int, now: Int, drag: Float, thresho
     startedAt == now && playerDismissCloses(drag, threshold)
 
 /**
- * How far the drag has come, held outside the player's own composition so that it survives the
- * closing animation.
- *
- * Its [scope] belongs to the app rather than to the gesture detector, because the detector is
- * cancelled when the window resizes or the player goes away, and the settle that puts the surface
- * back must outlive that: the offset lives on here, so an abandoned drag would otherwise be left
- * stranded on screen.
+ * A drag's travel as a fraction of the sheet's height. A sheet not yet measured cannot be moved,
+ * rather than dividing by nothing.
  */
-internal class PlayerDismiss(private val scope: CoroutineScope) {
-    val shown = Animatable(0f)
-    /** The animation settling the surface, or the drag following the finger, while it still runs. */
+internal fun playerSheetFraction(offset: Float, height: Float): Float =
+    if (height > 0f) (offset / height).coerceIn(0f, 1f) else 0f
+
+/**
+ * Whether the player's host is composed. The logical open state mounts it at once, even at zero
+ * progress, so an opening sheet can be measured and animated in; otherwise it would wait for
+ * progress that only a mounted sheet can make. A sheet still on screen stays mounted while it leaves.
+ */
+internal fun playerSheetPresent(open: Boolean, onScreen: Boolean): Boolean = open || onScreen
+
+/**
+ * Where the player sits: the single owner of its vertical position, for opening and closing as much
+ * as for a drag, so no two translations ever add up.
+ *
+ * [position] is a fraction of the sheet's own height, `0` open and `1` closed. A fraction because an
+ * opening sheet is composed before it is measured, and because it stays right if the window changes
+ * size mid-animation. Its [scope] belongs to the app rather than to a gesture detector, so motion
+ * outlives a detector that is torn down or restarted.
+ */
+internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boolean) {
+    val position = Animatable(if (openAtStart) 0f else 1f)
+    /** Whether any of the sheet is on screen. Composition sees this flip, never the float itself. */
+    val onScreen by derivedStateOf { position.value < 1f }
+    /** The sheet's measured height, for turning finger travel into [position]. */
+    var height = 0f
+    /** The one animation or drag moving the sheet, while it still runs. */
     var settle: Job? = null
+        private set
     /** Which presentation of the player is on screen. A drag is only good for the one it began in. */
     var generation = 0
-    /** Set by a drag that put the player away, so its parting offset is not taken back off it. */
-    var committed = false
+        private set
+    /** Whether the player is logically open, as opposed to leaving or gone. */
+    var open = openAtStart
+        private set
 
     /**
-     * Gives up whatever was moving the surface. Worth doing even when the surface is already at
-     * rest, because a move can be waiting to run and would otherwise land on the next player.
+     * Gives up whatever was moving the sheet. Worth doing even when it is already at rest, because a
+     * move can be waiting to run and would otherwise land on the next presentation.
      */
     fun stop() {
         settle?.cancel()
         settle = null
     }
 
-    /** Follows the finger. Runs on the app's scope for the same reason the settle does. */
-    fun moveTo(offset: Float) {
+    /** Follows the finger, returning the job so the detector can tell later whether it still owns it. */
+    fun moveTo(fraction: Float): Job {
         stop()
-        settle = scope.launch { shown.snapTo(offset) }
+        return scope.launch { position.snapTo(fraction) }.also { settle = it }
     }
 
-    /** Puts the surface back where it rests. */
-    fun settleBack() {
+    /** Puts the sheet back where an open player rests. */
+    fun settleBack(): Job {
         stop()
-        settle = scope.launch { shown.animateTo(0f, motionShort()) }
+        return scope.launch { position.animateTo(0f, motionShort()) }.also { settle = it }
     }
 
-    /** The player is on screen again: forget any drag aimed at the one before it. */
-    suspend fun present() {
+    /**
+     * The player has been opened or closed. Every change is a new presentation, so a drag begun on the
+     * last one cannot act on this one, and the sheet animates from wherever it is — so a drag that put
+     * the player away carries on down from where the finger left it, and a quick reopen turns back.
+     */
+    fun present(open: Boolean) {
+        generation++
+        this.open = open
         stop()
-        committed = false
-        shown.snapTo(0f)
+        settle = scope.launch { position.animateTo(if (open) 0f else 1f, motionMedium()) }
     }
 }
 
 @Composable
-internal fun rememberPlayerDismiss(): PlayerDismiss {
+internal fun rememberPlayerSheet(openAtStart: Boolean): PlayerSheet {
     val scope = rememberCoroutineScope()
-    return remember(scope) { PlayerDismiss(scope) }
+    // Opened at start when restored open, so a rotation does not replay the opening.
+    return remember(scope) { PlayerSheet(scope, openAtStart) }
 }
 
 /**
@@ -142,9 +171,10 @@ internal fun playerInsetReclaimed(dropped: Float, topInset: Float): Float =
  * fixed and scrolling layouts, jumping the artwork. Only the top inset is reclaimed; the sides and
  * bottom keep their full protection.
  */
-internal fun Modifier.reclaimTopInset(state: PlayerDismiss?, insets: WindowInsets): Modifier =
+internal fun Modifier.reclaimTopInset(state: PlayerSheet?, insets: WindowInsets): Modifier =
     if (state == null) this else offset {
-        IntOffset(0, -playerInsetReclaimed(state.shown.value, insets.getTop(this).toFloat()).roundToInt())
+        val dropped = state.position.value * state.height
+        IntOffset(0, -playerInsetReclaimed(dropped, insets.getTop(this).toFloat()).roundToInt())
     }
 
 /**
@@ -155,11 +185,12 @@ internal fun Modifier.reclaimTopInset(state: PlayerDismiss?, insets: WindowInset
  * [edge] is the outline colour for a pure black theme, or null where the scrim and shadow already
  * separate the player from the library.
  */
-internal fun Modifier.playerDismiss(state: PlayerDismiss?, edge: Color? = null): Modifier =
-    if (state == null) this else {
+internal fun Modifier.playerSheet(state: PlayerSheet, edge: Color? = null): Modifier =
+    run {
         val outline = Path()
         graphicsLayer {
-            val dropped = state.shown.value
+            // The only vertical translation the player has: opening, closing and dragging alike.
+            val dropped = state.position.value * size.height
             if (dropped <= 0f) return@graphicsLayer
             translationY = dropped
             val corner = minOf(dropped, PLAYER_SHEET_CORNER.toPx())
@@ -169,7 +200,7 @@ internal fun Modifier.playerDismiss(state: PlayerDismiss?, edge: Color? = null):
             shadowElevation = minOf(dropped, PLAYER_SHEET_ELEVATION.toPx())
         }.drawWithContent {
             drawContent()
-            val dropped = state.shown.value
+            val dropped = state.position.value * size.height
             if (!playerSheetEdgeShown(dropped, pureBlack = edge != null) || edge == null) return@drawWithContent
             drawTopEdge(outline, edge, minOf(dropped, PLAYER_SHEET_CORNER.toPx()), PLAYER_SHEET_EDGE.toPx())
         }
@@ -200,43 +231,49 @@ private fun DrawScope.drawTopEdge(path: Path, color: Color, corner: Float, width
  * can end long after it began, and by then Lyrics may have opened over the player, or the player
  * may have gone.
  */
-internal fun Modifier.dismissDrag(state: PlayerDismiss?, height: Float, collapse: () -> Unit): Modifier =
+internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: () -> Unit): Modifier =
     // No state means the player is not on screen to be dragged. The detector goes with it, so a
     // drag cannot outlive the player it began on and carry on moving the next one: it is torn
     // down when the player leaves and built again when the next one arrives.
     if (state == null) this else pointerInput(state, height) {
         var drag = 0f
         var startedAt = state.generation
+        // The last motion this detector started, so it only ever cleans up after itself.
+        var mine: Job? = null
+        // Only an open player rests at the top; a closing one belongs to the presentation.
+        fun restore() { if (state.open) mine = state.settleBack() }
         try {
             detectVerticalDragGestures(
                 onDragStart = {
-                    // A new drag takes the surface over from whatever was still moving it,
-                    // including a settle left behind by the detector before this one.
+                    // A new drag takes the sheet over from whatever was still moving it,
+                    // including the opening animation or a settle left by the last detector.
                     state.stop()
                     drag = 0f
                     startedAt = state.generation
-                    state.committed = false
                 },
                 onVerticalDrag = { _, amount ->
                     drag += amount
-                    state.moveTo(playerDismissOffset(drag, height))
+                    mine = state.moveTo(playerSheetFraction(playerDismissOffset(drag, height), state.height))
                 },
-                onDragCancel = { state.settleBack() },
+                onDragCancel = { restore() },
                 onDragEnd = {
-                    // A pull that puts the player away leaves the surface where the finger left
-                    // it, so the closing animation carries on down from there rather than
-                    // snatching it back first. Opening the player again winds it back.
+                    // A pull that puts the player away leaves the sheet where the finger left it and
+                    // gives up ownership: closing hands the position to the presentation, which
+                    // carries on down from there, and this detector must not tidy it back up.
                     if (playerDismissCommits(startedAt, state.generation, drag, PLAYER_DISMISS_DROP.toPx())) {
-                        state.committed = true
+                        mine = null
                         collapse()
-                    } else state.settleBack()
+                    } else restore()
                 })
         } finally {
-            // Resizing the window restarts this detector, and the player leaving tears it down,
-            // but the offset it was moving lives on outside it. Give up this detector's work
-            // whatever the surface is showing, because a move can still be waiting to run, and
-            // put the surface back unless a drag has just sent the player away with it.
-            state.stop()
-            if (!state.committed) state.settleBack()
+            // Resizing the window restarts this detector, and the player leaving tears it down.
+            // Clean up only if this detector's motion is still the one running: if the player has
+            // been closed or reopened since, that animation belongs to the presentation and must
+            // not be cancelled, or the sheet would stop half-way and stay mounted. Put the sheet
+            // back only while the player is still open.
+            if (mine != null && state.settle === mine) {
+                state.stop()
+                restore()
+            }
         }
     }

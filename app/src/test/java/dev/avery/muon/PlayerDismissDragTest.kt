@@ -72,6 +72,27 @@ class PlayerDismissDragTest {
         assertEquals(0f, playerInsetReclaimed(dropped = -50f, topInset = 120f), 0f)
     }
 
+    @Test fun anOpeningPlayerIsMountedBeforeItHasMoved() {
+        // Opened but still at zero progress: it must be composed now, or nothing could ever
+        // measure and animate it in, and it would wait for progress only it can make.
+        assertTrue(playerSheetPresent(open = true, onScreen = false))
+    }
+
+    @Test fun aClosingPlayerStaysMountedUntilItHasLeft() {
+        assertTrue(playerSheetPresent(open = false, onScreen = true))
+        // Closed and fully off screen: gone, so nothing invisible is left in the way.
+        assertFalse(playerSheetPresent(open = false, onScreen = false))
+    }
+
+    @Test fun anUnmeasuredSheetCannotBeMoved() {
+        // Travel before the first measurement would divide by nothing; it moves nothing instead.
+        assertEquals(0f, playerSheetFraction(offset = 120f, height = 0f), 0f)
+        assertEquals(0.25f, playerSheetFraction(offset = 600f, height = 2400f), 1e-6f)
+        // Never past fully closed, and never above fully open.
+        assertEquals(1f, playerSheetFraction(offset = 9000f, height = 2400f), 0f)
+        assertEquals(0f, playerSheetFraction(offset = -40f, height = 2400f), 0f)
+    }
+
     @Test fun theDecisionIsTakenFromTheFingerNotFromTheSurface() {
         // The surface has stopped at the bottom of a short screen long before the threshold, so
         // the two must not be judged by the same number.

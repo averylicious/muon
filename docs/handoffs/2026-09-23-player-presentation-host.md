@@ -67,6 +67,53 @@ preview (settle to `1`) and must not navigate the page underneath. Because Back 
 the logical state, that needs one handler enabled while previewing; it is recorded here so B does
 not rediscover it.
 
+## Implemented
+
+The design above was judged bounded and implemented as designed, in one code commit after the
+design commit.
+
+- `app/src/main/java/dev/avery/muon/PlayerDismissDrag.kt` — `PlayerSheet` replaces `PlayerDismiss`;
+  `playerSheetPresent` and `playerSheetFraction`; the drag layer (`playerSheet`) and inset reclaim
+  read `position × height`; the dismiss detector converts finger travel to a fraction and tracks
+  ownership of its own job instead of a `committed` flag.
+- `app/src/main/java/dev/avery/muon/MuonApp.kt` — the player gets `PlayerHost`, driven by
+  `LaunchedEffect(playerShown) { sheet.present(playerShown) }`; `FullScreenOverlay` returns to a
+  plain host used only by Lyrics.
+- `app/src/main/java/dev/avery/muon/NowPlayingScreen.kt` — the parameter type only.
+- `app/src/test/java/dev/avery/muon/PlayerDismissDragTest.kt` — three policy tests.
+
+Unchanged: Motion.kt (opening and closing keep the existing 250 ms curve; springs are for slice B),
+MiniPlayer.kt, PlayerBack.kt, and every threshold.
+
+## Branch and base
+
+- Branch `codex/player-presentation-host`, worktree
+  `/home/avery/.codex/worktrees/muon-presentation-host/muon`.
+- Base: PR #90 head `f9994990925cfb026985affb527fb4bb81b2f5b1` (run 114 passed, artifact verified,
+  Astra reviewed with no blockers). **#90 is a prerequisite**, stacked on #89 → #88 → #87 → #86 → #85.
+- Two commits: the design checkpoint, then the implementation with this completed note. The exact
+  range is from the base to the pushed head.
+
+## Validated vs pending
+
+- Three policy tests: an opening player is mounted before it has moved (the zero-progress deadlock);
+  a closing player stays mounted until it has left, then is gone; an unmeasured sheet cannot be
+  moved, and travel is clamped between open and closed. Existing dismiss, edge and inset tests are
+  unchanged and still apply. These do not verify Compose input, rendering or lifecycle.
+- Read the diff against the pinned APIs already verified in earlier slices (`Animatable`,
+  `derivedStateOf`, lambda `offset`, `onSizeChanged`, `graphicsLayer`). **No local build** — no
+  Gradle cache and no installed `platforms;android-36`.
+- CI: triggered by the push, **not inspected**; Astra owns final-head CI and review.
+- Astra review: pending. Phone QA: pending.
+
+Manual checks that matter most, because no test reaches them: open and close by tap, collapse button,
+Back and predictive Back; a top-bar drag short, long and cancelled; close and reopen quickly; rotate
+with the player open (it must not replay its opening) and mid-animation; Lyrics in and out; empty the
+queue and disconnect while open; try tapping controls and using TalkBack while the player slides away.
+
+Visible difference to expect: opening and closing are a slide carrying the rounded edge, shadow and
+pure-black outline, without the old cross-fade.
+
 ## Status
 
-Design checkpoint committed before implementation. See the sections below for what was implemented.
+Clean and idle once pushed. Stop after this slice; slice B is not started.

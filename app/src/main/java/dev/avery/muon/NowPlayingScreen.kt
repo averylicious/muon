@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: () -> Int,
-    player: MediaController?, dismiss: PlayerDismiss?, collapse: () -> Unit, lyrics: () -> Unit) {
+    player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, lyrics: () -> Unit) {
     if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
