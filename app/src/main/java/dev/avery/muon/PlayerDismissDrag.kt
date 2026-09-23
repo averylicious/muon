@@ -14,6 +14,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -52,16 +54,59 @@ internal val PLAYER_DISMISS_DROP: Dp = 96.dp
 internal fun playerSheetDragged(baseline: Float, travel: Float, height: Float): Float =
     if (height > 0f) (baseline + travel / height).coerceIn(0f, 1f) else baseline.coerceIn(0f, 1f)
 
-/** Whether letting go here puts the player away, judged on the finger's own travel. */
-internal fun playerDismissCloses(drag: Float, threshold: Float): Boolean = drag >= threshold
+/**
+ * How deliberate a release must be, for opening from the mini player and for closing from the top bar
+ * alike. These are reasonable starting values, not measured optima: tuning them on the device is still
+ * pending. A slow release commits only past a share of the sheet's height (never less than each
+ * gesture's own minimum), and a flick commits only if it is fast and the finger actually travelled.
+ */
+internal const val SHEET_RELEASE_FRACTION = 0.3f
+/** Per second. */
+internal val SHEET_FLICK_VELOCITY: Dp = 600.dp
+internal val SHEET_FLICK_TRAVEL: Dp = 24.dp
+
+/** What counts as a flick, in pixels and pixels per second. [None] never counts as one. */
+internal data class SheetFlick(val velocity: Float, val travel: Float) {
+    companion object {
+        val None = SheetFlick(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+    }
+}
+
+/** The travel a slow release must cover: a share of the sheet's height, but never less than [minimum]. */
+internal fun sheetReleaseDistance(height: Float, minimum: Float): Float =
+    maxOf(height * SHEET_RELEASE_FRACTION, minimum)
+
+/**
+ * Whether a release commits, for the finger's [travel] and [velocity] measured towards the committing
+ * direction: up for opening, down for closing. Travel is the finger's own, never where the sheet was
+ * when it was taken over.
+ *
+ * A clear flick decides by its direction. Towards commits, but only if the finger travelled at least
+ * [SheetFlick.travel], so a stray jab cannot. Away returns however far the finger had come: that is a
+ * deliberate reversal. Velocity comes from a tracker fitted over recent movement, so the last tiny
+ * delta before lifting is not mistaken for one. Anything slower returns unless the finger covered
+ * [distance], so a slow short pull goes back to where it started, and a slight drift back after a long
+ * pull does not undo it.
+ */
+internal fun sheetReleaseCommits(travel: Float, velocity: Float, distance: Float, flick: SheetFlick): Boolean =
+    when {
+        velocity >= flick.velocity -> travel >= flick.travel
+        velocity <= -flick.velocity -> false
+        else -> travel >= distance
+    }
+
+/** Whether letting go here puts the player away, judged on the finger's own travel and speed. */
+internal fun playerDismissCloses(drag: Float, threshold: Float, velocity: Float = 0f,
+    flick: SheetFlick = SheetFlick.None): Boolean = sheetReleaseCommits(drag, velocity, threshold, flick)
 
 /**
  * Whether the drag that is ending may still put the player away. [startedAt] is the presentation
  * the finger went down on and [now] the one it came up on: a drag is only ever good for the player
  * it began on, never for the one that replaced it.
  */
-internal fun playerDismissCommits(startedAt: Int, now: Int, drag: Float, threshold: Float): Boolean =
-    startedAt == now && playerDismissCloses(drag, threshold)
+internal fun playerDismissCommits(startedAt: Int, now: Int, drag: Float, threshold: Float,
+    velocity: Float = 0f, flick: SheetFlick = SheetFlick.None): Boolean =
+    startedAt == now && playerDismissCloses(drag, threshold, velocity, flick)
 
 /**
  * Whether the player's host is composed. The logical open state mounts it at once, even at zero
@@ -80,12 +125,12 @@ internal fun playerPreviewOwned(previewing: Boolean, startedAt: Int, now: Int): 
 
 /**
  * Whether letting go of a preview opens the player: only a preview still owned by this gesture, only
- * while the player may be opened at all, and only for 48 dp of the finger's own travel upwards —
- * where the sheet already was when the finger took it does not count.
+ * while the player may be opened at all, and only for a deliberate release upwards — far enough, or a
+ * real flick — judged on the finger's own travel, not where the sheet was when the finger took it.
  */
 internal fun playerPreviewOpens(previewing: Boolean, startedAt: Int, now: Int, travel: Float,
-    threshold: Float, eligible: Boolean): Boolean =
-    playerPreviewOwned(previewing, startedAt, now) && miniDragOpens(travel, threshold, eligible)
+    threshold: Float, eligible: Boolean, velocity: Float = 0f, flick: SheetFlick = SheetFlick.None): Boolean =
+    playerPreviewOwned(previewing, startedAt, now) && miniDragOpens(travel, threshold, eligible, velocity, flick)
 
 /**
  * How previews and presentations are ordered, kept pure so the sequencing itself can be tested.
@@ -319,6 +364,9 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
         var startedAt = state.generation
         // The last motion this detector owns, so it only ever cleans up after itself.
         var mine: Job? = null
+        // Fed the finger's own accumulated travel rather than its position within the grabber, which
+        // now moves with the finger and so would read almost no velocity at all.
+        val tracker = VelocityTracker()
         // Only an open player rests at the top; a closing one belongs to the presentation.
         fun restore() { if (state.open) mine = state.settleBack() }
         try {
@@ -331,10 +379,12 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
                     baseline = state.position.value
                     drag = 0f
                     startedAt = state.generation
+                    tracker.resetTracking()
                     mine = state.moveTo(baseline)
                 },
-                onVerticalDrag = { _, amount ->
+                onVerticalDrag = { change, amount ->
                     drag += amount
+                    tracker.addPosition(change.uptimeMillis, Offset(0f, drag))
                     mine = state.moveTo(playerSheetDragged(baseline, drag, state.height))
                 },
                 onDragCancel = { restore() },
@@ -342,7 +392,10 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
                     // A pull that puts the player away leaves the sheet where the finger left it and
                     // gives up ownership: closing hands the position to the presentation, which
                     // carries on down from there, and this detector must not tidy it back up.
-                    if (playerDismissCommits(startedAt, state.generation, drag, PLAYER_DISMISS_DROP.toPx())) {
+                    if (playerDismissCommits(startedAt, state.generation, drag,
+                            sheetReleaseDistance(state.height, PLAYER_DISMISS_DROP.toPx()),
+                            tracker.calculateVelocity().y,
+                            SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))) {
                         mine = null
                         collapse()
                     } else restore()
