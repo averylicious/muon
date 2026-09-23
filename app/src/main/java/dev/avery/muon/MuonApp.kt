@@ -349,7 +349,7 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean,
     val colors = MaterialTheme.colorScheme
     val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
     Surface(Modifier.fillMaxSize()
-        .playerSheet(sheet, edge).playerBackPreview(preview()),
+        .playerSheet(sheet, WindowInsets.safeDrawing, edge).playerBackPreview(preview()),
         color = colors.background) {
         // The content gives back the top inset as the sheet drops below the status bar.
         Box(Modifier.reclaimTopInset(sheet, WindowInsets.safeDrawing).safeDrawingPadding()) {

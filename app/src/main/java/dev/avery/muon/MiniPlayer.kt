@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import android.os.SystemClock
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -10,7 +11,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,28 +44,42 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                 var travel = 0f
                 var baseline = 1f
                 var startedAt = -1
+                // Fed the finger's own accumulated travel, so a flick is measured on the finger
+                // rather than on anything that moves under it.
+                val tracker = VelocityTracker()
+                var lastMove = 0L
                 fun owned() = playerPreviewOwned(sheet.previewing, startedAt, sheet.generation)
                 try {
                     detectVerticalDragGestures(
                         onDragStart = {
+                            // The detector reports this once touch slop is crossed in either
+                            // direction, so nothing begins here: a drag down from rest must neither
+                            // dim the library nor take it out of TalkBack's reach.
                             travel = 0f
-                            // Wherever the sheet already is — usually closed, but perhaps still
-                            // settling away from a moment ago — is where the finger takes it from.
-                            baseline = sheet.position.value
-                            startedAt = sheet.beginPreview()
+                            startedAt = -1
+                            tracker.resetTracking()
                         },
-                        onVerticalDrag = { _, amount ->
+                        onVerticalDrag = { change, amount ->
+                            travel += amount
+                            lastMove = change.uptimeMillis
+                            tracker.addPosition(change.uptimeMillis, Offset(0f, travel))
+                            if (startedAt < 0 && playerPreviewMayBegin(travel)) {
+                                // Wherever the sheet already is — usually closed, but perhaps still
+                                // settling away from a moment ago — is where the finger takes it from.
+                                baseline = sheet.position.value
+                                startedAt = sheet.beginPreview()
+                            }
                             // Refused once Back or a new presentation has ended this preview, even
                             // though the finger is still down.
-                            if (owned()) {
-                                travel += amount
-                                sheet.moveTo(playerSheetDragged(baseline, travel, sheet.height))
-                            }
+                            if (owned()) sheet.moveTo(playerSheetDragged(baseline, travel, sheet.height))
                         },
                         onDragCancel = { if (owned()) sheet.endPreview() },
                         onDragEnd = {
                             val opens = playerPreviewOpens(sheet.previewing, startedAt, sheet.generation,
-                                travel, MINI_DRAG_OPEN.toPx(), canOpen)
+                                travel, sheetReleaseDistance(sheet.height, MINI_DRAG_OPEN.toPx()), canOpen,
+                                // Pointer times are MotionEvent event times, on this same clock.
+                                sheetReleaseVelocity(tracker.calculateVelocity().y, lastMove, SystemClock.uptimeMillis()),
+                                SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
                             val mine = owned()
                             // Opening and ending the preview together lets the presentation carry the
                             // sheet on up from here; any other ending lets it put the sheet away.
