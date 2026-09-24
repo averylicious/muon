@@ -200,7 +200,7 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, open
  * initials are decoration.
  */
 @Composable
-internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, open: (String) -> Unit) {
+internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, open: (LibraryArtist) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
         if (artists.isNullOrEmpty()) item {
             // Full height so the list can still be pulled down to refresh.
@@ -217,7 +217,7 @@ internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, open: (
                 supportingContent = { Text(artistSongCount(artist.tracks.size)) },
                 leadingContent = { ArtistAvatar(artist) },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-                modifier = Modifier.clickable(onClickLabel = "Open artist") { open(artist.key) },
+                modifier = Modifier.clickable(onClickLabel = "Open artist") { open(artist) },
             )
         }
     }
@@ -246,11 +246,11 @@ private fun ArtistAvatar(artist: LibraryArtist) {
 
 /**
  * The bar over one playlist's or one artist's songs: its name, its size, and the way back to the
- * list it was opened from.
+ * list it was opened from. A null [count] is not yet known and shows nothing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun PlaylistBar(name: String, count: Int, backLabel: String = "Back to playlists", back: () -> Unit) {
+internal fun PlaylistBar(name: String, count: Int?, backLabel: String = "Back to playlists", back: () -> Unit) {
     TopAppBar(
         title = { Text(name, style = MaterialTheme.typography.titleLarge,
             maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -261,7 +261,7 @@ internal fun PlaylistBar(name: String, count: Int, backLabel: String = "Back to 
             }
         },
         actions = {
-            Text("$count", style = MaterialTheme.typography.labelLarge,
+            if (count != null) Text("$count", style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(end = 16.dp))
         },

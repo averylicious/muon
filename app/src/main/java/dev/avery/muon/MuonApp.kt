@@ -56,6 +56,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // sitting, and forgotten when the server changes or a refresh removes the artist.
         var artistOrigin by rememberSaveable { mutableStateOf<String?>(null) }
         var artistKey by rememberSaveable { mutableStateOf<String?>(null) }
+        // Only a title for the page while it waits for the grouping; never used to find the artist.
+        var artistName by rememberSaveable { mutableStateOf<String?>(null) }
         var query by rememberSaveable { mutableStateOf("") }
         val playback = rememberPlayback(player)
         val ui = playback.ui
@@ -79,16 +81,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         val connected = model.endpoint != null
         val origin = model.endpoint?.origin
-        // Grouped once per library snapshot, off the main thread, and labelled with the server it
-        // was grouped for. A newer snapshot cancels an unfinished grouping of the old one, and
-        // groups made for another server are never shown.
+        // Grouped once per library snapshot, off the main thread, and labelled with the server and
+        // the exact snapshot it was grouped from. A newer snapshot cancels an unfinished grouping of
+        // the old one, and groups from any other snapshot or server are never shown or acted on.
         var artistGroups by remember { mutableStateOf<ArtistGroups?>(null) }
         LaunchedEffect(all, origin) {
-            val grouping = origin ?: return@LaunchedEffect
+            val grouping = origin ?: run { artistGroups = null; return@LaunchedEffect }
             val grouped = withContext(Dispatchers.Default) { groupArtists(all) }
-            artistGroups = ArtistGroups(grouping, grouped)
+            artistGroups = ArtistGroups(grouping, all, grouped)
         }
-        val artists = currentArtists(artistGroups, origin)
+        val artists = currentArtists(artistGroups, origin, all)
         // An endpoint exists only after a complete load succeeded, so it is both the identity of
         // the server and the signal that there is something to judge a saved selection against.
         val selection = storedSelection(openOrigin, openId, origin, model.playlists)
@@ -101,8 +103,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val artistSelection = storedArtist(artistOrigin, artistKey, origin, artists)
         val openArtist = if (artistSelection == StoredSelection.Open)
             artists?.firstOrNull { it.key == artistKey } else null
+        val artistPage = artistPageShown(artistSelection, connected)
+        fun closeArtist() { artistOrigin = null; artistKey = null; artistName = null }
         if (artistSelection == StoredSelection.Discard) {
-            LaunchedEffect(artistOrigin, artistKey, origin) { artistOrigin = null; artistKey = null }
+            LaunchedEffect(artistOrigin, artistKey, origin) { closeArtist() }
         }
         // The queue was emptied while the overlay was open: close it rather than leaving an empty
         // surface on top. Reading the controller directly, because the snapshot above can still be
@@ -133,15 +137,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
         val target = backTarget(connected, lyricsShown, overlayOpen,
-            onLibraryTab = tab == Tab.Library, playlistOpen = openList != null || openArtist != null)
+            onLibraryTab = tab == Tab.Library, playlistOpen = openList != null || artistPage)
         fun goBack() {
             when (target) {
                 BackTarget.Lyrics -> lyricsOpen = false
                 BackTarget.Player -> playerOpen = false
                 BackTarget.Tab -> tab = Tab.Library
-                BackTarget.Playlist -> {
-                    openOrigin = null; openId = null; artistOrigin = null; artistKey = null
-                }
+                BackTarget.Playlist -> { openOrigin = null; openId = null; closeArtist() }
                 BackTarget.None -> Unit
             }
         }
@@ -219,21 +221,23 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 null -> ConnectScreen(model)
                                 Tab.Settings -> SettingsScreen(model, appearance) {
                                     player?.stop(); player?.clearMediaItems(); model.disconnect()
-                                    openOrigin = null; openId = null; artistOrigin = null; artistKey = null
+                                    openOrigin = null; openId = null; closeArtist()
                                     lyricsOpen = false; playerOpen = false; tab = Tab.Library
                                 }
                                 Tab.Library -> {
                                     val open = openList
                                     val artist = openArtist
-                                    if (open == null && artist != null) Column {
+                                    if (open == null && artistPage) Column {
                                         // An interim artist page: the playlist's bar and list, over
-                                        // the songs credited to this artist.
-                                        PlaylistBar(artistLabel(artist.name), artist.tracks.size,
-                                            backLabel = "Back to artists") { artistOrigin = null; artistKey = null }
+                                        // the songs credited to this artist. While this snapshot is
+                                        // still being grouped it waits, empty, with Back available.
+                                        PlaylistBar(artistLabel(artist?.name ?: artistName.orEmpty()),
+                                            artist?.tracks?.size, backLabel = "Back to artists") { closeArtist() }
                                         LibraryPane(model.busy, { model.connect() }) {
-                                            TrackList(artist.tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                            val tracks = artist?.tracks.orEmpty()
+                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
                                                 emptyText = "No songs by this artist. Refresh to update.",
-                                                loading = model.busy) { startQueue(artist.tracks, it) }
+                                                loading = model.busy || artist == null) { startQueue(tracks, it) }
                                         }
                                     } else if (open == null) {
                                         // Greeting, chips, then the list; only the list pulls, and
@@ -246,7 +250,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                         emptyText = "No music yet. Add local music in Tauon, then refresh.",
                                                         loading = model.busy) { startQueue(all, it) }
                                                 LibraryView.Artists -> ArtistRows(artists, model.busy) {
-                                                    artistOrigin = origin; artistKey = it
+                                                    artistOrigin = origin; artistKey = it.key; artistName = it.name
                                                 }
                                                 LibraryView.Playlists -> PlaylistRows(model.playlists, model.busy) {
                                                     openOrigin = origin; openId = it

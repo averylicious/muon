@@ -23,6 +23,18 @@ class LibraryArtistsTest {
 
     @Test fun anyRunOfWhitespaceSeparatesWords() {
         assertEquals("MA", artistInitials("  massive \t\n attack  "))
+        assertEquals("MA", artistInitials("\r\nmassive\u000Battack"))
+        // No-break, figure, narrow and ideographic spaces separate words too, as they do for isBlank.
+        assertEquals("SR", artistInitials("Sigur\u00A0Rós"))
+        assertEquals("AB", artistInitials("a\u2007b"))
+        assertEquals("AB", artistInitials("a\u202Fb"))
+        assertEquals("坂龍", artistInitials("坂本\u3000龍一"))
+        assertEquals("", artistInitials("\u00A0\u3000"))
+    }
+
+    @Test fun eachInitialIsExactlyOneCodePoint() {
+        assertEquals("ß", artistInitials("ßtraße"))
+        assertEquals("ÉA", artistInitials("élan aa"))
     }
 
     @Test fun initialsTakeWholeCodePointsNotHalfASurrogatePair() {
@@ -59,12 +71,40 @@ class LibraryArtistsTest {
         assertEquals(setOf(0, 1, 2), keys.map(::artistTone).toSet())
     }
 
-    @Test fun artistsGroupedForOneServerAreNeverShownForAnother() {
-        val groups = ArtistGroups("http://a:7814", listOf(artist("A", 1)))
-        assertEquals(groups.artists, currentArtists(groups, "http://a:7814"))
-        assertNull(currentArtists(groups, "http://b:7814"))
-        assertNull(currentArtists(groups, null))
-        assertNull(currentArtists(null, "http://a:7814"))
+    private val snapshot = listOf(track(1, "A"), track(2, "B"))
+    private fun grouped(origin: String, tracks: List<TauonTrack>) = ArtistGroups(origin, tracks, groupArtists(tracks))
+
+    @Test fun groupsForTheCurrentSnapshotAndServerAreShown() {
+        val groups = grouped("http://a:7814", snapshot)
+        assertEquals(listOf("A", "B"), currentArtists(groups, "http://a:7814", snapshot)!!.map { it.name })
+        assertNull(currentArtists(null, "http://a:7814", snapshot))
+    }
+
+    @Test fun groupsForAnotherServerAreNeverShown() {
+        val groups = grouped("http://a:7814", snapshot)
+        assertNull(currentArtists(groups, "http://b:7814", snapshot))
+    }
+
+    @Test fun aSameServerRefreshHidesTheOldGroupsUntilItsOwnArrive() {
+        val groups = grouped("http://a:7814", snapshot)
+        // The refresh removed B and renumbered A; the old groups would still offer both.
+        val refreshed = listOf(track(9, "A"))
+        assertNull(currentArtists(groups, "http://a:7814", refreshed))
+        // Equal contents in a new list are still a new snapshot.
+        assertNull(currentArtists(groups, "http://a:7814", snapshot.toList()))
+        val regrouped = grouped("http://a:7814", refreshed)
+        assertEquals(listOf(9L), currentArtists(regrouped, "http://a:7814", refreshed)!!.single().tracks.map { it.id })
+    }
+
+    @Test fun reconnectingToTheSameServerNeverOffersThePreviousLibrary() {
+        val groups = grouped("http://a:7814", snapshot)
+        // Disconnected: no server, and the model's library is a fresh empty list.
+        assertNull(currentArtists(groups, null, emptyList()))
+        val reloaded = listOf(track(1, "A"), track(2, "B"))
+        assertNull(currentArtists(groups, "http://a:7814", reloaded))
+        // A saved artist waits for the new grouping rather than opening on the old one or being lost.
+        assertEquals(StoredSelection.Wait, storedArtist("http://a:7814", "artist:b", "http://a:7814",
+            currentArtists(groups, "http://a:7814", reloaded)))
     }
 
     @Test fun nothingSavedMeansNothingToOpen() {
@@ -85,6 +125,26 @@ class LibraryArtistsTest {
         assertEquals(StoredSelection.Discard, storedArtist("http://a", "artist:b", "http://b", artists))
         // Another server is discarded even before its grouping arrives.
         assertEquals(StoredSelection.Discard, storedArtist("http://a", "artist:b", "http://b", null))
+    }
+
+    @Test fun aWaitingArtistKeepsItsPageAndBackClosesItForGood() {
+        val waiting = storedArtist("http://a", "artist:b", "http://a", null)
+        assertTrue(artistPageShown(waiting, connected = true))
+        assertEquals(BackTarget.Playlist, backTarget(connected = true, lyricsShown = false, overlayOpen = false,
+            onLibraryTab = true, playlistOpen = artistPageShown(waiting, connected = true)))
+        // Back cleared the selection; the grouping that then arrives does not bring the page back.
+        val arrived = groupArtists(listOf(track(1, "A"), track(2, "B")))
+        val afterBack = storedArtist(null, null, "http://a", arrived)
+        assertEquals(StoredSelection.None, afterBack)
+        assertFalse(artistPageShown(afterBack, connected = true))
+    }
+
+    @Test fun onlyAnOpenOrWaitingArtistShowsItsPageAndNeverWhileDisconnected() {
+        assertTrue(artistPageShown(StoredSelection.Open, connected = true))
+        assertFalse(artistPageShown(StoredSelection.None, connected = true))
+        assertFalse(artistPageShown(StoredSelection.Discard, connected = true))
+        assertFalse(artistPageShown(StoredSelection.Wait, connected = false))
+        assertFalse(artistPageShown(StoredSelection.Open, connected = false))
     }
 
     @Test fun aRefreshThatRemovesTheArtistForgetsIt() {
