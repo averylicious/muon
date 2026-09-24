@@ -1,9 +1,11 @@
 package dev.avery.muon
 
-import android.os.SystemClock
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitVerticalDragOrCancellation
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -11,9 +13,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,48 +47,80 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                 var travel = 0f
                 var baseline = 1f
                 var startedAt = -1
-                // Fed the finger's own accumulated travel, so a flick is measured on the finger
-                // rather than on anything that moves under it.
-                val tracker = VelocityTracker()
-                var lastMove = 0L
+                // The gesture's touch-down, slop crossing, later moves and lift, so a brief flick is
+                // measured on what the platform delivers rather than read as motionless.
+                val trace = FlickTrace()
                 fun owned() = playerPreviewOwned(sheet.previewing, startedAt, sheet.generation)
+                // False if the change belongs to another finger: the helpers hand a gesture over when
+                // the first finger lifts, and another finger's position is not this one's travel.
+                fun record(change: PointerInputChange): Boolean {
+                    val finger = change.id.value
+                    change.historical.forEach { if (!trace.sample(finger, it.uptimeMillis, it.position.y)) return false }
+                    return trace.sample(finger, change.uptimeMillis, change.position.y)
+                }
+                fun follow(amount: Float) {
+                    travel += amount
+                    if (startedAt < 0 && playerPreviewMayBegin(travel)) {
+                        // Wherever the sheet already is — usually closed, but perhaps still settling
+                        // away from a moment ago — is where the finger takes it from.
+                        baseline = sheet.position.value
+                        startedAt = sheet.beginPreview()
+                    }
+                    // Refused once Back or a new presentation has ended this preview, even though
+                    // the finger is still down.
+                    if (owned()) sheet.moveTo(playerSheetDragged(baseline, travel, sheet.height))
+                }
+                fun release(upMillis: Long) {
+                    // Judged on the whole gesture and the lift's own event time. Only the release
+                    // uses it: the sheet still follows the post-slop travel above.
+                    val velocity = trace.releaseVelocity(upMillis)
+                    val opens = playerPreviewOpens(sheet.previewing, startedAt, sheet.generation,
+                        trace.travel, sheetReleaseDistance(sheet.height, MINI_DRAG_OPEN.toPx()), canOpen,
+                        velocity, SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
+                    val mine = owned()
+                    // Sets off at the same measured speed towards where the release decided; the
+                    // presentation keeps that settle, or replaces it if the open is refused.
+                    if (mine) sheet.settleTo(if (opens) 0f else 1f, sheetFractionVelocity(velocity, sheet.height))
+                    // Opening and ending the preview together lets the presentation carry the sheet
+                    // on up from here; any other ending lets it put the sheet away.
+                    if (opens) current()
+                    if (mine) sheet.endPreview()
+                }
                 try {
-                    detectVerticalDragGestures(
-                        onDragStart = {
-                            // The detector reports this once touch slop is crossed in either
-                            // direction, so nothing begins here: a drag down from rest must neither
-                            // dim the library nor take it out of TalkBack's reach.
-                            travel = 0f
-                            startedAt = -1
-                            tracker.resetTracking()
-                        },
-                        onVerticalDrag = { change, amount ->
-                            travel += amount
-                            lastMove = change.uptimeMillis
-                            tracker.addPosition(change.uptimeMillis, Offset(0f, travel))
-                            if (startedAt < 0 && playerPreviewMayBegin(travel)) {
-                                // Wherever the sheet already is — usually closed, but perhaps still
-                                // settling away from a moment ago — is where the finger takes it from.
-                                baseline = sheet.position.value
-                                startedAt = sheet.beginPreview()
+                    // The same structure as detectVerticalDragGestures, which hides the touch-down,
+                    // the batched points and the lift event this needs.
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        trace.down(down.id.value, down.uptimeMillis, down.position.y)
+                        var overSlop = 0f
+                        val drag = awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
+                            change.consume()
+                            overSlop = over
+                        } ?: return@awaitEachGesture
+                        // Slop crossed, but in either direction: nothing begins until the travel is
+                        // upwards, so a drag down from rest neither dims the library nor hides it.
+                        travel = 0f
+                        startedAt = -1
+                        // The finger that touched down lifted before the slop, and another one
+                        // crossed it: not this gesture. Nothing has begun yet, so nothing to undo.
+                        if (!record(drag)) return@awaitEachGesture
+                        follow(overSlop)
+                        while (true) {
+                            val change = awaitVerticalDragOrCancellation(drag.id)
+                            // Cancelled or consumed elsewhere, or handed over to another finger:
+                            // end the preview this gesture owns, and commit nothing.
+                            if (change == null || !record(change)) {
+                                if (owned()) sheet.endPreview()
+                                break
                             }
-                            // Refused once Back or a new presentation has ended this preview, even
-                            // though the finger is still down.
-                            if (owned()) sheet.moveTo(playerSheetDragged(baseline, travel, sheet.height))
-                        },
-                        onDragCancel = { if (owned()) sheet.endPreview() },
-                        onDragEnd = {
-                            val opens = playerPreviewOpens(sheet.previewing, startedAt, sheet.generation,
-                                travel, sheetReleaseDistance(sheet.height, MINI_DRAG_OPEN.toPx()), canOpen,
-                                // Pointer times are MotionEvent event times, on this same clock.
-                                sheetReleaseVelocity(tracker.calculateVelocity().y, lastMove, SystemClock.uptimeMillis()),
-                                SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
-                            val mine = owned()
-                            // Opening and ending the preview together lets the presentation carry the
-                            // sheet on up from here; any other ending lets it put the sheet away.
-                            if (opens) current()
-                            if (mine) sheet.endPreview()
-                        })
+                            if (change.changedToUpIgnoreConsumed()) {
+                                release(change.uptimeMillis)
+                                break
+                            }
+                            follow(change.positionChange().y)
+                            change.consume()
+                        }
+                    }
                 } finally {
                     // Torn down mid-preview — the controller or queue went, or the mini player
                     // left: end the preview this detector still owns, and the presentation puts
