@@ -10,11 +10,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 
-/** Which way the library is being browsed. Albums and Artists join this when they exist. */
-enum class LibraryView { Songs, Playlists }
+/** Which way the library is being browsed. Albums joins this when it exists. */
+enum class LibraryView { Songs, Artists, Playlists }
 
 internal fun libraryViewFrom(stored: String?): LibraryView =
-    if (stored == LibraryView.Playlists.name) LibraryView.Playlists else LibraryView.Songs
+    LibraryView.entries.firstOrNull { it.name == stored } ?: LibraryView.Songs
 
 /**
  * The playlist an identifier names, if it still names one with music in it.

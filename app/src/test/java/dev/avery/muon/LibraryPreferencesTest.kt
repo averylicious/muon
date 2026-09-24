@@ -17,6 +17,9 @@ class LibraryPreferencesTest {
     @Test fun aStoredChoiceComesBack() {
         assertEquals(LibraryView.Playlists, libraryViewFrom("Playlists"))
         assertEquals(LibraryView.Songs, libraryViewFrom("Songs"))
+        assertEquals(LibraryView.Artists, libraryViewFrom("Artists"))
+        // Names are matched exactly, as they were written.
+        assertEquals(LibraryView.Songs, libraryViewFrom("artists"))
     }
 
     @Test fun aPlaylistWithMusicInItOpens() {
