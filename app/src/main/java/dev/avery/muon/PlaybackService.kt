@@ -6,10 +6,12 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.session.CacheBitmapLoader
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -22,11 +24,33 @@ class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     override fun onCreate() {
         super.onCreate()
+        // Keep Media3's notification/actions and foreground handling; only supply our app mark.
+        setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply {
+            setSmallIcon(R.drawable.ic_notification)
+        })
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(Transport.client)))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK).build()
+        // Shuffle and repeat as the user left them, restored before the session exists so no
+        // controller sees the defaults, and saved whenever they change by any route — the app, the
+        // notification or another controller — rather than at shutdown, which may never be reached.
+        restoreAndPersistPlaybackModes(
+            PlaybackModePreferences(getSharedPreferences(PlaybackModePreferences.FILE, MODE_PRIVATE)),
+            object : PlaybackModeTarget {
+                override fun restore(modes: PlaybackModes) {
+                    player.shuffleModeEnabled = modes.shuffle
+                    player.repeatMode = modes.repeat
+                }
+                override fun listen(onShuffle: (Boolean) -> Unit, onRepeat: (Int) -> Unit) {
+                    player.addListener(object : Player.Listener {
+                        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) =
+                            onShuffle(shuffleModeEnabled)
+                        override fun onRepeatModeChanged(repeatMode: Int) = onRepeat(repeatMode)
+                    })
+                }
+            })
         session = MediaSession.Builder(this, player)
             .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader(
                 DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), OkHttpDataSource.Factory(Transport.client))))

@@ -1,10 +1,8 @@
 package dev.avery.muon
 
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -13,92 +11,27 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
 import androidx.media3.session.MediaController
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private enum class Screen { Library, Search, Playing, Lyrics, Settings, Connect }
-
 /**
- * Everything about playback that changes only on a player event. The moving position is kept out
- * of this value deliberately: it is compared for equality on every event, so screens that do not
- * show a clock are not recomposed while a track plays.
+ * The three tabs. Now Playing is not one of them: it is an overlay that grows out of the mini
+ * player, so it can be opened from anywhere without losing the tab underneath it.
  */
-@Immutable
-private data class PlaybackUi(val item: MediaItem? = null, val playing: Boolean = false,
-    val duration: Long = 0, val seekable: Boolean = false,
-    val buffering: Boolean = false, val error: String? = null, val previous: Boolean = false,
-    val next: Boolean = false, val shuffle: Boolean = false,
-    @Player.RepeatMode val repeatMode: Int = Player.REPEAT_MODE_OFF)
-
-/** Playback state split so that the ticking position invalidates only the widgets that draw it. */
-@Stable
-private class PlaybackState {
-    var ui by mutableStateOf(PlaybackUi())
-    var position by mutableLongStateOf(0L)
-}
-
-@Composable
-private fun rememberPlayback(player: MediaController?): PlaybackState {
-    val state = remember { PlaybackState() }
-    DisposableEffect(player) {
-        fun update() {
-            state.ui = if (player == null) PlaybackUi() else PlaybackUi(player.currentMediaItem, player.isPlaying,
-                player.duration.coerceAtLeast(0),
-                player.isCurrentMediaItemSeekable, player.playbackState == Player.STATE_BUFFERING,
-                player.playerError?.let { "${it.errorCodeName}: ${it.cause?.let(::friendlyError) ?: it.message}" },
-                player.hasPreviousMediaItem(), player.hasNextMediaItem(), player.shuffleModeEnabled,
-                player.repeatMode)
-            state.position = player?.currentPosition?.coerceAtLeast(0) ?: 0L
-        }
-        val listener = object : Player.Listener { override fun onEvents(p: Player, events: Player.Events) { update() } }
-        player?.addListener(listener); update()
-        onDispose { player?.removeListener(listener) }
-    }
-    val playing = state.ui.playing
-    LaunchedEffect(player, playing) {
-        if (player == null || !playing) return@LaunchedEffect
-        while (true) {
-            state.position = player.currentPosition.coerceAtLeast(0)
-            delay(POSITION_TICK_MS)
-        }
-    }
-    return state
-}
+private enum class Tab { Library, Search, Settings }
 
 @Composable
 fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryModel = viewModel(),
@@ -107,12 +40,25 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
     MuonTheme(darkTheme = darkTheme, dynamicColor = appearance.palette == PaletteChoice.MaterialYou,
         blackSurfaces = useBlackSurfaces(appearance.amoled, darkTheme)) {
         val colors = MaterialTheme.colorScheme
-        var screen by rememberSaveable { mutableStateOf(Screen.Library) }
-        var selected by rememberSaveable { mutableStateOf<String?>(null) }
+        var tab by rememberSaveable { mutableStateOf(Tab.Library) }
+        // Two booleans rather than a navigation library: the overlay sits above whichever tab is
+        // showing, and Lyrics sits above the overlay. Album and artist pages will need more than
+        // this, and that is the point at which a real back stack earns its keep.
+        var playerOpen by rememberSaveable { mutableStateOf(false) }
+        var lyricsOpen by rememberSaveable { mutableStateOf(false) }
+        val library = rememberLibrarySettings()
+        // Which playlist is open is about this sitting, not a preference. It is saved with the
+        // server it was chosen on, so it survives rotation but never crosses servers, and a
+        // refresh that removes or empties it forgets it rather than leaving it to reappear.
+        var openOrigin by rememberSaveable { mutableStateOf<String?>(null) }
+        var openId by rememberSaveable { mutableStateOf<String?>(null) }
         var query by rememberSaveable { mutableStateOf("") }
         val playback = rememberPlayback(player)
         val ui = playback.ui
         val position = remember(playback) { { playback.position } }
+        // Read through a lambda so a player event reaches a gesture already in progress, without
+        // waiting for a recomposition to carry the new value down.
+        val revision = remember(playback) { { playback.revision } }
         val all = remember(model.tracksByPlaylist) { model.allTracks }
         // Filtering a large library on the composition thread stalled typing. Debounced, kept off
         // the main thread, and hoisted here so results survive a trip to another tab.
@@ -128,8 +74,60 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
         }
         val connected = model.endpoint != null
-        val shownScreen = if (!connected) Screen.Connect else screen
-        BackHandler(connected && screen != Screen.Library) { screen = Screen.Library }
+        val origin = model.endpoint?.origin
+        // An endpoint exists only after a complete load succeeded, so it is both the identity of
+        // the server and the signal that there is something to judge a saved selection against.
+        val selection = storedSelection(openOrigin, openId, origin, model.playlists)
+        val openList = if (selection == StoredSelection.Open) openPlaylist(openId, model.playlists) else null
+        if (selection == StoredSelection.Discard) {
+            // Cleared as soon as there is a library to judge against, so Back has nothing phantom
+            // to unwind and the identifier cannot come back to life on a later refresh.
+            LaunchedEffect(openOrigin, openId, origin) { openOrigin = null; openId = null }
+        }
+        // The queue was emptied while the overlay was open: close it rather than leaving an empty
+        // surface on top. Reading the controller directly, because the snapshot above can still be
+        // the empty one for a frame after a controller reconnects.
+        LaunchedEffect(player, ui.item) {
+            if (overlayShouldClose(player != null, player?.currentMediaItem != null)) {
+                lyricsOpen = false; playerOpen = false
+            }
+        }
+        val overlayOpen = connected && playerOpen && ui.item != null
+        val lyricsShown = overlayOpen && lyricsOpen
+        val playerShown = overlayOpen && !lyricsShown
+        // The player's one vertical position, held outside its composition so it outlives the
+        // closing animation. Opening and closing drive it from the logical state; progress never
+        // decides where Back goes.
+        val sheet = rememberPlayerSheet(openAtStart = playerShown)
+        // Re-presents the logical state whenever it changes and whenever a preview from the mini
+        // player ends. A preview that opened the player ends in the same event, so the sheet carries
+        // on up from where the finger left it; every other ending — short, cancelled, Back, lost
+        // eligibility, a refused open — leaves the player closed, so the sheet is put away rather
+        // than left part-way. The gesture never has the last word. Keyed on the count of completed
+        // previews as well, because a preview can begin and end before any frame sees it running,
+        // and a flag that flipped and flipped back would leave the keys unchanged.
+        val turn = sheet.turn
+        LaunchedEffect(playerShown, turn.previewing, turn.completions) {
+            if (!turn.previewing) sheet.present(playerShown)
+        }
+        // Only a detail that is actually on screen takes a Back press. Both handlers read this one
+        // decision, so they cannot disagree about where Back goes.
+        val target = backTarget(connected, lyricsShown, overlayOpen,
+            onLibraryTab = tab == Tab.Library, playlistOpen = openList != null)
+        fun goBack() {
+            when (target) {
+                BackTarget.Lyrics -> lyricsOpen = false
+                BackTarget.Player -> playerOpen = false
+                BackTarget.Tab -> tab = Tab.Library
+                BackTarget.Playlist -> { openOrigin = null; openId = null }
+                BackTarget.None -> Unit
+            }
+        }
+        BackHandler(target != BackTarget.None) { goBack() }
+        // While the finger is carrying a closed player up, Back cancels that and nothing else: the
+        // library underneath is hidden by the rising player and must not be navigated. Registered
+        // after the app's own handler, so the dispatcher gives it the press while it is enabled.
+        BackHandler(sheet.previewing) { sheet.endPreview() }
         fun startQueue(list: List<TauonTrack>, track: TauonTrack) {
             val endpoint = model.endpoint ?: return
             val queue = list.filter { it.playable }
@@ -138,563 +136,225 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             player.setMediaItems(queue.map { it.mediaItem(endpoint) }, index, 0L)
             player.prepare(); player.play()
         }
-        Scaffold(containerColor = colors.background, bottomBar = {
-            Column {
-                AnimatedVisibility(visible = ui.item != null && shownScreen != Screen.Playing,
-                    enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
-                    exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-                    MiniPlayer(ui, position, player != null, { screen = Screen.Playing },
-                        toggle = { if (ui.playing) player?.pause() else player?.play() },
-                        next = { player?.seekToNextMediaItem() })
-                }
-                AnimatedVisibility(visible = connected,
-                    enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
-                    exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-                    NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
-                    listOf(Screen.Library, Screen.Search, Screen.Playing, Screen.Settings).forEach { destination ->
-                        NavigationBarItem(selected = shownScreen == destination || (destination == Screen.Playing && shownScreen == Screen.Lyrics),
-                            onClick = { screen = destination },
-                            icon = { MuonIcon(when (destination) {
-                                Screen.Library -> "library"; Screen.Search -> "search"; Screen.Playing -> "music"; else -> "settings"
-                            }) }, label = { Text(if (destination == Screen.Playing) "Playing" else destination.name) })
-                    }
-                    }
-                }
-            }
-        }) { padding ->
-            Column(Modifier.padding(padding).fillMaxSize()) {
-                AnimatedVisibility(controllerError != null,
-                    enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
-                    exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
-                    ErrorCard(controllerError.orEmpty())
-                }
-                AnimatedVisibility(connected && model.error != null && shownScreen != Screen.Settings,
-                    enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
-                    exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
-                    ErrorCard(model.error.orEmpty(), "Retry") { model.connect() }
-                }
-                BusyStrip(model.busy && connected)
-                // Tabs are siblings, so this fades with a small lift rather than sliding sideways.
-                AnimatedContent(shownScreen, transitionSpec = {
-                    (fadeIn(motionMedium()) + slideInVertically(motionMedium()) { it / 24 })
-                        .togetherWith(fadeOut(motionShort()))
-                }, label = "screen") { shown ->
-                when (shown) {
-                    Screen.Connect -> ConnectScreen(model)
-                    Screen.Settings -> SettingsScreen(model, appearance) {
-                        player?.stop(); player?.clearMediaItems(); model.disconnect(); selected = null; screen = Screen.Library
-                    }
-                    Screen.Library -> {
-                        val tracks = if (selected == null) all else model.tracksByPlaylist[selected].orEmpty()
-                        Column {
-                            LibraryBar(model.busy) { model.connect() }
-                            PlaylistChips(model.playlists, all.size, selected) { selected = it }
-                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
-                                emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
-                                loading = model.busy) { startQueue(tracks, it) }
+        // Measured here rather than on the player's host, which is not composed until a preview has
+        // moved it: the root is always measured and is the size the sheet will be, so the first move
+        // of a preview can already be turned into a position, and that position mounts the host.
+        Box(Modifier.fillMaxSize().onSizeChanged { sheet.height = it.height.toFloat() }) {
+            // While the overlay covers the screen, the tabs behind it stay composed but are taken
+            // out of the accessibility tree, so TalkBack cannot wander into hidden content.
+            // A rising preview obscures them just the same, so they leave the tree for it too, and
+            // come back as soon as it is cancelled. Only semantics change: the mini player's own
+            // gesture detector, which is carrying the preview, is not touched.
+            Box(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier) {
+                Scaffold(containerColor = colors.background, bottomBar = {
+                    Column {
+                        AnimatedVisibility(visible = ui.item != null && !overlayOpen,
+                            enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
+                            exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
+                            MiniPlayer(ui, position, player != null,
+                                active = connected && player != null && ui.item != null && !overlayOpen,
+                                sheet = sheet,
+                                open = {
+                                    if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
+                                        playerOpen = true
+                                },
+                                toggle = { if (ui.playing) player?.pause() else player?.play() },
+                                next = { player?.seekToNextMediaItem() })
                         }
-                    }
-                    Screen.Search -> {
-                        Column {
-                            SearchField(query, { query = it }, search.searching)
-                            TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null,
-                                emptyText = searchEmptyText(query, search.searching, search.completed)) {
-                                startQueue(search.tracks, it)
+                        AnimatedVisibility(visible = connected,
+                            enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
+                            exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
+                            NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
+                                Tab.entries.forEach { destination ->
+                                    NavigationBarItem(selected = tab == destination,
+                                        onClick = { tab = destination },
+                                        icon = { MuonIcon(when (destination) {
+                                            Tab.Library -> "library"; Tab.Search -> "search"; else -> "settings"
+                                        }) }, label = { Text(destination.name) })
+                                }
                             }
                         }
                     }
-                    Screen.Playing -> NowPlaying(ui, position, player) { screen = Screen.Lyrics }
-                    Screen.Lyrics -> LyricsScreen(ui.item) { screen = Screen.Playing }
+                }) { padding ->
+                    Column(Modifier.padding(padding).fillMaxSize()) {
+                        AnimatedVisibility(controllerError != null,
+                            enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
+                            exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
+                            ErrorCard(controllerError.orEmpty())
+                        }
+                        AnimatedVisibility(connected && model.error != null && tab != Tab.Settings,
+                            enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
+                            exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
+                            ErrorCard(model.error.orEmpty(), "Retry") { model.connect() }
+                        }
+                        BusyStrip(model.busy && connected)
+                        // Tabs are siblings, so this fades with a small lift rather than sliding sideways.
+                        AnimatedContent(if (connected) tab else null, transitionSpec = {
+                            (fadeIn(motionMedium()) + slideInVertically(motionMedium()) { it / 24 })
+                                .togetherWith(fadeOut(motionShort()))
+                        }, label = "screen") { shown ->
+                            when (shown) {
+                                null -> ConnectScreen(model)
+                                Tab.Settings -> SettingsScreen(model, appearance) {
+                                    player?.stop(); player?.clearMediaItems(); model.disconnect()
+                                    openOrigin = null; openId = null
+                                    lyricsOpen = false; playerOpen = false; tab = Tab.Library
+                                }
+                                Tab.Library -> {
+                                    val open = openList
+                                    if (open == null) {
+                                        // Greeting, chips, then the list; only the list pulls, and
+                                        // the greeting unfolds before a pull begins.
+                                        LibraryTop(all.size, library.view, library::choose,
+                                            model.busy, { model.connect() }) {
+                                            if (library.view == LibraryView.Songs)
+                                                TrackList(all, model.endpoint, ui.item?.mediaId, player != null,
+                                                    emptyText = "No music yet. Add local music in Tauon, then refresh.",
+                                                    loading = model.busy) { startQueue(all, it) }
+                                            else PlaylistRows(model.playlists, model.busy) {
+                                                openOrigin = origin; openId = it
+                                            }
+                                        }
+                                    } else Column {
+                                        // One playlist keeps its own compact bar: its name is the
+                                        // heading, and a greeting would be in the way.
+                                        PlaylistBar(open.name, open.count) { openId = null }
+                                        LibraryPane(model.busy, { model.connect() }) {
+                                            val tracks = model.tracksByPlaylist[open.id].orEmpty()
+                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                                emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
+                                                loading = model.busy) { startQueue(tracks, it) }
+                                        }
+                                    }
+                                }
+                                Tab.Search -> {
+                                    Column {
+                                        SearchField(query, { query = it }, search.searching)
+                                        TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                            emptyText = searchEmptyText(query, search.searching, search.completed)) {
+                                            startQueue(search.tracks, it)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                }
+            }
+            // Dims the library under the player, so a player being dragged, closed or previewed
+            // by Back reads as a sheet over it rather than more of the same surface. It stays
+            // put while the sheet moves, follows only the player's own visibility, and is gone
+            // entirely once the player has closed.
+            // Also shown while a preview is rising, so new touches cannot reach the library under
+            // it; a finger already down keeps its own stream, so the drag itself carries on.
+            AnimatedVisibility(visible = playerShown || sheet.previewing, enter = fadeIn(motionMedium()),
+                exit = fadeOut(motionMedium())) {
+                PlayerScrim()
+            }
+            // The player rises from the bottom, where the mini player it grew out of sits, and
+            // shrinks while a Back gesture is deciding whether to close it.
+            PlayerHost(sheet, open = playerShown, preview = {
+                rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
+            }) {
+                // Only a player that is actually on screen carries the drag: an outgoing one hands
+                // nothing down, so its detector goes with it rather than moving what comes next.
+                NowPlayingOverlay(ui, position, revision, player, sheet.takeIf { playerShown },
+                    // Guarded, so a drag that ends after Lyrics opened over the player, or after
+                    // the player has gone, cannot put away whatever took its place.
+                    collapse = { if (playerShown) playerOpen = false }) { lyricsOpen = true }
+            }
+            FullScreenOverlay(visible = lyricsShown) {
+                LyricsScreen(ui.item) { lyricsOpen = false }
             }
         }
     }
 }
 
-/** Results plus enough state to tell "nothing typed" from "still searching" from "no matches". */
-@Immutable
-private data class SearchResults(val tracks: List<TauonTrack> = emptyList(),
-    val searching: Boolean = false, val completed: String = "")
+/** What a Back press acts on, named in the order the screens are stacked. */
+internal enum class BackTarget { None, Lyrics, Player, Tab, Playlist }
+
+internal fun backTarget(connected: Boolean, lyricsShown: Boolean, overlayOpen: Boolean,
+    onLibraryTab: Boolean, playlistOpen: Boolean): BackTarget = when {
+    !connected -> BackTarget.None
+    lyricsShown -> BackTarget.Lyrics
+    overlayOpen -> BackTarget.Player
+    !onLibraryTab -> BackTarget.Tab
+    playlistOpen -> BackTarget.Playlist
+    else -> BackTarget.None
+}
 
 /**
- * A busy indicator that occupies its space whether or not it is showing. Inserting one into the
- * column shifted every screen down as a refresh started and back again as it finished.
+ * Whether a Back gesture that began over the player should still act when it is let go.
+ *
+ * A held gesture outlives the state it started in: `PredictiveBackHandler` hands it to a coroutine
+ * and, in activity-compose 1.11.0, does not cancel it when the handler stops being enabled. Lyrics
+ * can open over the player meanwhile, or the player can be closed by its own button or by the
+ * queue emptying. Lyrics is part of what the gesture was aiming at, so Back acts on it; a player
+ * that has gone is not, and sending the user back a tab they never aimed at would be a surprise,
+ * so the gesture is let go without navigating.
+ */
+internal fun playerGestureCommits(target: BackTarget): Boolean =
+    target == BackTarget.Lyrics || target == BackTarget.Player
+
+/** Material's modal-sheet scrim opacity (`ScrimTokens.ContainerOpacity` in material3 1.4.0). */
+private const val PLAYER_SCRIM_ALPHA = 0.32f
+
+/**
+ * Blocks touches to the library it dims, the same way Material's own `Surface` does, and adds
+ * nothing a screen reader could focus or activate: closing stays with the collapse button and Back.
  */
 @Composable
-private fun BusyStrip(busy: Boolean) {
-    Box(Modifier.fillMaxWidth().height(4.dp)) {
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().height(4.dp))
-    }
+private fun PlayerScrim() {
+    Box(Modifier.fillMaxSize()
+        .background(MaterialTheme.colorScheme.scrim.copy(alpha = PLAYER_SCRIM_ALPHA))
+        .pointerInput(Unit) {})
 }
 
+/**
+ * A surface that covers the tabs and insets itself, because the scaffold below cannot reach it.
+ * Material's own `Surface` already blocks touches from reaching what it covers, so nothing here
+ * adds a click target that a screen reader would announce. Lyrics uses this; the player has
+ * [PlayerHost], because its position is driven by gestures as well as by being opened.
+ */
 @Composable
-private fun SearchField(query: String, onQuery: (String) -> Unit, searching: Boolean) {
-    Column(Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
-        OutlinedTextField(query, onQuery, modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Songs, artists, albums") }, leadingIcon = { MuonIcon("search") },
-            singleLine = true, shape = RoundedCornerShape(18.dp),
-            trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = { onQuery("") }) { Text("Clear") } })
-        // Reserved either way, so starting a search does not shift the results under the finger.
-        Box(Modifier.fillMaxWidth().height(4.dp).padding(top = 2.dp)) {
-            if (searching) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(visible = visible,
+        enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
+        exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Box(Modifier.safeDrawingPadding()) { content() }
         }
-    }
-}
-
-@Composable
-private fun ConnectScreen(model: LibraryModel) {
-    val context = LocalContext.current
-    var discovered by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var discoveryMessage by remember { mutableStateOf("") }
-    val discovery = remember { ServerDiscovery(context, { name, url -> discovered = discovered + (url to name) }, { discoveryMessage = it }) }
-    DisposableEffect(discovery) { onDispose { discovery.stop() } }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Spacer(Modifier.height(18.dp))
-        Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.headlineLarge)
-        Text("Stream your Tauon collection to this device. Original audio, your playlists, wherever your LAN reaches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        SettingsCard("Connect to Tauon desktop") {
-            Text("Enable remote control in Tauon and restart it. Keep both devices on the same trusted LAN.")
-            OutlinedTextField(model.address, { model.address = it }, label = { Text("Server address") },
-                placeholder = { Text("192.168.1.10:7814") }, singleLine = true,
-                enabled = !model.busy, modifier = Modifier.fillMaxWidth())
-            Button(onClick = { model.connect() }, enabled = !model.busy && model.address.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                Text(if (model.busy) "Connecting…" else "Connect")
-            }
-            if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall)
-            if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        }
-        model.error?.let { ErrorCard(it) }
-        SettingsCard("Find Tauon on my LAN") {
-            Text("Discovery needs Tauon to advertise itself. Typing the address always works.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = { discovered = emptyMap(); discovery.start() }, enabled = !model.busy,
-                modifier = Modifier.fillMaxWidth()) { Text("Scan this network") }
-            if (discoveryMessage.isNotEmpty()) Text(discoveryMessage, style = MaterialTheme.typography.bodySmall)
-            discovered.forEach { (url, name) -> DiscoveredServer(name, url) { model.address = url } }
-        }
-        PrivacyNote()
-    }
-}
-
-@Composable
-private fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings, disconnect: () -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Spacer(Modifier.height(18.dp))
-        Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        Text("Settings", style = MaterialTheme.typography.headlineLarge)
-        SettingsCard("Tauon desktop · connected") {
-            Text(model.address, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onClick = { model.connect() }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) {
-                Text(if (model.busy) "Refreshing…" else "Refresh connection & library")
-            }
-            if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            TextButton(onClick = disconnect) { Text("Disconnect & stop playback") }
-        }
-        model.error?.let { ErrorCard(it) }
-        AppearanceSection(appearance)
-        PrivacyNote()
-    }
-}
-
-@Composable
-private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            content()
-        }
-    }
-}
-
-@Composable
-private fun DiscoveredServer(name: String, url: String, use: () -> Unit) {
-    // A found server is a list entry, not a button with two lines of text crammed into it.
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = use)
-        .padding(vertical = 10.dp, horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Text("Use", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-    }
-}
-
-@Composable
-private fun PrivacyNote() {
-    HorizontalDivider()
-    Text("A private connection", style = MaterialTheme.typography.titleMedium)
-    Text("Tauon's remote API is for trusted LANs. It has no login or encryption over HTTP. Never expose port 7814 to the Internet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Text("Direct original audio · No transcoding\nAndroid playback · Desktop playback stays independent", style = MaterialTheme.typography.bodySmall)
-}
-
-@Composable
-private fun AppearanceSection(appearance: AppearanceSettings) {
-    val dynamicAvailable = dynamicColorAvailable(Build.VERSION.SDK_INT)
-    // Show what will actually render: a device without dynamic colour cannot honour Material You.
-    val shown = effectivePalette(appearance.palette, dynamicAvailable)
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Appearance", style = MaterialTheme.typography.titleMedium)
-            Text("Light and dark still follow your system setting. This chooses where the colours come from.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(4.dp))
-            PaletteChoice.entries.forEach { choice ->
-                PaletteOption(choice, shown == choice,
-                    enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable) { appearance.choose(choice) }
-            }
-            if (!dynamicAvailable) Text("Material You needs Android 12 or newer, so this device uses the Muon palette.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                .toggleable(value = appearance.amoled, role = Role.Switch) { appearance.chooseAmoled(it) }
-                .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text("Pure black", style = MaterialTheme.typography.bodyLarge)
-                    Text("Backgrounds go fully black on OLED screens. Accents are unchanged, and this only applies while your system is in dark mode.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = appearance.amoled, onCheckedChange = null)
-            }
-        }
-    }
-}
-
-@Composable
-private fun PaletteOption(choice: PaletteChoice, selected: Boolean, enabled: Boolean, select: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-        .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = select)
-        .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        // A radio mark, not a tint, so the choice is readable without relying on colour.
-        RadioButton(selected = selected, onClick = null, enabled = enabled)
-        Column(Modifier.padding(start = 12.dp)) {
-            Text(paletteLabel(choice), style = MaterialTheme.typography.bodyLarge)
-            Text(paletteDescription(choice), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
-    emptyText: String, loading: Boolean = false, play: (TauonTrack) -> Unit) {
-    if (tracks.isEmpty() && loading) PlaceholderRows()
-    else if (tracks.isEmpty()) Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Text(emptyText, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else {
-        val keys = remember(tracks) { trackKeys(tracks) }
-        LazyColumn(contentPadding = PaddingValues(bottom = 12.dp)) {
-            itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
-                TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready,
-                    Modifier.animateItem(placementSpec = motionMedium())) { play(t) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, ready: Boolean,
-    modifier: Modifier = Modifier, play: () -> Unit) {
-    Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
-        .clickable(enabled = t.playable && ready, onClick = play)
-        .padding(horizontal = 24.dp, vertical = 8.dp)
-        .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
-        verticalAlignment = Alignment.CenterVertically) {
-        // The current track is marked by something appearing, not only by a change of hue. The
-        // marker reserves its width either way so every row starts on the same line.
-        Box(Modifier.width(3.dp).height(32.dp)
-            .then(if (current) Modifier.background(MaterialTheme.colorScheme.primary,
-                RoundedCornerShape(2.dp)) else Modifier))
-        Spacer(Modifier.width(9.dp))
-        Artwork(endpoint?.url("/api1/pic/small/${t.id}"), Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
-        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-            Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
-            Text(if (t.playable) "${t.artist} · ${t.album}" else "Unavailable for direct streaming · ${t.artist}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall)
-        }
-        // A minimum width keeps the durations on one right edge; a long duration or a large font
-        // scale grows the column instead of clipping, taking the space from the title beside it.
-        Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End,
-            maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
     }
 }
 
 /**
- * Shown while the first library load runs. Without it the screen reads as an empty library until
- * every playlist has been fetched, which is the wrong message while it is still working.
+ * The player's own host, positioned only by [sheet].
+ *
+ * It is composed while the player is logically [open], from zero progress, so an opening sheet can
+ * be measured and animated in; and kept while any of it is still on screen, so it can leave. Anything
+ * remembered inside — including [preview]'s Back gesture state — therefore lasts exactly as long as
+ * the player is on screen, as it did inside the old transition.
+ *
+ * On its way out the player is no longer the thing being used: its content leaves the accessibility
+ * tree and a non-semantic cover takes its touches, so partly visible controls cannot be tapped or
+ * focused while they slide away.
  */
 @Composable
-private fun PlaceholderRows() {
-    val colour = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
-    Column(Modifier.fillMaxWidth()) {
-        repeat(8) { index ->
-            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 24.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(colour))
-                Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                    // Uneven widths so it reads as a list of titles rather than as a broken grid.
-                    Box(Modifier.fillMaxWidth(if (index % 3 == 0) 0.7f else 0.5f).height(12.dp)
-                        .clip(RoundedCornerShape(6.dp)).background(colour))
-                    Spacer(Modifier.height(8.dp))
-                    Box(Modifier.fillMaxWidth(if (index % 2 == 0) 0.35f else 0.45f).height(10.dp)
-                        .clip(RoundedCornerShape(5.dp)).background(colour))
-                }
-            }
+private fun PlayerHost(sheet: PlayerSheet, open: Boolean,
+    preview: @Composable () -> PlayerBackPreview?, content: @Composable () -> Unit) {
+    if (!playerSheetPresent(open, sheet.onScreen)) return
+    // Two layers, each owning its own properties: the sheet moves the surface, the Back preview
+    // scales and drifts it, and neither writes what the other reads. On pure black the sheet also
+    // outlines its top edge, since nothing else can show where the player ends.
+    val colors = MaterialTheme.colorScheme
+    val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
+    Surface(Modifier.fillMaxSize()
+        .playerSheet(sheet, WindowInsets.safeDrawing, edge).playerBackPreview(preview()),
+        color = colors.background) {
+        // The content gives back the top inset as the sheet drops below the status bar.
+        Box(Modifier.reclaimTopInset(sheet, WindowInsets.safeDrawing).safeDrawingPadding()) {
+            Box(if (open) Modifier else Modifier.clearAndSetSemantics {}) { content() }
+            if (!open) Box(Modifier.matchParentSize().pointerInput(Unit) {})
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun LibraryBar(busy: Boolean, refresh: () -> Unit) {
-    TopAppBar(title = { Text("Library", style = MaterialTheme.typography.headlineSmall) },
-        actions = { TextButton(onClick = refresh, enabled = !busy) { Text("Refresh") } },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-        // The scaffold already applies the status bar inset to this content.
-        windowInsets = WindowInsets(0, 0, 0, 0))
-}
-
-@Composable
-private fun PlaylistChips(playlists: List<TauonPlaylist>, total: Int, selected: String?, select: (String?) -> Unit) {
-    // Deliberately plain: an earlier edge fade used an offscreen compositing layer and a DstOut
-    // blend, which the user reported as a scroll regression. The chips overflow past the padding
-    // instead, which costs nothing to draw.
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-        .padding(horizontal = 24.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LibraryChip("All music · $total", selected == null) { select(null) }
-        playlists.forEach { p -> LibraryChip("${p.name} · ${p.count}", selected == p.id) { select(p.id) } }
-    }
-}
-
-@Composable
-private fun LibraryChip(label: String, selected: Boolean, select: () -> Unit) {
-    FilterChip(selected, select, label = { Text(label, maxLines = 1) },
-        // A check mark, so the selected chip is not distinguished by its fill colour alone.
-        leadingIcon = if (selected) { { MuonIcon("check", Modifier.size(18.dp)) } } else null)
-}
-
-@Composable
-private fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, open: () -> Unit,
-    toggle: () -> Unit, next: () -> Unit) {
-    // Attached to the navigation bar rather than floating above it: it was a card wedged against
-    // the bottom chrome, so it now shares an edge with it and only rounds its top corners.
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClickLabel = "Open Now Playing", onClick = open)) {
-        Column {
-            LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
-                modifier = Modifier.fillMaxWidth().height(2.dp))
-            Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Artwork(p.item?.mediaMetadata?.artworkUri?.toString(), Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
-                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                    Text(p.item?.mediaMetadata?.title?.toString().orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleSmall)
-                    Text(if (p.error != null) "Playback interrupted · tap to retry" else if (p.buffering) "Buffering…" else p.item?.mediaMetadata?.artist?.toString().orEmpty(),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                // The primary action is filled so it reads as the control rather than as decoration.
-                FilledTonalIconButton(onClick = toggle, enabled = ready,
-                    modifier = Modifier.semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
-                    Crossfade(p.playing, animationSpec = motionShort(), label = "mini play/pause") { playing ->
-                        MuonIcon(if (playing) "pause" else "play", Modifier.size(20.dp))
-                    }
-                }
-                Control("next", "Next track", p.next && ready, next)
-            }
-        }
-    }
-}
-
-@Composable
-private fun NowPlaying(p: PlaybackUi, position: () -> Long, player: MediaController?, lyrics: () -> Unit) {
-    if (p.item == null) {
-        Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) { Text("Choose a track from your library to start listening.") }
-        return
-    }
-    var showVolume by rememberSaveable { mutableStateOf(false) }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val fontScale = LocalDensity.current.fontScale
-        val narrow = maxWidth < 360.dp
-        // Keep the compact portrait design, but allow every control to remain reachable in
-        // landscape, split screen, large text, or when an error needs additional space.
-        val scrollable = maxHeight < 600.dp * fontScale || narrow || p.error != null
-        val scroll = rememberScrollState()
-        Column(Modifier.fillMaxSize()
-            .then(if (scrollable) Modifier.verticalScroll(scroll) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("PLAYING ON THIS DEVICE", color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.labelMedium)
-            Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
-                contentAlignment = Alignment.Center) {
-                Artwork(p.item.mediaMetadata.artworkUri?.toString(),
-                    Modifier.widthIn(max = 400.dp).aspectRatio(1f).clip(RoundedCornerShape(24.dp)))
-            }
-            Column(Modifier.fillMaxWidth()) {
-                Text(p.item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(p.item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(p.item.mediaMetadata.albumTitle?.toString().orEmpty(), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (p.error != null) ErrorCard(p.error, "Retry stream") { player?.prepare(); player?.play() }
-            if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
-            SeekControls(p.item.mediaId, position, p.duration, p.seekable, player)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically) {
-                if (!narrow) ShuffleControl(p, player)
-                Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
-                FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
-                    modifier = Modifier.size(72.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
-                    Crossfade(p.playing, animationSpec = motionShort(), label = "play/pause") { playing ->
-                        MuonIcon(if (playing) "pause" else "play", Modifier.size(32.dp))
-                    }
-                }
-                Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
-                if (!narrow) RepeatControl(p, player)
-            }
-            if (narrow) Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                ShuffleControl(p, player)
-                RepeatControl(p, player)
-            }
-            // Wrapping preserves readable labels at large font/display sizes.
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = lyrics) { Text("Lyrics") }
-                TextButton(onClick = { showVolume = true }) {
-                    MuonIcon("volume", Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Volume")
-                }
-            }
-        }
-    }
-    if (showVolume) MediaVolumeDialog { showVolume = false }
-}
-
-@Composable
-private fun ShuffleControl(p: PlaybackUi, player: MediaController?) {
-    ToggleControl("shuffle", "Shuffle", if (p.shuffle) "On" else "Off", p.shuffle, player != null) {
-        player?.shuffleModeEnabled = !p.shuffle
-    }
-}
-
-@Composable
-private fun RepeatControl(p: PlaybackUi, player: MediaController?) {
-    ToggleControl(repeatModeIcon(p.repeatMode), "Repeat", repeatModeName(p.repeatMode),
-        p.repeatMode != Player.REPEAT_MODE_OFF, player != null) {
-        player?.repeatMode = nextRepeatMode(p.repeatMode)
-    }
-}
-
-@Composable
-private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, seekable: Boolean, player: MediaController?) {
-    var scrub by remember(mediaId) { mutableStateOf<Float?>(null) }
-    val range = duration.coerceAtLeast(1).toFloat()
-    val elapsed = scrub ?: position().toFloat().coerceIn(0f, range)
-    Column {
-        Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
-            onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
-            enabled = seekable && player != null, modifier = Modifier.semantics { contentDescription = "Seek position" })
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatTime(elapsed.toLong()), style = MaterialTheme.typography.labelSmall)
-            Text(formatTime(duration), style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
-
-@Composable
-private fun MediaVolumeDialog(dismiss: () -> Unit) {
-    val volume = rememberMediaVolumeController()
-    val state = volume.state
-    AlertDialog(
-        onDismissRequest = dismiss,
-        confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
-        icon = { MuonIcon("volume") },
-        title = { Text("Media volume") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (state.fixed) Text(
-                    text = "Volume is fixed by this device.",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                MediaVolumeSlider(state, volume::setVolume)
-                volume.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            }
-        },
-    )
-}
-
-@Composable
-private fun LyricsScreen(item: MediaItem?, back: () -> Unit) {
-    var lyrics by remember(item?.mediaId) { mutableStateOf("Loading lyrics…") }
-    var failure by remember(item?.mediaId) { mutableStateOf(false) }
-    var attempt by remember { mutableIntStateOf(0) }
-    LaunchedEffect(item?.mediaId, attempt) {
-        failure = false
-        if (item == null) { lyrics = "Choose a track to see its lyrics."; return@LaunchedEffect }
-        lyrics = "Loading lyrics…"
-        try {
-            val id = item.mediaId.substringAfterLast('/').toLong()
-            val endpoint = ServerEndpoint.parse(item.mediaId.substringBeforeLast('/'))
-            lyrics = TauonApi(endpoint).lyrics(id).ifBlank { "No lyrics stored for this track in Tauon." }
-        } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { lyrics = friendlyError(e); failure = true }
-    }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        TextButton(onClick = back) { Text("‹ Now Playing") }
-        Text("Lyrics", style = MaterialTheme.typography.headlineLarge)
-        Text(item?.mediaMetadata?.title?.toString().orEmpty(), color = MaterialTheme.colorScheme.primary)
-        if (failure) ErrorCard(lyrics, "Retry") { attempt++ }
-        else SelectionContainer { Text(lyrics, style = MaterialTheme.typography.titleLarge, lineHeight = MaterialTheme.typography.headlineMedium.lineHeight) }
-        Text("Stored lyrics from Tauon · Not time-synchronized", style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun ErrorCard(message: String, action: String? = null, retry: () -> Unit = {}) {
-    Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.padding(12.dp)) {
-        Column(Modifier.padding(12.dp)) {
-            Text(message, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
-            if (action != null) TextButton(onClick = retry) { Text(action, color = MaterialTheme.colorScheme.onErrorContainer) }
-        }
-    }
-}
-private fun formatTime(ms: Long): String = "${ms / 60000}:${(ms / 1000 % 60).toString().padStart(2, '0')}"
-
-@Composable
-private fun Control(kind: String, label: String, enabled: Boolean = true, action: () -> Unit) {
-    IconButton(onClick = action, enabled = enabled, modifier = Modifier.semantics { contentDescription = label }) { MuonIcon(kind) }
-}
-@Composable
-private fun ToggleControl(kind: String, label: String, state: String, active: Boolean, enabled: Boolean, action: () -> Unit) {
-    IconButton(onClick = action, enabled = enabled,
-        colors = IconButtonDefaults.iconButtonColors(
-            contentColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant),
-        modifier = Modifier.semantics { contentDescription = label; stateDescription = state }) {
-        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-            MuonIcon(kind)
-            if (active) Box(Modifier.align(Alignment.BottomCenter).size(4.dp)
-                .background(LocalContentColor.current, CircleShape))
-        }
-    }
-}
-@Composable
-private fun MuonIcon(kind: String, modifier: Modifier = Modifier) {
-    Icon(painterResource(iconRes(kind)), contentDescription = null, modifier = modifier.size(24.dp))
 }

@@ -28,8 +28,17 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check CI scope and publication safeguards
+        run: python3 -m unittest discover -s tools -p 'test_ci*.py' && python3 -m unittest discover -s tools -p 'test_release.py'
+
+      - name: Select CI scope and check documentation
+        id: scope
+        run: python3 tools/ci_scope.py
 
       - name: Select version and publication channel
+        if: steps.scope.outputs.build_apks == 'true'
         id: version
         env:
           REF_TYPE: ${{ github.ref_type }}
@@ -49,22 +58,23 @@ jobs:
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Check release publication safeguards
-        run: python3 -m unittest discover -s tools -p 'test_release.py'
-
       - name: Set up Java 17
+        if: steps.scope.outputs.build_apks == 'true'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle and validate wrapper
+        if: steps.scope.outputs.build_apks == 'true'
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
 
       - name: Install Android SDK packages
+        if: steps.scope.outputs.build_apks == 'true'
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
 
       - name: Restore signing keys
+        if: steps.scope.outputs.build_apks == 'true'
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.MUON_DEBUG_KEYSTORE_BASE64 }}
           RELEASE_KEYSTORE_BASE64: ${{ secrets.MUON_RELEASE_KEYSTORE_BASE64 }}
@@ -82,6 +92,7 @@ jobs:
           echo "MUON_RELEASE_KEYSTORE=$RUNNER_TEMP/muon-signing/release.p12" >> "$GITHUB_ENV"
 
       - name: Build APKs and run checks
+        if: steps.scope.outputs.build_apks == 'true'
         env:
           MUON_RELEASE_PASSWORD: ${{ secrets.MUON_RELEASE_PASSWORD }}
         run: >-
@@ -91,6 +102,7 @@ jobs:
           :app:lintDebug :app:lintRelease
 
       - name: Verify APK signatures and prepare artifacts
+        if: steps.scope.outputs.build_apks == 'true'
         run: |
           set -euo pipefail
           apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
@@ -106,6 +118,7 @@ jobs:
           printf 'Commit: %s\nRun: %s\nVersion: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" > artifacts/release/BUILD.txt
 
       - name: Upload debug APK
+        if: steps.scope.outputs.build_apks == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: app-debug-${{ github.sha }}
@@ -115,6 +128,7 @@ jobs:
           retention-days: 14
 
       - name: Upload release APK
+        if: steps.scope.outputs.build_apks == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: app-release-${{ github.sha }}
@@ -124,7 +138,7 @@ jobs:
           retention-days: 14
 
       - name: Upload test, lint and release mapping reports
-        if: always()
+        if: always() && steps.scope.outputs.build_apks == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: reports-${{ github.sha }}
@@ -136,13 +150,13 @@ jobs:
           retention-days: 14
 
       - name: Remove signing files
-        if: always()
+        if: always() && steps.scope.outputs.build_apks == 'true'
         run: rm -rf "$RUNNER_TEMP/muon-signing"
 
   publish:
     name: Publish private release
     needs: build
-    if: needs.build.outputs.channel != 'none'
+    if: needs.build.outputs.channel == 'canary' || needs.build.outputs.channel == 'stable'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
