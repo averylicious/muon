@@ -13,6 +13,8 @@ import org.junit.Test
  * in milliseconds. Thresholds are the real ones at 2.625 density on a 2400 px sheet.
  */
 class MiniPlayerFlickTest {
+    private val A = 7L
+    private val B = 8L
     private val flick = SheetFlick(velocity = 1575f, travel = 63f)
     private val distance = sheetReleaseDistance(height = 2400f, minimum = 126f)
 
@@ -20,13 +22,13 @@ class MiniPlayerFlickTest {
         now: Int = 1, eligible: Boolean = true) = playerPreviewOpens(previewing, startedAt, now, trace.travel,
         distance, eligible, trace.releaseVelocity(upMillis), flick)
 
-    /** A brief upward flick: 90 px in 40 ms, reaching the app as touch-down, one event, one move and the lift. */
+    /** A brief upward flick: 90 px in 40 ms, as touch-down, a slop-crossing event with one batched point, one move and a moving lift. */
     private fun briefFlick() = FlickTrace().apply {
-        down(1_000, 500f)
-        sample(1_008, 488f) // batched into the slop-crossing event
-        sample(1_016, 470f) // the event that crossed the touch slop
-        sample(1_032, 430f)
-        sample(1_040, 410f) // the lift, which still moved
+        down(A, 1_000, 500f)
+        sample(A, 1_008, 488f) // batched into the slop-crossing event
+        sample(A, 1_016, 470f) // the event that crossed the touch slop
+        sample(A, 1_032, 430f)
+        sample(A, 1_040, 410f) // the lift, which still moved
     }
 
     @Test fun twoSamplesAfterTheSlopReadAsNoVelocityAtAll() {
@@ -49,11 +51,11 @@ class MiniPlayerFlickTest {
 
     @Test fun theSameFlickHeldStillBeforeLiftingReturns() {
         val trace = FlickTrace().apply {
-            down(1_000, 500f)
-            sample(1_008, 488f)
-            sample(1_016, 470f)
-            sample(1_032, 430f)
-            sample(1_300, 430f) // lifted a quarter of a second later, without moving again
+            down(A, 1_000, 500f)
+            sample(A, 1_008, 488f)
+            sample(A, 1_016, 470f)
+            sample(A, 1_032, 430f)
+            sample(A, 1_300, 430f) // lifted a quarter of a second later, without moving again
         }
         assertEquals(0f, trace.releaseVelocity(1_300), 0f)
         assertFalse(opens(trace, upMillis = 1_300))
@@ -69,21 +71,21 @@ class MiniPlayerFlickTest {
 
     @Test fun aFastTinyJabIsNotAFlick() {
         val trace = FlickTrace().apply {
-            down(1_000, 500f)
-            sample(1_008, 490f)
-            sample(1_016, 478f)
-            sample(1_020, 470f) // 30 px in 20 ms: fast, but barely moved
+            down(A, 1_000, 500f)
+            sample(A, 1_008, 490f)
+            sample(A, 1_016, 478f)
+            sample(A, 1_020, 470f) // 30 px in 20 ms: fast, but barely moved
         }
         assertFalse(opens(trace, upMillis = 1_020))
     }
 
     @Test fun aBriefFlickDownwardsOpensNothing() {
         val trace = FlickTrace().apply {
-            down(1_000, 500f)
-            sample(1_008, 512f)
-            sample(1_016, 530f)
-            sample(1_032, 570f)
-            sample(1_040, 590f)
+            down(A, 1_000, 500f)
+            sample(A, 1_008, 512f)
+            sample(A, 1_016, 530f)
+            sample(A, 1_032, 570f)
+            sample(A, 1_040, 590f)
         }
         assertEquals(90f, trace.travel, 0f)
         assertFalse(opens(trace, upMillis = 1_040))
@@ -93,10 +95,10 @@ class MiniPlayerFlickTest {
         // Sideways movement never reaches the vertical slop detector at all; what little vertical
         // travel such a gesture has is far short of a flick.
         val trace = FlickTrace().apply {
-            down(1_000, 500f)
-            sample(1_016, 494f)
-            sample(1_032, 486f)
-            sample(1_040, 480f)
+            down(A, 1_000, 500f)
+            sample(A, 1_016, 494f)
+            sample(A, 1_032, 486f)
+            sample(A, 1_040, 480f)
         }
         assertFalse(opens(trace, upMillis = 1_040))
     }
@@ -113,9 +115,55 @@ class MiniPlayerFlickTest {
 
     @Test fun aNewGestureForgetsTheLastOne() {
         val trace = briefFlick()
-        trace.down(2_000, 300f)
-        trace.sample(2_300, 300f)
+        trace.down(A, 2_000, 300f)
+        trace.sample(A, 2_300, 300f)
         assertEquals(0f, trace.travel, 0f)
         assertEquals(0f, trace.releaseVelocity(2_300), 0f)
+    }
+
+    @Test fun aGenuineThreeEventFlickWithAnUnchangedLiftOpens() {
+        // Touch-down, one slop-crossing event with no batched points, and a lift reported where the
+        // last move was. The unchanged lift adds its time but no fake stop, and two samples suffice.
+        val trace = FlickTrace().apply {
+            down(A, 1_000, 500f)
+            sample(A, 1_016, 420f)
+            sample(A, 1_024, 420f)
+        }
+        assertEquals(-80f, trace.travel, 0f)
+        assertTrue(trace.releaseVelocity(1_024) < -1575f)
+        assertTrue(opens(trace, upMillis = 1_024))
+    }
+
+    @Test fun aGenuineThreeEventFlickWithAMovingLiftOpens() {
+        val trace = FlickTrace().apply {
+            down(A, 1_000, 500f)
+            sample(A, 1_016, 440f)
+            sample(A, 1_024, 410f)
+        }
+        assertTrue(opens(trace, upMillis = 1_024))
+    }
+
+    @Test fun anotherFingersPositionIsNeverThisGesturesTravel() {
+        // The first finger lifts mid-drag and the helpers hand the gesture to a second finger far
+        // below it. Read as the same finger, that would be 1000 px of travel in 16 ms.
+        val trace = FlickTrace().apply {
+            down(A, 1_000, 500f)
+            sample(A, 1_008, 488f)
+            sample(A, 1_016, 470f)
+        }
+        assertFalse(trace.sample(B, 1_032, 1_470f))
+        assertTrue(trace.abandoned)
+        assertEquals(0f, trace.travel, 0f)
+        assertEquals(0f, trace.releaseVelocity(1_040), 0f)
+        assertFalse(opens(trace, upMillis = 1_040))
+        // And the handed-over finger cannot bring it back.
+        assertFalse(trace.sample(A, 1_040, 300f))
+        assertFalse(opens(trace, upMillis = 1_040))
+    }
+
+    @Test fun aSlopCrossedByAnotherFingerIsNotThisGesture() {
+        val trace = FlickTrace().apply { down(A, 1_000, 500f) }
+        assertFalse(trace.sample(B, 1_016, 200f))
+        assertFalse(opens(trace, upMillis = 1_024))
     }
 }

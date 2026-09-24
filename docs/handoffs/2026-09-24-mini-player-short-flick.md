@@ -33,7 +33,9 @@ The mini player uses the same structure as `detectVerticalDragGestures` — `awa
 `awaitVerticalDragOrCancellation` until the lift — which are all public in foundation 1.9.3. What
 changes is what it records, in a new pure `FlickTrace`:
 
-- the touch-down, every event's batched `historical` points, the moves and the lift itself;
+- the touch-down; the slop-crossing event's batched `historical` points and position (the slop helper
+  does **not** expose the intermediate events before that crossing, so those are not recorded); each
+  later move with its historical points; and the lift, as a sample only if it moved;
 - positions in the mini player's own coordinates, which do not move while it carries a preview, so
   they are the finger's movement alone;
 - the lift's own event time for the expiry (#99's 40 ms rule, unchanged), not processing time;
@@ -42,6 +44,29 @@ changes is what it records, in a new pure `FlickTrace`:
 Only the release **decision** uses the trace. The sheet still follows the post-slop travel exactly as
 before, so tracking and slop are unchanged. The thresholds are unchanged too: this fixes the
 measurement rather than lowering the bar.
+
+## Astra review of `305e701`, and the fix
+
+Astra found two issues, both confirmed in the pinned sources and fixed:
+
+1. **Another finger could be read as this one.** `awaitDragOrUp` hands a gesture over to another
+   pressed pointer when the tracked finger lifts (`DragGestureDetector.kt:794-800`), and the slop
+   helper does the same before the slop. `record` then fed the other finger's absolute Y into the same
+   trace, fabricating travel and velocity. `FlickTrace` now belongs to the finger that touched down: a
+   sample from any other finger abandons it, and an abandoned trace reports no travel or velocity. The
+   detector cancels at the slop if the crossing belongs to another finger (nothing has begun yet), and
+   mid-drag on any handoff, ending an owned preview without committing. Handoff is not supported; the
+   gesture simply ends.
+2. **The sampling was overclaimed, and sparse traces needed a better estimator.** The handoff said
+   every sample was recorded; the slop helper hides the events before its crossing, and the wording now
+   says exactly what is recorded. Working through a genuine three-event trace (down, crossing, lift at
+   the same position) also showed that `Lsq2` cannot handle it: with the unchanged lift as a third
+   point, the exact quadratic fit reads a stop, and without it there are only two points and `Lsq2`
+   returns nothing. The trace now uses the tracker's `Impulse` strategy (`VelocityTracker1D(
+   isDataDifferential = false)`, public in ui 1.9.3, minimum two samples) and adds a sample only where
+   the finger moved, so an unchanged lift contributes its time to the expiry but not a fake stop.
+
+Late callbacks after Back are still refused by `playerPreviewOwned`; cancellation still commits nothing.
 
 ## Preserved
 
@@ -62,11 +87,14 @@ changes do not overlap this PR.
 
 ## Validated vs pending
 
-- `MiniPlayerFlickTest` runs realistic sparse traces through the real `VelocityTracker` and release
-  policy: two post-slop samples read as zero velocity (the old failure); a brief 90 px / 40 ms flick
-  opens, counting its slop; the same flick held before lifting returns; the lift is judged by its own
-  event time; a fast tiny jab, a downward flick and a mostly sideways gesture do not open; a real flick
-  cannot open for a stale or ineligible gesture; a new gesture forgets the last.
+- `MiniPlayerFlickTest` runs realistic sparse traces through the real trackers and release policy:
+  two post-slop samples read as zero velocity under the old `Lsq2` recording (the old failure); a brief
+  90 px / 40 ms flick opens, counting its slop; **a genuine three-event down / crossing / lift trace
+  with no historical points opens, with the lift unchanged and with it moving**; the same flick held
+  before lifting returns; the lift is judged by its own event time; a fast tiny jab, a downward flick
+  and a mostly sideways gesture do not open; a real flick cannot open for a stale or ineligible gesture;
+  **a far-apart second finger's position is never read as travel, and a slop crossed by another finger
+  is not this gesture**; a new gesture forgets the last.
 - Not unit-testable here: the pointer loop itself (slop crossing, consumption, pointer switching).
 - No local Android build. CI: triggered by the push, **not inspected**. Astra review and phone QA
   pending.
@@ -81,6 +109,13 @@ changes do not overlap this PR.
 6. Back during a held upward drag, rapid close/reopen, queue emptying and disconnect: as on .134.
 7. The fullscreen top-bar dismissal is unchanged.
 
+## Exact pending state
+
+PR #101 on `codex/mini-player-short-flick`. First head `305e701` was blocked by Astra's review; the fix
+head is recorded in issue #40 and the PR (not here, to avoid a self-referencing SHA) and has **not**
+been CI-checked or re-reviewed. #100 (spring settling) remains separate; the merge overlap above
+still applies, with `release()` computing velocity from `trace.releaseVelocity(upMillis)`.
+
 ## Status
 
-Clean and idle once pushed. Reserve kept for one review fix; no further feature started.
+Clean and idle once pushed.

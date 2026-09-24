@@ -47,13 +47,16 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                 var travel = 0f
                 var baseline = 1f
                 var startedAt = -1
-                // Every sample of the gesture, from touch-down to lift, so a brief flick is
-                // measured on all the data the platform provides rather than read as motionless.
+                // The gesture's touch-down, slop crossing, later moves and lift, so a brief flick is
+                // measured on what the platform delivers rather than read as motionless.
                 val trace = FlickTrace()
                 fun owned() = playerPreviewOwned(sheet.previewing, startedAt, sheet.generation)
-                fun record(change: PointerInputChange) {
-                    change.historical.forEach { trace.sample(it.uptimeMillis, it.position.y) }
-                    trace.sample(change.uptimeMillis, change.position.y)
+                // False if the change belongs to another finger: the helpers hand a gesture over when
+                // the first finger lifts, and another finger's position is not this one's travel.
+                fun record(change: PointerInputChange): Boolean {
+                    val finger = change.id.value
+                    change.historical.forEach { if (!trace.sample(finger, it.uptimeMillis, it.position.y)) return false }
+                    return trace.sample(finger, change.uptimeMillis, change.position.y)
                 }
                 fun follow(amount: Float) {
                     travel += amount
@@ -85,7 +88,7 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                     // the batched points and the lift event this needs.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        trace.down(down.uptimeMillis, down.position.y)
+                        trace.down(down.id.value, down.uptimeMillis, down.position.y)
                         var overSlop = 0f
                         val drag = awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
                             change.consume()
@@ -95,24 +98,24 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                         // upwards, so a drag down from rest neither dims the library nor hides it.
                         travel = 0f
                         startedAt = -1
-                        record(drag)
+                        // The finger that touched down lifted before the slop, and another one
+                        // crossed it: not this gesture. Nothing has begun yet, so nothing to undo.
+                        if (!record(drag)) return@awaitEachGesture
                         follow(overSlop)
-                        var pointer = drag.id
                         while (true) {
-                            val change = awaitVerticalDragOrCancellation(pointer)
-                            if (change == null) {
-                                // Cancelled or consumed elsewhere: end the preview, commit nothing.
+                            val change = awaitVerticalDragOrCancellation(drag.id)
+                            // Cancelled or consumed elsewhere, or handed over to another finger:
+                            // end the preview this gesture owns, and commit nothing.
+                            if (change == null || !record(change)) {
                                 if (owned()) sheet.endPreview()
                                 break
                             }
-                            record(change)
                             if (change.changedToUpIgnoreConsumed()) {
                                 release(change.uptimeMillis)
                                 break
                             }
                             follow(change.positionChange().y)
                             change.consume()
-                            pointer = change.id
                         }
                     }
                 } finally {
