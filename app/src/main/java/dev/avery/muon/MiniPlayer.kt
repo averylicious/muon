@@ -72,12 +72,15 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                 }
                 fun release(upMillis: Long) {
                     // Judged on the whole gesture and the lift's own event time. Only the release
-                    // decision uses it: the sheet still follows the post-slop travel above.
+                    // uses it: the sheet still follows the post-slop travel above.
+                    val velocity = trace.releaseVelocity(upMillis)
                     val opens = playerPreviewOpens(sheet.previewing, startedAt, sheet.generation,
                         trace.travel, sheetReleaseDistance(sheet.height, MINI_DRAG_OPEN.toPx()), canOpen,
-                        trace.releaseVelocity(upMillis),
-                        SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
+                        velocity, SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
                     val mine = owned()
+                    // Sets off at the same measured speed towards where the release decided; the
+                    // presentation keeps that settle, or replaces it if the open is refused.
+                    if (mine) sheet.settleTo(if (opens) 0f else 1f, sheetFractionVelocity(velocity, sheet.height))
                     // Opening and ending the preview together lets the presentation carry the sheet
                     // on up from here; any other ending lets it put the sheet away.
                     if (opens) current()

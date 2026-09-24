@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first. Latest recorded checkpoint: [2026-09-23, coordinator state after the Collection redesign integration](handoffs/2026-09-23-coordinator-state.md), which follows the [integration checkpoint](handoffs/2026-09-23-collection-integration.md). Update this pointer when adding a newer checkpoint; older dated checkpoints are history, not current state. Checkpoints are dated evidence, not automatic authorization or live status.
+This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first. Latest recorded checkpoint: [2026-09-23, coordinator state after the Collection redesign integration](handoffs/2026-09-23-coordinator-state.md), which follows the [integration checkpoint](handoffs/2026-09-23-collection-integration.md). In-flight frontend work at the time of writing: [2026-09-24, player gesture integration of #100 and #101](handoffs/2026-09-24-player-gesture-integration.md), which records the inputs, the one resolved conflict and what the combined build adds over Canary .136. Update this pointer when adding a newer checkpoint; older dated checkpoints are history, not current state. Checkpoints are dated evidence, not automatic authorization or live status.
 
 ## Start with a small refresh
 
