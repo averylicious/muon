@@ -47,8 +47,8 @@ class PlaybackModePreferencesTest {
 
         override fun restore(modes: PlaybackModes) {
             calls += "restore"
-            setShuffle(modes.shuffle)
-            setRepeat(modes.repeat)
+            changeShuffle(modes.shuffle)
+            changeRepeat(modes.repeat)
         }
 
         override fun listen(onShuffle: (Boolean) -> Unit, onRepeat: (Int) -> Unit) {
@@ -57,13 +57,13 @@ class PlaybackModePreferencesTest {
             this.onRepeat = onRepeat
         }
 
-        fun setShuffle(enabled: Boolean) {
+        fun changeShuffle(enabled: Boolean) {
             if (enabled == shuffle) return
             shuffle = enabled
             event { onShuffle?.invoke(enabled) }
         }
 
-        fun setRepeat(mode: Int) {
+        fun changeRepeat(mode: Int) {
             if (mode == repeat) return
             repeat = mode
             event { onRepeat?.invoke(mode) }
@@ -132,9 +132,9 @@ class PlaybackModePreferencesTest {
         val prefs = MemoryPrefs("shuffle" to false, "repeat" to Player.REPEAT_MODE_ONE)
         val player = FakePlayer()
         restoreAndPersistPlaybackModes(PlaybackModePreferences(prefs), player)
-        player.setShuffle(true)
+        player.changeShuffle(true)
         assertEquals(PlaybackModes(true, Player.REPEAT_MODE_ONE), stored(prefs))
-        player.setRepeat(Player.REPEAT_MODE_ALL)
+        player.changeRepeat(Player.REPEAT_MODE_ALL)
         assertEquals(PlaybackModes(true, Player.REPEAT_MODE_ALL), stored(prefs))
     }
 
@@ -142,12 +142,12 @@ class PlaybackModePreferencesTest {
         val prefs = MemoryPrefs()
         val player = FakePlayer()
         restoreAndPersistPlaybackModes(PlaybackModePreferences(prefs), player)
-        player.setRepeat(Player.REPEAT_MODE_ONE)
-        player.setShuffle(true)
+        player.changeRepeat(Player.REPEAT_MODE_ONE)
+        player.changeShuffle(true)
         // Saved at the change, not at some later shutdown.
         assertEquals(PlaybackModes(true, Player.REPEAT_MODE_ONE), stored(prefs))
-        player.setShuffle(false)
-        player.setRepeat(Player.REPEAT_MODE_OFF)
+        player.changeShuffle(false)
+        player.changeRepeat(Player.REPEAT_MODE_OFF)
         assertEquals(PlaybackModes(false, Player.REPEAT_MODE_OFF), stored(prefs))
     }
 }
