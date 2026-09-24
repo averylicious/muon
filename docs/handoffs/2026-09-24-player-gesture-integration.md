@@ -67,10 +67,18 @@ per mode on every change (see `2026-09-24-playback-mode-preferences.md`, includi
 A build of this branch therefore adds over Canary .136: #100's spring settling, #101's short-flick
 recognition, and #103's shuffle/repeat persistence. Current main (Canary .136) contains none of them.
 
+## CI failure and correction
+
+Run 141 (`35961042810`) on #103's head `9ac6005` **failed** in `compileDebugUnitTestKotlin`:
+`PlaybackModePreferencesTest.FakePlayer`'s `var shuffle` / `var repeat` generate JVM setters
+`setShuffle(Boolean)` / `setRepeat(Int)` that clashed with the fake's own methods of the same names. #103
+was corrected at `9a551adbffb15306c36e2628ea83d18a484601e7` (test-only rename to `changeShuffle` /
+`changeRepeat`; behaviour unchanged) and that correction is merged here. App code was not affected.
+
 ## Exact pending state
 
-- Previous integration head `cdbe5a9` had CI run 140 pending; #103's own run 141 was pending. **Neither is
-  claimed as passed here.** The merge of #103 needs its own new CI run on this branch's head (recorded in
+- Previous integration head `cdbe5a9` had CI run 140 pending; #103's run 141 **failed** (above) and is superseded by the
+  correction. **Nothing is claimed as passed here.** The merge of #103 needs its own new CI run on this branch's head (recorded in
   issue #40, not here, to avoid a self-referencing SHA).
 - Astra owns the final combined review, CI, merge and Canary publication. No device QA has been recorded
   for any of the three changes.
