@@ -20,20 +20,44 @@ then #99.** User QA on Canary .130 covers #98's direction and anchor fixes only.
   (`PlayerSheet.settleTo`). The presentation that follows a committed or returned release keeps that
   settle if it is already going the right way (`playerSheetKeepsSettle`), and otherwise replaces it —
   which is how a refused open still puts the sheet away.
-- **Bounded, so nothing can overshoot.** The position `Animatable` is bounded to `0..1`
-  (`updateBounds`). An animation that reaches either end stops there with `BoundReached`. Past open it
-  could otherwise lift the sheet off the bottom and show the library beneath, and around closed it
-  could flicker the host in and out.
+- **Bounded to `0..1`** (`updateBounds`), so a settle cannot lift the sheet past open or oscillate
+  around closed. *Correction:* the first revision claimed this alone made settling safe. It did not —
+  see the review fix below: a bound reached on the **wrong** side also ends the animation.
 - Direct finger tracking is untouched: drags still `snapTo`, with no animation between the finger and
   the sheet.
 
 ## Verified against pinned sources (animation-core 1.9.3)
 
 `spring(dampingRatio, stiffness, visibilityThreshold)`; `Animatable.updateBounds` and
-`animateTo(target, spec, initialVelocity)`, whose initial velocity defaults to the current one, so a
-reopen mid-close turns the sheet round without a jolt; and `doAnimationFrameWithScale`, where a
+`animateTo(target, spec, initialVelocity)`; and `doAnimationFrameWithScale`, where a
 duration scale of 0 plays the animation's whole duration at once, so springs end immediately when
 system animations are off.
+
+## Astra review of `52d03a2`, and the fix
+
+Astra's blocker (https://github.com/averylicious/muon/pull/100#issuecomment-5794470992) reproduces in
+the pinned source. `Animatable.runAnimation` clamps each frame, and **any** clamp ends the animation
+with `BoundReached` — whichever bound it hit and whatever the target. A settle whose initial velocity
+points away from its target (a reopen near the end of a close, or a return carrying the opposite
+momentum) can reach the opposite bound and stop there, leaving the sheet closed while the player is
+logically open, or the reverse. A cancelled animation resets its velocity only when it next runs
+(`endAnimation`), so a new `animateTo`'s default initial velocity could still carry the old one.
+
+Fixed in `settleSheet`:
+- Initial velocity is handed on only when it points towards the target (`sheetSettleVelocity`). Speed
+  towards the target is kept, so flick handoff is preserved, and an overshoot then stops at the target's
+  own bound. A reopen mid-close now turns round from rest rather than carrying its closing speed.
+- The presentation reads the carried velocity **before** cancelling the running settle, so it no longer
+  depends on scheduling.
+- If a bound short of the target still ends the animation, it finishes from rest, once. Cancellation by
+  a drag or a newer presentation still ends it at once, including between the two steps, so no stale
+  coroutine carries on over a newer presentation.
+
+`SheetSpringAnimationTest` runs the real spring on a real bounded `Animatable` under a deterministic
+1 ms frame clock: it reproduces the raw API stopping at the wrong edge (0.99, velocity +6, target 0 →
+`BoundReached` at 1), then shows `settleSheet` arriving open and closed in both mirrored cases, and
+speed towards the target ending exactly there. Plain JUnit runs Compose snapshot state, but I could not
+run it here; CI is its first run.
 
 ## Preserved
 
@@ -44,14 +68,15 @@ still follows the logical state rather than the position; predictive Back and ac
 
 ## Files
 
-`Motion.kt`, `PlayerDismissDrag.kt`, `MiniPlayer.kt`, `SheetSettleTest.kt` (new), this note.
+`Motion.kt`, `PlayerDismissDrag.kt`, `MiniPlayer.kt`, `SheetSettleTest.kt` and `SheetSpringAnimationTest.kt` (new), this note.
 
 ## Validated vs pending
 
 - `SheetSettleTest`: a release already heading the right way keeps its speed; one going the other way,
   or none, is replaced; finger speed converts to the sheet's units with direction kept, and an expired
-  flick or unmeasured sheet hands on nothing. The bounds, spring feel and animation-scale behaviour are
-  source-verified, not unit- or device-tested.
+  flick or unmeasured sheet hands on nothing. `SheetSpringAnimationTest` runs the real bounded spring on a
+  deterministic clock (see the review fix). Spring feel and animation-scale behaviour remain
+  source-verified, not device-tested.
 - No local Android build. CI: triggered by the push, **not inspected**. Astra review and phone QA
   pending. Stiffness and threshold are starting values; tuning remains pending.
 
@@ -63,11 +88,23 @@ still follows the logical state rather than the position; predictive Back and ac
 3. From the open player, flick the top bar down: it continues down and closes cleanly; the dim fades
    and nothing is left over the library.
 4. Pull the top bar down a little and let go: it springs back open with no overshoot above the top.
-5. Close, then reopen during the close: it turns round smoothly.
+5. Close, then reopen during the close: it turns round (from rest) and opens.
+5a. **Astra's case:** close, and tap the returning mini player just as the close finishes: the player must end fully open, never stuck closed with the library showing.
 6. With system animations turned off (Developer options): every open, close and return jumps straight
    to its end.
 7. Tap to open, collapse button, Back and predictive Back, Lyrics, queue emptying and disconnect: as on
    #99.
+
+## Exact pending state
+
+- PR #100, branch `codex/player-spring-settle`. First head `52d03a2` passed CI run 135 but is
+  **blocked** by Astra's review; the fix head (recorded in issue #40, not here, to avoid a
+  self-referencing SHA) has **not been CI-checked or re-reviewed**.
+- Main is `b204397`, containing #98 and #99; Canary .134 is published and is the build to test. Do not
+  recommend #100's artifacts until the fix passes CI and recheck.
+- User QA on .134: all checks fine **except** short upward mini-player flick recognition (issue #43
+  comment 5795045596). That is the next, separate slice, not part of this fix.
+- Not in scope: short-flick recognition, resisted overdrag, list overscroll.
 
 ## Status
 

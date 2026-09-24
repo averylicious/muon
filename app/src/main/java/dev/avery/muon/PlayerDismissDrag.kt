@@ -2,6 +2,8 @@ package dev.avery.muon
 
 import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationEndReason
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.offset
@@ -149,6 +151,29 @@ internal fun sheetFractionVelocity(pixelsPerSecond: Float, height: Float): Float
     if (height > 0f) pixelsPerSecond / height else 0f
 
 /**
+ * The initial velocity a settle from [from] to [target] may start with: [velocity] only if it points
+ * towards the target. Speed away from it would first carry the sheet towards the other end, and the
+ * sheet's position is bounded, so an animation reaching that end stops there — `Animatable` ends any
+ * animation that hits a bound with `BoundReached`, whichever bound it is — leaving the sheet at the
+ * wrong edge while the player is logically the opposite way. Speed towards the target is kept.
+ */
+internal fun sheetSettleVelocity(target: Float, from: Float, velocity: Float): Float =
+    if ((target - from) * velocity > 0f) velocity else 0f
+
+/**
+ * Springs the sheet's position to [target], handing on [velocity] only where it points the right way.
+ * If a bound short of the target still ended the animation — which the velocity rule should prevent —
+ * it finishes the journey from rest, once, so the sheet is never left at the wrong edge. Cancellation,
+ * by a drag or a newer presentation, ends it at once, including between the two steps.
+ */
+internal suspend fun Animatable<Float, AnimationVector1D>.settleSheet(target: Float, velocity: Float) {
+    val result = animateTo(target, SheetSpring, sheetSettleVelocity(target, value, velocity))
+    if (result.endReason == AnimationEndReason.BoundReached && value != target) {
+        animateTo(target, SheetSpring, 0f)
+    }
+}
+
+/**
  * Whether a preview still belongs to the gesture that began it. Back ends a preview at once, and a
  * new presentation bumps the generation, so a finger still down afterwards can neither move nor open
  * the player.
@@ -269,7 +294,7 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
     fun settleTo(target: Float, velocity: Float = 0f): Job {
         stop()
         heading = target
-        return scope.launch { position.animateTo(target, SheetSpring, velocity) }.also { settle = it }
+        return scope.launch { position.settleSheet(target, velocity) }.also { settle = it }
     }
 
     /** Puts the sheet back where an open player rests. */
@@ -286,10 +311,12 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
         val target = if (open) 0f else 1f
         // A release that already sent the sheet this way keeps its speed rather than restarting.
         if (playerSheetKeepsSettle(heading, target, settle?.isActive == true)) return
+        // Read before stopping: the cancelled settle only resets its velocity when it next runs, so what
+        // the new settle would otherwise pick up depends on scheduling.
+        val carried = position.velocity
         stop()
         heading = target
-        // Carries on at whatever speed the sheet already has, so reopening mid-close turns it round.
-        settle = scope.launch { position.animateTo(target, SheetSpring) }
+        settle = scope.launch { position.settleSheet(target, carried) }
     }
 }
 
