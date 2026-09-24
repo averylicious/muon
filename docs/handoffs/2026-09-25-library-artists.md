@@ -6,9 +6,9 @@ historical user approval, and fixed the routine design choices listed below. Imp
 (`claude-opus-5-5`) in the Claude Code CLI at medium effort. Astra keeps review, CI and merge.
 
 Branch `codex/library-artists`, worktree `/home/avery/.codex/worktrees/muon-library-artists/muon`,
-stacked on #58's refreshed head `33be7104fa736a489f44cb3e3d13484dd76dcdc1` (#58 merged with main
-`52b273b`). The PR targets `main` and **depends on #58**. Until #58 merges, the PR diff also shows
-#58's grouping. This slice's own changes are `33be710..codex/library-artists`.
+stacked on #58's refreshed head `33be7104fa736a489f44cb3e3d13484dd76dcdc1`. #58 has since merged to
+main as `adf801a3c887d5dc36336f2b695442d5a8d8ff67`, a merge commit containing that head, so the PR
+diff against main is this slice alone (`33be710..codex/library-artists`).
 
 ## What changed
 
@@ -23,8 +23,10 @@ stacked on #58's refreshed head `33be7104fa736a489f44cb3e3d13484dd76dcdc1` (#58 
   - `artistLabel`: a blank name reads as "Unknown artist".
   - `artistSongCount`.
   - `artistTone`: one of three tonal container pairs, taken from the stable key.
-  - `currentArtists`: returns groups only for the exact snapshot (by list identity) and server they
-    were made from, otherwise null.
+  - `LibrarySnapshot`: one library snapshot, equal only to itself (list identity). It is both
+    the grouping effect's key and what `currentArtists` checks, so the two use the same equality.
+  - `currentArtists`: returns groups only for the snapshot and server they were made from,
+    otherwise null.
   - `storedArtist`: None, Wait, Open or Discard, on the same terms as a stored playlist.
   - `artistPageShown`: whether the artist page is showing (connected, and the saved artist is open
     or waiting).
@@ -37,10 +39,12 @@ stacked on #58's refreshed head `33be7104fa736a489f44cb3e3d13484dd76dcdc1` (#58 
   - The avatar grows with font scale.
   - `PlaylistBar` gained a `backLabel` parameter, so the artist page says "Back to artists".
 - `MuonApp.kt`:
-  - Artists are grouped once per library snapshot (`LaunchedEffect(all, origin)`) on
-    `Dispatchers.Default`. The result is labelled with its server and the exact `all` list it was
-    grouped from. A newer snapshot cancels an unfinished grouping, and results are never
-    recomputed per composition. Disconnecting drops the groups.
+  - The library's flattened tracks are held as one `LibrarySnapshot`, remembered per
+    `model.tracksByPlaylist`. `all` is its track list, so search and Songs behave as before.
+  - Artists are grouped once per snapshot (`LaunchedEffect(snapshot, origin)`) on
+    `Dispatchers.Default`, and the result is labelled with that server and snapshot. A newer
+    snapshot cancels an unfinished grouping, and results are never recomputed per composition.
+    Disconnecting drops the groups.
   - The open artist is kept as a saveable server and key pair (plus its name, used only as the
     page title while it waits). It is cleared on disconnect, when the server changes, or when the
     current snapshot's grouping lacks it.
@@ -73,9 +77,14 @@ No change to `LibraryModel`, grouping, artwork or the backend.
   uppercasing, and blank names;
 - the label and song-count wording;
 - that tones are stable and fall in 0..2;
-- snapshot binding: matching snapshot shown; another server, a same-server replacement (including
-  an equal-content new list), and disconnect/reconnect to the same server all hide the old groups,
-  and a saved artist waits rather than being discarded;
+- snapshot binding, checked two ways. First, for every pair of snapshots (including an equal-content
+  new list), the effect's key equality matches whether the guard accepts the groups. Second, a model
+  of the effect that restarts on unequal keys, as Compose does, runs these cases:
+  - a reshaped library with the same songs (playlists re-split, an empty one removed) regroups
+    rather than loading forever;
+  - an unchanged snapshot keeps its groups without regrouping;
+  - another server, a same-server refresh, and a disconnect then reconnect to the same server never
+    offer the old groups, and a saved artist waits and then opens;
 - that a waiting artist keeps its page, Back targets it, and the grouping that arrives afterwards
   does not reopen it;
 - stored-selection cases: nothing saved, waiting for the server or its grouping, open only on its
@@ -93,7 +102,27 @@ Astra found that groups were checked by server only, so a same-server refresh, o
 reconnect to the same server, could briefly offer the previous library's artists and tracks. The
 correction binds groups to the exact snapshot, keeps a saved artist waiting (page and Back
 available) instead of discarding it, and replaces the `\s+` split with Unicode-whitespace splitting.
-Implemented by Claude Opus 5.5, as above. Astra's re-review is pending.
+Implemented by Claude Opus 5.5, as above.
+
+## Second correction (Astra review of `105e3b6`)
+
+Astra found that the effect and the guard disagreed about keys. The effect was keyed on `all`, which
+compares by contents, but the guard compared the list by identity. If the playlists changed while the
+flattened songs stayed equal, `remember` built a new list, so the guard refused the old groups, but the
+effect did not restart. Artists could then load forever. Both now use one `LibrarySnapshot` whose
+equality is identity. Identity was chosen over a structural contract because comparing a whole
+library's contents on every composition would cost a pass over it.
+
+`artistInitials` used `Char.MIN_SUPPLEMENTARY_CODE_POINT`, which Kotlin's `Char` does not publicly
+expose. It now calls Java's `Character.isWhitespace(int)` and `Character.isSpaceChar(int)` directly;
+for BMP characters these are exactly Kotlin's `Char.isWhitespace`.
+
+A note on the original split, as committed in `608e6fb`: the source was `Regex("\\s+")`, which Kotlin
+unescapes to the regex `\s+`, so it was a whitespace class, not a literal backslash-s. On the JVM,
+`\s` without `UNICODE_CHARACTER_CLASS` is ASCII-only, and Android's ICU-backed regex may differ. The
+explicit scanner behaves the same in unit tests and on device.
+
+Implemented by Claude Opus 5.5. Astra's re-review is pending.
 
 ## Manual QA (user)
 

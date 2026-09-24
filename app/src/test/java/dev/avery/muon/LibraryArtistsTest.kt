@@ -71,8 +71,78 @@ class LibraryArtistsTest {
         assertEquals(setOf(0, 1, 2), keys.map(::artistTone).toSet())
     }
 
-    private val snapshot = listOf(track(1, "A"), track(2, "B"))
-    private fun grouped(origin: String, tracks: List<TauonTrack>) = ArtistGroups(origin, tracks, groupArtists(tracks))
+    private val tracks = listOf(track(1, "A"), track(2, "B"))
+    private val snapshot = LibrarySnapshot(tracks)
+    private fun grouped(origin: String, snapshot: LibrarySnapshot) =
+        ArtistGroups(origin, snapshot, groupArtists(snapshot.tracks))
+
+    /** What the app derives from the model's playlists, as `LibraryModel.allTracks` does. */
+    private fun snapshotOf(byPlaylist: Map<String, List<TauonTrack>>) =
+        LibrarySnapshot(byPlaylist.values.flatten().distinctBy { it.id })
+
+    /**
+     * The grouping effect as Compose runs it: it restarts when any key is unequal (`!=`) to the one
+     * it last ran with, and a restarted grouping publishes its groups when it finishes.
+     */
+    private class GroupingEffect {
+        var groups: ArtistGroups? = null
+        private var keys: Pair<LibrarySnapshot, String?>? = null
+        var pending: Pair<LibrarySnapshot, String?>? = null
+
+        fun compose(snapshot: LibrarySnapshot, origin: String?): List<LibraryArtist>? {
+            val now = snapshot to origin
+            if (now != keys) { keys = now; pending = now }
+            return currentArtists(groups, origin, snapshot)
+        }
+
+        fun finish() {
+            val (snapshot, origin) = pending ?: return
+            pending = null
+            groups = origin?.let { ArtistGroups(it, snapshot, groupArtists(snapshot.tracks)) }
+        }
+
+        /** Nothing shown means a grouping is on its way; it can never wait forever. */
+        fun settles(snapshot: LibrarySnapshot, origin: String?): List<LibraryArtist>? {
+            val shown = compose(snapshot, origin)
+            if (shown == null && origin != null) assertNotNull("no grouping running", pending)
+            finish()
+            return compose(snapshot, origin)
+        }
+    }
+
+    @Test fun theEffectRestartsExactlyWhenTheGuardStopsAcceptingItsGroups() {
+        val lists = listOf(tracks, tracks.toList(), listOf(track(9, "A")), emptyList())
+        val snapshots = lists.map(::LibrarySnapshot) + snapshot
+        snapshots.forEach { a ->
+            snapshots.forEach { b ->
+                // Same key to the effect exactly when the guard keeps the groups.
+                assertEquals(a == b, currentArtists(grouped("http://a", a), "http://a", b) != null)
+                if (a == b) assertEquals(a.hashCode(), b.hashCode())
+            }
+        }
+        assertEquals(snapshot, snapshot)
+        assertNotEquals(LibrarySnapshot(tracks), LibrarySnapshot(tracks.toList()))
+    }
+
+    @Test fun aReshapedLibraryWithTheSameSongsRegroupsInsteadOfLoadingForever() {
+        val effect = GroupingEffect()
+        val before = snapshotOf(mapOf("1" to tracks, "2" to emptyList()))
+        assertEquals(listOf("A", "B"), effect.settles(before, "http://a")!!.map { it.name })
+        // Playlists split differently and the empty one gone: equal songs, a new snapshot.
+        val after = snapshotOf(mapOf("1" to tracks.take(1), "3" to tracks.drop(1)))
+        assertEquals(before.tracks, after.tracks)
+        assertNull("the old groups are not offered", effect.compose(after, "http://a"))
+        assertNotNull("so the effect must have restarted", effect.pending)
+        effect.finish()
+        assertEquals(listOf("A", "B"), effect.compose(after, "http://a")!!.map { it.name })
+    }
+
+    @Test fun anUnchangedSnapshotKeepsItsGroupsWithoutRegrouping() {
+        val effect = GroupingEffect()
+        assertNotNull(effect.settles(snapshot, "http://a"))
+        assertNotNull(effect.compose(snapshot, "http://a"))
+        assertNull(effect.pending)
+    }
 
     @Test fun groupsForTheCurrentSnapshotAndServerAreShown() {
         val groups = grouped("http://a:7814", snapshot)
@@ -81,30 +151,37 @@ class LibraryArtistsTest {
     }
 
     @Test fun groupsForAnotherServerAreNeverShown() {
-        val groups = grouped("http://a:7814", snapshot)
-        assertNull(currentArtists(groups, "http://b:7814", snapshot))
+        val effect = GroupingEffect()
+        assertNotNull(effect.settles(snapshot, "http://a:7814"))
+        assertNull(currentArtists(effect.groups, "http://b:7814", snapshot))
+        // The other server's own grouping then arrives for it.
+        assertNotNull(effect.settles(snapshot, "http://b:7814"))
     }
 
     @Test fun aSameServerRefreshHidesTheOldGroupsUntilItsOwnArrive() {
-        val groups = grouped("http://a:7814", snapshot)
+        val effect = GroupingEffect()
+        effect.settles(snapshot, "http://a:7814")
         // The refresh removed B and renumbered A; the old groups would still offer both.
-        val refreshed = listOf(track(9, "A"))
-        assertNull(currentArtists(groups, "http://a:7814", refreshed))
-        // Equal contents in a new list are still a new snapshot.
-        assertNull(currentArtists(groups, "http://a:7814", snapshot.toList()))
-        val regrouped = grouped("http://a:7814", refreshed)
-        assertEquals(listOf(9L), currentArtists(regrouped, "http://a:7814", refreshed)!!.single().tracks.map { it.id })
+        val refreshed = LibrarySnapshot(listOf(track(9, "A")))
+        assertNull(effect.compose(refreshed, "http://a:7814"))
+        effect.finish()
+        assertEquals(listOf(9L), effect.compose(refreshed, "http://a:7814")!!.single().tracks.map { it.id })
     }
 
     @Test fun reconnectingToTheSameServerNeverOffersThePreviousLibrary() {
-        val groups = grouped("http://a:7814", snapshot)
-        // Disconnected: no server, and the model's library is a fresh empty list.
-        assertNull(currentArtists(groups, null, emptyList()))
-        val reloaded = listOf(track(1, "A"), track(2, "B"))
-        assertNull(currentArtists(groups, "http://a:7814", reloaded))
+        val effect = GroupingEffect()
+        effect.settles(snapshot, "http://a:7814")
+        // Disconnected: no server, a fresh empty library, and the groups are dropped.
+        assertNull(effect.settles(LibrarySnapshot(emptyList()), null))
+        assertNull(effect.groups)
+        val reloaded = LibrarySnapshot(listOf(track(1, "A"), track(2, "B")))
+        val shown = effect.compose(reloaded, "http://a:7814")
+        assertNull(shown)
         // A saved artist waits for the new grouping rather than opening on the old one or being lost.
-        assertEquals(StoredSelection.Wait, storedArtist("http://a:7814", "artist:b", "http://a:7814",
-            currentArtists(groups, "http://a:7814", reloaded)))
+        assertEquals(StoredSelection.Wait, storedArtist("http://a:7814", "artist:b", "http://a:7814", shown))
+        effect.finish()
+        val regrouped = effect.compose(reloaded, "http://a:7814")
+        assertEquals(StoredSelection.Open, storedArtist("http://a:7814", "artist:b", "http://a:7814", regrouped))
     }
 
     @Test fun nothingSavedMeansNothingToOpen() {

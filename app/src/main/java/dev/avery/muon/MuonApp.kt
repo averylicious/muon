@@ -65,7 +65,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Read through a lambda so a player event reaches a gesture already in progress, without
         // waiting for a recomposition to carry the new value down.
         val revision = remember(playback) { { playback.revision } }
-        val all = remember(model.tracksByPlaylist) { model.allTracks }
+        // One object per library snapshot: the tracks everything lists, and the identity artist
+        // grouping is keyed and checked on.
+        val snapshot = remember(model.tracksByPlaylist) { LibrarySnapshot(model.allTracks) }
+        val all = snapshot.tracks
         // Filtering a large library on the composition thread stalled typing. Debounced, kept off
         // the main thread, and hoisted here so results survive a trip to another tab.
         // Reset immediately when the library changes; never offer old server track IDs while
@@ -82,15 +85,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val connected = model.endpoint != null
         val origin = model.endpoint?.origin
         // Grouped once per library snapshot, off the main thread, and labelled with the server and
-        // the exact snapshot it was grouped from. A newer snapshot cancels an unfinished grouping of
-        // the old one, and groups from any other snapshot or server are never shown or acted on.
+        // the snapshot it was grouped from. Keyed on the same snapshot identity that decides whether
+        // the groups still apply, so every snapshot the guard would refuse starts its own grouping.
+        // A newer snapshot cancels an unfinished grouping of the old one.
         var artistGroups by remember { mutableStateOf<ArtistGroups?>(null) }
-        LaunchedEffect(all, origin) {
+        LaunchedEffect(snapshot, origin) {
             val grouping = origin ?: run { artistGroups = null; return@LaunchedEffect }
-            val grouped = withContext(Dispatchers.Default) { groupArtists(all) }
-            artistGroups = ArtistGroups(grouping, all, grouped)
+            val grouped = withContext(Dispatchers.Default) { groupArtists(snapshot.tracks) }
+            artistGroups = ArtistGroups(grouping, snapshot, grouped)
         }
-        val artists = currentArtists(artistGroups, origin, all)
+        val artists = currentArtists(artistGroups, origin, snapshot)
         // An endpoint exists only after a complete load succeeded, so it is both the identity of
         // the server and the signal that there is something to judge a saved selection against.
         val selection = storedSelection(openOrigin, openId, origin, model.playlists)

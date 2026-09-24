@@ -6,8 +6,8 @@ package dev.avery.muon
  * Weeknd" is `TW` — and a blank name gives nothing, for which the avatar shows a generic artist icon.
  * The row itself carries the full name, so the initials are decoration, not the label.
  *
- * Words are split on the same whitespace [String.isBlank] recognises, including no-break and
- * ideographic spaces, which a `\s` pattern would not. Each initial stays one code point: the
+ * Words are split on the same whitespace [String.isBlank] recognises (`Character.isWhitespace` or
+ * `Character.isSpaceChar`), including no-break and ideographic spaces. Each initial stays one code point: the
  * uppercase mapping is the simple, locale-independent one, so `ß` does not become `SS`.
  */
 internal fun artistInitials(name: String): String = buildString {
@@ -16,8 +16,8 @@ internal fun artistInitials(name: String): String = buildString {
     var i = 0
     while (i < name.length && words < 2) {
         val point = name.codePointAt(i)
-        // Surrogate halves are never whitespace, so a supplementary letter is read whole.
-        val space = point < Char.MIN_SUPPLEMENTARY_CODE_POINT && point.toChar().isWhitespace()
+        // Read by whole code point, so a supplementary letter is never split.
+        val space = Character.isWhitespace(point) || Character.isSpaceChar(point)
         if (!space && !inWord) { appendCodePoint(Character.toUpperCase(point)); words++ }
         inWord = !space
         i += Character.charCount(point)
@@ -37,21 +37,30 @@ internal fun artistSongCount(count: Int): String = "$count ${if (count == 1) "so
 internal fun artistTone(key: String): Int = Math.floorMod(key.hashCode(), 3)
 
 /**
- * One library snapshot's artists, the server it was grouped for, and the exact track list they were
- * grouped from. The app derives that list afresh whenever the model's library changes — a load, a
- * refresh that changed anything, a disconnect — so its identity names one snapshot. A refresh that
- * returned identical data keeps the list, and its groups, which are then still exact.
+ * One library snapshot, compared by identity rather than contents.
+ *
+ * It is both the key that restarts grouping and the test for whether finished groups still apply,
+ * so the two can never disagree: a new snapshot always regroups, and groups are used only for the
+ * snapshot they were made from. Comparing contents instead would be wrong both ways — a key compared
+ * by contents does not restart for an equal new list, which an identity guard would then reject
+ * forever — and it would cost a pass over the whole library on every composition.
  */
-internal class ArtistGroups(val origin: String, val snapshot: List<TauonTrack>, val artists: List<LibraryArtist>)
+internal class LibrarySnapshot(val tracks: List<TauonTrack>) {
+    override fun equals(other: Any?): Boolean = other is LibrarySnapshot && other.tracks === tracks
+    override fun hashCode(): Int = System.identityHashCode(tracks)
+}
+
+/** One snapshot's artists, and the server it was grouped for. */
+internal class ArtistGroups(val origin: String, val snapshot: LibrarySnapshot, val artists: List<LibraryArtist>)
 
 /**
  * The artists to show and act on for the library now loaded, or null while they are still being
- * grouped. Groups are used only for the very snapshot and server they were made from: after a
- * refresh, a disconnect or a server change, nothing from the previous library is offered, even for
- * the moment before the new grouping finishes. Equal contents are not enough; it must be the same list.
+ * grouped. Groups are used only for the snapshot and server they were made from, compared exactly as
+ * the grouping effect compares its keys: after a refresh, a disconnect or a server change, nothing from
+ * the previous library is offered, even for the moment before the new grouping finishes.
  */
-internal fun currentArtists(groups: ArtistGroups?, origin: String?, snapshot: List<TauonTrack>): List<LibraryArtist>? =
-    groups?.takeIf { origin != null && it.origin == origin && it.snapshot === snapshot }?.artists
+internal fun currentArtists(groups: ArtistGroups?, origin: String?, snapshot: LibrarySnapshot): List<LibraryArtist>? =
+    groups?.takeIf { origin != null && it.origin == origin && it.snapshot == snapshot }?.artists
 
 /**
  * What to do with an artist selection that outlived the composition that made it, on the same terms
