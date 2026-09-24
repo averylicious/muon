@@ -1,4 +1,4 @@
-# Handoff: player gesture integration (#100 + #101)
+# Handoff: player gesture and playback-preference integration (#100 + #101 + #103)
 
 2026-09-24. Integration only — no new feature and no threshold change. Claude Opus 5.5
 (`claude-opus-5-5`), Claude Code CLI, medium effort, as frontend owner and integrator of this branch.
@@ -55,6 +55,28 @@ Everything else — album metadata, direction guard, grabber anchoring, release 
 - Phone QA: pending, for the combined behaviour: #101's manual steps (short flicks, hold, jab, downward,
   taps, second finger) and #100's (spring feel, reopen near the end of a close, animations off).
 
+## Added afterwards: #103, shuffle and repeat persistence
+
+PR #103 head `9ac6005bc335e614fcf50b1feac5175be2fa5adf` (source-reviewed; its own CI was still pending
+when merged here) is merged into this branch with `--no-ff` on top of the #100/#101 integration. It
+touches only `PlaybackService.kt`, the new `PlaybackModePreferences.kt`, its test and its handoff, and
+merged **without conflicts**. Shuffle and repeat are restored before the media session exists and saved
+per mode on every change (see `2026-09-24-playback-mode-preferences.md`, including the disclosed
+`apply()` durability limit).
+
+A build of this branch therefore adds over Canary .136: #100's spring settling, #101's short-flick
+recognition, and #103's shuffle/repeat persistence. Current main (Canary .136) contains none of them.
+
+## Exact pending state
+
+- Previous integration head `cdbe5a9` had CI run 140 pending; #103's own run 141 was pending. **Neither is
+  claimed as passed here.** The merge of #103 needs its own new CI run on this branch's head (recorded in
+  issue #40, not here, to avoid a self-referencing SHA).
+- Astra owns the final combined review, CI, merge and Canary publication. No device QA has been recorded
+  for any of the three changes.
+- Collection readiness (#44 comment 5808414738) is a set of **proposals**, not approved decisions; the
+  earlier Q3 status may be stale until the original decision is reviewed. No new screen scope here.
+
 ## Status
 
-Clean and idle once pushed. Reserve kept for review fixes.
+Clean and idle once pushed.
