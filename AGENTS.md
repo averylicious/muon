@@ -19,6 +19,13 @@ These instructions apply to all coding agents working in this repository. Read t
 6. Complete the PR description using `.github/pull_request_template.md`, including model attribution, verification results, a test-build link, and a short manual QA checklist. Give the user the PR and test-build links in the handoff.
 7. **Leave the PR open.** Implementation agents do not self-merge, enable auto-merge, publish releases, or create release tags. Astra reviews and merges in a later cycle when the user explicitly requests it. Do not automatically start a review task or another agent.
 
+## Build and verification
+
+- Do not assume a local Android build. Agent environments on the user's desktop may lack the Gradle cache or Android SDK platform, and the desktop is slow at building APKs. The **Android APKs** workflow is normally the first real compile; say so rather than implying code was compiled or run locally.
+- Pinned versions live in the build files (`build.gradle.kts`, `app/build.gradle.kts` and the Compose BOM they name). Read them there; do not copy version numbers into documentation, where they go stale.
+- When unsure of a library API or its behaviour, check it against the pinned version's published sources (for AndroidX, the `-sources.jar` on Google's Maven), not memory or the latest docs. Record in the PR or handoff what was checked and where, and what remains unverified.
+- JVM unit tests cover pure logic. There are no Compose UI tests, and device testing is the user's. Say plainly which behaviour relies on the CI compile, source reading and manual QA.
+
 ## Manual QA and test builds
 
 - The user performs phone QA. Do not use ADB, scrcpy, instrumentation on their phone, or change device settings unless the user explicitly asks for device testing in the current task. Historical device-debugging permission is not standing permission.
