@@ -191,7 +191,8 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, stat
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    } else LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+    } else LazyColumn(Modifier.fillMaxSize().scrollIndicator(rememberScrollIndicator(state),
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
         items(listed, key = { it.id }, contentType = { "playlist" }) { playlist ->
             ListItem(
                 headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -228,7 +229,8 @@ internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: 
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    } else LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+    } else LazyColumn(Modifier.fillMaxSize().scrollIndicator(rememberScrollIndicator(state),
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
         items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
             ListItem(
                 headlineContent = {
