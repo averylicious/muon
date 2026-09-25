@@ -10,8 +10,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 
-/** Which way the library is being browsed. Albums joins this when it exists. */
-enum class LibraryView { Songs, Artists, Playlists }
+/** Which way the library is being browsed. */
+enum class LibraryView { Songs, Albums, Artists, Playlists }
 
 internal fun libraryViewFrom(stored: String?): LibraryView =
     LibraryView.entries.firstOrNull { it.name == stored } ?: LibraryView.Songs
@@ -88,6 +88,16 @@ class LibrarySettings(private val prefs: SharedPreferences) {
         prefs.edit().putString(KEY_SONG_ORDER, choice.name).apply()
     }
 
+    /** How Albums is ordered. */
+    var albumOrder by mutableStateOf(albumOrderFrom(prefs.getString(KEY_ALBUM_ORDER, null)))
+        private set
+
+    fun chooseAlbumOrder(choice: AlbumOrder) {
+        if (choice == albumOrder) return
+        albumOrder = choice
+        prefs.edit().putString(KEY_ALBUM_ORDER, choice.name).apply()
+    }
+
     /** How Artists is ordered. */
     var artistOrder by mutableStateOf(artistOrderFrom(prefs.getString(KEY_ARTIST_ORDER, null)))
         private set
@@ -102,6 +112,7 @@ class LibrarySettings(private val prefs: SharedPreferences) {
         const val KEY_VIEW = "view"
         const val KEY_SONG_ORDER = "songOrder"
         const val KEY_ARTIST_ORDER = "artistOrder"
+        const val KEY_ALBUM_ORDER = "albumOrder"
     }
 }
 

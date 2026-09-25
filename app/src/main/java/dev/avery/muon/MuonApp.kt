@@ -14,6 +14,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -67,6 +68,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var artistKey by rememberSaveable { mutableStateOf<String?>(null) }
         // Only a title for the page while it waits for the grouping; never used to find the artist.
         var artistName by rememberSaveable { mutableStateOf<String?>(null) }
+        // The open album, on the same terms again; its title only names the page while it waits.
+        var albumOrigin by rememberSaveable { mutableStateOf<String?>(null) }
+        var albumKey by rememberSaveable { mutableStateOf<String?>(null) }
+        var albumTitle by rememberSaveable { mutableStateOf<String?>(null) }
         // Where each library list was, and how far the greeting had folded, held here rather than
         // in the lists so they outlive an open artist or playlist and a trip to another tab: Back
         // returns to the same row, at the same offset, at the same height on screen. The fold is
@@ -76,6 +81,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var songList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
         var artistList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
         var playlistList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
+        var albumGrid by rememberSaveable(stateSaver = LazyGridState.Saver) { mutableStateOf(LazyGridState()) }
         var libraryBar by rememberSaveable(stateSaver = TopAppBarState.Saver) { mutableStateOf(TopAppBarState(
             initialHeightOffsetLimit = -Float.MAX_VALUE, initialHeightOffset = 0f, initialContentOffset = 0f)) }
         var query by rememberSaveable { mutableStateOf("") }
@@ -115,16 +121,23 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // the groups still apply, so every snapshot the guard would refuse starts its own grouping.
         // A newer snapshot cancels an unfinished grouping of the old one.
         var artistGroups by remember { mutableStateOf<ArtistGroups?>(null) }
+        var albumGroups by remember { mutableStateOf<AlbumGroups?>(null) }
         LaunchedEffect(snapshot, origin) {
-            val grouping = origin ?: run { artistGroups = null; return@LaunchedEffect }
-            val grouped = withContext(Dispatchers.Default) { groupArtists(snapshot.tracks) }
+            val grouping = origin ?: run { artistGroups = null; albumGroups = null; return@LaunchedEffect }
+            // Albums are grouped in the same pass, on the same terms as artists.
+            val (grouped, albumsGrouped) = withContext(Dispatchers.Default) {
+                groupArtists(snapshot.tracks) to groupAlbums(snapshot.tracks)
+            }
             artistGroups = ArtistGroups(grouping, snapshot, grouped)
+            albumGroups = AlbumGroups(grouping, snapshot, albumsGrouped)
         }
         val artists = currentArtists(artistGroups, origin, snapshot)
+        val albums = currentAlbums(albumGroups, origin, snapshot)
         // The chosen orders, applied once per library and per choice rather than on every frame.
         // Both derive from data already bound to this snapshot, so sorting adds no stale state.
         val songs = remember(snapshot, library.songOrder) { sortSongs(all, library.songOrder) }
         val sortedArtists = remember(artists, library.artistOrder) { artists?.let { sortArtists(it, library.artistOrder) } }
+        val sortedAlbums = remember(albums, library.albumOrder) { albums?.let { sortAlbums(it, library.albumOrder) } }
         // An endpoint exists only after a complete load succeeded, so it is both the identity of
         // the server and the signal that there is something to judge a saved selection against.
         val selection = storedSelection(openOrigin, openId, origin, model.playlists)
@@ -141,6 +154,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         fun closeArtist() { artistOrigin = null; artistKey = null; artistName = null }
         if (artistSelection == StoredSelection.Discard) {
             LaunchedEffect(artistOrigin, artistKey, origin) { closeArtist() }
+        }
+        val albumSelection = storedAlbum(albumOrigin, albumKey, origin, albums)
+        val openAlbum = if (albumSelection == StoredSelection.Open) albums?.firstOrNull { it.key == albumKey } else null
+        val albumPage = artistPageShown(albumSelection, connected)
+        fun closeAlbum() { albumOrigin = null; albumKey = null; albumTitle = null }
+        if (albumSelection == StoredSelection.Discard) {
+            LaunchedEffect(albumOrigin, albumKey, origin) { closeAlbum() }
         }
         // The queue was emptied while the overlay was open: close it rather than leaving an empty
         // surface on top. Reading the controller directly, because the snapshot above can still be
@@ -172,7 +192,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
         val target = backTarget(connected, lyricsShown, overlayOpen,
-            onLibraryTab = tab == Tab.Library, playlistOpen = openList != null || artistPage,
+            onLibraryTab = tab == Tab.Library, playlistOpen = openList != null || artistPage || albumPage,
             queueShown = queueShown)
         fun goBack() {
             when (target) {
@@ -180,7 +200,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 BackTarget.Queue -> queueOpen = false
                 BackTarget.Player -> playerOpen = false
                 BackTarget.Tab -> tab = Tab.Library
-                BackTarget.Playlist -> { openOrigin = null; openId = null; closeArtist() }
+                BackTarget.Playlist -> { openOrigin = null; openId = null; closeArtist(); closeAlbum() }
                 BackTarget.None -> Unit
             }
         }
@@ -195,6 +215,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             val index = queue.indexOfFirst { it.id == track.id }
             if (index < 0 || player == null) return
             player.setMediaItems(queue.map { it.mediaItem(endpoint) }, index, 0L)
+            player.prepare(); player.play()
+        }
+        // An album's Play and Shuffle: in order from the first song, or shuffled from a random one.
+        // Both set shuffle to match, as the buttons promise.
+        fun playAll(list: List<TauonTrack>, shuffle: Boolean) {
+            val endpoint = model.endpoint ?: return
+            val queue = list.filter { it.playable }
+            if (queue.isEmpty() || player == null) return
+            player.shuffleModeEnabled = shuffle
+            player.setMediaItems(queue.map { it.mediaItem(endpoint) }, if (shuffle) queue.indices.random() else 0, 0L)
             player.prepare(); player.play()
         }
         // Measured here rather than on the player's host, which is not composed until a preview has
@@ -261,14 +291,14 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     // Nothing from the server just left is shown again or kept on disk.
                                     val disk = ArtworkStore.disk(context)
                                     scope.launch(Dispatchers.IO) { forgetArtwork(disk) }
-                                    openOrigin = null; openId = null; closeArtist()
-                                    songList = LazyListState(); artistList = LazyListState()
+                                    openOrigin = null; openId = null; closeArtist(); closeAlbum()
+                                    songList = LazyListState(); artistList = LazyListState(); albumGrid = LazyGridState()
                                     playlistList = LazyListState()
                                     libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
                                     lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library
                                 }
                                 Tab.Library -> {
-                                    val page = libraryPage(openList?.id, artistPage, artistKey)
+                                    val page = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey)
                                     val shift = with(LocalDensity.current) { LIBRARY_PAGE_SHIFT.roundToPx() }
                                     // Opening a playlist or an artist steps down a level, so the page
                                     // moves along the reading direction; Back reverses it. Back itself is
@@ -278,6 +308,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                         val leaving = transition.targetState != EnterExitState.Visible
                                         Box(Modifier.fillMaxSize().leaving(leaving)) {
                                             when (shown) {
+                                                is LibraryPage.Album -> {
+                                                    val album = keptWhileLeaving(leaving,
+                                                        openAlbum?.takeIf { it.key == shown.albumKey })
+                                                    val title = keptWhileLeaving(leaving, albumTitle.orEmpty())
+                                                    LibraryPane(model.busy, { model.connect() }) {
+                                                        AlbumPage(album, title, model.endpoint, ui.item?.mediaId, player != null,
+                                                            back = { closeAlbum() },
+                                                            playAll = { shuffle -> album?.let { playAll(it.tracks, shuffle) } }) {
+                                                            startQueue(album?.tracks.orEmpty(), it)
+                                                        }
+                                                    }
+                                                }
                                                 is LibraryPage.Artist -> {
                                                     val artist = keptWhileLeaving(leaving,
                                                         openArtist?.takeIf { it.key == shown.artistKey })
@@ -317,6 +359,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     sections = if (library.songOrder == SongOrder.Title) {
                                                                         { t: TauonTrack -> sectionLetter(t.title) }
                                                                     } else null) { startQueue(songs, it) }
+                                                            }
+                                                            LibraryView.Albums -> Column {
+                                                                if (!sortedAlbums.isNullOrEmpty()) SortBar(
+                                                                    "${sortedAlbums.size} ${if (sortedAlbums.size == 1) "album" else "albums"}",
+                                                                    AlbumOrder.entries, library.albumOrder, { it.label }) {
+                                                                    library.chooseAlbumOrder(it); albumGrid = LazyGridState()
+                                                                }
+                                                                AlbumGrid(sortedAlbums, model.busy, model.endpoint, albumGrid) {
+                                                                    albumOrigin = origin; albumKey = it.key; albumTitle = it.title
+                                                                }
                                                             }
                                                             LibraryView.Artists -> Column {
                                                                 if (!sortedArtists.isNullOrEmpty()) SortBar(

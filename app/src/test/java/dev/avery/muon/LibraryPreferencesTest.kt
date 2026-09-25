@@ -11,7 +11,8 @@ class LibraryPreferencesTest {
     @Test fun songsIsWhereTheLibraryOpensUntilSomeoneChoosesOtherwise() {
         assertEquals(LibraryView.Songs, libraryViewFrom(null))
         assertEquals(LibraryView.Songs, libraryViewFrom(""))
-        assertEquals(LibraryView.Songs, libraryViewFrom("Albums"))
+        assertEquals(LibraryView.Songs, libraryViewFrom("Genres"))
+        assertEquals(LibraryView.Albums, libraryViewFrom("Albums"))
     }
 
     @Test fun aStoredChoiceComesBack() {
