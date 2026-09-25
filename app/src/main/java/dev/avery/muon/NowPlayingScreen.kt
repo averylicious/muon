@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: () -> Int,
-    player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, lyrics: () -> Unit) {
+    player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, queue: () -> Unit, lyrics: () -> Unit) {
     if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
@@ -110,13 +110,18 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                 RepeatControl(p, player)
             }
             VolumeRow()
-            // Wrapping preserves readable labels at large font/display sizes. Queue joins this row
-            // when #47 builds it; there is no point offering a button that leads nowhere.
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Wrapping preserves readable labels at large font/display sizes. Lyrics sits at the start
+            // and Queue at the end, as in the mockup; on a narrow width they wrap rather than clip.
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = lyrics) {
                     MuonIcon("lyrics", Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Lyrics")
+                }
+                TextButton(onClick = queue) {
+                    MuonIcon("queue", Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Queue")
                 }
             }
         }

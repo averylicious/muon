@@ -51,6 +51,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // this, and that is the point at which a real back stack earns its keep.
         var playerOpen by rememberSaveable { mutableStateOf(false) }
         var lyricsOpen by rememberSaveable { mutableStateOf(false) }
+        // Queue sits over the player exactly as Lyrics does; only one of the two is ever open.
+        var queueOpen by rememberSaveable { mutableStateOf(false) }
         val library = rememberLibrarySettings()
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
@@ -145,12 +147,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // the empty one for a frame after a controller reconnects.
         LaunchedEffect(player, ui.item) {
             if (overlayShouldClose(player != null, player?.currentMediaItem != null)) {
-                lyricsOpen = false; playerOpen = false
+                lyricsOpen = false; queueOpen = false; playerOpen = false
             }
         }
         val overlayOpen = connected && playerOpen && ui.item != null
         val lyricsShown = overlayOpen && lyricsOpen
-        val playerShown = overlayOpen && !lyricsShown
+        val queueShown = overlayOpen && queueOpen && !lyricsShown
+        val playerShown = overlayOpen && !lyricsShown && !queueShown
         // The player's one vertical position, held outside its composition so it outlives the
         // closing animation. Opening and closing drive it from the logical state; progress never
         // decides where Back goes.
@@ -169,10 +172,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
         val target = backTarget(connected, lyricsShown, overlayOpen,
-            onLibraryTab = tab == Tab.Library, playlistOpen = openList != null || artistPage)
+            onLibraryTab = tab == Tab.Library, playlistOpen = openList != null || artistPage,
+            queueShown = queueShown)
         fun goBack() {
             when (target) {
                 BackTarget.Lyrics -> lyricsOpen = false
+                BackTarget.Queue -> queueOpen = false
                 BackTarget.Player -> playerOpen = false
                 BackTarget.Tab -> tab = Tab.Library
                 BackTarget.Playlist -> { openOrigin = null; openId = null; closeArtist() }
@@ -260,7 +265,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     songList = LazyListState(); artistList = LazyListState()
                                     playlistList = LazyListState()
                                     libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
-                                    lyricsOpen = false; playerOpen = false; tab = Tab.Library
+                                    lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library
                                 }
                                 Tab.Library -> {
                                     val page = libraryPage(openList?.id, artistPage, artistKey)
@@ -381,22 +386,27 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 NowPlayingOverlay(ui, position, revision, player, sheet.takeIf { playerShown },
                     // Guarded, so a drag that ends after Lyrics opened over the player, or after
                     // the player has gone, cannot put away whatever took its place.
-                    collapse = { if (playerShown) playerOpen = false }) { lyricsOpen = true }
+                    collapse = { if (playerShown) playerOpen = false },
+                    queue = { queueOpen = true }) { lyricsOpen = true }
             }
             FullScreenOverlay(visible = lyricsShown) {
                 LyricsScreen(ui.item) { lyricsOpen = false }
+            }
+            FullScreenOverlay(visible = queueShown) {
+                QueueScreen(player, revision) { queueOpen = false }
             }
         }
     }
 }
 
 /** What a Back press acts on, named in the order the screens are stacked. */
-internal enum class BackTarget { None, Lyrics, Player, Tab, Playlist }
+internal enum class BackTarget { None, Lyrics, Queue, Player, Tab, Playlist }
 
 internal fun backTarget(connected: Boolean, lyricsShown: Boolean, overlayOpen: Boolean,
-    onLibraryTab: Boolean, playlistOpen: Boolean): BackTarget = when {
+    onLibraryTab: Boolean, playlistOpen: Boolean, queueShown: Boolean = false): BackTarget = when {
     !connected -> BackTarget.None
     lyricsShown -> BackTarget.Lyrics
+    queueShown -> BackTarget.Queue
     overlayOpen -> BackTarget.Player
     !onLibraryTab -> BackTarget.Tab
     playlistOpen -> BackTarget.Playlist
@@ -414,7 +424,7 @@ internal fun backTarget(connected: Boolean, lyricsShown: Boolean, overlayOpen: B
  * so the gesture is let go without navigating.
  */
 internal fun playerGestureCommits(target: BackTarget): Boolean =
-    target == BackTarget.Lyrics || target == BackTarget.Player
+    target == BackTarget.Lyrics || target == BackTarget.Queue || target == BackTarget.Player
 
 /** Material's modal-sheet scrim opacity (`ScrimTokens.ContainerOpacity` in material3 1.4.0). */
 private const val PLAYER_SCRIM_ALPHA = 0.32f
