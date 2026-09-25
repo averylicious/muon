@@ -130,7 +130,7 @@ private fun PlaceholderRows() {
 internal fun trackSubtitle(artist: String, album: String, playable: Boolean): String =
     listOfNotNull(
         if (playable) null else "Unavailable for direct streaming",
-        artist.trim().ifBlank { null },
+        displayCredits(artist).ifBlank { null },
         if (playable) album.trim().ifBlank { null } else null,
     ).joinToString(" · ")
 

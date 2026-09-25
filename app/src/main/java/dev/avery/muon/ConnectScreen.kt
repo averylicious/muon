@@ -25,7 +25,7 @@ internal fun ConnectScreen(model: LibraryModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Spacer(Modifier.height(18.dp))
         Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.displaySmall,
+        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.screenTitle,
             fontWeight = FontWeight.Bold)
         Text("Stream your Tauon collection to this device. Original audio, your playlists, wherever your LAN reaches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         SettingsCard("Connect to Tauon desktop") {

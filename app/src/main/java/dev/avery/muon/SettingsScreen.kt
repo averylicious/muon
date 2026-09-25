@@ -87,7 +87,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
 private fun CollapsingTitle(text: String) {
     val collapsed = LocalTextStyle.current.fontSize == MaterialTheme.typography.titleLarge.fontSize
     Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis,
-        style = if (collapsed) MaterialTheme.typography.titleLarge else MaterialTheme.typography.displaySmall)
+        style = if (collapsed) MaterialTheme.typography.barTitle else MaterialTheme.typography.screenTitle)
 }
 
 @Composable

@@ -131,8 +131,8 @@ private fun SongTitle(item: MediaItem?) {
     val artist = item?.mediaMetadata?.artist?.toString().orEmpty()
     Column {
         Text(title, maxLines = if (collapsed) 1 else 2, overflow = TextOverflow.Ellipsis,
-            style = if (collapsed) MaterialTheme.typography.titleLarge
-                else MaterialTheme.typography.displaySmall)
+            style = if (collapsed) MaterialTheme.typography.barTitle
+                else MaterialTheme.typography.screenTitle)
         if (artist.isNotBlank()) Text(artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = if (collapsed) MaterialTheme.typography.labelLarge

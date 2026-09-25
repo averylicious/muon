@@ -83,8 +83,11 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(p.item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(p.item.mediaMetadata.albumTitle?.toString().orEmpty(), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Left out for singles, whose album is usually the title again.
+                albumLine(p.item.mediaMetadata.title?.toString(), p.item.mediaMetadata.albumTitle?.toString())?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
             if (p.error != null) ErrorCard(p.error, "Retry stream") { player?.prepare(); player?.play() }
             if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
