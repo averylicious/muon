@@ -50,4 +50,17 @@ class QueueModelTest {
         assertNull(restoreUrl("42"))
         assertNull(restoreUrl("http://192.168.1.10:7814/api1/file/42"))
     }
+
+    @Test fun rowKeysSurviveRemovalsAndTellRepeatsApart() {
+        val before = occurrenceKeys(listOf("a", "b", "c", "b"))
+        assertEquals(listOf("a#1", "b#1", "c#1", "b#2"), before)
+        // Removing "a" leaves every other row with the key it had.
+        assertEquals(before.drop(1), occurrenceKeys(listOf("b", "c", "b")))
+        assertEquals(before.toSet().size, before.size)
+        assertEquals(emptyList<String>(), occurrenceKeys(emptyList()))
+    }
+
+    @Test fun theWindowIsAHandfulNotTheWholeLibrary() {
+        assertTrue(QUEUE_WINDOW in 20..60)
+    }
 }

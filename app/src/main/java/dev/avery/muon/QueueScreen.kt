@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,8 +28,8 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.launch
 
-/** One song in the queue, at its position in the player's list. */
-private class QueueEntry(val index: Int, val item: MediaItem)
+/** One song in the queue, at its position in the player's list, with a key that outlives that position. */
+private class QueueEntry(val index: Int, val item: MediaItem, val key: String = "")
 
 /** What the queue holds right now: the playing song and those after it, in playing order. */
 private class QueueSnapshot(val current: QueueEntry?, val upNext: List<QueueEntry>)
@@ -43,8 +44,10 @@ private fun queueSnapshot(player: Player): QueueSnapshot {
     val order = upNextOrder(current, count) { i ->
         if (i >= timeline.windowCount) C.INDEX_UNSET else timeline.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, shuffle)
     }
+    val items = order.map { player.getMediaItemAt(it) }
+    val keys = occurrenceKeys(items.map { it.mediaId })
     return QueueSnapshot(QueueEntry(current, player.getMediaItemAt(current)),
-        order.map { QueueEntry(it, player.getMediaItemAt(it)) })
+        order.indices.map { QueueEntry(order[it], items[it], keys[it]) })
 }
 
 /**
@@ -65,6 +68,9 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, back: ()
     val colors = MaterialTheme.colorScheme
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val editable = player?.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) == true
+    // The first [QUEUE_WINDOW] songs, unless asked for all; a removal pulls the next one into view.
+    var showAll by rememberSaveable { mutableStateOf(false) }
+    val shown = if (showAll) snapshot.upNext else snapshot.upNext.take(QUEUE_WINDOW)
 
     /** Removes the song if its position still holds it, and says whether it did. */
     fun remove(entry: QueueEntry): Boolean {
@@ -127,7 +133,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, back: ()
                 Text("Nothing after this song.", color = colors.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
             }
-            items(snapshot.upNext, key = { "next:${it.index}:${it.item.mediaId}" }, contentType = { "next" }) { entry ->
+            items(shown, key = { "next:${it.key}" }, contentType = { "next" }) { entry ->
                 val state = rememberSwipeToDismissBoxState()
                 SwipeToDismissBox(
                     state = state,
@@ -148,6 +154,12 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, back: ()
                         onClick = { player?.seekToDefaultPosition(entry.index); player?.play() },
                         // Swiping means nothing to a screen reader; removing stays one action away.
                         remove = if (editable) ({ remove(entry) }) else null)
+                }
+            }
+            val hidden = snapshot.upNext.size - shown.size
+            if (hidden > 0) item(key = "show-all", contentType = "more") {
+                TextButton(onClick = { showAll = true }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text("Show all ${snapshot.upNext.size} songs")
                 }
             }
         }
