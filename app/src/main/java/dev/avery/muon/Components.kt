@@ -1,13 +1,12 @@
 package dev.avery.muon
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
@@ -42,15 +41,15 @@ internal fun Control(kind: String, label: String, enabled: Boolean = true, actio
 
 @Composable
 internal fun ToggleControl(kind: String, label: String, state: String, active: Boolean, enabled: Boolean, action: () -> Unit) {
+    // On is a tonal container behind the icon, Material's toggle, rather than a colour change and a
+    // dot (#120). TalkBack hears the state either way.
+    val colors = MaterialTheme.colorScheme
     IconButton(onClick = action, enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
-            contentColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant),
+            containerColor = if (active) colors.secondaryContainer else Color.Transparent,
+            contentColor = if (active) colors.onSecondaryContainer else colors.onSurfaceVariant),
         modifier = Modifier.semantics { contentDescription = label; stateDescription = state }) {
-        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-            MuonIcon(kind)
-            if (active) Box(Modifier.align(Alignment.BottomCenter).size(4.dp)
-                .background(LocalContentColor.current, CircleShape))
-        }
+        MuonIcon(kind)
     }
 }
 
