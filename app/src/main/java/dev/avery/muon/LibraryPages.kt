@@ -28,11 +28,14 @@ internal sealed interface LibraryPage {
     data object Top : LibraryPage { override val key = "top" }
     data class Playlist(val id: String) : LibraryPage { override val key = "playlist:$id" }
     data class Artist(val artistKey: String) : LibraryPage { override val key = "artist:$artistKey" }
+    data class Album(val albumKey: String) : LibraryPage { override val key = "album:$albumKey" }
 }
 
 /** The page on show, with the same precedence the Library tab has always used: a playlist first. */
-internal fun libraryPage(openPlaylist: String?, artistPage: Boolean, artistKey: String?): LibraryPage = when {
+internal fun libraryPage(openPlaylist: String?, artistPage: Boolean, artistKey: String?,
+    albumPage: Boolean = false, albumKey: String? = null): LibraryPage = when {
     openPlaylist != null -> LibraryPage.Playlist(openPlaylist)
+    albumPage && albumKey != null -> LibraryPage.Album(albumKey)
     artistPage && artistKey != null -> LibraryPage.Artist(artistKey)
     else -> LibraryPage.Top
 }
