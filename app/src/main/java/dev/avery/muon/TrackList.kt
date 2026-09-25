@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
     emptyText: String, loading: Boolean = false, state: LazyListState = rememberLazyListState(),
-    play: (TauonTrack) -> Unit) {
+    sections: ((TauonTrack) -> String)? = null, play: (TauonTrack) -> Unit) {
     if (tracks.isEmpty() && loading) PlaceholderRows()
     // A list of one full-height item rather than a plain box: an empty library is exactly when a
     // refresh is wanted, and a pull gesture needs something scrollable to pull.
@@ -37,11 +37,21 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
         val keys = remember(tracks) { trackKeys(tracks) }
         // Only the real list takes [state]: a moment of loading or emptiness must not clamp a
         // position the caller is keeping.
-        LazyColumn(Modifier.scrollIndicator(rememberScrollIndicator(state),
-            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
-            itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
-                TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready,
-                    Modifier.animateItem(placementSpec = motionMedium())) { play(t) }
+        // With [sections], the list is alphabetical and its thumb can be grabbed to jump through it.
+        val indicator = rememberScrollIndicator(state)
+        val grabbable = sections != null
+        Box {
+            LazyColumn(Modifier.scrollIndicator(indicator, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                width = if (grabbable) SCROLLER_WIDTH else INDICATOR_WIDTH,
+                minLength = if (grabbable) SCROLLER_MIN_LENGTH else INDICATOR_MIN_LENGTH),
+                state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+                itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
+                    TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready,
+                        Modifier.animateItem(placementSpec = motionMedium())) { play(t) }
+                }
+            }
+            if (sections != null) AlphabetScroller(indicator, tracks.size) { i ->
+                tracks.getOrNull(i)?.let(sections).orEmpty()
             }
         }
     }

@@ -307,7 +307,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                 // Plays on in the order shown.
                                                                 TrackList(songs, model.endpoint, ui.item?.mediaId, player != null,
                                                                     emptyText = "No music yet. Add local music in Tauon, then refresh.",
-                                                                    loading = model.busy, state = songList) { startQueue(songs, it) }
+                                                                    loading = model.busy, state = songList,
+                                                                    // A–Z only: in Recently added there are no letters to jump to.
+                                                                    sections = if (library.songOrder == SongOrder.Title) {
+                                                                        { t: TauonTrack -> sectionLetter(t.title) }
+                                                                    } else null) { startQueue(songs, it) }
                                                             }
                                                             LibraryView.Artists -> Column {
                                                                 if (!sortedArtists.isNullOrEmpty()) SortBar(
