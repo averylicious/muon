@@ -78,8 +78,30 @@ class LibrarySettings(private val prefs: SharedPreferences) {
         prefs.edit().putString(KEY_VIEW, choice.name).apply()
     }
 
+    /** How Songs is ordered; like the view, it outlives the server. */
+    var songOrder by mutableStateOf(songOrderFrom(prefs.getString(KEY_SONG_ORDER, null)))
+        private set
+
+    fun chooseSongOrder(choice: SongOrder) {
+        if (choice == songOrder) return
+        songOrder = choice
+        prefs.edit().putString(KEY_SONG_ORDER, choice.name).apply()
+    }
+
+    /** How Artists is ordered. */
+    var artistOrder by mutableStateOf(artistOrderFrom(prefs.getString(KEY_ARTIST_ORDER, null)))
+        private set
+
+    fun chooseArtistOrder(choice: ArtistOrder) {
+        if (choice == artistOrder) return
+        artistOrder = choice
+        prefs.edit().putString(KEY_ARTIST_ORDER, choice.name).apply()
+    }
+
     private companion object {
         const val KEY_VIEW = "view"
+        const val KEY_SONG_ORDER = "songOrder"
+        const val KEY_ARTIST_ORDER = "artistOrder"
     }
 }
 
