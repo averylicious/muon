@@ -3,6 +3,7 @@ package dev.avery.muon
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -235,47 +237,68 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     lyricsOpen = false; playerOpen = false; tab = Tab.Library
                                 }
                                 Tab.Library -> {
-                                    val open = openList
-                                    val artist = openArtist
-                                    if (open == null && artistPage) Column {
-                                        // An interim artist page: the playlist's bar and list, over
-                                        // the songs credited to this artist. While this snapshot is
-                                        // still being grouped it waits, empty, with Back available.
-                                        PlaylistBar(artistLabel(artist?.name ?: artistName.orEmpty()),
-                                            artist?.tracks?.size, backLabel = "Back to artists") { closeArtist() }
-                                        LibraryPane(model.busy, { model.connect() }) {
-                                            val tracks = artist?.tracks.orEmpty()
-                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
-                                                emptyText = "No songs by this artist. Refresh to update.",
-                                                loading = model.busy || artist == null) { startQueue(tracks, it) }
-                                        }
-                                    } else if (open == null) {
-                                        // Greeting, chips, then the list; only the list pulls, and
-                                        // the greeting unfolds before a pull begins.
-                                        LibraryTop(all.size, library.view, library::choose,
-                                            model.busy, { model.connect() }) {
-                                            when (library.view) {
-                                                LibraryView.Songs ->
-                                                    TrackList(all, model.endpoint, ui.item?.mediaId, player != null,
-                                                        emptyText = "No music yet. Add local music in Tauon, then refresh.",
-                                                        loading = model.busy) { startQueue(all, it) }
-                                                LibraryView.Artists -> ArtistRows(artists, model.busy, artistList) {
-                                                    artistOrigin = origin; artistKey = it.key; artistName = it.name
+                                    val page = libraryPage(openList?.id, artistPage, artistKey)
+                                    val shift = with(LocalDensity.current) { LIBRARY_PAGE_SHIFT.roundToPx() }
+                                    // Opening a playlist or an artist steps down a level, so the page
+                                    // moves along the reading direction; Back reverses it. Back itself is
+                                    // still decided above, from the logical state, never from here.
+                                    AnimatedContent(page, contentKey = { it.key }, label = "library page",
+                                        transitionSpec = { libraryPageTransform(shift) }) { shown ->
+                                        val leaving = transition.targetState != EnterExitState.Visible
+                                        Box(Modifier.fillMaxSize().leaving(leaving)) {
+                                            when (shown) {
+                                                is LibraryPage.Artist -> {
+                                                    val artist = keptWhileLeaving(leaving,
+                                                        openArtist?.takeIf { it.key == shown.artistKey })
+                                                    val name = keptWhileLeaving(leaving, artistName.orEmpty())
+                                                    Column {
+                                                        // An interim artist page: the playlist's bar and list, over
+                                                        // the songs credited to this artist. While this snapshot is
+                                                        // still being grouped it waits, empty, with Back available.
+                                                        PlaylistBar(artistLabel(artist?.name ?: name), artist?.tracks?.size,
+                                                            backLabel = "Back to artists") { closeArtist() }
+                                                        LibraryPane(model.busy, { model.connect() }) {
+                                                            val tracks = artist?.tracks.orEmpty()
+                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                                                emptyText = "No songs by this artist. Refresh to update.",
+                                                                loading = model.busy || artist == null) { startQueue(tracks, it) }
+                                                        }
+                                                    }
                                                 }
-                                                LibraryView.Playlists -> PlaylistRows(model.playlists, model.busy) {
-                                                    openOrigin = origin; openId = it
+                                                LibraryPage.Top ->
+                                                    // Greeting, chips, then the list; only the list pulls, and
+                                                    // the greeting unfolds before a pull begins.
+                                                    LibraryTop(all.size, library.view, library::choose,
+                                                        model.busy, { model.connect() }) {
+                                                        when (library.view) {
+                                                            LibraryView.Songs ->
+                                                                TrackList(all, model.endpoint, ui.item?.mediaId, player != null,
+                                                                    emptyText = "No music yet. Add local music in Tauon, then refresh.",
+                                                                    loading = model.busy) { startQueue(all, it) }
+                                                            LibraryView.Artists -> ArtistRows(artists, model.busy, artistList) {
+                                                                artistOrigin = origin; artistKey = it.key; artistName = it.name
+                                                            }
+                                                            LibraryView.Playlists -> PlaylistRows(model.playlists, model.busy) {
+                                                                openOrigin = origin; openId = it
+                                                            }
+                                                        }
+                                                    }
+                                                is LibraryPage.Playlist -> {
+                                                    val open = keptWhileLeaving(leaving,
+                                                        openList?.takeIf { it.id == shown.id })
+                                                    if (open != null) Column {
+                                                        // One playlist keeps its own compact bar: its name is the
+                                                        // heading, and a greeting would be in the way.
+                                                        PlaylistBar(open.name, open.count) { openId = null }
+                                                        LibraryPane(model.busy, { model.connect() }) {
+                                                            val tracks = model.tracksByPlaylist[open.id].orEmpty()
+                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                                                emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
+                                                                loading = model.busy) { startQueue(tracks, it) }
+                                                        }
+                                                    }
                                                 }
                                             }
-                                        }
-                                    } else Column {
-                                        // One playlist keeps its own compact bar: its name is the
-                                        // heading, and a greeting would be in the way.
-                                        PlaylistBar(open.name, open.count) { openId = null }
-                                        LibraryPane(model.busy, { model.connect() }) {
-                                            val tracks = model.tracksByPlaylist[open.id].orEmpty()
-                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
-                                                emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
-                                                loading = model.busy) { startQueue(tracks, it) }
                                         }
                                     }
                                 }
