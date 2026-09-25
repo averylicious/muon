@@ -18,6 +18,14 @@ class BackTargetTest {
             overlayOpen = false, onLibraryTab = true, playlistOpen = true))
     }
 
+    @Test fun theQueueClosesBeforeThePlayerItCoversAndAHeldGestureStillActs() {
+        assertEquals(BackTarget.Queue, backTarget(connected = true, lyricsShown = false,
+            overlayOpen = true, onLibraryTab = false, playlistOpen = true, queueShown = true))
+        assertEquals(BackTarget.Player, backTarget(connected = true, lyricsShown = false,
+            overlayOpen = true, onLibraryTab = true, playlistOpen = false, queueShown = false))
+        assertTrue(playerGestureCommits(BackTarget.Queue))
+    }
+
     @Test fun theLibraryItselfLeavesBackToTheSystem() {
         assertEquals(BackTarget.None, backTarget(connected = true, lyricsShown = false,
             overlayOpen = false, onLibraryTab = true, playlistOpen = false))
