@@ -1,20 +1,24 @@
 package dev.avery.muon
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -144,8 +148,8 @@ internal fun LibraryPane(refreshing: Boolean, refresh: () -> Unit, content: @Com
 }
 
 /**
- * Songs or Playlists. Albums and Artists belong here too, and are deliberately absent until they
- * exist: a chip that opens nothing is worse than no chip.
+ * Songs, Artists or Playlists. Albums belong here too, and are deliberately absent until they exist:
+ * a chip that opens nothing is worse than no chip.
  */
 @Composable
 internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
@@ -190,21 +194,74 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, open
     }
 }
 
-/** The bar over one playlist's songs: its name, its size, and the way back to the list. */
+/**
+ * The artists, one row each, in the order they first appear in the library. [artists] is null while
+ * the library is still being grouped. Each row is announced by the artist's full name; the avatar's
+ * initials are decoration.
+ */
+@Composable
+internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, open: (LibraryArtist) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
+        if (artists.isNullOrEmpty()) item {
+            // Full height so the list can still be pulled down to refresh.
+            Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                Text(if (loading || artists == null) "Loading artists…"
+                    else "No artists yet. Add local music in Tauon, then refresh.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
+            ListItem(
+                headlineContent = {
+                    Text(artistLabel(artist.name), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                },
+                supportingContent = { Text(artistSongCount(artist.tracks.size)) },
+                leadingContent = { ArtistAvatar(artist) },
+                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                modifier = Modifier.clickable(onClickLabel = "Open artist") { open(artist) },
+            )
+        }
+    }
+}
+
+/** Initials on one of the theme's tonal containers, or a generic artist icon for a blank name. */
+@Composable
+private fun ArtistAvatar(artist: LibraryArtist) {
+    val colors = MaterialTheme.colorScheme
+    val (container, content) = when (artistTone(artist.key)) {
+        0 -> colors.primaryContainer to colors.onPrimaryContainer
+        1 -> colors.secondaryContainer to colors.onSecondaryContainer
+        else -> colors.tertiaryContainer to colors.onTertiaryContainer
+    }
+    val initials = artistInitials(artist.name)
+    // Grows with the text, so large fonts keep both initials inside the circle.
+    val side = 40.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    Box(Modifier.size(side).clip(CircleShape).background(container).clearAndSetSemantics {},
+        contentAlignment = Alignment.Center) {
+        CompositionLocalProvider(LocalContentColor provides content) {
+            if (initials.isEmpty()) MuonIcon("artist", Modifier.size(20.dp))
+            else Text(initials, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
+        }
+    }
+}
+
+/**
+ * The bar over one playlist's or one artist's songs: its name, its size, and the way back to the
+ * list it was opened from. A null [count] is not yet known and shows nothing.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun PlaylistBar(name: String, count: Int, back: () -> Unit) {
+internal fun PlaylistBar(name: String, count: Int?, backLabel: String = "Back to playlists", back: () -> Unit) {
     TopAppBar(
         title = { Text(name, style = MaterialTheme.typography.titleLarge,
             maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = {
             IconButton(onClick = back,
-                modifier = Modifier.semantics { contentDescription = "Back to playlists" }) {
+                modifier = Modifier.semantics { contentDescription = backLabel }) {
                 MuonIcon("back")
             }
         },
         actions = {
-            Text("$count", style = MaterialTheme.typography.labelLarge,
+            if (count != null) Text("$count", style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(end = 16.dp))
         },
