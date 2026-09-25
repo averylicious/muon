@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
@@ -28,6 +29,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -50,6 +52,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var playerOpen by rememberSaveable { mutableStateOf(false) }
         var lyricsOpen by rememberSaveable { mutableStateOf(false) }
         val library = rememberLibrarySettings()
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
         // Which playlist is open is about this sitting, not a preference. It is saved with the
         // server it was chosen on, so it survives rotation but never crosses servers, and a
         // refresh that removes or empties it forgets it rather than leaving it to reappear.
@@ -239,6 +243,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 null -> ConnectScreen(model)
                                 Tab.Settings -> SettingsScreen(model, appearance) {
                                     player?.stop(); player?.clearMediaItems(); model.disconnect()
+                                    // Nothing from the server just left is shown again or kept on disk.
+                                    val disk = ArtworkStore.disk(context)
+                                    scope.launch(Dispatchers.IO) { forgetArtwork(disk) }
                                     openOrigin = null; openId = null; closeArtist()
                                     songList = LazyListState(); artistList = LazyListState()
                                     playlistList = LazyListState()
