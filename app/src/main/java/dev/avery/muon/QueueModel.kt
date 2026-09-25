@@ -51,3 +51,24 @@ internal fun restoreUrl(mediaId: String): String? {
     val endpoint = runCatching { ServerEndpoint.parse(mediaId.substringBeforeLast('/')) }.getOrNull() ?: return null
     return if (endpoint.origin + "/$id" == mediaId) endpoint.url("/api1/file/$id") else null
 }
+
+/**
+ * How many *Next up* songs are shown before "Show all". A long queue (a whole library, shuffled) is
+ * hundreds of songs; a window keeps it scannable, and removing a song pulls the next one up into view,
+ * as streaming apps do. The count and total beside *Next up* still cover the whole queue.
+ */
+internal const val QUEUE_WINDOW = 50
+
+/**
+ * A stable key for each queue row: the media ID and which occurrence of it this is, in playing order.
+ * Unlike the list position, it survives songs being removed or moved elsewhere in the queue, so those
+ * rows keep their state (a swipe in progress, their place on screen) instead of being rebuilt. A song
+ * queued twice still gets two distinct keys.
+ */
+internal fun occurrenceKeys(mediaIds: List<String>): List<String> {
+    val seen = HashMap<String, Int>()
+    return mediaIds.map { id ->
+        val n = seen.merge(id, 1, Int::plus)!!
+        "$id#$n"
+    }
+}
