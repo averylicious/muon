@@ -72,3 +72,32 @@ internal fun occurrenceKeys(mediaIds: List<String>): List<String> {
         "$id#$n"
     }
 }
+
+/** This list with the element at [from] moved to [to], everything between shifting by one. */
+internal fun <T> List<T>.moved(from: Int, to: Int): List<T> {
+    if (from !in indices || to !in indices || from == to) return this
+    return toMutableList().apply { add(to, removeAt(from)) }
+}
+
+/**
+ * The player move that puts the song shown at list position [from] at position [to], given the
+ * player index each shown position held when the drag began. Moving by the destination's original
+ * index is exactly right when those indices are consecutive, which they are with shuffle off; the
+ * screen does not offer reordering with shuffle on, where list and playing order differ. Null for no move.
+ */
+internal fun queueMove(indices: List<Int>, from: Int, to: Int): Pair<Int, Int>? {
+    if (from !in indices.indices || to !in indices.indices || from == to) return null
+    return indices[from] to indices[to]
+}
+
+/**
+ * How far to scroll this frame while a dragged row is held near an edge of the list: nothing in the
+ * middle, faster the deeper the row reaches into the [edge] band, up to [max] pixels per frame.
+ * [top] and [bottom] are the dragged row's edges; [start] and [end] are the list's visible bounds.
+ */
+internal fun edgeScroll(top: Float, bottom: Float, start: Float, end: Float, edge: Float, max: Float): Float = when {
+    edge <= 0f -> 0f
+    top < start + edge -> -max * ((start + edge - top) / edge).coerceIn(0f, 1f)
+    bottom > end - edge -> max * ((bottom - (end - edge)) / edge).coerceIn(0f, 1f)
+    else -> 0f
+}
