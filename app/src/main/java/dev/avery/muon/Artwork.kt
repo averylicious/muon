@@ -36,10 +36,14 @@ private fun decodeArtwork(bytes: ByteArray): Bitmap? {
 /**
  * Memory first (checked by the caller), then disk, then the server. Only a picture that decodes is
  * stored, so a broken response is never kept to be served again; a stored file that no longer decodes
- * is fetched afresh and replaced.
+ * is fetched afresh and replaced. Disk is used only when the address belongs to a known song.
  */
 private suspend fun fetchArtwork(url: String, disk: ArtworkDiskCache): Bitmap? = withContext(Dispatchers.IO) {
-    disk.read(url)?.let(::decodeArtwork)?.let { art -> artCache.put(url, art); return@withContext art }
+    val identity = ArtworkIdentities.of(url)
+    if (identity != null) disk.read(url, identity)?.let(::decodeArtwork)?.let { art ->
+        artCache.put(url, art)
+        return@withContext art
+    }
     runCatching {
         Transport.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
             if (!response.isSuccessful) return@use null
@@ -49,7 +53,7 @@ private suspend fun fetchArtwork(url: String, disk: ArtworkDiskCache): Bitmap? =
             val bytes = source.readByteArray()
             decodeArtwork(bytes)?.also { art ->
                 artCache.put(url, art)
-                disk.write(url, bytes)
+                if (identity != null) disk.write(url, identity, bytes)
             }
         }
     }.getOrNull()

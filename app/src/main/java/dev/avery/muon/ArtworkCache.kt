@@ -8,17 +8,45 @@ import java.security.MessageDigest
 internal const val ARTWORK_DISK_BYTES = 64L * 1024 * 1024
 
 /**
- * How long a stored picture is trusted. Tauon serves no cache headers, and after a library rebuild it
- * can give a track number to a different song, so nothing is kept for ever; a week spares every
- * restart without letting a wrong cover linger.
+ * How long a stored picture is trusted. A track number reused for a different song is already a miss,
+ * because pictures are stored under the song's identity as well as its address; this limit only
+ * bounds how long a cover changed in Tauon for the same song keeps showing the old one. Disconnecting,
+ * or clearing the app's cache, refreshes it sooner.
  */
-internal const val ARTWORK_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+internal const val ARTWORK_MAX_AGE_MS = 90L * 24 * 60 * 60 * 1000
+
+/**
+ * Which song each artwork address belongs to in the library now loaded: title, artist and album.
+ * Tauon numbers tracks from a running counter and renumbers them after a library rebuild, so the
+ * address alone could name a different song than the one whose picture was stored. Built from the
+ * exact addresses the app requests: list thumbnails and the player's larger picture.
+ */
+internal fun artworkIdentities(endpoint: ServerEndpoint, tracks: List<TauonTrack>): Map<String, String> {
+    val identities = HashMap<String, String>(tracks.size * 2)
+    for (track in tracks) {
+        val identity = "${track.title}\u0000${track.artist}\u0000${track.album}"
+        identities[endpoint.url("/api1/pic/small/${track.id}")] = identity
+        identities[endpoint.url("/api1/pic/medium/${track.id}")] = identity
+    }
+    return identities
+}
+
+/**
+ * The identities of the library now loaded, published by the app before any artwork of it loads. An
+ * address with no known identity is never read from or written to disk; it is still fetched and kept
+ * in memory as before.
+ */
+internal object ArtworkIdentities {
+    @Volatile private var current: Map<String, String> = emptyMap()
+    fun publish(identities: Map<String, String>) { current = identities }
+    fun of(url: String): String? = current[url]
+}
 
 /**
  * Artwork as the server sent it, kept on disk so a restart does not fetch every thumbnail again.
  *
  * Files are named by a hash of the full URL, which includes the server's origin, so two servers never
- * share a picture. When the total passes [maxBytes], the oldest files go first. The running total is
+ * share a picture, together with the song's identity, so a reused track number never matches. When the total passes [maxBytes], the oldest files go first. The running total is
  * counted once and then kept, so a first scroll through a large library does not list the directory
  * for every picture it stores. Every failure is a miss: the picture is fetched as if nothing were kept.
  */
@@ -27,8 +55,8 @@ internal class ArtworkDiskCache(private val dir: File, private val maxBytes: Lon
     private val lock = Any()
     private var total = -1L
 
-    fun read(url: String): ByteArray? = runCatching {
-        val file = file(url)
+    fun read(url: String, identity: String): ByteArray? = runCatching {
+        val file = file(url, identity)
         if (!file.isFile) return null
         if (now() - file.lastModified() > maxAgeMs) {
             synchronized(lock) { if (total >= 0) total -= file.length(); file.delete() }
@@ -37,10 +65,10 @@ internal class ArtworkDiskCache(private val dir: File, private val maxBytes: Lon
         file.readBytes()
     }.getOrNull()
 
-    fun write(url: String, bytes: ByteArray) {
+    fun write(url: String, identity: String, bytes: ByteArray) {
         runCatching {
             dir.mkdirs()
-            val target = file(url)
+            val target = file(url, identity)
             // A name of its own, so two loads of the same picture never write into one temporary file.
             val temp = File.createTempFile(target.name, ".tmp", dir)
             temp.writeBytes(bytes)
@@ -75,11 +103,11 @@ internal class ArtworkDiskCache(private val dir: File, private val maxBytes: Lon
         total = sum
     }
 
-    private fun file(url: String) = File(dir, key(url))
+    private fun file(url: String, identity: String) = File(dir, key(url, identity))
 
     companion object {
-        fun key(url: String): String = MessageDigest.getInstance("SHA-256")
-            .digest(url.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        fun key(url: String, identity: String): String = MessageDigest.getInstance("SHA-256")
+            .digest("$url\u0000$identity".toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 }
 
