@@ -1,7 +1,10 @@
 package dev.avery.muon
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,6 +15,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.HorizontalAlignmentLine
@@ -24,6 +28,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -61,25 +66,24 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
     modifier: Modifier = Modifier) {
     val interaction = remember { MutableInteractionSource() }
     val labelStyle = MaterialTheme.typography.labelLarge
-    val labelSize = rememberTextMeasurer().measure("100%", style = labelStyle).size
-    val density = LocalDensity.current
     val labelWidth = volumeBubbleMargin() * 2
-    val labelHeight = with(density) { labelSize.height.toDp() } + 8.dp
     val enabled = !state.fixed && state.maximum > state.minimum
+    // The percentage is feedback for a finger on the slider, not a permanent label (#117).
+    val dragged by interaction.collectIsDraggedAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val showBubble = !state.fixed && (dragged || pressed)
 
     Slider(
         value = state.current.toFloat(),
         onValueChange = { setVolume(it.roundToInt()) },
         valueRange = state.minimum.toFloat()..maxOf(state.maximum, state.minimum + 1).toFloat(),
-        steps = (state.maximum - state.minimum - 1).coerceAtLeast(0),
+        // No steps: a tick per device volume step drew a dotted ruler along the track (#117). The
+        // value still lands on whole steps, because it is rounded before it is set.
         enabled = enabled,
         interactionSource = interaction,
         modifier = modifier.fillMaxWidth()
-            // The bubble's room is reserved by the caller, around the whole row, so the track can
-            // run right up to whatever sits beside it.
-            .padding(top = if (state.fixed) 0.dp else labelHeight + 8.dp)
-            // Measured inside that reserved space, so the line lands on the track itself; the
-            // padding above offsets it as it propagates out to whoever is aligning with it.
+            // The bubble floats above the track only while dragging, so no room is held for it; the
+            // caller still leaves its horizontal overhang around the row. The line marks the track.
             .layout { measurable, constraints ->
                 val slider = measurable.measure(constraints)
                 layout(slider.width, slider.height, mapOf(VolumeTrackCenter to slider.height / 2)) {
@@ -89,8 +93,10 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
             .semantics { contentDescription = "Media volume level" },
         thumb = {
             Layout(content = {
-                SliderDefaults.Thumb(interactionSource = interaction, enabled = enabled)
-                if (!state.fixed) Surface(
+                // Slimmer than the seek bar's, so volume reads as the secondary control it is.
+                SliderDefaults.Thumb(interactionSource = interaction, enabled = enabled,
+                    thumbSize = DpSize(4.dp, VolumeThumbHeight))
+                if (showBubble) Surface(
                     color = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                     shape = RoundedCornerShape(12.dp),
@@ -111,5 +117,12 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
                 }
             }
         },
+        track = { sliderState ->
+            SliderDefaults.Track(sliderState, Modifier.height(VolumeTrackHeight), enabled = enabled)
+        },
     )
 }
+
+/** The volume track and thumb, smaller than the seek bar's 16 dp track and 44 dp thumb (#117). */
+private val VolumeTrackHeight = 10.dp
+private val VolumeThumbHeight = 28.dp

@@ -78,8 +78,10 @@ private fun Lyrics(item: MediaItem?, back: () -> Unit) {
     }
     // The overlay hosting this screen already applied the system bar insets, so neither bar
     // below adds its own.
+    // Scrolled, the bar takes Material's container colour, so lyrics pass under a surface instead of
+    // vanishing behind the title's bare text (#121).
     val barColors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
-        scrolledContainerColor = colors.background)
+        scrolledContainerColor = colors.surfaceContainer)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val header = lyricsHeaderHeight(maxHeight.value, LocalDensity.current.fontScale)
         Column(Modifier.fillMaxSize()

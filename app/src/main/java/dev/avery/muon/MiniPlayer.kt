@@ -141,8 +141,9 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                         maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                // The primary action is filled so it reads as the control rather than as decoration.
-                FilledTonalIconButton(onClick = toggle, enabled = ready,
+                // The primary action is filled in the primary colour, like Now Playing's, so it reads as
+                // the control rather than blending into the mini player's own tonal surface (#123).
+                FilledIconButton(onClick = toggle, enabled = ready,
                     modifier = Modifier.semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
                     Crossfade(p.playing, animationSpec = motionShort(), label = "mini play/pause") { playing ->
                         MuonIcon(if (playing) "pause" else "play", Modifier.size(20.dp))
