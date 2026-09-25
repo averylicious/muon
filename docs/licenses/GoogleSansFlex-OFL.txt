@@ -1,8 +1,15 @@
-Copyright 2014-2018 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. All Rights Reserved. Source is a trademark of Adobe in the United States and/or other countries. Copyright 2019 Google LLC.
+Copyright 2015 Google LLC. All Rights Reserved.
+Google Sans Flex, as shipped in app/src/main/res/font/google_sans_flex.ttf.
+
+The copyright line above and the licence statement below are the font's own embedded
+declarations (name IDs 0, 13 and 14), which the shipped file retains. The licence body
+is the SIL Open Font License 1.1 text distributed with the upstream package, unaltered.
+Google publishes the authoritative notice for this family as OFL.txt in
+https://github.com/googlefonts/googlesans-flex
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
-
-This license is copied below, and is also available with a FAQ at: http://scripts.sil.org/OFL
+This license is copied below, and is also available with a FAQ at:
+https://openfontlicense.org
 
 
 -----------------------------------------------------------

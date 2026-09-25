@@ -19,4 +19,14 @@ class MuonIconsTest {
     @Test fun unknownKindFallsBackToSettings() {
         assertEquals(iconRes("settings"), iconRes("nonexistent"))
     }
+
+    /** The 2.0 screens are not built yet, so nothing else would notice a missing mapping. */
+    @Test fun kindsAddedForTwoPointZeroAreMappedRatherThanFallingBack() {
+        val fallback = iconRes("nonexistent")
+        listOf("back", "collapse", "close", "queue", "lyrics", "play-next", "add-queue",
+            "album", "artist", "delete", "drag-handle", "volume-low").forEach {
+            assertTrue("$it must be listed in ICON_KINDS", it in ICON_KINDS)
+            assertNotEquals("$it must have its own drawable, not the fallback", fallback, iconRes(it))
+        }
+    }
 }
