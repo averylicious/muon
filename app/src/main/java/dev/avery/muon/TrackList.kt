@@ -4,7 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,7 +22,8 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
-    emptyText: String, loading: Boolean = false, play: (TauonTrack) -> Unit) {
+    emptyText: String, loading: Boolean = false, state: LazyListState = rememberLazyListState(),
+    play: (TauonTrack) -> Unit) {
     if (tracks.isEmpty() && loading) PlaceholderRows()
     // A list of one full-height item rather than a plain box: an empty library is exactly when a
     // refresh is wanted, and a pull gesture needs something scrollable to pull.
@@ -32,7 +35,9 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
         }
     } else {
         val keys = remember(tracks) { trackKeys(tracks) }
-        LazyColumn(contentPadding = PaddingValues(bottom = 12.dp)) {
+        // Only the real list takes [state]: a moment of loading or emptiness must not clamp a
+        // position the caller is keeping.
+        LazyColumn(state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
             itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
                 TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready,
                     Modifier.animateItem(placementSpec = motionMedium())) { play(t) }

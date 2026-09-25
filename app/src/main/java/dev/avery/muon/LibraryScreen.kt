@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -99,6 +100,10 @@ private fun Greeting(tracks: Int) {
 /**
  * The top-level library: greeting, view chips, and the list under a pull to refresh.
  *
+ * [bar] is the greeting's fold, owned by the caller with the lists' positions, so a page opened from
+ * here and closed again returns to the same fold as well as the same row. Otherwise the greeting
+ * unfolds on return and pushes the kept row down the screen.
+ *
  * The collapsing bar's nested scroll sits *inside* the pull container, so an upward scroll folds
  * the greeting first and a downward one unfolds it before the pull begins: a drag at the top
  * restores the greeting, and only a further pull refreshes.
@@ -106,10 +111,11 @@ private fun Greeting(tracks: Int) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LibraryTop(tracks: Int, view: LibraryView, choose: (LibraryView) -> Unit,
-    refreshing: Boolean, refresh: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    refreshing: Boolean, refresh: () -> Unit, bar: TopAppBarState = rememberTopAppBarState(),
+    content: @Composable BoxScope.() -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = libraryHeaderHeight(maxHeight.value, LocalDensity.current.fontScale)
-        val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+        val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(bar)
         Column(Modifier.fillMaxSize()) {
             LibraryHeader(tracks, expanded, scrollBehavior)
             LibraryChips(view, choose)
@@ -168,19 +174,25 @@ internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
 /**
  * The playlists, as rows rather than chips. Empty ones are left out: they cannot be opened to
  * anything, and Tauon tends to accumulate them.
+ *
+ * [state] is owned by the caller, as for the artists, so the position outlives an open playlist; the
+ * empty or loading message scrolls with its own state so it cannot clamp the kept position.
  */
 @Composable
-internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, open: (String) -> Unit) {
+internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, state: LazyListState,
+    open: (String) -> Unit) {
     val listed = playlists.filter { it.count > 0 }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
-        if (listed.isEmpty()) item {
+    if (listed.isEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+        item {
             // Full height so the list can still be pulled down to refresh.
             Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(if (loading) "Loading playlists…"
                     else "No playlists with music yet. Make one in Tauon, then refresh.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        } else items(listed, key = { it.id }, contentType = { "playlist" }) { playlist ->
+        }
+    } else LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+        items(listed, key = { it.id }, contentType = { "playlist" }) { playlist ->
             ListItem(
                 headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingContent = {
@@ -198,18 +210,26 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, open
  * The artists, one row each, in the order they first appear in the library. [artists] is null while
  * the library is still being grouped. Each row is announced by the artist's full name; the avatar's
  * initials are decoration.
+ *
+ * [state] is owned by the caller so the position outlives an open artist page. Rows are keyed, so a
+ * refresh that moved the first visible artist finds it again; one that removed it keeps the index,
+ * within the new length. The loading and empty message deliberately scrolls with its own state: a
+ * moment of loading would otherwise clamp the kept position to its single row.
  */
 @Composable
-internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, open: (LibraryArtist) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
-        if (artists.isNullOrEmpty()) item {
+internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: LazyListState,
+    open: (LibraryArtist) -> Unit) {
+    if (artists.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+        item {
             // Full height so the list can still be pulled down to refresh.
             Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(if (loading || artists == null) "Loading artists…"
                     else "No artists yet. Add local music in Tauon, then refresh.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        } else items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
+        }
+    } else LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+        items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
             ListItem(
                 headlineContent = {
                     Text(artistLabel(artist.name), maxLines = 1, overflow = TextOverflow.Ellipsis)
