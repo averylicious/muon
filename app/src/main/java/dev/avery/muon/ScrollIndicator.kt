@@ -5,6 +5,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -12,14 +15,15 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
-private val INDICATOR_WIDTH = 4.dp
-private val INDICATOR_MIN_LENGTH = 32.dp
-private val INDICATOR_MARGIN = 4.dp
+internal val INDICATOR_WIDTH = 4.dp
+internal val INDICATOR_MIN_LENGTH = 32.dp
+internal val INDICATOR_MARGIN = 4.dp
 
 /** How long the indicator stays after scrolling stops, so a glance after a fling still finds it. */
 internal const val INDICATOR_LINGER_MS = 900L
@@ -55,6 +59,27 @@ internal fun scrollThumb(firstIndex: Int, firstOffset: Int, averageItem: Float, 
  */
 internal class ScrollIndicator(val state: LazyListState) {
     val shown = Animatable(0f)
+    /** A finger is on the A–Z handle: stay shown, however still the list is. */
+    var held by mutableStateOf(false)
+    /** Where the finger has put the thumb, 0 at the top to 1 at the bottom, while it holds it. */
+    var dragFraction by mutableStateOf<Float?>(null)
+
+    /**
+     * The thumb for a list [height] pixels tall, relative to a track inset by [margin] at each end.
+     * While a finger holds it, it sits where the finger put it rather than where the estimate says.
+     */
+    fun thumb(height: Float, margin: Float, minLength: Float): ScrollThumb? {
+        val info = state.layoutInfo
+        val visible = info.visibleItemsInfo
+        if (visible.isEmpty()) return null
+        val average = visible.sumOf { it.size }.toFloat() / visible.size + info.mainAxisItemSpacing
+        val track = height - 2 * margin
+        val thumb = scrollThumb(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, average,
+            info.totalItemsCount, track, minLength,
+            atStart = !state.canScrollBackward, atEnd = !state.canScrollForward) ?: return null
+        val held = dragFraction ?: return thumb
+        return ScrollThumb(held.coerceIn(0f, 1f) * (track - thumb.length), thumb.length)
+    }
 }
 
 @Composable
@@ -62,7 +87,7 @@ internal fun rememberScrollIndicator(state: LazyListState): ScrollIndicator {
     val indicator = remember(state) { ScrollIndicator(state) }
     // Like every animation it follows the system animation scale, and snaps when animations are off.
     LaunchedEffect(indicator) {
-        snapshotFlow { state.isScrollInProgress }.collectLatest { scrolling ->
+        snapshotFlow { state.isScrollInProgress || indicator.held }.collectLatest { scrolling ->
             if (scrolling) indicator.shown.animateTo(1f, motionShort())
             else {
                 delay(INDICATOR_LINGER_MS)
@@ -77,21 +102,14 @@ internal fun rememberScrollIndicator(state: LazyListState): ScrollIndicator {
  * Draws the indicator over the list, at its end edge (right, or left in a right-to-left layout). Read
  * in the draw phase, so scrolling redraws the thumb without recomposing the list.
  */
-internal fun Modifier.scrollIndicator(indicator: ScrollIndicator, color: Color): Modifier = drawWithContent {
+internal fun Modifier.scrollIndicator(indicator: ScrollIndicator, color: Color,
+    width: Dp = INDICATOR_WIDTH, minLength: Dp = INDICATOR_MIN_LENGTH): Modifier = drawWithContent {
     drawContent()
     val alpha = indicator.shown.value
     if (alpha <= 0f) return@drawWithContent
-    val state = indicator.state
-    val info = state.layoutInfo
-    val visible = info.visibleItemsInfo
-    if (visible.isEmpty()) return@drawWithContent
-    val average = visible.sumOf { it.size }.toFloat() / visible.size + info.mainAxisItemSpacing
     val margin = INDICATOR_MARGIN.toPx()
-    val track = size.height - 2 * margin
-    val thumb = scrollThumb(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, average,
-        info.totalItemsCount, track, INDICATOR_MIN_LENGTH.toPx(),
-        atStart = !state.canScrollBackward, atEnd = !state.canScrollForward) ?: return@drawWithContent
-    val width = INDICATOR_WIDTH.toPx()
+    val thumb = indicator.thumb(size.height, margin, minLength.toPx()) ?: return@drawWithContent
+    val width = width.toPx()
     val x = if (layoutDirection == LayoutDirection.Rtl) margin else size.width - margin - width
     drawRoundRect(color, topLeft = Offset(x, margin + thumb.start), size = Size(width, thumb.length),
         cornerRadius = CornerRadius(width / 2), alpha = alpha)
