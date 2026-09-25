@@ -63,4 +63,31 @@ class QueueModelTest {
     @Test fun theWindowIsAHandfulNotTheWholeLibrary() {
         assertTrue(QUEUE_WINDOW in 20..60)
     }
+
+    @Test fun movingARowShiftsThoseBetween() {
+        assertEquals(listOf("b", "c", "a", "d"), listOf("a", "b", "c", "d").moved(0, 2))
+        assertEquals(listOf("a", "d", "b", "c"), listOf("a", "b", "c", "d").moved(3, 1))
+        assertEquals(listOf("a", "b"), listOf("a", "b").moved(1, 1))
+        assertEquals(listOf("a", "b"), listOf("a", "b").moved(0, 5))
+    }
+
+    @Test fun aDropBecomesOnePlayerMoveBetweenOriginalIndices() {
+        // Now playing is index 4, so Next up shows indices 5, 6, 7, 8.
+        val shown = listOf(5, 6, 7, 8)
+        // Drag the first shown song below the third: the player moves index 5 to index 7.
+        assertEquals(5 to 7, queueMove(shown, 0, 2))
+        // And back up: index 8 to index 6.
+        assertEquals(8 to 6, queueMove(shown, 3, 1))
+        assertNull(queueMove(shown, 2, 2))
+        assertNull(queueMove(shown, 0, 9))
+    }
+
+    @Test fun aHeldRowScrollsTheListOnlyNearAnEdge() {
+        // A 1000 px list with a 100 px edge band, up to 20 px per frame.
+        assertEquals(0f, edgeScroll(400f, 480f, 0f, 1000f, 100f, 20f), 0.001f)
+        assertEquals(-10f, edgeScroll(50f, 130f, 0f, 1000f, 100f, 20f), 0.001f)
+        assertEquals(-20f, edgeScroll(-30f, 50f, 0f, 1000f, 100f, 20f), 0.001f)
+        assertEquals(10f, edgeScroll(870f, 950f, 0f, 1000f, 100f, 20f), 0.001f)
+        assertEquals(0f, edgeScroll(50f, 130f, 0f, 1000f, 0f, 20f), 0.001f)
+    }
 }
