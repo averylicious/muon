@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -167,6 +168,37 @@ internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         LibraryView.entries.forEach { choice ->
             LibraryChip(choice.name, view == choice) { choose(choice) }
+        }
+    }
+}
+
+/**
+ * The line above a sortable list: how many there are, and how they are ordered. The order is a menu
+ * rather than more chips, so it does not compete with the views above it, and the chosen order is
+ * marked by a check, not by colour alone.
+ */
+@Composable
+internal fun <T> SortBar(count: String, options: List<T>, current: T, label: (T) -> String, choose: (T) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(count, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Box {
+            TextButton(onClick = { open = true },
+                modifier = Modifier.semantics { contentDescription = "Order: ${label(current)}" }) {
+                Text(label(current), maxLines = 1)
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                options.forEach { option ->
+                    DropdownMenuItem(text = { Text(label(option)) },
+                        onClick = { open = false; choose(option) },
+                        leadingIcon = {
+                            if (option == current) MuonIcon("check", Modifier.size(18.dp))
+                            else Spacer(Modifier.size(18.dp))
+                        },
+                        modifier = Modifier.semantics { selected = option == current })
+                }
+            }
         }
     }
 }

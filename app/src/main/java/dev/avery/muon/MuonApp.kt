@@ -119,6 +119,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             artistGroups = ArtistGroups(grouping, snapshot, grouped)
         }
         val artists = currentArtists(artistGroups, origin, snapshot)
+        // The chosen orders, applied once per library and per choice rather than on every frame.
+        // Both derive from data already bound to this snapshot, so sorting adds no stale state.
+        val songs = remember(snapshot, library.songOrder) { sortSongs(all, library.songOrder) }
+        val sortedArtists = remember(artists, library.artistOrder) { artists?.let { sortArtists(it, library.artistOrder) } }
         // An endpoint exists only after a complete load succeeded, so it is both the identity of
         // the server and the signal that there is something to judge a saved selection against.
         val selection = storedSelection(openOrigin, openId, origin, model.playlists)
@@ -293,12 +297,27 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     LibraryTop(all.size, library.view, library::choose,
                                                         model.busy, { model.connect() }, libraryBar) {
                                                         when (library.view) {
-                                                            LibraryView.Songs ->
-                                                                TrackList(all, model.endpoint, ui.item?.mediaId, player != null,
+                                                            // A new order starts from its top, rather than
+                                                            // wherever the previous first row now sits.
+                                                            LibraryView.Songs -> Column {
+                                                                if (songs.isNotEmpty()) SortBar(artistSongCount(songs.size),
+                                                                    SongOrder.entries, library.songOrder, { it.label }) {
+                                                                    library.chooseSongOrder(it); songList = LazyListState()
+                                                                }
+                                                                // Plays on in the order shown.
+                                                                TrackList(songs, model.endpoint, ui.item?.mediaId, player != null,
                                                                     emptyText = "No music yet. Add local music in Tauon, then refresh.",
-                                                                    loading = model.busy, state = songList) { startQueue(all, it) }
-                                                            LibraryView.Artists -> ArtistRows(artists, model.busy, artistList) {
-                                                                artistOrigin = origin; artistKey = it.key; artistName = it.name
+                                                                    loading = model.busy, state = songList) { startQueue(songs, it) }
+                                                            }
+                                                            LibraryView.Artists -> Column {
+                                                                if (!sortedArtists.isNullOrEmpty()) SortBar(
+                                                                    "${sortedArtists.size} ${if (sortedArtists.size == 1) "artist" else "artists"}",
+                                                                    ArtistOrder.entries, library.artistOrder, { it.label }) {
+                                                                    library.chooseArtistOrder(it); artistList = LazyListState()
+                                                                }
+                                                                ArtistRows(sortedArtists, model.busy, artistList) {
+                                                                    artistOrigin = origin; artistKey = it.key; artistName = it.name
+                                                                }
                                                             }
                                                             LibraryView.Playlists -> PlaylistRows(model.playlists, model.busy, playlistList) {
                                                                 openOrigin = origin; openId = it
