@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -198,18 +199,26 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, open
  * The artists, one row each, in the order they first appear in the library. [artists] is null while
  * the library is still being grouped. Each row is announced by the artist's full name; the avatar's
  * initials are decoration.
+ *
+ * [state] is owned by the caller so the position outlives an open artist page. Rows are keyed, so a
+ * refresh that moved the first visible artist finds it again; one that removed it keeps the index,
+ * within the new length. The loading and empty message deliberately scrolls with its own state: a
+ * moment of loading would otherwise clamp the kept position to its single row.
  */
 @Composable
-internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, open: (LibraryArtist) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
-        if (artists.isNullOrEmpty()) item {
+internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: LazyListState,
+    open: (LibraryArtist) -> Unit) {
+    if (artists.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+        item {
             // Full height so the list can still be pulled down to refresh.
             Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(if (loading || artists == null) "Loading artists…"
                     else "No artists yet. Add local music in Tauon, then refresh.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        } else items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
+        }
+    } else LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+        items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
             ListItem(
                 headlineContent = {
                     Text(artistLabel(artist.name), maxLines = 1, overflow = TextOverflow.Ellipsis)

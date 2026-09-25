@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -58,6 +59,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var artistKey by rememberSaveable { mutableStateOf<String?>(null) }
         // Only a title for the page while it waits for the grouping; never used to find the artist.
         var artistName by rememberSaveable { mutableStateOf<String?>(null) }
+        // Where the Artists list was, held here rather than in the list so it outlives an open
+        // artist page: Back returns to the same row at the same offset. Saved across rotation;
+        // disconnecting starts it afresh, so another server's list never opens part-way down.
+        var artistList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
         var query by rememberSaveable { mutableStateOf("") }
         val playback = rememberPlayback(player)
         val ui = playback.ui
@@ -226,6 +231,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 Tab.Settings -> SettingsScreen(model, appearance) {
                                     player?.stop(); player?.clearMediaItems(); model.disconnect()
                                     openOrigin = null; openId = null; closeArtist()
+                                    artistList = LazyListState()
                                     lyricsOpen = false; playerOpen = false; tab = Tab.Library
                                 }
                                 Tab.Library -> {
@@ -253,7 +259,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     TrackList(all, model.endpoint, ui.item?.mediaId, player != null,
                                                         emptyText = "No music yet. Add local music in Tauon, then refresh.",
                                                         loading = model.busy) { startQueue(all, it) }
-                                                LibraryView.Artists -> ArtistRows(artists, model.busy) {
+                                                LibraryView.Artists -> ArtistRows(artists, model.busy, artistList) {
                                                     artistOrigin = origin; artistKey = it.key; artistName = it.name
                                                 }
                                                 LibraryView.Playlists -> PlaylistRows(model.playlists, model.busy) {
