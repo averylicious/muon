@@ -6,10 +6,13 @@ Claude Code; effort not reported for this cycle.
 
 Branch `codex/artist-page-transition`, worktree
 `/home/avery/.codex/worktrees/muon-artist-transition/muon`, **stacked on #105**
-(`codex/artist-list-scroll`, `cf4a4c9`). Both slices edit the same Library branch in `MuonApp`, so
+(`codex/artist-list-scroll`, now `48dad8c` after its QA follow-up, merged into this branch). Both slices edit the same Library branch in `MuonApp`, so
 two main-based branches would conflict. The transition also keeps the list composed only while it
 animates, so returning to the same position still depends on #105's hoisted list state. Merge #105
-first. This slice alone is `cf4a4c9..codex/artist-page-transition`.
+first. Until then, the PR diff also shows #105; this slice's own commit is `ef167fa`, plus the merge
+commit that brought in #105's follow-up and resolved the one expected conflict in `MuonApp`. #106's
+animated Library block kept its shape, and #105's three call-site changes were applied to it: the
+header state, the Songs list state and the Playlists list state.
 
 ## Conventions found
 
