@@ -4,10 +4,10 @@ Muon publishes two independent apps from the same private repository:
 
 | Channel | Launcher | Package ID | Release title | APK filename |
 | --- | --- | --- | --- | --- |
-| Canary | Muon Canary (diamond with a large C) | `dev.avery.muon` | `Muon Canary …` | `muon-canary-….apk` |
+| Canary | Muon β (diamond with a large C) | `dev.avery.muon` | `Muon Canary …` | `muon-canary-….apk` |
 | Stable | Muon (circle with three bars) | `dev.avery.muon.release` | `Muon Stable …` | `muon-stable-….apk` |
 
-Canary updates the original debug installation without uninstalling or losing settings. Stable updates previous “Muon Release” installations. Both keep their original certificates. They can coexist, but their server settings and app data are separate. Canary currently uses Android's debuggable build type; stable is optimized and non-debuggable.
+Canary updates the original debug installation without uninstalling or losing settings. Stable updates previous “Muon Release” installations. Both keep their original certificates. They can coexist, but their server settings and app data are separate. Canary is built from the debug build type but is not debuggable, so it performs like stable (#125); stable is also minified. Canary's launcher label is "Muon β" (#29); release titles and APK names still say Muon Canary, so the filter below is unchanged.
 
 ## 1. Give Obtainium read access
 

@@ -34,10 +34,10 @@ Real Tauon/device instrumentation remains a manual LAN test (`tools/device-proof
 
 | Variant | Package / launcher name | Signing | Installation behavior |
 | --- | --- | --- | --- |
-| Debug | `dev.avery.muon` / Muon Canary | Original milestone debug key | Updates the existing Pixel app and preserves its connection settings |
+| Debug | `dev.avery.muon` / Muon β (the Canary channel) | Original milestone debug key | Updates the existing Pixel app and preserves its connection settings |
 | Release | `dev.avery.muon.release` / Muon | Dedicated RSA 4096 release key | Installs alongside debug with its own settings; connect it to Tauon separately |
 
-Release is non-debuggable, minified and resource-shrunk. CI uses the workflow run number as Android versionCode and `0.1.0-canary.<run>` as Canary versionName. Stable versionName comes from the `vMAJOR.MINOR.PATCH` tag (without `v`); untagged release artifacts use `0.1.0`. Update the base version in the workflow when beginning a new development series. Older artifacts can be rejected as downgrades; use a newer run. Local builds default to versionCode 1; set `MUON_VERSION_CODE` higher than the installed version if needed. Each app controls its own Android player; audio focus coordinates them.
+Release is non-debuggable, minified and resource-shrunk. Canary (the debug build type) is also non-debuggable, so phone QA reflects real performance (#125); it is not minified. `tools/verify-apks.py` rejects a debuggable APK of either variant. CI uses the workflow run number as Android versionCode and `0.1.0-canary.<run>` as Canary versionName. Stable versionName comes from the `vMAJOR.MINOR.PATCH` tag (without `v`); untagged release artifacts use `0.1.0`. Update the base version in the workflow when beginning a new development series. Older artifacts can be rejected as downgrades; use a newer run. Local builds default to versionCode 1; set `MUON_VERSION_CODE` higher than the installed version if needed. Each app controls its own Android player; audio focus coordinates them.
 
 CI debug signing is stable, but the debug variant is intended for development. Release uses a separate permanent identity; its alias is `muon-release`. Public certificate fingerprints are in [signing-certificates.txt](signing-certificates.txt). Verify APKs with SDK `apksigner verify --verbose --print-certs` and compare these fingerprints.
 
