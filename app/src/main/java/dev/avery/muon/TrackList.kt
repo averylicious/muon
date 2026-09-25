@@ -37,7 +37,8 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
         val keys = remember(tracks) { trackKeys(tracks) }
         // Only the real list takes [state]: a moment of loading or emptiness must not clamp a
         // position the caller is keeping.
-        LazyColumn(state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+        LazyColumn(Modifier.scrollIndicator(rememberScrollIndicator(state),
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
             itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
                 TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready,
                     Modifier.animateItem(placementSpec = motionMedium())) { play(t) }
