@@ -87,6 +87,6 @@ class PlaybackService : MediaSessionService() {
 fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builder()
     .setMediaId("${endpoint.origin}/$id")
     .setUri(endpoint.url("/api1/file/$id"))
-    .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist).setAlbumTitle(album)
+    .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(displayCredits(artist)).setAlbumTitle(album)
         .setArtworkUri(android.net.Uri.parse(endpoint.url("/api1/pic/medium/$id"))).build())
     .build()

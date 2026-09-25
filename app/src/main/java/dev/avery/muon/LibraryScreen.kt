@@ -64,7 +64,7 @@ private fun LibraryHeader(tracks: Int, expandedHeight: Float?,
     // The scaffold already applies the status bar inset to this content.
     val insets = WindowInsets(0, 0, 0, 0)
     if (expandedHeight == null) {
-        TopAppBar(title = { Text("Library", style = MaterialTheme.typography.titleLarge) },
+        TopAppBar(title = { Text("Library", style = MaterialTheme.typography.barTitle) },
             colors = colors, windowInsets = insets)
     } else {
         LargeTopAppBar(
@@ -86,7 +86,7 @@ private fun LibraryHeader(tracks: Int, expandedHeight: Float?,
 private fun Greeting(tracks: Int) {
     val collapsed = LocalTextStyle.current.fontSize == MaterialTheme.typography.titleLarge.fontSize
     if (collapsed) {
-        Text("Library", style = MaterialTheme.typography.titleLarge,
+        Text("Library", style = MaterialTheme.typography.barTitle,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     } else Column {
         Text("Your music,\nnearby.", style = MaterialTheme.typography.displaySmall,
@@ -178,15 +178,21 @@ internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
  * marked by a check, not by colour alone.
  */
 @Composable
-internal fun <T> SortBar(count: String, options: List<T>, current: T, label: (T) -> String, choose: (T) -> Unit) {
+internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T) -> String, choose: (T) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(count, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        // No count where something above already gives it, as the Songs greeting does (#122).
+        if (count != null) Text(count, style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        else Spacer(Modifier.weight(1f))
         Box {
+            // The chevron says this opens a menu; without it the order read as a label (#122).
             TextButton(onClick = { open = true },
                 modifier = Modifier.semantics { contentDescription = "Order: ${label(current)}" }) {
                 Text(label(current), maxLines = 1)
+                Spacer(Modifier.width(4.dp))
+                MuonIcon("collapse", Modifier.size(18.dp))
             }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 options.forEach { option ->
@@ -306,7 +312,7 @@ private fun ArtistAvatar(artist: LibraryArtist) {
 @Composable
 internal fun PlaylistBar(name: String, count: Int?, backLabel: String = "Back to playlists", back: () -> Unit) {
     TopAppBar(
-        title = { Text(name, style = MaterialTheme.typography.titleLarge,
+        title = { Text(name, style = MaterialTheme.typography.barTitle,
             maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = {
             IconButton(onClick = back,

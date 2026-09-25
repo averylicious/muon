@@ -300,7 +300,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                             // A new order starts from its top, rather than
                                                             // wherever the previous first row now sits.
                                                             LibraryView.Songs -> Column {
-                                                                if (songs.isNotEmpty()) SortBar(artistSongCount(songs.size),
+                                                                if (songs.isNotEmpty()) SortBar(null,
                                                                     SongOrder.entries, library.songOrder, { it.label }) {
                                                                     library.chooseSongOrder(it); songList = LazyListState()
                                                                 }

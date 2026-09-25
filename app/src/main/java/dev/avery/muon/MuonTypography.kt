@@ -47,8 +47,9 @@ private fun TextStyle.onGoogleSansFlex(): TextStyle =
 
 /**
  * Material 3's own scale, on Muon's face. The sizes are Material's, measured against Android's
- * Settings app: an expanded screen title is `displaySmall` at 36sp and regular weight, and a
- * collapsed one is `titleLarge` at 22sp. Bold is a call-site exception, not a role.
+ * Settings app: an expanded screen title is `displaySmall` at 36sp, and a collapsed one is
+ * `titleLarge` at 22sp. Titles take the weight through [screenTitle] and [barTitle] below. Bold is a
+ * call-site exception, not a role.
  */
 internal val MuonTypography = Typography().run {
     copy(
@@ -69,3 +70,14 @@ internal val MuonTypography = Typography().run {
         labelSmall = labelSmall.onGoogleSansFlex(),
     )
 }
+
+/**
+ * A screen's expanded title: Material 3 Expressive's emphasized display style, Medium at 36sp. The
+ * Settings app on Android 17 draws its titles at this weight (#124: about a third thicker strokes
+ * than Regular, measured from the user's screenshots), and Material 3 1.4.0 defines the same
+ * weight as `displaySmallEmphasized`.
+ */
+internal val Typography.screenTitle: TextStyle get() = displaySmall.copy(fontWeight = FontWeight.Medium)
+
+/** The same title collapsed into its bar: emphasized `titleLarge`, Medium at 22sp. */
+internal val Typography.barTitle: TextStyle get() = titleLarge.copy(fontWeight = FontWeight.Medium)
