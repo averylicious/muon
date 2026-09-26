@@ -105,5 +105,13 @@ internal object OfflineStore {
         DownloadService.sendRemoveDownload(context, MuonDownloadService::class.java, it, false)
     }
 
+    /**
+     * Carries on with downloads left queued when Muon last closed. The service stops itself again
+     * once there is nothing to do.
+     */
+    fun resume(context: Context) {
+        runCatching { DownloadService.start(context, MuonDownloadService::class.java) }
+    }
+
     fun removeAll(context: Context) = DownloadService.sendRemoveAllDownloads(context, MuonDownloadService::class.java, false)
 }

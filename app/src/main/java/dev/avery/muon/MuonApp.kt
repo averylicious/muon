@@ -57,8 +57,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var queueOpen by rememberSaveable { mutableStateOf(false) }
         val library = rememberLibrarySettings()
         val context = LocalContext.current
-        // Downloads are read in at launch, so rows can mark them and a downloaded song plays offline.
-        LaunchedEffect(Unit) { OfflineStore.get(context) }
+        // Downloads are read in at launch, so rows can mark them, and any left unfinished carry on.
+        LaunchedEffect(Unit) { OfflineStore.get(context); OfflineStore.resume(context) }
         val scope = rememberCoroutineScope()
         // Which playlist is open is about this sitting, not a preference. It is saved with the
         // server it was chosen on, so it survives rotation but never crosses servers, and a
