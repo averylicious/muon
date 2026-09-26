@@ -95,9 +95,27 @@ internal object OfflineStore {
             val id = downloadId(endpoint.origin, track.id)
             if (DownloadMarks.marks[id] != null) return@forEach
             val request = DownloadRequest.Builder(id, Uri.parse(endpoint.url("/api1/fileopus/${track.id}")))
-                .setCustomCacheKey(id).setData(track.title.toByteArray()).build()
+                .setCustomCacheKey(id).setData(encodeSong(track)).build()
             DownloadService.sendAddDownload(context, MuonDownloadService::class.java, request, false)
         }
+    }
+
+    /**
+     * The songs downloaded from [origin], for the library shown when Tauon cannot be reached. Reads the
+     * download index, so call it off the main thread, after [get].
+     */
+    fun downloadedSongs(context: Context, origin: String): List<TauonTrack> {
+        val songs = ArrayList<TauonTrack>()
+        runCatching {
+            get(context).manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val download = cursor.download
+                    if (!download.request.id.startsWith("$origin/")) continue
+                    decodeSong(download.request.data)?.takeIf { downloadId(origin, it.id) == download.request.id }?.let(songs::add)
+                }
+            }
+        }
+        return songs
     }
 
     /** Removes these downloads, finished or not. */

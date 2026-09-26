@@ -57,9 +57,10 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             GroupLabel("Connection")
             SettingsGroup {
                 SettingsRow(shape = rowShape(0, 3), headline = "Tauon desktop", supporting = model.address,
-                    trailing = { ConnectedBadge() })
+                    trailing = { ConnectedBadge(model.offline) })
                 SettingsRow(shape = rowShape(1, 3), headline = "Refresh library",
                     supporting = if (model.busy) model.progress.ifBlank { "Refreshing…" }
+                        else if (model.offline) model.progress
                         else "$trackCount ${if (trackCount == 1) "track" else "tracks"} loaded",
                     enabled = !model.busy,
                     modifier = Modifier.clickable(enabled = !model.busy, onClickLabel = "Refresh library") { model.connect() })
@@ -161,10 +162,12 @@ private fun SettingsRow(shape: Shape, headline: String, supporting: String? = nu
 }
 
 @Composable
-private fun ConnectedBadge() {
-    Surface(color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer, shape = RoundedCornerShape(50)) {
-        Text("Connected", style = MaterialTheme.typography.labelLarge,
+private fun ConnectedBadge(offline: Boolean = false) {
+    // Offline is not an error: the downloads still play. It is set apart by a quieter colour.
+    Surface(color = if (offline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = if (offline) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = RoundedCornerShape(50)) {
+        Text(if (offline) "Offline" else "Connected", style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
     }
 }
