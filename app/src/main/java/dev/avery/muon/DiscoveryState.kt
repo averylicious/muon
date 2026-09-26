@@ -61,3 +61,13 @@ internal class DiscoveryScan<T>(private val limit: Int = 64) {
 /** DNS names are case-insensitive; Android may include root/local-domain suffixes. */
 internal fun normalizedDiscoveryType(value: String): String =
     value.trim().trim('.').lowercase(Locale.ROOT).removeSuffix(".local")
+
+/**
+ * The server to connect to without asking (#39), or null to leave it to the user: only a finished scan
+ * that found exactly one server and left nothing unresolved, only once per visit to the Connect
+ * screen, and never once the user has started typing an address of their own.
+ */
+internal fun autoConnectTarget(snapshot: DiscoverySnapshot, alreadyTried: Boolean, userTyped: Boolean): DiscoveredServer? =
+    snapshot.servers.singleOrNull()?.takeIf {
+        !alreadyTried && !userTyped && snapshot.status == DiscoveryStatus.COMPLETE && snapshot.unresolvedCount == 0
+    }
