@@ -21,7 +21,26 @@ class MuonDownloadService : DownloadService(DOWNLOAD_NOTIFICATION, DownloadServi
     DOWNLOAD_CHANNEL, R.string.downloads_channel, 0) {
     private val notifications by lazy { DownloadNotificationHelper(this, DOWNLOAD_CHANNEL) }
 
-    override fun getDownloadManager(): DownloadManager = OfflineStore.get(this).manager
+    override fun getDownloadManager(): DownloadManager = OfflineStore.get(this).phone.manager
+
+    override fun getScheduler(): Scheduler? = null
+
+    override fun getForegroundNotification(downloads: MutableList<Download>, notMetRequirements: Int): Notification =
+        notifications.buildProgressNotification(this, R.drawable.ic_notification, null, null, downloads, notMetRequirements)
+}
+
+private const val CARD_NOTIFICATION = 3
+
+/**
+ * Downloads to the SD card (#112): the same as [MuonDownloadService], for the card's own manager. Only
+ * started while a card is in; should it be asked with none, it serves the phone's instead.
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadService.DEFAULT_FOREGROUND_NOTIFICATION_UPDATE_INTERVAL,
+    DOWNLOAD_CHANNEL, R.string.downloads_channel, 0) {
+    private val notifications by lazy { DownloadNotificationHelper(this, DOWNLOAD_CHANNEL) }
+
+    override fun getDownloadManager(): DownloadManager = OfflineStore.get(this).let { (it.card ?: it.phone).manager }
 
     override fun getScheduler(): Scheduler? = null
 
