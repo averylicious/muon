@@ -56,7 +56,7 @@ internal class PlayedSongEvictor(limit: Long, private val report: (Long) -> Unit
     override fun onCacheInitialized() = Unit
     override fun onStartFile(cache: Cache, key: String, position: Long, length: Long) {
         this.cache = cache
-        if (key.startsWith(PLAYED_PREFIX) && length != C.LENGTH_UNSET) evict(cache, length, keep = key)
+        if (key.startsWith(PLAYED_PREFIX) && length != C.LENGTH_UNSET.toLong()) evict(cache, length, keep = key)
     }
     override fun onSpanAdded(cache: Cache, span: CacheSpan) {
         this.cache = cache

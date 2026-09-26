@@ -126,7 +126,7 @@ internal object OfflineStore {
         val cache = get(context).cache
         val key = playedKey(id)
         val length = ContentMetadata.getContentLength(cache.getContentMetadata(key))
-        length != C.LENGTH_UNSET && cache.isCached(key, 0, length)
+        length != C.LENGTH_UNSET.toLong() && cache.isCached(key, 0, length)
     }.getOrDefault(false)
 
     /**
@@ -197,7 +197,7 @@ internal object OfflineStore {
             val have = songs.mapTo(HashSet()) { it.id }
             cache.keys.filter { it.startsWith(playedKey("$origin/")) }.forEach { key ->
                 val id = key.removePrefix(PLAYED_PREFIX)
-                val song = cache.getContentMetadata(key).get(SONG_METADATA, null)?.let(::decodeSong) ?: return@forEach
+                val song = cache.getContentMetadata(key).get(SONG_METADATA, null as ByteArray?)?.let(::decodeSong) ?: return@forEach
                 if (song.id !in have && downloadId(origin, song.id) == id && playedCopy(context, id)) { songs += song; have += song.id }
             }
         }
