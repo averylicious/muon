@@ -68,7 +68,7 @@ internal object LanProbe {
             val source = response.body?.source()
             if (!response.isSuccessful || source == null || source.request(4097)) return@use null
             if (JSONObject(source.readUtf8()).optInt("version") != 1) return@use null
-            DiscoveredServer("Tauon at $host", endpoint.origin)
+            DiscoveredServer("Tauon", endpoint.origin)
         }
     }.getOrNull()
 }

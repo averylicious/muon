@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,7 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,59 +48,100 @@ internal fun ConnectScreen(model: LibraryModel) {
             model.connect()
         }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Spacer(Modifier.height(18.dp))
-        Text("MUON", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.screenTitle,
-            fontWeight = FontWeight.Bold)
-        Text("Stream your Tauon collection to this device. Original audio, your playlists, wherever your LAN reaches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        SettingsCard("Connect to Tauon desktop") {
-            Text("Enable remote control in Tauon and restart it. Keep both devices on the same trusted LAN.")
-            OutlinedTextField(model.address, { model.address = it; typed = true }, label = { Text("Server address") },
-                placeholder = { Text("192.168.1.10:7814") }, singleLine = true,
-                enabled = !model.busy, modifier = Modifier.fillMaxWidth())
-            Button(onClick = { model.connect() }, enabled = !model.busy && model.address.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                Text(if (model.busy) "Connecting…" else "Connect")
+    val colors = MaterialTheme.colorScheme
+    // Mockup 17: a tinted page with the bold greeting — the one deliberate exception to the app's
+    // medium titles — then the address card, what was found on this network, and what is on this phone.
+    Column(Modifier.fillMaxSize().background(colors.surfaceContainer).verticalScroll(rememberScrollState())
+        .padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+        Text("Bring your\nlibrary along.", style = MaterialTheme.typography.screenTitle, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 40.dp))
+        Text("Play your Tauon library on this phone, over your own network.",
+            style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant,
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 24.dp))
+        Surface(shape = RoundedCornerShape(28.dp), color = colors.surfaceContainerLowest, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Server address", style = MaterialTheme.typography.titleSmall, color = colors.onSurfaceVariant)
+                OutlinedTextField(model.address, { model.address = it; typed = true },
+                    placeholder = { Text("192.168.1.10:7814") }, singleLine = true, shape = RoundedCornerShape(16.dp),
+                    enabled = !model.busy, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { model.connect() }, enabled = !model.busy && model.address.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                    Text(if (model.busy) "Connecting…" else "Connect", style = MaterialTheme.typography.titleMedium)
+                }
+                if (model.busy) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant)
+                }
             }
-            if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall)
-            if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
-        model.error?.let { ErrorCard(it, modifier = Modifier) }
-        if (downloaded > 0) SettingsCard("Listen offline") {
-            Text("$downloaded downloaded ${if (downloaded == 1) "song plays" else "songs play"} without Tauon.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            FilledTonalButton(onClick = { model.listenOffline() }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) {
-                MuonIcon("download", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Open my downloads")
-            }
-        }
-        SettingsCard("Find Tauon on my LAN") {
-            Text(when {
-                scan.status == DiscoveryStatus.SEARCHING -> "Looking for Tauon on this network…"
-                scan.servers.isEmpty() -> "No Tauon found on this network. Check that its remote control is on, or type its address above."
-                scan.servers.size == 1 -> "Found Tauon."
-                else -> "Found ${scan.servers.size}. Choose one."
-            }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (scan.status == DiscoveryStatus.SEARCHING) LinearProgressIndicator(Modifier.fillMaxWidth())
-            else OutlinedButton(onClick = { round++ }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Scan again") }
+        model.error?.let { ErrorCard(it, modifier = Modifier.padding(top = 12.dp)) }
+
+        GroupHeading("On this network")
+        val found = scan.servers
+        val rows = found.size + 1
+        found.forEachIndexed { i, server ->
             // Choosing a server connects to it: there is nothing left to confirm.
-            scan.servers.forEach { server ->
-                DiscoveredServer(server.name, server.origin, enabled = !model.busy) { model.address = server.origin; model.connect() }
+            GroupRow(groupShape(i, rows), onClick = { model.address = server.origin; model.connect() },
+                enabled = !model.busy, label = "Connect") {
+                Column(Modifier.weight(1f)) {
+                    Text(server.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(server.origin.removePrefix("http://"), style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("Use", style = MaterialTheme.typography.labelLarge, color = colors.primary)
             }
         }
-        PrivacyNote()
+        val searching = scan.status == DiscoveryStatus.SEARCHING
+        GroupRow(groupShape(rows - 1, rows), onClick = { round++ }, enabled = !searching && !model.busy, label = "Scan again") {
+            if (searching) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("Looking for Tauon…", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp))
+            } else Column {
+                Text("Scan again", style = MaterialTheme.typography.titleMedium, color = colors.primary)
+                if (found.isEmpty()) Text("Nothing found. Check that Tauon's remote control is on, or type its address.",
+                    style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            }
+        }
+
+        // Downloads open without a server (#112).
+        if (downloaded > 0) {
+            GroupHeading("On this phone")
+            GroupRow(groupShape(0, 1), onClick = { model.listenOffline() }, enabled = !model.busy, label = "Open my downloads") {
+                Column(Modifier.weight(1f)) {
+                    Text("My downloads", style = MaterialTheme.typography.titleMedium)
+                    Text("$downloaded ${if (downloaded == 1) "song plays" else "songs play"} without Tauon",
+                        style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                }
+                Text("Open", style = MaterialTheme.typography.labelLarge, color = colors.primary)
+            }
+        }
+
+        Text("Tauon's API has no login or encryption. Only connect on a network you trust.",
+            style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 28.dp))
     }
 }
 
 @Composable
-private fun DiscoveredServer(name: String, url: String, enabled: Boolean, use: () -> Unit) {
-    // A found server is a list entry, not a button with two lines of text crammed into it.
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = enabled, onClickLabel = "Connect", onClick = use)
-        .padding(vertical = 10.dp, horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Text("Connect", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+private fun GroupHeading(text: String) {
+    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 8.dp, top = 28.dp, bottom = 8.dp))
+}
+
+/** Rows of one group touch with small inner corners and round only at the group's ends, as in Settings. */
+private fun groupShape(index: Int, count: Int) = RoundedCornerShape(
+    topStart = if (index == 0) 24.dp else 4.dp, topEnd = if (index == 0) 24.dp else 4.dp,
+    bottomStart = if (index == count - 1) 24.dp else 4.dp, bottomEnd = if (index == count - 1) 24.dp else 4.dp)
+
+@Composable
+private fun GroupRow(shape: RoundedCornerShape, onClick: () -> Unit, enabled: Boolean, label: String,
+    content: @Composable RowScope.() -> Unit) {
+    Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
+        Row(Modifier.clickable(enabled = enabled, onClickLabel = label, onClick = onClick)
+            .heightIn(min = 64.dp).padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, content = content)
     }
 }
