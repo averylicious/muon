@@ -6,7 +6,7 @@ import org.junit.Test
 class OfflineDownloadsTest {
     @Test fun aDownloadIsKeyedAsThePlayerKeysTheSong() {
         val endpoint = ServerEndpoint.parse("192.168.1.10")
-        // TauonTrack.mediaItem sets its media ID to "${'$'}{endpoint.origin}/${'$'}id".
+        // TauonTrack.mediaItem sets its media ID to the origin, a slash and the track ID.
         assertEquals("http://192.168.1.10:7814/42", downloadId(endpoint.origin, 42))
     }
 
