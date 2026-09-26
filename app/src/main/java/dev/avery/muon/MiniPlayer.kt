@@ -1,6 +1,9 @@
 package dev.avery.muon
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.awaitHorizontalDragOrCancellation
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -13,6 +16,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -21,14 +30,29 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+
+/** The least a slow sideways swipe on the mini player must travel to skip; a quarter of its width asks more. */
+internal val MINI_SWIPE_MIN = 48.dp
+
+/** A sideways flick at least this fast (per second) skips even if it fell short of the distance. */
+internal val MINI_SWIPE_FLICK = 700.dp
 
 @Composable
 internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, active: Boolean,
-    sheet: PlayerSheet?, open: () -> Unit, toggle: () -> Unit, next: () -> Unit) {
+    sheet: PlayerSheet?, open: () -> Unit, toggle: () -> Unit, next: () -> Unit, previous: () -> Unit) {
     val canOpen by rememberUpdatedState(active)
     // A drag hands the player over when it ends, which can be a long time after it began, so the
     // action is read then rather than captured when the gesture detector was set up.
     val current by rememberUpdatedState(open)
+    // A sideways swipe skips (#128): the content follows the finger, leaves on the side it was swiped
+    // to, and the new track slides in from the other. Read when the swipe ends, like [open].
+    val latest by rememberUpdatedState(p)
+    val skipNext by rememberUpdatedState(next)
+    val skipPrevious by rememberUpdatedState(previous)
+    val swipe = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     // Attached to the navigation bar rather than floating above it: it was a card wedged against
     // the bottom chrome, so it now shares an edge with it and only rounds its top corners.
     Surface(color = MaterialTheme.colorScheme.surfaceVariant,
@@ -38,6 +62,62 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
             // taps: a drag only becomes a drag once it has passed the touch slop that the detector
             // applies before it reports anything.
             .clickable(enabled = active, onClickLabel = "Open Now Playing", onClick = open)
+            .semantics {
+                if (active && ready && p.previous) customActions = listOf(
+                    CustomAccessibilityAction("Previous track") { previous(); true })
+            }
+            // Sideways, alongside the upward drag below. Each waits for its own axis to cross the touch
+            // slop and consumes the move that did; the other sees it consumed and stands down, so only
+            // one axis ever owns a gesture.
+            .pointerInput(active, ready, rtl) {
+                if (!active || !ready) return@pointerInput
+                val minimum = MINI_SWIPE_MIN.toPx()
+                val flick = MINI_SWIPE_FLICK.toPx()
+                // Left is next; in a right-to-left layout, right is.
+                fun logical(x: Float) = if (rtl) -x else x
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val tracker = VelocityTracker()
+                    tracker.addPosition(down.uptimeMillis, down.position)
+                    var drag = 0f
+                    val start = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
+                        change.consume()
+                        drag = over
+                    } ?: return@awaitEachGesture
+                    tracker.addPosition(start.uptimeMillis, start.position)
+                    // Belongs to the track it began on, and to what the player would then accept.
+                    val item = latest.item?.mediaId
+                    val hasNext = latest.next
+                    val hasPrevious = latest.previous
+                    fun show() {
+                        val shown = clampedSwipeOffset(logical(swipeOffset(logical(drag), hasNext, hasPrevious)), size.width)
+                        scope.launch { swipe.snapTo(shown) }
+                    }
+                    show()
+                    var lifted = false
+                    while (true) {
+                        val change = awaitHorizontalDragOrCancellation(start.id) ?: break
+                        tracker.addPosition(change.uptimeMillis, change.position)
+                        if (change.changedToUpIgnoreConsumed()) { lifted = true; break }
+                        drag += change.positionChange().x
+                        change.consume()
+                        show()
+                    }
+                    val action = if (!lifted || latest.item?.mediaId != item) SwipeAction.None
+                        else miniSwipeAction(logical(drag), logical(tracker.calculateVelocity().x), size.width,
+                            minimum, flick, hasNext, hasPrevious)
+                    val width = size.width.toFloat()
+                    scope.launch {
+                        if (action == SwipeAction.None) { swipe.animateTo(0f, motionMedium()); return@launch }
+                        // Off towards where the finger was going, then in from the other side.
+                        val away = logical(if (action == SwipeAction.Next) -width else width)
+                        swipe.animateTo(away, motionShort())
+                        if (action == SwipeAction.Next) skipNext() else skipPrevious()
+                        swipe.snapTo(-away * 0.4f)
+                        swipe.animateTo(0f, motionMedium())
+                    }
+                }
+            }
             // The mini player itself stays put: the whole player rises under the finger instead,
             // through the sheet that owns its only vertical position. The keys do not change
             // during a preview — the player is still logically closed — so the stream that began
@@ -131,7 +211,10 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
         Column {
             LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
                 modifier = Modifier.fillMaxWidth().height(2.dp))
-            Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            Row(Modifier.graphicsLayer {
+                    translationX = swipe.value
+                    alpha = 1f - 0.7f * (kotlin.math.abs(swipe.value) / size.width.coerceAtLeast(1f)).coerceAtMost(1f)
+                }.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Artwork(p.item?.mediaMetadata?.artworkUri?.toString(), Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {

@@ -68,3 +68,20 @@ internal fun swipeTargetUnchanged(start: SwipeTarget?, now: SwipeTarget?): Boole
  */
 internal fun clampedSwipeOffset(offset: Float, width: Int): Float =
     offset.coerceIn(-width.toFloat(), width.toFloat())
+
+/**
+ * A swipe on the mini player (#128): [swipeAction] on the distance, or a quick flick that falls short
+ * of it, in the same direction as the finger travelled. Left is next and right is previous, with
+ * [drag] and [velocity] already mirrored for right-to-left layouts. A track that is not there is
+ * never selected.
+ */
+internal fun miniSwipeAction(drag: Float, velocity: Float, width: Int, minimum: Float, flick: Float,
+    hasNext: Boolean, hasPrevious: Boolean): SwipeAction {
+    val byDistance = swipeAction(drag, width, minimum, hasNext, hasPrevious)
+    if (byDistance != SwipeAction.None) return byDistance
+    return when {
+        velocity <= -flick && drag < 0f && hasNext -> SwipeAction.Next
+        velocity >= flick && drag > 0f && hasPrevious -> SwipeAction.Previous
+        else -> SwipeAction.None
+    }
+}
