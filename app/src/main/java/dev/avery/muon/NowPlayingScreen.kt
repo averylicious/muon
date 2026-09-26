@@ -4,6 +4,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
@@ -14,7 +15,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -28,6 +28,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -165,6 +166,9 @@ private val VolumeIconGap = 8.dp
 
 /** A deliberate drag, not a flick: below this the artwork springs back. */
 private val SwipeMinimum = 48.dp
+/** How long a committed card takes to leave, and how long it waits off-screen for the player. */
+private const val STACK_DEAL_MS = 180
+private const val STACK_RETURN_MS = 700L
 private val SwipeSpring = spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy,
     stiffness = Spring.StiffnessMediumLow)
 
@@ -260,9 +264,10 @@ private fun ArtworkGesture(p: PlaybackUi, player: MediaController?, shown: Int,
     val displayed = remember { player?.let { swipeTarget(it, shown) } }
     // The covers load through the usual bounded Artwork cache, once per group.
     val sides = remember { neighbours(player, displayed) }
+    // Each cover is its own card rather than a window onto a strip (#65): the playing one is dealt
+    // off the top of the stack, tilting as it goes, and the neighbour it reveals grows into place.
+    val card = RoundedCornerShape(24.dp)
     Box(modifier
-        // The neighbours wait outside the viewport until a drag pulls them in.
-        .clip(RoundedCornerShape(24.dp))
         .pointerInput(Unit) {
             val minimum = SwipeMinimum.toPx()
             // Kept here rather than in state: a drag must not recompose anything to move pixels.
@@ -305,8 +310,17 @@ private fun ArtworkGesture(p: PlaybackUi, player: MediaController?, shown: Int,
                         haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                         if (action == SwipeAction.Next) live?.seekToNextMediaItem()
                         else live?.seekToPreviousMediaItem()
-                    }
-                    recentre()
+                        // The top card carries on off the side it was going; the player's event then
+                        // rebuilds this group with the revealed cover on top. Only if that never comes
+                        // does the card return.
+                        val away = size.width * 1.3f * (if (action == SwipeAction.Next) -1 else 1)
+                        moving?.cancel()
+                        moving = scope.launch {
+                            offset.animateTo(away, tween(STACK_DEAL_MS))
+                            delay(STACK_RETURN_MS)
+                            offset.animateTo(0f, SwipeSpring)
+                        }
+                    } else recentre()
                 },
                 onHorizontalDrag = { change, delta ->
                     change.consume()
@@ -329,12 +343,27 @@ private fun ArtworkGesture(p: PlaybackUi, player: MediaController?, shown: Int,
             )
         }
     ) {
-        if (sides.hasPrevious) Artwork(sides.previous,
-            Modifier.matchParentSize().graphicsLayer { translationX = offset.value - size.width })
-        if (sides.hasNext) Artwork(sides.next,
-            Modifier.matchParentSize().graphicsLayer { translationX = offset.value + size.width })
+        // Beneath: whichever neighbour the top card is moving away from, drawn only while it shows.
+        fun Modifier.under(towardsNext: Boolean) = graphicsLayer {
+            val fraction = offset.value / size.width.coerceAtLeast(1f)
+            val showing = if (towardsNext) fraction < 0f else fraction > 0f
+            val pose = stackPose(fraction)
+            alpha = if (showing) pose.underAlpha else 0f
+            scaleX = pose.underScale; scaleY = pose.underScale
+            shape = card; clip = true
+        }
+        if (sides.hasPrevious) Artwork(sides.previous, Modifier.matchParentSize().under(towardsNext = false))
+        if (sides.hasNext) Artwork(sides.next, Modifier.matchParentSize().under(towardsNext = true))
         Artwork(p.item?.mediaMetadata?.artworkUri?.toString(),
-            Modifier.matchParentSize().graphicsLayer { translationX = offset.value })
+            Modifier.matchParentSize().graphicsLayer {
+                val pose = stackPose(offset.value / size.width.coerceAtLeast(1f))
+                translationX = offset.value
+                rotationZ = pose.cardTilt
+                scaleX = pose.cardScale; scaleY = pose.cardScale
+                // Lifted off the stack while it moves, flat again at rest.
+                shadowElevation = (kotlin.math.abs(offset.value) / 12f).coerceAtMost(12.dp.toPx())
+                shape = card; clip = true
+            })
     }
 }
 

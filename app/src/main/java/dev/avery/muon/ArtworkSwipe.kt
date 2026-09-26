@@ -85,3 +85,21 @@ internal fun miniSwipeAction(drag: Float, velocity: Float, width: Int, minimum: 
         else -> SwipeAction.None
     }
 }
+
+/**
+ * How the stacked covers look part-way through a swipe (#65). [fraction] is the top card's offset as
+ * a share of its width, negative towards the next track. The top card shrinks a little and tilts the
+ * way it is going; the card beneath — the neighbour in that direction — grows towards full size and
+ * fades in, so at rest nothing peeks out and the screen is as it always was.
+ */
+internal data class StackPose(val cardScale: Float, val cardTilt: Float, val underScale: Float, val underAlpha: Float)
+
+internal fun stackPose(fraction: Float): StackPose {
+    val f = fraction.coerceIn(-1f, 1f)
+    val reach = kotlin.math.abs(f)
+    return StackPose(cardScale = 1f - 0.06f * reach, cardTilt = STACK_TILT * f,
+        underScale = 0.88f + 0.12f * reach, underAlpha = (reach * 3f).coerceAtMost(1f))
+}
+
+/** Degrees the top card turns by the time it has moved its own width. */
+internal const val STACK_TILT = 8f
