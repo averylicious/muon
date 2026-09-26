@@ -49,7 +49,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 val load = combineLoad(lists, loaded, previous)
                 // Nothing at all to show: handled as a failed connection, exactly as before.
                 if (lists.isNotEmpty() && load.tracks.isEmpty()) throw firstFailure ?: IllegalStateException("No playlists loaded")
-                endpoint = e; playlists = load.playlists; tracksByPlaylist = load.tracks; offline = false
+                endpoint = e; playlists = load.playlists; tracksByPlaylist = load.tracks; offline = false; OfflineStore.offline = false
                 address = e.origin; prefs.edit().putString("origin", e.origin).apply()
                 if (load.failed > 0) error = partialLoadMessage(load.failed, lists.size)
                 progress = "Connected · ${allTracks.size} tracks"
@@ -70,8 +70,9 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     }
     private fun showOffline(server: ServerEndpoint, songs: List<TauonTrack>) {
         endpoint = server; playlists = emptyList(); tracksByPlaylist = mapOf(OFFLINE_LIBRARY to songs); offline = true
+        OfflineStore.offline = true
         error = OFFLINE_NOTE
-        progress = "Offline · ${songs.size} downloaded ${if (songs.size == 1) "song" else "songs"}"
+        progress = "Offline · ${songs.size} ${if (songs.size == 1) "song" else "songs"} on this phone"
     }
 
     /**
@@ -99,6 +100,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnect() {
         job?.cancel(); busy = false; endpoint = null; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = false
+        OfflineStore.offline = false
         prefs.edit().clear().apply(); address = ""; error = null; progress = ""
     }
 }

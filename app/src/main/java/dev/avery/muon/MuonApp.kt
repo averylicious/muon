@@ -263,6 +263,19 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // passing choice, and a rotation that closes it loses nothing.
         var actionTrack by remember { mutableStateOf<TauonTrack?>(null) }
         val snackbar = remember { SnackbarHostState() }
+        // Once the played-song cache fills, say so once per limit (#112): nothing is lost, the oldest
+        // songs make room, but a bigger limit keeps more, and Settings is where it is.
+        val cacheIsFull = cacheFull(PlayedCacheState.used, PlayedCacheState.limit)
+        LaunchedEffect(cacheIsFull) {
+            if (!cacheIsFull) return@LaunchedEffect
+            val limit = PlayedCacheState.limit
+            val prefs = context.getSharedPreferences("storage", android.content.Context.MODE_PRIVATE)
+            if (prefs.getLong("fullNoticed", 0L) == limit) return@LaunchedEffect
+            prefs.edit().putLong("fullNoticed", limit).apply()
+            val result = snackbar.showSnackbar("The played-song cache is full (${formatBytes(limit)}). The oldest songs now make room.",
+                actionLabel = "Settings", duration = SnackbarDuration.Long)
+            if (result == SnackbarResult.ActionPerformed) tab = Tab.Settings
+        }
         // Play next goes straight after the playing song and Add to queue at the end; the shuffle
         // order keeps both there with shuffle on. With nothing queued, the song simply plays. Undo
         // takes back that same entry, found again if the queue has moved since.
@@ -344,7 +357,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         AnimatedVisibility(connected && model.error != null && tab != Tab.Settings,
                             enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
                             exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
-                            ErrorCard(model.error.orEmpty(), "Retry") { model.connect() }
+                            ErrorCard(model.error.orEmpty(), "Retry", quiet = model.offline) { model.connect() }
                         }
                         BusyStrip(model.busy && connected)
                         // Tabs are siblings, so this fades with a small lift rather than sliding sideways.

@@ -65,7 +65,7 @@ internal fun ConnectScreen(model: LibraryModel) {
             if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall)
             if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
-        model.error?.let { ErrorCard(it) }
+        model.error?.let { ErrorCard(it, modifier = Modifier) }
         if (downloaded > 0) SettingsCard("Listen offline") {
             Text("$downloaded downloaded ${if (downloaded == 1) "song plays" else "songs play"} without Tauon.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant)

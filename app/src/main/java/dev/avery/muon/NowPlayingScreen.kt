@@ -90,7 +90,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (p.error != null) ErrorCard(p.error, "Retry stream") { player?.prepare(); player?.play() }
+            if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
             if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
             SeekControls(p.item.mediaId, position, p.duration, p.seekable, player)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
