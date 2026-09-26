@@ -71,7 +71,7 @@ jobs:
 
       - name: Install Android SDK packages
         if: steps.scope.outputs.build_apks == 'true'
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
 
       - name: Restore signing keys
         if: steps.scope.outputs.build_apks == 'true'
@@ -105,10 +105,10 @@ jobs:
         if: steps.scope.outputs.build_apks == 'true'
         run: |
           set -euo pipefail
-          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          apksigner="$ANDROID_HOME/build-tools/37.0.0/apksigner"
           "$apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
           "$apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
-          python3 tools/verify-apks.py "$ANDROID_HOME/build-tools/36.0.0"
+          python3 tools/verify-apks.py "$ANDROID_HOME/build-tools/37.0.0"
           mkdir -p artifacts/debug artifacts/release
           cp app/build/outputs/apk/debug/app-debug.apk artifacts/debug/
           cp app/build/outputs/apk/release/app-release.apk artifacts/release/
