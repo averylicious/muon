@@ -121,7 +121,9 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                 verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.widthIn(min = 28.dp), contentAlignment = Alignment.CenterStart) {
                     if (current) NowPlayingBars(playing)
-                    else Text(albumTrackNumber(track.trackNumber, i), style = MaterialTheme.typography.labelLarge,
+                    // Counted down the page (the user's choice): an album the library holds only part of would
+                    // otherwise read 2, 12 or skip a number where its tags leave gaps.
+                    else Text("${i + 1}", style = MaterialTheme.typography.labelLarge,
                         color = colors.onSurfaceVariant)
                 }
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {

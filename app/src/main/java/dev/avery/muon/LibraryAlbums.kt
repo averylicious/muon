@@ -29,15 +29,6 @@ internal fun sortAlbums(albums: List<LibraryAlbum>, order: AlbumOrder,
 internal fun albumSummary(tracks: List<TauonTrack>): String =
     queueSummary(tracks.size, queueLength(tracks.map { it.durationMs.takeIf { d -> d > 0 } }))
 
-/**
- * The number beside a song on its album page: the track-number tag's leading digits ("3" from "3/12"
- * or "03"), or its place on the page when the tag has none.
- */
-internal fun albumTrackNumber(tag: String, position: Int): String {
-    val tagged = tag.trim().takeWhile { it.isDigit() }.toIntOrNull()
-    return (tagged?.takeIf { it > 0 } ?: (position + 1)).toString()
-}
-
 /** One snapshot's albums and the server they were grouped for; the same terms as [ArtistGroups]. */
 internal class AlbumGroups(val origin: String, val snapshot: LibrarySnapshot, val albums: List<LibraryAlbum>)
 

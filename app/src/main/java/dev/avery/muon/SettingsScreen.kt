@@ -105,7 +105,6 @@ private fun StorageGroup(clear: () -> Unit) {
     val used = PlayedCacheState.used
     val limit = PlayedCacheState.limit
     val full = cacheFull(used, limit)
-    var choosing by rememberSaveable { mutableStateOf(false) }
     // Free space where the downloads live, read once per visit; it changes slowly.
     val free = remember { runCatching { android.os.StatFs(context.filesDir.path).availableBytes }.getOrDefault(0L) }
     // Offered only while a removable card is in and was found when the store opened; with none, the row
@@ -123,10 +122,23 @@ private fun StorageGroup(clear: () -> Unit) {
         SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
             supporting = "${formatBytes(used)} of ${formatBytes(limit)}" + if (full) " · full, oldest songs make room" else "",
             trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } })
-        SettingsRow(shape = rowShape(2, rows), headline = "Cache limit", supporting = formatBytes(limit),
-            headlineColor = if (full) colors.primary else Color.Unspecified,
-            trailing = { MuonIcon("collapse", Modifier.size(20.dp)) },
-            modifier = Modifier.clickable(onClickLabel = "Change cache limit") { choosing = true })
+        // The limit is chosen right here, from four sizes side by side, rather than in a dialog.
+        Surface(shape = rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)) {
+                Text("Cache limit", style = MaterialTheme.typography.bodyLarge,
+                    color = if (full) colors.primary else colors.onSurface)
+                Text("How much recent listening to keep", style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    CACHE_LIMITS.forEachIndexed { index, option ->
+                        SegmentedButton(selected = option == limit, onClick = { OfflineStore.setCacheLimit(context, option) },
+                            shape = SegmentedButtonDefaults.itemShape(index, CACHE_LIMITS.size), icon = {}) {
+                            Text(formatBytes(option), maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+            }
+        }
         SettingsRow(shape = rowShape(3, rows), headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
         if (card != null) {
             val cardName = remember(card) { cardDescription(context, card) }
@@ -146,21 +158,6 @@ private fun StorageGroup(clear: () -> Unit) {
         "Downloaded songs stay until you remove them. Lossless streams play from memory and never touch storage.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
-    if (choosing) AlertDialog(onDismissRequest = { choosing = false },
-        title = { Text("Cache limit") },
-        text = {
-            Column {
-                CACHE_LIMITS.forEach { option ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                        .clickable { OfflineStore.setCacheLimit(context, option); choosing = false }
-                        .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = option == limit, onClick = null)
-                        Text(formatBytes(option), modifier = Modifier.padding(start = 12.dp))
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { choosing = false }) { Text("Done") } })
 }
 
 /**
