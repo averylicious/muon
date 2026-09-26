@@ -35,13 +35,23 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 val api = TauonApi(e)
                 progress = "Connecting to Tauon…"; api.connect()
                 val lists = api.playlists()
-                val tracks = linkedMapOf<String, List<TauonTrack>>()
+                val loaded = linkedMapOf<String, List<TauonTrack>>()
+                var firstFailure: Exception? = null
                 lists.forEachIndexed { i, list ->
                     progress = "Loading playlists ${i + 1} / ${lists.size}"
-                    tracks[list.id] = api.tracks(list.id)
+                    // One playlist failing no longer throws the rest away (#53).
+                    try { loaded[list.id] = api.tracks(list.id) }
+                    catch (failure: CancellationException) { throw failure }
+                    catch (failure: Exception) { if (firstFailure == null) firstFailure = failure }
                 }
-                endpoint = e; playlists = lists; tracksByPlaylist = tracks; offline = false
+                // Only this server's own last library can fill a gap; never another's, nor the offline one.
+                val previous = tracksByPlaylist.takeIf { endpoint?.origin == e.origin && !offline }
+                val load = combineLoad(lists, loaded, previous)
+                // Nothing at all to show: handled as a failed connection, exactly as before.
+                if (lists.isNotEmpty() && load.tracks.isEmpty()) throw firstFailure ?: IllegalStateException("No playlists loaded")
+                endpoint = e; playlists = load.playlists; tracksByPlaylist = load.tracks; offline = false
                 address = e.origin; prefs.edit().putString("origin", e.origin).apply()
+                if (load.failed > 0) error = partialLoadMessage(load.failed, lists.size)
                 progress = "Connected · ${allTracks.size} tracks"
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
