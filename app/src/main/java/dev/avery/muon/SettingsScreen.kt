@@ -1,6 +1,7 @@
 package dev.avery.muon
 
 import android.os.Build
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -11,7 +12,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -96,17 +99,90 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
  */
 @Composable
 private fun StorageGroup(clear: () -> Unit) {
+    val context = LocalContext.current
+    val colors = MaterialTheme.colorScheme
     val songs = DownloadMarks.marks.values.count { it == DownloadMark.Done }
+    val used = PlayedCacheState.used
+    val limit = PlayedCacheState.limit
+    val full = cacheFull(used, limit)
+    var choosing by rememberSaveable { mutableStateOf(false) }
+    // Free space where the downloads live, read once per visit; it changes slowly.
+    val free = remember { runCatching { android.os.StatFs(context.filesDir.path).availableBytes }.getOrDefault(0L) }
+    StorageBar(DownloadMarks.bytes, used, free)
     SettingsGroup {
-        SettingsRow(shape = rowShape(0, 2), headline = "Downloads",
+        SettingsRow(shape = rowShape(0, 4), headline = "Downloads",
             supporting = if (songs == 0) "None yet. Long-press a song, or use Download all on an album or artist."
                 else "$songs ${if (songs == 1) "song" else "songs"} · ${formatBytes(DownloadMarks.bytes)}",
             trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } })
-        SettingsRow(shape = rowShape(1, 2), headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
+        // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
+        SettingsRow(shape = rowShape(1, 4), headline = "Played-song cache",
+            supporting = "${formatBytes(used)} of ${formatBytes(limit)}" + if (full) " · full, oldest songs make room" else "",
+            trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } })
+        SettingsRow(shape = rowShape(2, 4), headline = "Cache limit", supporting = formatBytes(limit),
+            headlineColor = if (full) colors.primary else Color.Unspecified,
+            trailing = { MuonIcon("collapse", Modifier.size(20.dp)) },
+            modifier = Modifier.clickable(onClickLabel = "Change cache limit") { choosing = true })
+        SettingsRow(shape = rowShape(3, 4), headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
     }
-    Text("Downloaded songs play from the phone, without Tauon. Lossless streams play from memory and never touch storage.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Text("The cache keeps Opus copies of songs you play, so they also play without Tauon. " +
+        "Downloaded songs stay until you remove them. Lossless streams play from memory and never touch storage.",
+        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
+    if (choosing) AlertDialog(onDismissRequest = { choosing = false },
+        title = { Text("Cache limit") },
+        text = {
+            Column {
+                CACHE_LIMITS.forEach { option ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .clickable { OfflineStore.setCacheLimit(context, option); choosing = false }
+                        .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = option == limit, onClick = null)
+                        Text(formatBytes(option), modifier = Modifier.padding(start = 12.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { choosing = false }) { Text("Done") } })
+}
+
+/**
+ * What Muon keeps on the phone (mockup 01): one bar split into downloads, the played-song cache and
+ * the free space left, with a legend.
+ */
+@Composable
+private fun StorageBar(downloads: Long, cache: Long, free: Long) {
+    val colors = MaterialTheme.colorScheme
+    val total = (downloads + cache + free).coerceAtLeast(1)
+    Surface(shape = RoundedCornerShape(GroupOuterCorner), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("Muon uses ${formatBytes(downloads + cache)}", style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f))
+                Text("${formatBytes(free)} free", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            }
+            Row(Modifier.padding(vertical = 12.dp).fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))
+                .background(colors.surfaceVariant)) {
+                if (downloads > 0) Box(Modifier.fillMaxHeight().weight(downloads.toFloat() / total).background(colors.primary))
+                if (cache > 0) Box(Modifier.fillMaxHeight().weight(cache.toFloat() / total).background(colors.primary.copy(alpha = 0.45f)))
+                val rest = 1f - (downloads + cache).toFloat() / total
+                if (rest > 0f) Spacer(Modifier.weight(rest))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Legend(colors.primary, "Downloads")
+                Legend(colors.primary.copy(alpha = 0.45f), "Played-song cache")
+                Legend(colors.surfaceVariant, "Free")
+            }
+        }
+    }
+}
+
+@Composable
+private fun Legend(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(color))
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 6.dp))
+    }
 }
 
 /**

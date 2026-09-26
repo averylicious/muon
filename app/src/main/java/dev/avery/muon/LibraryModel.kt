@@ -49,7 +49,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 val load = combineLoad(lists, loaded, previous)
                 // Nothing at all to show: handled as a failed connection, exactly as before.
                 if (lists.isNotEmpty() && load.tracks.isEmpty()) throw firstFailure ?: IllegalStateException("No playlists loaded")
-                endpoint = e; playlists = load.playlists; tracksByPlaylist = load.tracks; offline = false
+                endpoint = e; playlists = load.playlists; tracksByPlaylist = load.tracks; offline = false; OfflineStore.offline = false
                 address = e.origin; prefs.edit().putString("origin", e.origin).apply()
                 if (load.failed > 0) error = partialLoadMessage(load.failed, lists.size)
                 progress = "Connected · ${allTracks.size} tracks"
@@ -62,6 +62,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 val kept = saved?.let { withContext(Dispatchers.IO) { OfflineStore.downloadedSongs(getApplication<Application>(), it.origin) } }.orEmpty()
                 if (saved != null && kept.isNotEmpty()) {
                     endpoint = saved; playlists = emptyList(); tracksByPlaylist = mapOf(OFFLINE_LIBRARY to kept); offline = true
+                    OfflineStore.offline = true
                     error = "Tauon isn't reachable, so only your downloads are shown."
                     progress = "Offline · ${kept.size} downloaded ${if (kept.size == 1) "song" else "songs"}"
                 } else {
@@ -73,6 +74,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     }
     fun disconnect() {
         job?.cancel(); busy = false; endpoint = null; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = false
+        OfflineStore.offline = false
         prefs.edit().clear().apply(); address = ""; error = null; progress = ""
     }
 }

@@ -40,6 +40,11 @@ class PlaybackService : MediaSessionService() {
         // everything else is still to come rather than wherever an old shuffle had left it.
         player.setShuffleOrder(QueueShuffleOrder())
         player.addListener(object : Player.Listener {
+            // Each song that starts playing is copied for offline listening (#112), behind playback.
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (mediaItem == null || OfflineStore.offline) return
+                OfflineStore.copyPlayed(this@PlaybackService, mediaItem.mediaId, mediaItem.mediaMetadata.extras?.getByteArray(SONG_EXTRA))
+            }
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
                 if (shuffleModeEnabled && player.mediaItemCount > 0)
                     player.setShuffleOrder(QueueShuffleOrder.startingWith(player.mediaItemCount, player.currentMediaItemIndex))
@@ -103,5 +108,7 @@ fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builde
         .setAlbumArtist(displayCredits(albumArtist))
         // Queue display only. Seek/Now Playing must keep using the player's stream duration.
         .setDurationMs(durationMs.takeIf { it > 0 })
-        .setArtworkUri(android.net.Uri.parse(endpoint.url("/api1/pic/medium/$id"))).build())
+        .setArtworkUri(android.net.Uri.parse(endpoint.url("/api1/pic/medium/$id")))
+        // The song's own record, so the service can keep a played copy the offline library can list.
+        .setExtras(android.os.Bundle().apply { putByteArray(SONG_EXTRA, encodeSong(this@mediaItem)) }).build())
     .build()

@@ -4,7 +4,12 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.cache.CacheWriter
+import androidx.media3.datasource.cache.ContentMetadata
+import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.ResolvingDataSource
@@ -26,7 +31,14 @@ import java.util.concurrent.Executors
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal object OfflineStore {
-    class Store(val cache: SimpleCache, val manager: DownloadManager, val art: DownloadArt)
+    class Store(val cache: SimpleCache, val manager: DownloadManager, val art: DownloadArt,
+        val played: PlayedSongEvictor, val prefs: android.content.SharedPreferences)
+
+    /** Set while the library shows only what is on the phone; the player then also plays cached songs. */
+    @Volatile var offline = false
+
+    /** Copies played songs one at a time, behind playback. */
+    private val copier = Executors.newSingleThreadExecutor()
 
     @Volatile private var store: Store? = null
 
@@ -38,8 +50,13 @@ internal object OfflineStore {
 
     private fun create(context: Context): Store {
         val database = StandaloneDatabaseProvider(context)
-        // Downloads stay until removed: nothing is evicted behind the user's back.
-        val cache = SimpleCache(File(context.filesDir, "downloads"), NoOpCacheEvictor(), database)
+        val prefs = context.getSharedPreferences("storage", Context.MODE_PRIVATE)
+        val limit = prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT)
+        val main = Handler(Looper.getMainLooper())
+        PlayedCacheState.limit = limit
+        // Downloads stay until removed: only played-song copies are ever evicted, oldest first.
+        val played = PlayedSongEvictor(limit) { used -> main.post { PlayedCacheState.used = used } }
+        val cache = SimpleCache(File(context.filesDir, "downloads"), played, database)
         val manager = DownloadManager(context, database, cache, OkHttpDataSource.Factory(Transport.client),
             Executors.newFixedThreadPool(2))
         manager.maxParallelDownloads = 2
@@ -71,13 +88,12 @@ internal object OfflineStore {
             }
         })
         // What was downloaded before this launch, read off the main thread and reported on it.
-        val main = Handler(Looper.getMainLooper())
         Executors.newSingleThreadExecutor().execute {
             val known = ArrayList<Download>()
             runCatching { manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
             main.post { known.forEach(::record) }
         }
-        return Store(cache, manager, art)
+        return Store(cache, manager, art, played, prefs)
     }
 
     /** Whether a finished download of [id] is on the phone. Called from the player's loading thread. */
@@ -93,9 +109,60 @@ internal object OfflineStore {
             .setUpstreamDataSourceFactory(upstream).setCacheWriteDataSinkFactory(null)
         return ResolvingDataSource.Factory(cached) { spec ->
             val found = downloadForStream(spec.uri.scheme, spec.uri.encodedAuthority, spec.uri.path)
-            if (found == null || !downloaded(context, found.first)) spec
-            else spec.buildUpon().setUri(Uri.parse(found.second)).setKey(found.first).build()
+            when {
+                found == null -> spec
+                downloaded(context, found.first) -> spec.buildUpon().setUri(Uri.parse(found.second)).setKey(found.first).build()
+                // Recent listening plays from the phone only when Tauon cannot be reached; at home the
+                // original stream is always preferred.
+                offline && playedCopy(context, found.first) -> spec.buildUpon().setUri(Uri.parse(found.second))
+                    .setKey(playedKey(found.first)).build()
+                else -> spec
+            }
         }
+    }
+
+    /** Whether a complete played-song copy of [id] is on the phone. */
+    fun playedCopy(context: Context, id: String): Boolean = runCatching {
+        val cache = get(context).cache
+        val key = playedKey(id)
+        val length = ContentMetadata.getContentLength(cache.getContentMetadata(key))
+        length != C.LENGTH_UNSET && cache.isCached(key, 0, length)
+    }.getOrDefault(false)
+
+    /**
+     * Keeps an Opus copy of a song that has started playing, with its details for the offline library,
+     * unless it is downloaded or already copied. Runs behind playback; a failure leaves nothing to show.
+     */
+    fun copyPlayed(context: Context, id: String, song: ByteArray?) {
+        if (song == null) return
+        val store = get(context)
+        copier.execute {
+            runCatching {
+                if (downloaded(context, id) || playedCopy(context, id)) return@runCatching
+                val origin = id.substringBeforeLast('/')
+                val number = id.substringAfterLast('/')
+                val url = ServerEndpoint.parse(origin).url("/api1/fileopus/$number")
+                val key = playedKey(id)
+                store.cache.applyContentMetadataMutations(key, ContentMetadataMutations().set(SONG_METADATA, song))
+                val source = CacheDataSource.Factory().setCache(store.cache)
+                    .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client)).createDataSourceForDownloading()
+                CacheWriter(source, DataSpec.Builder().setUri(Uri.parse(url)).setKey(key).build(), null, null).cache()
+            }
+        }
+    }
+
+    /** A new cache limit, kept for next time; lowering it makes room at once. */
+    fun setCacheLimit(context: Context, limit: Long) {
+        val store = get(context)
+        store.prefs.edit().putLong("cacheLimit", limit).apply()
+        PlayedCacheState.limit = limit
+        copier.execute { store.played.resize(limit) }
+    }
+
+    /** Empties the played-song cache; downloads stay. */
+    fun clearPlayed(context: Context) {
+        val cache = get(context).cache
+        copier.execute { runCatching { cache.keys.filter { it.startsWith(PLAYED_PREFIX) }.forEach(cache::removeResource) } }
     }
 
     /** Asks for these songs to be downloaded, skipping any already on the phone or on their way. */
@@ -122,6 +189,16 @@ internal object OfflineStore {
                     if (!download.request.id.startsWith("$origin/")) continue
                     decodeSong(download.request.data)?.takeIf { downloadId(origin, it.id) == download.request.id }?.let(songs::add)
                 }
+            }
+        }
+        // And the songs played recently enough to still have a complete copy.
+        runCatching {
+            val cache = get(context).cache
+            val have = songs.mapTo(HashSet()) { it.id }
+            cache.keys.filter { it.startsWith(playedKey("$origin/")) }.forEach { key ->
+                val id = key.removePrefix(PLAYED_PREFIX)
+                val song = cache.getContentMetadata(key).get(SONG_METADATA, null)?.let(::decodeSong) ?: return@forEach
+                if (song.id !in have && downloadId(origin, song.id) == id && playedCopy(context, id)) { songs += song; have += song.id }
             }
         }
         return songs

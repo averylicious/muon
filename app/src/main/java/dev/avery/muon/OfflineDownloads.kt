@@ -84,3 +84,7 @@ internal fun decodeSong(data: ByteArray): TauonTrack? {
 
 /** The key the offline library files its songs under, in place of a playlist. */
 internal const val OFFLINE_LIBRARY = "offline"
+
+/** Where a song's record travels: in its media item's extras, and in its played-song copy's metadata. */
+internal const val SONG_EXTRA = "muon.song"
+internal const val SONG_METADATA = "muon-song"
