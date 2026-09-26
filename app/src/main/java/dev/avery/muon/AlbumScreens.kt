@@ -24,7 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /** An album's cover: its first track's larger picture, which the disk cache keeps (#113). */
-private fun albumArt(endpoint: ServerEndpoint?, album: LibraryAlbum): String? =
+internal fun albumArt(endpoint: ServerEndpoint?, album: LibraryAlbum): String? =
     album.tracks.firstOrNull()?.let { endpoint?.url("/api1/pic/medium/${it.id}") }
 
 /**
@@ -68,13 +68,13 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndpoint?, currentId: String?,
-    playing: Boolean, ready: Boolean, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
+    playing: Boolean, ready: Boolean, backLabel: String = "Back to albums", back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = album?.tracks?.any { it.playable } == true && ready
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
         item(key = "back", contentType = "back") {
             IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
-                .semantics { contentDescription = "Back to albums" }) { MuonIcon("back") }
+                .semantics { contentDescription = backLabel }) { MuonIcon("back") }
         }
         item(key = "header", contentType = "header") {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
