@@ -60,24 +60,53 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 // loaded stays as it was.
                 val saved = if (endpoint == null || offline) runCatching { ServerEndpoint.parse(address) }.getOrNull() else null
                 val kept = saved?.let { withContext(Dispatchers.IO) { OfflineStore.downloadedSongs(getApplication<Application>(), it.origin) } }.orEmpty()
-                if (saved != null && kept.isNotEmpty()) {
-                    endpoint = saved; playlists = emptyList(); tracksByPlaylist = mapOf(OFFLINE_LIBRARY to kept); offline = true
-                    OfflineStore.offline = true
-                    error = "Tauon isn't reachable, so only your downloads are shown."
-                    progress = "Offline · ${kept.size} downloaded ${if (kept.size == 1) "song" else "songs"}"
-                } else {
+                if (saved != null && kept.isNotEmpty()) showOffline(saved, kept)
+                else {
                     error = friendlyError(e)
                     progress = if (endpoint != null) "Showing last loaded library" else "Not connected"
                 }
             } finally { busy = false }
         }
     }
+    private fun showOffline(server: ServerEndpoint, songs: List<TauonTrack>) {
+        endpoint = server; playlists = emptyList(); tracksByPlaylist = mapOf(OFFLINE_LIBRARY to songs); offline = true
+        OfflineStore.offline = true
+        error = OFFLINE_NOTE
+        progress = "Offline · ${songs.size} ${if (songs.size == 1) "song" else "songs"} on this phone"
+    }
+
+    /**
+     * Opens the downloads without a server, from the Connect screen: after Disconnect there is no saved
+     * address to fail over from, but the songs downloaded from it still play. Remembers that server, so
+     * Retry reconnects to it.
+     */
+    fun listenOffline() {
+        if (busy) return
+        OfflineStore.get(getApplication<Application>())
+        job = viewModelScope.launch {
+            busy = true
+            try {
+                val (origin, songs) = withContext(Dispatchers.IO) {
+                    OfflineStore.downloadedLibrary(getApplication<Application>())
+                } ?: return@launch
+                val server = ServerEndpoint.parse(origin)
+                address = server.origin; prefs.edit().putString("origin", server.origin).apply()
+                showOffline(server, songs)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { error = friendlyError(e) }
+            finally { busy = false }
+        }
+    }
+
     fun disconnect() {
         job?.cancel(); busy = false; endpoint = null; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = false
         OfflineStore.offline = false
         prefs.edit().clear().apply(); address = ""; error = null; progress = ""
     }
 }
+/** Shown on the library while it holds only downloads; Retry asks Tauon again. */
+internal const val OFFLINE_NOTE = "Tauon isn't reachable. Your downloads still play."
+
 fun friendlyError(e: Throwable): String = when (e) {
     is java.net.SocketTimeoutException -> "Tauon did not respond. Check the server, LAN firewall and VPN LAN access, then retry."
     is java.net.ConnectException -> "Cannot reach Tauon. Enable remote control, restart Tauon, and check the address."

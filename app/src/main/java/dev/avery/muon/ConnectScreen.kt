@@ -19,16 +19,27 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun ConnectScreen(model: LibraryModel) {
     val context = LocalContext.current
-    var scan by remember { mutableStateOf(DiscoverySnapshot(DiscoveryStatus.IDLE)) }
-    var discoveryMessage by remember { mutableStateOf("") }
-    val discovery = remember { ServerDiscovery(context, { _, _ -> }, { discoveryMessage = it }, { scan = it }) }
+    var nsd by remember { mutableStateOf(DiscoverySnapshot(DiscoveryStatus.IDLE)) }
+    val discovery = remember { ServerDiscovery(context, { _, _ -> }, {}, { nsd = it }) }
     DisposableEffect(discovery) { onDispose { discovery.stop() } }
+    // Discovery, and a direct question to every host on the network, which finds Tauon even when it
+    // is not advertising itself. Null while the probe is still asking.
+    var probe by remember { mutableStateOf<List<DiscoveredServer>?>(null) }
+    var round by remember { mutableIntStateOf(0) }
+    val scan = combineDiscovery(nsd, probe)
+    // Downloads open without a server (#112): offered whenever any are on the phone.
+    LaunchedEffect(Unit) { OfflineStore.get(context) }
+    val downloaded = DownloadMarks.marks.values.count { it == DownloadMark.Done }
     // Looks for Tauon as soon as there is nothing to show (#39): first run, after Disconnect, or when
     // the saved address stopped answering. Exactly one answer is connected to without asking, once
     // per visit, and not over an address the user is typing; several are listed to choose from.
     var autoTried by rememberSaveable { mutableStateOf(false) }
     var typed by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(discovery) { discovery.start() }
+    LaunchedEffect(discovery, round) {
+        discovery.start()
+        probe = null
+        probe = LanProbe.find(context)
+    }
     LaunchedEffect(scan, model.busy) {
         if (model.busy) return@LaunchedEffect
         autoConnectTarget(scan, autoTried, typed)?.let { server ->
@@ -55,13 +66,22 @@ internal fun ConnectScreen(model: LibraryModel) {
             if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
         model.error?.let { ErrorCard(it, modifier = Modifier) }
+        if (downloaded > 0) SettingsCard("Listen offline") {
+            Text("$downloaded downloaded ${if (downloaded == 1) "song plays" else "songs play"} without Tauon.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FilledTonalButton(onClick = { model.listenOffline() }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) {
+                MuonIcon("download", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Open my downloads")
+            }
+        }
         SettingsCard("Find Tauon on my LAN") {
-            Text("Discovery needs Tauon to advertise itself. Typing the address always works.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = { discovery.start() }, enabled = !model.busy && scan.status != DiscoveryStatus.SEARCHING,
-                modifier = Modifier.fillMaxWidth()) { Text(if (scan.status == DiscoveryStatus.IDLE) "Scan this network" else "Scan again") }
+            Text(when {
+                scan.status == DiscoveryStatus.SEARCHING -> "Looking for Tauon on this network…"
+                scan.servers.isEmpty() -> "No Tauon found on this network. Check that its remote control is on, or type its address above."
+                scan.servers.size == 1 -> "Found Tauon."
+                else -> "Found ${scan.servers.size}. Choose one."
+            }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (scan.status == DiscoveryStatus.SEARCHING) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (discoveryMessage.isNotEmpty()) Text(discoveryMessage, style = MaterialTheme.typography.bodySmall)
+            else OutlinedButton(onClick = { round++ }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Scan again") }
             // Choosing a server connects to it: there is nothing left to confirm.
             scan.servers.forEach { server ->
                 DiscoveredServer(server.name, server.origin, enabled = !model.busy) { model.address = server.origin; model.connect() }

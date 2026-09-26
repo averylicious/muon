@@ -204,6 +204,24 @@ internal object OfflineStore {
         return songs
     }
 
+    /**
+     * The server most songs were downloaded from, and those songs: what "Listen offline" opens when
+     * there is no saved server, as after Disconnect. Null with nothing downloaded. Off the main thread.
+     */
+    fun downloadedLibrary(context: Context): Pair<String, List<TauonTrack>>? {
+        val origins = HashMap<String, Int>()
+        runCatching {
+            get(context).manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val origin = cursor.download.request.id.substringBeforeLast('/', "")
+                    if (origin.isNotEmpty()) origins[origin] = (origins[origin] ?: 0) + 1
+                }
+            }
+        }
+        val origin = origins.maxByOrNull { it.value }?.key ?: return null
+        return downloadedSongs(context, origin).takeIf { it.isNotEmpty() }?.let { origin to it }
+    }
+
     /** Removes these downloads, finished or not. */
     fun remove(context: Context, ids: List<String>) = ids.forEach {
         DownloadService.sendRemoveDownload(context, MuonDownloadService::class.java, it, false)
