@@ -1,7 +1,7 @@
 package dev.avery.muon
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -25,7 +25,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
     playing: Boolean, emptyText: String, loading: Boolean = false, state: LazyListState = rememberLazyListState(),
-    sections: ((TauonTrack) -> String)? = null, header: (LazyListScope.() -> Unit)? = null, play: (TauonTrack) -> Unit) {
+    sections: ((TauonTrack) -> String)? = null, header: (LazyListScope.() -> Unit)? = null,
+    actions: ((TauonTrack) -> Unit)? = null, play: (TauonTrack) -> Unit) {
     if (tracks.isEmpty() && loading) PlaceholderRows()
     // A list of one full-height item rather than a plain box: an empty library is exactly when a
     // refresh is wanted, and a pull gesture needs something scrollable to pull.
@@ -50,7 +51,7 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
                 header?.invoke(this)
                 itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
                     TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", playing, ready,
-                        Modifier.animateItem(placementSpec = motionMedium())) { play(t) }
+                        Modifier.animateItem(placementSpec = motionMedium()), actions = actions?.let { { it(t) } }) { play(t) }
                 }
             }
             if (sections != null) AlphabetScroller(indicator, tracks.size) { i ->
@@ -66,7 +67,8 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
  */
 @Composable
 internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean, ready: Boolean,
-    modifier: Modifier = Modifier, subtitle: String = trackSubtitle(t.artist, t.album, t.playable), play: () -> Unit) {
+    modifier: Modifier = Modifier, subtitle: String = trackSubtitle(t.artist, t.album, t.playable),
+    actions: (() -> Unit)? = null, play: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
         .padding(horizontal = 12.dp)
@@ -74,7 +76,9 @@ internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean
         // is marked by something appearing and moving rather than only by a change of hue.
         .clip(RoundedCornerShape(16.dp))
         .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
-        .clickable(enabled = t.playable && ready, onClick = play)
+        // A long press opens the song's actions (#46).
+        .combinedClickable(enabled = t.playable && ready, onLongClickLabel = if (actions != null) "Song actions" else null,
+            onLongClick = actions, onClick = play)
         .padding(horizontal = 12.dp, vertical = 8.dp)
         .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
         verticalAlignment = Alignment.CenterVertically) {

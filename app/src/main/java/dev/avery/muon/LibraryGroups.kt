@@ -47,3 +47,8 @@ internal fun groupArtists(tracks: List<TauonTrack>): List<LibraryArtist> {
     }
     return members.map { (key, items) -> LibraryArtist(key, names.getValue(key), items.toList()) }
 }
+
+/** The keys of the album a track is grouped into and of each artist it is credited to, as grouped above. */
+internal fun trackAlbumKey(track: TauonTrack): String = albumKey(track)
+internal fun trackArtistKeys(track: TauonTrack): List<String> =
+    artistCredits(track.artist).map { "artist:${canonicalTag(it)}" }

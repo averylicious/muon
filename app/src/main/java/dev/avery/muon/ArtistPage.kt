@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
     currentId: String?, playing: Boolean, ready: Boolean, state: LazyListState, backLabel: String = "Back to artists",
-    back: () -> Unit,
+    actions: (TauonTrack) -> Unit, back: () -> Unit,
     playAll: (shuffle: Boolean) -> Unit, openAlbum: (LibraryAlbum) -> Unit, play: (TauonTrack) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = artist?.tracks?.any { it.playable } == true && ready
@@ -89,7 +89,8 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
                     track.album.trim().ifBlank { null }).joinToString(" · ")
             }
             TrackRow(track, endpoint, currentId == "${endpoint?.origin}/${track.id}", playing, ready,
-                subtitle = if (track.playable) subtitle else trackSubtitle(track.artist, track.album, false)) { play(track) }
+                subtitle = if (track.playable) subtitle else trackSubtitle(track.artist, track.album, false),
+                actions = { actions(track) }) { play(track) }
         }
     }
 }
