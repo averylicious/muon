@@ -57,7 +57,7 @@ internal fun libraryHeaderHeight(windowHeight: Float, fontScale: Float): Float? 
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LibraryHeader(tracks: Int, expandedHeight: Float?,
+private fun LibraryHeader(tracks: Int, expandedHeight: Float?, titled: Boolean,
     scrollBehavior: TopAppBarScrollBehavior) {
     val colors = TopAppBarDefaults.topAppBarColors(
         containerColor = MaterialTheme.colorScheme.background,
@@ -65,6 +65,9 @@ private fun LibraryHeader(tracks: Int, expandedHeight: Float?,
     // The scaffold already applies the status bar inset to this content.
     val insets = WindowInsets(0, 0, 0, 0)
     if (expandedHeight == null) {
+        // Beside a rail, whose selected Library already names the screen, a bar saying so again
+        // would spend a short window's height on nothing: the chips start at the top instead.
+        if (!titled) return
         TopAppBar(title = { Text("Library", style = MaterialTheme.typography.barTitle) },
             colors = colors, windowInsets = insets)
     } else {
@@ -106,6 +109,9 @@ private fun Greeting(tracks: Int) {
  * here and closed again returns to the same fold as well as the same row. Otherwise the greeting
  * unfolds on return and pushes the kept row down the screen.
  *
+ * When the window is too short for the greeting it folds to a plain "Library" bar, and beside a
+ * navigation rail ([titled] false) to nothing at all, so a phone on its side shows several rows.
+ *
  * The collapsing bar's nested scroll sits *inside* the pull container, so an upward scroll folds
  * the greeting first and a downward one unfolds it before the pull begins: a drag at the top
  * restores the greeting, and only a further pull refreshes.
@@ -114,12 +120,12 @@ private fun Greeting(tracks: Int) {
 @Composable
 internal fun LibraryTop(tracks: Int, view: LibraryView, choose: (LibraryView) -> Unit,
     refreshing: Boolean, refresh: () -> Unit, bar: TopAppBarState = rememberTopAppBarState(),
-    content: @Composable BoxScope.() -> Unit) {
+    titled: Boolean = true, content: @Composable BoxScope.() -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = libraryHeaderHeight(maxHeight.value, LocalDensity.current.fontScale)
         val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(bar)
         Column(Modifier.fillMaxSize()) {
-            LibraryHeader(tracks, expanded, scrollBehavior)
+            LibraryHeader(tracks, expanded, titled, scrollBehavior)
             LibraryChips(view, choose)
             LibraryPane(refreshing, refresh) {
                 Box(Modifier.fillMaxSize().then(
