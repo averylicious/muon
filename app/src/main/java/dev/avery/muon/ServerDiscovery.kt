@@ -6,50 +6,110 @@ import android.net.nsd.NsdServiceInfo
 import android.os.Handler
 import android.os.Looper
 
-/** Optional Tauon DNS-SD discovery. Manual numeric LAN entry always remains available. */
-class ServerDiscovery(context: Context, private val found: (String, String) -> Unit,
-    private val message: (String) -> Unit) {
-    private val manager = context.getSystemService(NsdManager::class.java)
+/** Optional, bounded Tauon DNS-SD discovery. Manual numeric LAN entry remains available. */
+class ServerDiscovery(
+    context: Context,
+    private val found: (String, String) -> Unit,
+    private val message: (String) -> Unit,
+    private val stateChanged: (DiscoverySnapshot) -> Unit = {},
+) {
+    private val manager = context.applicationContext.getSystemService(NsdManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
-    private var active = false
-    private var resolving = false
-    private val listener = object : NsdManager.DiscoveryListener {
-        override fun onDiscoveryStarted(type: String) { handler.post { message("Looking for Tauon on your LAN…") } }
-        override fun onServiceFound(info: NsdServiceInfo) {
-            handler.post {
-                if (!active || resolving) return@post
-                resolving = true
-                @Suppress("DEPRECATION")
-                manager.resolveService(info, object : NsdManager.ResolveListener {
-                    override fun onResolveFailed(service: NsdServiceInfo, code: Int) { handler.post { resolving = false } }
-                    override fun onServiceResolved(service: NsdServiceInfo) {
-                        handler.post {
-                            resolving = false
-                            if (!active) return@post
-                            val host = service.host?.hostAddress ?: return@post
-                            val literal = if (':' in host) "[$host]" else host
-                            runCatching { ServerEndpoint.parse("http://$literal:${service.port}") }.onSuccess {
-                                found(service.serviceName, it.origin)
-                            }
-                        }
-                    }
-                })
-            }
-        }
-        override fun onServiceLost(info: NsdServiceInfo) = Unit
-        override fun onDiscoveryStopped(type: String) = Unit
-        override fun onStartDiscoveryFailed(type: String, code: Int) { handler.post { stop(); message("Discovery unavailable. Enter the LAN address manually.") } }
-        override fun onStopDiscoveryFailed(type: String, code: Int) = Unit
-    }
-    private val finish = Runnable { stop(); message("Discovery finished. If Tauon is missing, enter its LAN address.") }
+    private val scan = DiscoveryScan<NsdServiceInfo>()
+    private var listener: NsdManager.DiscoveryListener? = null
+    private var timeout: Runnable? = null
+    // API 28's resolveService cannot be cancelled. Keep its slot across scan restarts;
+    // until completion or a bounded timeout. Old completions cannot insert into a new scan.
+    private var resolving: DiscoveryRequest<NsdServiceInfo>? = null
+    private var resolutionTimeout: Runnable? = null
+
     fun start() {
-        stop(); active = true
-        runCatching { manager.discoverServices("_tauon-remote._tcp.", NsdManager.PROTOCOL_DNS_SD, listener) }
-            .onFailure { active = false; message("Discovery unavailable. Enter the LAN address manually.") }
-        handler.postDelayed(finish, 10000)
+        stop()
+        val token = scan.begin()
+        publish()
+        message("Looking for Tauon on your LAN…")
+        val callback = object : NsdManager.DiscoveryListener {
+            override fun onDiscoveryStarted(type: String) = Unit
+            override fun onServiceFound(info: NsdServiceInfo) { handler.post {
+                if (normalizedDiscoveryType(info.serviceType) != "_tauon-remote._tcp") return@post
+                scan.found(token, key(info), info)
+                drain()
+            } }
+            override fun onServiceLost(info: NsdServiceInfo) { handler.post {
+                if (!scan.accepts(token)) return@post
+                scan.lost(token, key(info)); publish()
+            } }
+            override fun onDiscoveryStopped(type: String) { handler.post {
+                if (scan.accepts(token)) finish(token)
+            } }
+            override fun onStartDiscoveryFailed(type: String, code: Int) { handler.post {
+                if (scan.accepts(token)) finish(token, unavailable = true)
+            } }
+            override fun onStopDiscoveryFailed(type: String, code: Int) = Unit
+        }
+        listener = callback
+        timeout = Runnable { finish(token) }.also { handler.postDelayed(it, 10_000) }
+        try {
+            manager.discoverServices("_tauon-remote._tcp.", NsdManager.PROTOCOL_DNS_SD, callback)
+        } catch (_: RuntimeException) { finish(token, unavailable = true) }
+    }
+
+    private fun drain() {
+        if (resolving != null) return
+        val request = scan.nextRequest() ?: return
+        resolving = request
+        // A platform callback may never arrive. Do not let one request lock every later scan.
+        resolutionTimeout = Runnable { resolved(request, null) }.also { handler.postDelayed(it, 5_000) }
+        try {
+            @Suppress("DEPRECATION")
+            manager.resolveService(request.value, object : NsdManager.ResolveListener {
+                override fun onResolveFailed(service: NsdServiceInfo, code: Int) { handler.post {
+                    resolved(request, null)
+                } }
+                override fun onServiceResolved(service: NsdServiceInfo) { handler.post {
+                    val host = service.host?.hostAddress
+                    val server = host?.let {
+                        val literal = if (':' in it) "[$it]" else it
+                        runCatching { ServerEndpoint.parse("http://$literal:${service.port}") }
+                            .getOrNull()?.let { endpoint -> DiscoveredServer(service.serviceName, endpoint.origin) }
+                    }
+                    resolved(request, server)
+                } }
+            })
+        } catch (_: RuntimeException) {
+            // Post instead of recursing through a whole queue if the platform refuses resolves.
+            handler.post { resolved(request, null) }
+        }
+    }
+
+    private fun resolved(request: DiscoveryRequest<NsdServiceInfo>, server: DiscoveredServer?) {
+        if (resolving != request) return
+        resolutionTimeout?.let(handler::removeCallbacks); resolutionTimeout = null
+        resolving = null
+        if (scan.resolved(request, server)) {
+            publish()
+            if (server != null) found(server.name, server.origin)
+        }
+        drain()
+    }
+    private fun finish(token: Long, unavailable: Boolean = false) {
+        if (!scan.accepts(token)) return
+        scan.finish(token, unavailable)
+        stopPlatform()
+        publish()
+        message(if (unavailable) "Discovery unavailable. Enter the LAN address manually."
+            else "Discovery finished. If Tauon is missing, enter its LAN address.")
     }
     fun stop() {
-        handler.removeCallbacks(finish)
-        if (active) { active = false; runCatching { manager.stopServiceDiscovery(listener) } }
+        scan.cancel()
+        stopPlatform()
+        // Disposal must not invoke the caller's UI callbacks.
     }
+    private fun stopPlatform() {
+        timeout?.let(handler::removeCallbacks); timeout = null
+        val old = listener; listener = null
+        if (old != null) runCatching { manager.stopServiceDiscovery(old) }
+    }
+    private fun publish() = stateChanged(scan.snapshot())
+    private fun key(info: NsdServiceInfo) = "${normalizedDiscoveryType(info.serviceType)}/${info.serviceName}"
 }
