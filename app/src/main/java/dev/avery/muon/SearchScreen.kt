@@ -112,7 +112,7 @@ private fun SearchBrowse(artists: List<LibraryArtist>, albums: List<LibraryAlbum
         if (albums.isNotEmpty()) {
             item(key = "albums-label", contentType = "label") { SectionHeading("Albums") }
             items(albums.chunked(3), key = { row -> "albums:" + row.first().key }, contentType = { "album-row" }) { row ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                     row.forEach { album ->
                         AlbumTile(album, endpoint, subtitle = artistLabel(displayCredits(album.artist)),
                             modifier = Modifier.weight(1f)) { openAlbum(album) }
@@ -203,7 +203,7 @@ internal fun LazyListScope.searchCollection(artists: List<LibraryArtist>, albums
     if (albums.isNotEmpty()) {
         item(key = "search:albums", contentType = "label") { SectionHeading("Albums") }
         item(key = "search:album-row", contentType = "albums") {
-            LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
                 items(albums, key = { it.key }, contentType = { "album" }) { album ->
                     AlbumTile(album, endpoint, subtitle = artistLabel(displayCredits(album.artist))) { openAlbum(album) }
                 }

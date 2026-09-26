@@ -74,7 +74,7 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
         if (albums.isNotEmpty()) {
             item(key = "albums-label", contentType = "label") { SectionHeading("Albums") }
             item(key = "albums", contentType = "albums") {
-                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
                     items(albums, key = { it.key }, contentType = { "album" }) { album ->
                         AlbumTile(album, endpoint) { openAlbum(album) }
                     }
@@ -107,8 +107,9 @@ internal fun SectionHeading(text: String) {
 @Composable
 internal fun AlbumTile(album: LibraryAlbum, endpoint: ServerEndpoint?,
     subtitle: String = "${album.tracks.size} ${if (album.tracks.size == 1) "song" else "songs"}",
-    modifier: Modifier = Modifier.width(148.dp), open: () -> Unit) {
-    Column(modifier.then(springyClick("Open album", RoundedCornerShape(16.dp), open))) {
+    modifier: Modifier = Modifier.width(164.dp), open: () -> Unit) {
+    // Padded inside its own press box, so a press lights room around the title as well as the cover.
+    Column(modifier.then(springyClick("Open album", RoundedCornerShape(24.dp), open)).padding(8.dp)) {
         Artwork(albumArt(endpoint, album), sharedPicture(albumPictureKey(album.key))
             .fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
         Text(albumLabel(album.title), style = MaterialTheme.typography.titleSmall, maxLines = 1,
