@@ -87,6 +87,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var libraryBar by rememberSaveable(stateSaver = TopAppBarState.Saver) { mutableStateOf(TopAppBarState(
             initialHeightOffsetLimit = -Float.MAX_VALUE, initialHeightOffset = 0f, initialContentOffset = 0f)) }
         var query by rememberSaveable { mutableStateOf("") }
+        // Whether the open library page was opened from Search, which Back then returns to.
+        var fromSearch by rememberSaveable { mutableStateOf(false) }
         val playback = rememberPlayback(player)
         val ui = playback.ui
         val position = remember(playback) { { playback.position } }
@@ -140,6 +142,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val songs = remember(snapshot, library.songOrder) { sortSongs(all, library.songOrder) }
         val sortedArtists = remember(artists, library.artistOrder) { artists?.let { sortArtists(it, library.artistOrder) } }
         val sortedAlbums = remember(albums, library.albumOrder) { albums?.let { sortAlbums(it, library.albumOrder) } }
+        // Matched against the query the songs finished with, so all three sections agree; cheap enough
+        // for the main thread, since there are far fewer artists and albums than songs.
+        val foundArtists = remember(artists, search.completed) { artists?.let { searchArtists(it, search.completed) }.orEmpty() }
+        val foundAlbums = remember(sortedAlbums, search.completed) { sortedAlbums?.let { searchAlbums(it, search.completed) }.orEmpty() }
+        // Kept here so Back from a page opened from the results finds them where they were; a new
+        // search starts from its top.
+        val searchList = rememberSaveable(search.completed, saver = LazyListState.Saver) { LazyListState() }
         // An endpoint exists only after a complete load succeeded, so it is both the identity of
         // the server and the signal that there is something to judge a saved selection against.
         val selection = storedSelection(openOrigin, openId, origin, model.playlists)
@@ -196,15 +205,25 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val target = backTarget(connected, lyricsShown, overlayOpen,
             onLibraryTab = tab == Tab.Library, playlistOpen = openList != null || artistPage || albumPage,
             queueShown = queueShown)
+        // Leaves the library page on show: an album opened from an artist's page goes back to that
+        // page; anything else goes to the top, or back to Search if it was opened from there.
+        fun closePage() {
+            if (albumPage && artistPage) { closeAlbum(); return }
+            openOrigin = null; openId = null; closeArtist(); closeAlbum()
+            if (fromSearch) { fromSearch = false; tab = Tab.Search }
+        }
+        // Search opens a page over a fresh Library, so Back from it leads back to the results.
+        fun openFromSearch(open: () -> Unit) {
+            openOrigin = null; openId = null; closeArtist(); closeAlbum()
+            open(); fromSearch = true; tab = Tab.Library
+        }
         fun goBack() {
             when (target) {
                 BackTarget.Lyrics -> lyricsOpen = false
                 BackTarget.Queue -> queueOpen = false
                 BackTarget.Player -> playerOpen = false
                 BackTarget.Tab -> tab = Tab.Library
-                // An album opened from an artist's page goes back to that page; anything else, to the top.
-                BackTarget.Playlist -> if (albumPage && artistPage) closeAlbum()
-                    else { openOrigin = null; openId = null; closeArtist(); closeAlbum() }
+                BackTarget.Playlist -> closePage()
                 BackTarget.None -> Unit
             }
         }
@@ -262,7 +281,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
                                 Tab.entries.forEach { destination ->
                                     NavigationBarItem(selected = tab == destination,
-                                        onClick = { tab = destination },
+                                        onClick = { tab = destination; fromSearch = false },
                                         icon = { MuonIcon(when (destination) {
                                             Tab.Library -> "library"; Tab.Search -> "search"; else -> "settings"
                                         }) }, label = { Text(destination.name) })
@@ -299,7 +318,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     songList = LazyListState(); artistList = LazyListState(); albumGrid = LazyGridState()
                                     playlistList = LazyListState()
                                     libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
-                                    lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library
+                                    lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library; fromSearch = false
                                 }
                                 Tab.Library -> {
                                     val page = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey)
@@ -318,8 +337,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     val title = keptWhileLeaving(leaving, albumTitle.orEmpty())
                                                     LibraryPane(model.busy, { model.connect() }) {
                                                         AlbumPage(album, title, model.endpoint, ui.item?.mediaId, ui.playing, player != null,
-                                                            backLabel = if (shown.fromArtist != null) "Back to artist" else "Back to albums",
-                                                            back = { closeAlbum() },
+                                                            backLabel = when {
+                                                                shown.fromArtist != null -> "Back to artist"
+                                                                fromSearch -> "Back to search"
+                                                                else -> "Back to albums"
+                                                            },
+                                                            back = { closePage() },
                                                             playAll = { shuffle -> album?.let { playAll(it.tracks, shuffle) } }) {
                                                             startQueue(album?.tracks.orEmpty(), it)
                                                         }
@@ -334,7 +357,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     }
                                                     LibraryPane(model.busy, { model.connect() }) {
                                                         ArtistPage(artist, name, appearsOn, model.endpoint, ui.item?.mediaId, ui.playing,
-                                                            player != null, keptWhileLeaving(leaving, artistPageList), back = { closeArtist() },
+                                                            player != null, keptWhileLeaving(leaving, artistPageList),
+                                                            backLabel = if (fromSearch) "Back to search" else "Back to artists", back = { closePage() },
                                                             playAll = { shuffle -> artist?.let { playAll(it.tracks, shuffle) } },
                                                             // Opened over this page, so Back returns here.
                                                             openAlbum = { albumOrigin = origin; albumKey = it.key; albumTitle = it.title }) {
@@ -395,7 +419,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     if (open != null) Column {
                                                         // One playlist keeps its own compact bar: its name is the
                                                         // heading, and a greeting would be in the way.
-                                                        PlaylistBar(open.name, open.count) { openId = null }
+                                                        PlaylistBar(open.name, open.count) { closePage() }
                                                         LibraryPane(model.busy, { model.connect() }) {
                                                             val tracks = model.tracksByPlaylist[open.id].orEmpty()
                                                             TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing,
@@ -412,7 +436,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     Column {
                                         SearchField(query, { query = it }, search.searching)
                                         TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing,
-                                            emptyText = searchEmptyText(query, search.searching, search.completed)) {
+                                            emptyText = searchEmptyText(query, search.searching, search.completed), state = searchList,
+                                            header = {
+                                                searchCollection(foundArtists, foundAlbums, model.endpoint,
+                                                    openArtist = { a -> openFromSearch { artistOrigin = origin; artistKey = a.key; artistName = a.name } },
+                                                    openAlbum = { a -> openFromSearch { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } })
+                                            }) {
                                             // A search finds where to start, not what to play: the song plays on
                                             // through the whole library in the Songs order, so Next and Shuffle
                                             // reach every song rather than only the few that matched.

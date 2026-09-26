@@ -30,14 +30,15 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
-    currentId: String?, playing: Boolean, ready: Boolean, state: LazyListState, back: () -> Unit,
+    currentId: String?, playing: Boolean, ready: Boolean, state: LazyListState, backLabel: String = "Back to artists",
+    back: () -> Unit,
     playAll: (shuffle: Boolean) -> Unit, openAlbum: (LibraryAlbum) -> Unit, play: (TauonTrack) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = artist?.tracks?.any { it.playable } == true && ready
     LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 16.dp)) {
         item(key = "back", contentType = "back") {
             IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
-                .semantics { contentDescription = "Back to artists" }) { MuonIcon("back") }
+                .semantics { contentDescription = backLabel }) { MuonIcon("back") }
         }
         item(key = "header", contentType = "header") {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -94,19 +95,20 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
 }
 
 @Composable
-private fun SectionHeading(text: String) {
+internal fun SectionHeading(text: String) {
     Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
         modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 8.dp).semantics { heading() })
 }
 
-/** One album in the artist's row: its cover, title and length, opening the whole album. */
+/** One album in a row of them: its cover, title and a line under it, opening the whole album. */
 @Composable
-private fun AlbumTile(album: LibraryAlbum, endpoint: ServerEndpoint?, open: () -> Unit) {
+internal fun AlbumTile(album: LibraryAlbum, endpoint: ServerEndpoint?,
+    subtitle: String = "${album.tracks.size} ${if (album.tracks.size == 1) "song" else "songs"}", open: () -> Unit) {
     Column(Modifier.width(148.dp).clip(RoundedCornerShape(16.dp)).clickable(onClickLabel = "Open album", onClick = open)) {
         Artwork(albumArt(endpoint, album), Modifier.size(148.dp).clip(RoundedCornerShape(16.dp)))
         Text(albumLabel(album.title), style = MaterialTheme.typography.titleSmall, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, top = 8.dp))
-        Text("${album.tracks.size} ${if (album.tracks.size == 1) "song" else "songs"}",
+        Text(subtitle, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1, modifier = Modifier.padding(start = 2.dp, bottom = 4.dp))
     }
