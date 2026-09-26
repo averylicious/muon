@@ -46,10 +46,11 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
             }
         }
     } else LazyVerticalGrid(GridCells.Adaptive(160.dp), Modifier.fillMaxSize(), state = state,
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // Each tile carries 8 dp of its own padding, so a press lights a box with room around the
+        // title; the grid's gaps shrink to match, and the covers sit exactly where they did.
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 8.dp)) {
         items(albums, key = { it.key }, contentType = { "album" }) { album ->
-            Column(springyClick("Open album", RoundedCornerShape(16.dp)) { open(album) }) {
+            Column(springyClick("Open album", RoundedCornerShape(24.dp)) { open(album) }.padding(8.dp)) {
                 // The cover that grows into the album page's (motion pass 2).
                 Artwork(albumArt(endpoint, album), sharedPicture(albumPictureKey(album.key))
                     .fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
