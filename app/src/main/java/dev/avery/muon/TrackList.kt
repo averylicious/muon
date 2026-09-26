@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -22,7 +23,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
-    emptyText: String, loading: Boolean = false, state: LazyListState = rememberLazyListState(),
+    playing: Boolean, emptyText: String, loading: Boolean = false, state: LazyListState = rememberLazyListState(),
     sections: ((TauonTrack) -> String)? = null, play: (TauonTrack) -> Unit) {
     if (tracks.isEmpty() && loading) PlaceholderRows()
     // A list of one full-height item rather than a plain box: an empty library is exactly when a
@@ -46,7 +47,7 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
                 minLength = if (grabbable) SCROLLER_MIN_LENGTH else INDICATOR_MIN_LENGTH),
                 state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
                 itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
-                    TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", ready,
+                    TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", playing, ready,
                         Modifier.animateItem(placementSpec = motionMedium())) { play(t) }
                 }
             }
@@ -58,35 +59,41 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
 }
 
 @Composable
-private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, ready: Boolean,
+private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean, ready: Boolean,
     modifier: Modifier = Modifier, play: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
     Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
+        .padding(horizontal = 12.dp)
+        // The current track sits on its own tonal surface, with the equalizer over its cover, so it
+        // is marked by something appearing and moving rather than only by a change of hue.
+        .clip(RoundedCornerShape(16.dp))
+        .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
         .clickable(enabled = t.playable && ready, onClick = play)
-        .padding(horizontal = 24.dp, vertical = 8.dp)
+        .padding(horizontal = 12.dp, vertical = 8.dp)
         .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
         verticalAlignment = Alignment.CenterVertically) {
-        // The current track is marked by something appearing, not only by a change of hue. The
-        // marker reserves its width either way so every row starts on the same line.
-        Box(Modifier.width(3.dp).height(32.dp)
-            .then(if (current) Modifier.background(MaterialTheme.colorScheme.primary,
-                RoundedCornerShape(2.dp)) else Modifier))
-        Spacer(Modifier.width(9.dp))
-        Artwork(endpoint?.url("/api1/pic/small/${t.id}"), Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
+        Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Artwork(endpoint?.url("/api1/pic/small/${t.id}"), Modifier.fillMaxSize())
+            if (current) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
+                NowPlayingBars(playing, color = Color.White)
+            }
+        }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
             Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                color = if (current) colors.onSecondaryContainer else colors.onSurface,
                 fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
             // An untagged file has nothing to say here, so the line is left out rather than
             // printed as a stray separator.
             val subtitle = trackSubtitle(t.artist, t.album, t.playable)
             if (subtitle.isNotEmpty()) Text(subtitle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall)
+                color = if (current) colors.onSecondaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
         }
         // A minimum width keeps the durations on one right edge; a long duration or a large font
         // scale grows the column instead of clipping, taking the space from the title beside it.
         Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End,
+            color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant, textAlign = TextAlign.End,
             maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
     }
 }

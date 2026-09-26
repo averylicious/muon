@@ -39,7 +39,8 @@ import kotlinx.coroutines.launch
 private class QueueEntry(val index: Int, val item: MediaItem, val key: String = "")
 
 /** What the queue holds right now: the playing song and those after it, in playing order. */
-private class QueueSnapshot(val current: QueueEntry?, val upNext: List<QueueEntry>, val shuffle: Boolean = false)
+private class QueueSnapshot(val current: QueueEntry?, val upNext: List<QueueEntry>, val shuffle: Boolean = false,
+    val repeatAll: Boolean = false)
 
 private fun queueSnapshot(player: Player): QueueSnapshot {
     val count = player.mediaItemCount
@@ -47,14 +48,16 @@ private fun queueSnapshot(player: Player): QueueSnapshot {
     if (count == 0 || current !in 0 until count) return QueueSnapshot(null, emptyList())
     val timeline = player.currentTimeline
     val shuffle = player.shuffleModeEnabled
-    // Repeat is left out on purpose: *Next up* is what follows, once, not the loop back round.
+    // Repeat is left out on purpose: *Next up* is what follows, once, not the loop back round. That the
+    // queue starts over is said below the list instead, so Next working at the end is no surprise.
     val order = upNextOrder(current, count) { i ->
         if (i >= timeline.windowCount) C.INDEX_UNSET else timeline.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, shuffle)
     }
     val items = order.map { player.getMediaItemAt(it) }
     val keys = occurrenceKeys(items.map { it.mediaId })
     return QueueSnapshot(QueueEntry(current, player.getMediaItemAt(current)),
-        order.indices.map { QueueEntry(order[it], items[it], keys[it]) }, shuffle)
+        order.indices.map { QueueEntry(order[it], items[it], keys[it]) }, shuffle,
+        repeatAll = player.repeatMode == Player.REPEAT_MODE_ALL)
 }
 
 /**
@@ -215,7 +218,8 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, back: ()
                     modifier = Modifier.padding(horizontal = 24.dp))
             }
             if (snapshot.upNext.isEmpty()) item(key = "empty", contentType = "empty") {
-                Text("Nothing after this song.", color = colors.onSurfaceVariant,
+                Text(if (snapshot.repeatAll) "Repeat is on, so the queue starts over after this song."
+                    else "Nothing after this song.", color = colors.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
             }
             items(rows, key = { "next:${it.key}" }, contentType = { "next" }) { entry ->
@@ -271,6 +275,11 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, back: ()
                 TextButton(onClick = { showAll = true }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Text("Show all ${snapshot.upNext.size} songs")
                 }
+            }
+            if (snapshot.repeatAll && snapshot.upNext.isNotEmpty()) item(key = "repeat", contentType = "repeat") {
+                Text("Repeat is on, so the queue starts over after the last song.",
+                    style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
             }
         }
     }
