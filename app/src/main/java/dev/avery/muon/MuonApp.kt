@@ -313,7 +313,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                         openAlbum?.takeIf { it.key == shown.albumKey })
                                                     val title = keptWhileLeaving(leaving, albumTitle.orEmpty())
                                                     LibraryPane(model.busy, { model.connect() }) {
-                                                        AlbumPage(album, title, model.endpoint, ui.item?.mediaId, player != null,
+                                                        AlbumPage(album, title, model.endpoint, ui.item?.mediaId, ui.playing, player != null,
                                                             back = { closeAlbum() },
                                                             playAll = { shuffle -> album?.let { playAll(it.tracks, shuffle) } }) {
                                                             startQueue(album?.tracks.orEmpty(), it)
@@ -332,7 +332,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                             backLabel = "Back to artists") { closeArtist() }
                                                         LibraryPane(model.busy, { model.connect() }) {
                                                             val tracks = artist?.tracks.orEmpty()
-                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing,
                                                                 emptyText = "No songs by this artist. Refresh to update.",
                                                                 loading = model.busy || artist == null) { startQueue(tracks, it) }
                                                         }
@@ -352,7 +352,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     library.chooseSongOrder(it); songList = LazyListState()
                                                                 }
                                                                 // Plays on in the order shown.
-                                                                TrackList(songs, model.endpoint, ui.item?.mediaId, player != null,
+                                                                TrackList(songs, model.endpoint, ui.item?.mediaId, player != null, ui.playing,
                                                                     emptyText = "No music yet. Add local music in Tauon, then refresh.",
                                                                     loading = model.busy, state = songList,
                                                                     // A–Z only: in Recently added there are no letters to jump to.
@@ -394,7 +394,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                         PlaylistBar(open.name, open.count) { openId = null }
                                                         LibraryPane(model.busy, { model.connect() }) {
                                                             val tracks = model.tracksByPlaylist[open.id].orEmpty()
-                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing,
                                                                 emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
                                                                 loading = model.busy) { startQueue(tracks, it) }
                                                         }
@@ -407,9 +407,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 Tab.Search -> {
                                     Column {
                                         SearchField(query, { query = it }, search.searching)
-                                        TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null,
+                                        TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing,
                                             emptyText = searchEmptyText(query, search.searching, search.completed)) {
-                                            startQueue(search.tracks, it)
+                                            // A search finds where to start, not what to play: the song plays on
+                                            // through the whole library in the Songs order, so Next and Shuffle
+                                            // reach every song rather than only the few that matched.
+                                            startQueue(songs, it)
                                         }
                                     }
                                 }

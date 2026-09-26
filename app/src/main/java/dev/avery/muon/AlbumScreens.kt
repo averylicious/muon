@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -67,7 +68,7 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndpoint?, currentId: String?,
-    ready: Boolean, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
+    playing: Boolean, ready: Boolean, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = album?.tracks?.any { it.playable } == true && ready
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -105,24 +106,34 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
             Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
         } else itemsIndexed(album.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { i, track ->
             val current = currentId == "${endpoint?.origin}/${track.id}"
+            // The playing song sits on its own tonal surface, its number replaced by the moving
+            // equalizer, so it stands out from the list rather than only changing colour.
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                .padding(horizontal = 12.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
                 .clickable(enabled = track.playable && ready, onClickLabel = "Play") { play(track) }
-                .padding(horizontal = 24.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .semantics { if (current) stateDescription = "Now playing" },
                 verticalAlignment = Alignment.CenterVertically) {
-                Text(albumTrackNumber(track.trackNumber, i), style = MaterialTheme.typography.labelLarge,
-                    color = if (current) colors.primary else colors.onSurfaceVariant, modifier = Modifier.widthIn(min = 28.dp))
+                Box(Modifier.widthIn(min = 28.dp), contentAlignment = Alignment.CenterStart) {
+                    if (current) NowPlayingBars(playing)
+                    else Text(albumTrackNumber(track.trackNumber, i), style = MaterialTheme.typography.labelLarge,
+                        color = colors.onSurfaceVariant)
+                }
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     Text(track.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = if (current) colors.primary else if (track.playable) colors.onSurface else colors.onSurfaceVariant,
+                        color = if (current) colors.onSecondaryContainer else if (track.playable) colors.onSurface else colors.onSurfaceVariant,
                         fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
                     // Only a guest artist is worth a line: the album's own artist is already above.
                     val credits = displayCredits(track.artist)
                     if (credits.isNotBlank() && !credits.equals(displayCredits(album.artist), ignoreCase = true))
-                        Text(credits, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+                        Text(credits, style = MaterialTheme.typography.bodySmall,
+                            color = if (current) colors.onSecondaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(formatTime(track.durationMs), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant,
+                Text(formatTime(track.durationMs), style = MaterialTheme.typography.labelSmall,
+                    color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant,
                     textAlign = TextAlign.End, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
             }
         }
