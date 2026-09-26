@@ -1,6 +1,14 @@
 package dev.avery.muon
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -266,6 +274,30 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // passing choice, and a rotation that closes it loses nothing.
         var actionTrack by remember { mutableStateOf<TauonTrack?>(null) }
         val snackbar = remember { SnackbarHostState() }
+        // Android 17's local network permission (LocalNetwork.kt): asked for in context, from Connect or
+        // the library's card. Once Android stops showing the prompt, the same button opens Settings;
+        // coming back with access granted connects.
+        val activity = LocalActivity.current
+        val askLocalNetwork = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            LocalNetworkState.granted = granted
+            LocalNetworkState.denied = !granted
+            if (granted) model.connect()
+        }
+        fun allowLocalNetwork() {
+            val rationale = activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, ACCESS_LOCAL_NETWORK) } ?: false
+            when (localNetworkAsk(LocalNetworkState.denied, rationale)) {
+                LocalNetworkAsk.Ask -> askLocalNetwork.launch(ACCESS_LOCAL_NETWORK)
+                LocalNetworkAsk.OpenSettings -> context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", context.packageName, null)))
+            }
+        }
+        LifecycleResumeEffect(Unit) {
+            val now = localNetworkGranted(context)
+            val was = LocalNetworkState.granted
+            LocalNetworkState.granted = now
+            if (now && !was && model.address.isNotBlank()) model.connect()
+            onPauseOrDispose { }
+        }
         // Once the played-song cache fills, say so once per limit (#112): nothing is lost, the oldest
         // songs make room, but a bigger limit keeps more, and Settings is where it is.
         val cacheIsFull = cacheFull(PlayedCacheState.used, PlayedCacheState.limit)
@@ -360,7 +392,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         AnimatedVisibility(connected && model.error != null && tab != Tab.Settings,
                             enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
                             exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
-                            ErrorCard(model.error.orEmpty(), "Retry", quiet = model.offline) { model.connect() }
+                            // Without Android 17's local network access, Retry cannot help: the card asks for it instead.
+                            if (!LocalNetworkState.granted) ErrorCard(model.error.orEmpty(), "Allow", quiet = true) { allowLocalNetwork() }
+                            else ErrorCard(model.error.orEmpty(), "Retry", quiet = model.offline) { model.connect() }
                         }
                         BusyStrip(model.busy && connected)
                         // Tabs are siblings, so this fades with a small lift rather than sliding sideways.
@@ -369,7 +403,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 .togetherWith(fadeOut(motionShort()))
                         }, label = "screen") { shown ->
                             when (shown) {
-                                null -> ConnectScreen(model)
+                                null -> ConnectScreen(model, ::allowLocalNetwork)
                                 Tab.Settings -> SettingsScreen(model, appearance) {
                                     player?.stop(); player?.clearMediaItems(); model.disconnect()
                                     // Nothing from the server just left is shown again or kept on disk.
