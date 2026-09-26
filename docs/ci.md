@@ -19,7 +19,7 @@ Tags and **Run workflow** always take the full signed build path. Avoid commit-m
 
 Full builds still produce the artifacts described below; documentation-only runs produce none. Workflow run numbers continue increasing on docs-only runs, so version codes may have gaps. Only compare APK versions for runs that actually built them.
 
-The Ubuntu 24.04 runner installs JDK 17 and Android SDK 37.0 / Build Tools 37.0.0, validates the Gradle wrapper, and runs:
+The Ubuntu 24.04 runner installs JDK 17 and Android SDK 36 / Build Tools 36.0.0 (AGP fetches SDK 37.0 and Build Tools 37.0.0, which the app now compiles against), validates the Gradle wrapper, and runs:
 
 ```sh
 ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease \
