@@ -12,7 +12,8 @@ class PlayedCacheTest {
     @Test fun theDefaultIsTwoGigabytesAndIsOffered() {
         assertEquals(2_000_000_000L, DEFAULT_CACHE_LIMIT)
         assertTrue(DEFAULT_CACHE_LIMIT in CACHE_LIMITS)
-        assertEquals("2.0 GB", formatBytes(DEFAULT_CACHE_LIMIT))
+        assertEquals("2 GB", formatBytes(DEFAULT_CACHE_LIMIT))
+        assertEquals("10 GB", formatBytes(10 * GIGABYTE))
     }
 
     @Test fun fullMeansWithinFivePercentOfTheLimit() {

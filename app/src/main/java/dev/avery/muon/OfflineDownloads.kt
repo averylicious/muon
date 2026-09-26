@@ -35,6 +35,8 @@ internal fun downloadEstimate(tracks: List<TauonTrack>): Long =
 
 /** "340 MB", "1.1 GB", "about 900 kB": a size to read at a glance, in decimal units as Android shows them. */
 internal fun formatBytes(bytes: Long): String = when {
+    // Whole gigabytes read as "2 GB", as limits are offered.
+    bytes >= 1_000_000_000 && bytes % 100_000_000 < 50_000_000 && bytes / 100_000_000 % 10 == 0L -> "${bytes / 1_000_000_000} GB"
     bytes >= 1_000_000_000 -> String.format(java.util.Locale.ROOT, "%.1f GB", bytes / 1e9)
     bytes >= 1_000_000 -> "${(bytes + 500_000) / 1_000_000} MB"
     else -> "${(bytes + 500) / 1000} kB"
