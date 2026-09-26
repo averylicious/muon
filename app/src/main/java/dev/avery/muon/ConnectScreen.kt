@@ -17,7 +17,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun ConnectScreen(model: LibraryModel) {
+internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     val context = LocalContext.current
     var nsd by remember { mutableStateOf(DiscoverySnapshot(DiscoveryStatus.IDLE)) }
     val discovery = remember { ServerDiscovery(context, { _, _ -> }, {}, { nsd = it }) }
@@ -35,7 +35,10 @@ internal fun ConnectScreen(model: LibraryModel) {
     // per visit, and not over an address the user is typing; several are listed to choose from.
     var autoTried by rememberSaveable { mutableStateOf(false) }
     var typed by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(discovery, round) {
+    // Nothing is looked for until Android 17 allows it; granting access starts the scan.
+    val allowed = LocalNetworkState.granted
+    LaunchedEffect(discovery, round, allowed) {
+        if (!allowed) return@LaunchedEffect
         discovery.start()
         probe = null
         probe = LanProbe.find(context)
@@ -64,7 +67,9 @@ internal fun ConnectScreen(model: LibraryModel) {
                 OutlinedTextField(model.address, { model.address = it; typed = true },
                     placeholder = { Text("192.168.1.10:7814") }, singleLine = true, shape = RoundedCornerShape(16.dp),
                     enabled = !model.busy, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { model.connect() }, enabled = !model.busy && model.address.isNotBlank(),
+                // Without local network access, Connect asks for it first and connects once granted.
+                Button(onClick = { if (allowed) model.connect() else allowLocalNetwork() },
+                    enabled = !model.busy && model.address.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                     Text(if (model.busy) "Connecting…" else "Connect", style = MaterialTheme.typography.titleMedium)
                 }
@@ -75,7 +80,20 @@ internal fun ConnectScreen(model: LibraryModel) {
                 }
             }
         }
-        model.error?.let { ErrorCard(it, modifier = Modifier.padding(top = 12.dp)) }
+        if (!allowed) {
+            // Android 17 asks before apps reach devices on the local network; say why before it does.
+            Surface(shape = RoundedCornerShape(24.dp), color = colors.secondaryContainer, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Allow Muon on your network", style = MaterialTheme.typography.titleMedium, color = colors.onSecondaryContainer)
+                    Text("Android asks before an app reaches devices on your Wi-Fi. Muon only talks to Tauon, " +
+                        "to find it, load your library and play your music.",
+                        style = MaterialTheme.typography.bodyMedium, color = colors.onSecondaryContainer)
+                    FilledTonalButton(onClick = allowLocalNetwork, modifier = Modifier.align(Alignment.End)) {
+                        Text(if (LocalNetworkState.denied) "Open settings" else "Allow")
+                    }
+                }
+            }
+        } else model.error?.let { ErrorCard(it, modifier = Modifier.padding(top = 12.dp)) }
 
         GroupHeading("On this network")
         val found = scan.servers

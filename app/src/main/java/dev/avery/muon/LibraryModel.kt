@@ -32,6 +32,11 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             busy = true; error = null
             try {
                 val e = ServerEndpoint.parse(address)
+                // Android 17: without local network access a connection would only time out, so it is
+                // not attempted; the app asks for access instead (LocalNetwork.kt).
+                val allowed = localNetworkGranted(getApplication<Application>())
+                LocalNetworkState.granted = allowed
+                if (!allowed) throw LocalNetworkDenied()
                 val api = TauonApi(e)
                 progress = "Connecting to Tauon…"; api.connect()
                 val lists = api.playlists()
@@ -60,7 +65,10 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 // loaded stays as it was.
                 val saved = if (endpoint == null || offline) runCatching { ServerEndpoint.parse(address) }.getOrNull() else null
                 val kept = saved?.let { withContext(Dispatchers.IO) { OfflineStore.downloadedSongs(getApplication<Application>(), it.origin) } }.orEmpty()
-                if (saved != null && kept.isNotEmpty()) showOffline(saved, kept)
+                if (saved != null && kept.isNotEmpty()) {
+                    showOffline(saved, kept)
+                    if (e is LocalNetworkDenied) error = "Muon needs your permission to reach Tauon. Your downloads still play."
+                }
                 else {
                     error = friendlyError(e)
                     progress = if (endpoint != null) "Showing last loaded library" else "Not connected"
@@ -106,6 +114,9 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 }
 /** Shown on the library while it holds only downloads; Retry asks Tauon again. */
 internal const val OFFLINE_NOTE = "Tauon isn't reachable. Your downloads still play."
+
+/** Connecting was not attempted: Android 17's local network access is missing. */
+internal class LocalNetworkDenied : Exception("Muon needs your permission to reach Tauon on your local network.")
 
 fun friendlyError(e: Throwable): String = when (e) {
     is java.net.SocketTimeoutException -> "Tauon did not respond. Check the server, LAN firewall and VPN LAN access, then retry."

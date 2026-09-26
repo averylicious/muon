@@ -5,12 +5,15 @@ plugins {
 }
 android {
     namespace = "dev.avery.muon"
-    compileSdk = 36
-    buildToolsVersion = "36.0.0"
+    // Android 17. Its platform is published as API level 37.0 (platforms;android-37.0), hence the minor level.
+    compileSdk = 37
+    compileSdkMinor = 0
+    buildToolsVersion = "37.0.0"
     defaultConfig {
         applicationId = "dev.avery.muon"
         minSdk = 28
-        targetSdk = 36
+        // At 37, reaching the LAN needs ACCESS_LOCAL_NETWORK, asked for before connecting (LocalNetwork.kt).
+        targetSdk = 37
         versionCode = providers.environmentVariable("MUON_VERSION_CODE").orNull?.toInt() ?: 1
         versionName = providers.environmentVariable("MUON_VERSION_NAME").getOrElse("0.1.0")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
