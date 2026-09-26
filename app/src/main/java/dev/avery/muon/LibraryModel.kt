@@ -6,7 +6,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class LibraryModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("connection", 0)
@@ -17,11 +19,15 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var progress by mutableStateOf(""); private set
+    /** Tauon could not be reached, so the library is only what was downloaded from it (#112). */
+    var offline by mutableStateOf(false); private set
     private var job: Job? = null
     val allTracks: List<TauonTrack> get() = tracksByPlaylist.values.flatten().distinctBy { it.id }
     init { if (address.isNotBlank()) connect() }
     fun connect() {
         if (busy) return
+        // The download store reports to the main thread, so it is made here before anything reads it.
+        OfflineStore.get(getApplication<Application>())
         job = viewModelScope.launch {
             busy = true; error = null
             try {
@@ -34,18 +40,29 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                     progress = "Loading playlists ${i + 1} / ${lists.size}"
                     tracks[list.id] = api.tracks(list.id)
                 }
-                endpoint = e; playlists = lists; tracksByPlaylist = tracks
+                endpoint = e; playlists = lists; tracksByPlaylist = tracks; offline = false
                 address = e.origin; prefs.edit().putString("origin", e.origin).apply()
                 progress = "Connected · ${allTracks.size} tracks"
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                error = friendlyError(e)
-                progress = if (endpoint != null) "Showing last loaded library" else "Not connected"
+                // With no library from this sitting, what was downloaded from the saved server is
+                // still playable, so it is shown rather than the connect screen. A library already
+                // loaded stays as it was.
+                val saved = if (endpoint == null || offline) runCatching { ServerEndpoint.parse(address) }.getOrNull() else null
+                val kept = saved?.let { withContext(Dispatchers.IO) { OfflineStore.downloadedSongs(getApplication<Application>(), it.origin) } }.orEmpty()
+                if (saved != null && kept.isNotEmpty()) {
+                    endpoint = saved; playlists = emptyList(); tracksByPlaylist = mapOf(OFFLINE_LIBRARY to kept); offline = true
+                    error = "Tauon isn't reachable, so only your downloads are shown."
+                    progress = "Offline · ${kept.size} downloaded ${if (kept.size == 1) "song" else "songs"}"
+                } else {
+                    error = friendlyError(e)
+                    progress = if (endpoint != null) "Showing last loaded library" else "Not connected"
+                }
             } finally { busy = false }
         }
     }
     fun disconnect() {
-        job?.cancel(); busy = false; endpoint = null; playlists = emptyList(); tracksByPlaylist = emptyMap()
+        job?.cancel(); busy = false; endpoint = null; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = false
         prefs.edit().clear().apply(); address = ""; error = null; progress = ""
     }
 }

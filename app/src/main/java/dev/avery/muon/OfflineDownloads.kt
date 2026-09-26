@@ -62,3 +62,25 @@ internal object DownloadMarks {
     /** Bytes the finished downloads take. */
     var bytes by mutableLongStateOf(0L)
 }
+
+/**
+ * What a download remembers about its song, so the library can be shown from downloads alone when
+ * Tauon cannot be reached. Stored in the download request's data: a version tag, then the fields,
+ * separated by NUL, which no tag contains.
+ */
+private const val SONG_RECORD = "muon-song-1"
+
+internal fun encodeSong(track: TauonTrack): ByteArray = listOf(SONG_RECORD, track.id.toString(), track.title, track.artist,
+    track.album, track.albumArtist, track.durationMs.toString(), track.trackNumber).joinToString("\u0000").toByteArray()
+
+/** The song a download was made for, or null for one this version cannot read. */
+internal fun decodeSong(data: ByteArray): TauonTrack? {
+    val fields = String(data).split('\u0000')
+    if (fields.size != 8 || fields[0] != SONG_RECORD) return null
+    val id = fields[1].toLongOrNull() ?: return null
+    return TauonTrack(id, fields[2], fields[3], fields[4], fields[6].toLongOrNull() ?: 0L, playable = true,
+        hasLyrics = false, albumArtist = fields[5], trackNumber = fields[7])
+}
+
+/** The key the offline library files its songs under, in place of a playlist. */
+internal const val OFFLINE_LIBRARY = "offline"

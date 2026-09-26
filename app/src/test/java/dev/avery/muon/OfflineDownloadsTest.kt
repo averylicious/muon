@@ -36,4 +36,15 @@ class OfflineDownloadsTest {
         assertTrue(downloadProgress(listOf("a"), marks).all)
         assertFalse(downloadProgress(emptyList(), marks).all)
     }
+
+    @Test fun aDownloadRemembersItsSongForTheOfflineLibrary() {
+        val song = TauonTrack(7, "Hold On (with Georgia Ku)", "ILLENIUM; Georgia Ku", "ASCEND", 235_000, true, false,
+            albumArtist = "ILLENIUM", trackNumber = "2/15")
+        assertEquals(song, decodeSong(encodeSong(song)))
+    }
+
+    @Test fun aRecordThisVersionCannotReadIsLeftOut() {
+        assertNull(decodeSong("Hold On".toByteArray()))
+        assertNull(decodeSong(ByteArray(0)))
+    }
 }
