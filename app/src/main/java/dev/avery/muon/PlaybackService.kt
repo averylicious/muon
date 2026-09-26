@@ -33,6 +33,16 @@ class PlaybackService : MediaSessionService() {
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK).build()
+        // A shuffle that starts from the chosen song and keeps Play next and Add to queue where they
+        // were put (see QueueShuffleOrder). Turning shuffle on reshuffles from the playing song, so
+        // everything else is still to come rather than wherever an old shuffle had left it.
+        player.setShuffleOrder(QueueShuffleOrder())
+        player.addListener(object : Player.Listener {
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                if (shuffleModeEnabled && player.mediaItemCount > 0)
+                    player.setShuffleOrder(QueueShuffleOrder.startingWith(player.mediaItemCount, player.currentMediaItemIndex))
+            }
+        })
         // Shuffle and repeat as the user left them, restored before the session exists so no
         // controller sees the defaults, and saved whenever they change by any route — the app, the
         // notification or another controller — rather than at shutdown, which may never be reached.
