@@ -4,8 +4,12 @@ import android.content.Context
 import java.io.File
 import java.security.MessageDigest
 
-/** How much artwork may stay on disk: roughly a large library's list thumbnails plus some covers. */
-internal const val ARTWORK_DISK_BYTES = 64L * 1024 * 1024
+/**
+ * How much artwork may stay on disk: roughly a large library's list thumbnails plus some covers. List
+ * pictures are kept as their own small decode, about 15–25 kB at 192 px, rather than Tauon's 75 px
+ * thumbnails of a few kB, so this is twice what those needed.
+ */
+internal const val ARTWORK_DISK_BYTES = 128L * 1024 * 1024
 
 /**
  * How long a stored picture is trusted. A track number reused for a different song is already a miss,
@@ -19,13 +23,13 @@ internal const val ARTWORK_MAX_AGE_MS = 90L * 24 * 60 * 60 * 1000
  * Which song each artwork address belongs to in the library now loaded: title, artist and album.
  * Tauon numbers tracks from a running counter and renumbers them after a library rebuild, so the
  * address alone could name a different song than the one whose picture was stored. Built from the
- * exact addresses the app requests: list thumbnails and the player's larger picture.
+ * exact address the app requests: Tauon's medium picture, which lists decode down to the size they
+ * draw it at. Its 75 px thumbnail is no longer used; stretched over a list row it was blurry.
  */
 internal fun artworkIdentities(endpoint: ServerEndpoint, tracks: List<TauonTrack>): Map<String, String> {
-    val identities = HashMap<String, String>(tracks.size * 2)
+    val identities = HashMap<String, String>(tracks.size)
     for (track in tracks) {
         val identity = "${track.title}\u0000${track.artist}\u0000${track.album}"
-        identities[endpoint.url("/api1/pic/small/${track.id}")] = identity
         identities[endpoint.url("/api1/pic/medium/${track.id}")] = identity
     }
     return identities
