@@ -105,7 +105,7 @@ private fun Lyrics(item: MediaItem?, back: () -> Unit) {
             Column(Modifier.verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp).padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                if (failure) ErrorCard(lyrics, "Retry") { attempt++ }
+                if (failure) ErrorCard(lyrics, "Retry", modifier = Modifier) { attempt++ }
                 // Left aligned and large enough to read at arm's length, and selectable so a line can
                 // be copied out.
                 else SelectionContainer {

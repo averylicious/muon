@@ -344,7 +344,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         AnimatedVisibility(connected && model.error != null && tab != Tab.Settings,
                             enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
                             exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
-                            ErrorCard(model.error.orEmpty(), "Retry") { model.connect() }
+                            ErrorCard(model.error.orEmpty(), "Retry", quiet = model.offline) { model.connect() }
                         }
                         BusyStrip(model.busy && connected)
                         // Tabs are siblings, so this fades with a small lift rather than sliding sideways.

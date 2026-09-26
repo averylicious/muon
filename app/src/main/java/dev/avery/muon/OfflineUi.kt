@@ -58,7 +58,8 @@ internal fun DownloadAll(tracks: List<TauonTrack>, endpoint: ServerEndpoint?) {
     val ids = playable.map { downloadId(endpoint.origin, it.id) }
     val progress = downloadProgress(ids, DownloadMarks.marks)
     val colors = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+    // Directly under Play and Shuffle, with the same gap below as above it.
+    Box(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 12.dp)) {
         when {
             progress.pending > 0 -> Surface(color = colors.surfaceContainerHigh, shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 14.dp)) {

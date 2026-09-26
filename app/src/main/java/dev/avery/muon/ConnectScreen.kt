@@ -54,7 +54,7 @@ internal fun ConnectScreen(model: LibraryModel) {
             if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall)
             if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
-        model.error?.let { ErrorCard(it) }
+        model.error?.let { ErrorCard(it, modifier = Modifier) }
         SettingsCard("Find Tauon on my LAN") {
             Text("Discovery needs Tauon to advertise itself. Typing the address always works.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

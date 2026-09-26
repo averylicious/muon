@@ -26,9 +26,12 @@ import java.util.concurrent.Executors
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal object OfflineStore {
-    class Store(val cache: SimpleCache, val manager: DownloadManager)
+    class Store(val cache: SimpleCache, val manager: DownloadManager, val art: DownloadArt)
 
     @Volatile private var store: Store? = null
+
+    /** The store, if something has already made it; never makes one. */
+    fun current(): Store? = store
 
     @Synchronized
     fun get(context: Context): Store = store ?: create(context.applicationContext).also { store = it }
@@ -40,6 +43,9 @@ internal object OfflineStore {
         val manager = DownloadManager(context, database, cache, OkHttpDataSource.Factory(Transport.client),
             Executors.newFixedThreadPool(2))
         manager.maxParallelDownloads = 2
+        val art = DownloadArt(File(context.filesDir, "downloads-art"))
+        // Covers are fetched one at a time, beside the downloads rather than in their way.
+        val artwork = Executors.newSingleThreadExecutor()
         val sizes = HashMap<String, Long>()
         fun record(download: Download) {
             val id = download.request.id
@@ -51,11 +57,14 @@ internal object OfflineStore {
             }
             if (mark == null) DownloadMarks.marks.remove(id) else DownloadMarks.marks[id] = mark
             if (mark == DownloadMark.Done) sizes[id] = download.bytesDownloaded else sizes.remove(id)
+            // Also fills in the cover of a download made before covers were kept, when Tauon answers.
+            if (mark != null && !art.has(id)) artwork.execute { art.fetch(id) }
             DownloadMarks.bytes = sizes.values.sum()
         }
         manager.addListener(object : DownloadManager.Listener {
             override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) = record(download)
             override fun onDownloadRemoved(m: DownloadManager, download: Download) {
+                artwork.execute { art.remove(download.request.id) }
                 DownloadMarks.marks.remove(download.request.id)
                 sizes.remove(download.request.id)
                 DownloadMarks.bytes = sizes.values.sum()
@@ -68,7 +77,7 @@ internal object OfflineStore {
             runCatching { manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
             main.post { known.forEach(::record) }
         }
-        return Store(cache, manager)
+        return Store(cache, manager, art)
     }
 
     /** Whether a finished download of [id] is on the phone. Called from the player's loading thread. */

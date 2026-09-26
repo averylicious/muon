@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -211,11 +212,14 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
         Column {
             LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
                 modifier = Modifier.fillMaxWidth().height(2.dp))
-            Row(Modifier.graphicsLayer {
+            Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                // Only the song slides; the controls stay where the thumb expects them. The song is
+                // clipped at its own edge, so it passes under nothing on its way out.
+                Row(Modifier.weight(1f).clipToBounds().graphicsLayer {
                     translationX = swipe.value
                     alpha = 1f - 0.7f * (kotlin.math.abs(swipe.value) / size.width.coerceAtLeast(1f)).coerceAtMost(1f)
-                }.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
+                }, verticalAlignment = Alignment.CenterVertically) {
                 Artwork(p.item?.mediaMetadata?.artworkUri?.toString(), Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     Text(p.item?.mediaMetadata?.title?.toString().orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -223,6 +227,7 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                     Text(if (p.error != null) "Playback interrupted · tap to retry" else if (p.buffering) "Buffering…" else p.item?.mediaMetadata?.artist?.toString().orEmpty(),
                         maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 }
                 // The primary action is filled in the primary colour, like Now Playing's, so it reads as
                 // the control rather than blending into the mini player's own tonal surface (#123).

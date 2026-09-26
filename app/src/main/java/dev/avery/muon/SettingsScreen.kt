@@ -52,7 +52,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             .padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // A failed refresh keeps the previous library on screen; this says why it is stale.
-            model.error?.let { ErrorCard(it) }
+            model.error?.let { ErrorCard(it, "Retry", quiet = model.offline, modifier = Modifier) { model.connect() } }
 
             GroupLabel("Connection")
             SettingsGroup {

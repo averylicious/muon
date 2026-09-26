@@ -44,6 +44,11 @@ private suspend fun fetchArtwork(url: String, disk: ArtworkDiskCache): Bitmap? =
         artCache.put(url, art)
         return@withContext art
     }
+    // A downloaded song's cover is kept with the download, so it shows offline and after Disconnect.
+    OfflineStore.current()?.art?.forArtwork(url)?.let(::decodeArtwork)?.let { art ->
+        artCache.put(url, art)
+        return@withContext art
+    }
     runCatching {
         Transport.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
             if (!response.isSuccessful) return@use null
