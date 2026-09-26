@@ -1,0 +1,19 @@
+<!-- Canary keeps the dotted middle bar so its mark differs without depending on colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="54" android:viewportHeight="54">
+    <!-- Include the dot in centring: ink bounds are x=7.6..46.4, y=5.3..48.7. -->
+    <group android:translateX="-27" android:translateY="-24.7">
+        <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="10" android:strokeLineCap="round"
+            android:pathData="M39.6,47.6 V62"/>
+        <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="10" android:strokeLineCap="round"
+            android:pathData="M54,46.8 V68.4"/>
+        <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="10" android:strokeLineCap="round"
+            android:pathData="M68.4,44.4 V65.2"/>
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M54,34.8 m-4.8,0 a4.8,4.8 0 1 0 9.6,0 a4.8,4.8 0 1 0 -9.6,0 Z"/>
+    </group>
+</vector>

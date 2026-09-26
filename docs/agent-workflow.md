@@ -57,9 +57,17 @@ Do not publish Stable.
 
 ## Build details worth remembering
 
-- No extra CI workflow is required: same-repository branch pushes already build both signed variants and run tests/lint. See [CI details](ci.md).
+- No extra CI workflow is required: same-repository branch pushes run scope checks; app/build changes build both signed variants and run tests/lint. Documentation-only branches use lightweight checks without APKs. See [CI details](ci.md).
 - Pre-merge test APKs are **Actions artifacts**, available to authorized repository users for 14 days. They are not GitHub Releases and Obtainium does not see them in the release feed. The existing Canary feed stays reserved for successful `main` builds.
 - Artifact names include the complete commit SHA. Each ZIP contains `BUILD.txt` with the commit, run number, and version, plus `SHA256SUMS`.
 - Use the debug/Canary artifact for experiments. Both branch and main builds use the original Canary signing identity. A newer workflow run supplies a higher version code; if Android rejects an older test APK, rebuild that desired branch instead of uninstalling and losing settings.
 - Every PR records actual contributing models, including Astra-authored changes. Reviewer attribution remains pending until review happens. Attribution is an audit trail, not a substitute for checks or human QA.
-- Documentation-only changes still trigger the current workflow, but do not require phone testing. No new tests are needed merely to mirror prose.
+- Documentation-only changes still report a workflow check, but skip Android setup, signing, APKs and publication. Provide the successful run with "no APK generated; device QA not needed". Manual workflow dispatch forces a full build when needed. No new tests are needed merely to mirror prose.
+
+## Another Astra contributor taking over
+
+Use the [coordinator handoff runbook](coordinator-handoff.md) for the copyable
+resume prompt, ownership rules, interruption recovery and latest dated checkpoint.
+This supports a contributor on another machine/account as well as a new local
+task. Direct Claude coordination is used when the user requests it; the default
+implementation handoff above does not automatically launch other agents.

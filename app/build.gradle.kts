@@ -30,7 +30,12 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            resValue("string", "app_name", "Muon Canary")
+            // Canary is built like Stable in the one way that matters for QA: not debuggable, so
+            // Compose runs at full speed and phone testing reflects real performance (#125). The
+            // package, signing key and update path are unchanged. "Muon β" fits the launcher's
+            // one-line label, where "Muon Canary" was cut to "Muon Can…" (#29).
+            isDebuggable = false
+            resValue("string", "app_name", "Muon β")
             versionNameSuffix = "-canary." + providers.environmentVariable("MUON_VERSION_CODE").getOrElse("local")
         }
         getByName("release") {

@@ -14,10 +14,17 @@ These instructions apply to all coding agents working in this repository. Read t
 1. Confirm the requested scope from the task and inspect the relevant code. Preserve unrelated local changes. Do not expand a small fix into a general refactor or repository-wide audit.
 2. Work on a dedicated branch, normally `codex/<short-topic>`, and open a PR targeting `main`. Use a separate worktree if another agent is editing the same checkout. Do not push feature changes directly to `main`.
 3. Add meaningful tests where behavior warrants them, and update relevant documentation. Prefer GitHub Actions for Android builds because the user's desktop is slow at building APKs. Run lightweight checks locally when useful.
-4. Push the branch and use the existing **Android APKs** workflow. It builds both signed variants, runs unit tests and lint, and checks publication safeguards and APK identities. Same-repository branch pushes trigger it; fork PRs do not currently receive this build. Do not broaden secret access to make an untrusted fork build.
+4. Push the branch and use the existing **Android APKs** workflow. For app/build changes it builds both signed variants, runs unit tests and lint, and checks publication safeguards and APK identities. Documentation-only branches run lightweight checks without APKs; report that outcome instead of promising an artifact. Manual workflow dispatch always requests the full build. Same-repository branch pushes trigger it; fork PRs do not currently receive this build. Do not broaden secret access to make an untrusted fork build.
 5. Inspect the run for the **latest PR head commit**. Fix failures within scope, push again, and refresh the build links. If a check is blocked or unavailable, report it accurately; never call an unrun check a pass.
 6. Complete the PR description using `.github/pull_request_template.md`, including model attribution, verification results, a test-build link, and a short manual QA checklist. Give the user the PR and test-build links in the handoff.
 7. **Leave the PR open.** Implementation agents do not self-merge, enable auto-merge, publish releases, or create release tags. Astra reviews and merges in a later cycle when the user explicitly requests it. Do not automatically start a review task or another agent.
+
+## Build and verification
+
+- Do not assume a local Android build. Agent environments on the user's desktop may lack the Gradle cache or Android SDK platform, and the desktop is slow at building APKs. The **Android APKs** workflow is normally the first real compile; say so rather than implying code was compiled or run locally.
+- Pinned versions live in the build files (`build.gradle.kts`, `app/build.gradle.kts` and the Compose BOM they name). Read them there; do not copy version numbers into documentation, where they go stale.
+- When unsure of a library API or its behaviour, check it against the pinned version's published sources (for AndroidX, the `-sources.jar` on Google's Maven), not memory or the latest docs. Record in the PR or handoff what was checked and where, and what remains unverified.
+- JVM unit tests cover pure logic. There are no Compose UI tests, and device testing is the user's. Say plainly which behaviour relies on the CI compile, source reading and manual QA.
 
 ## Manual QA and test builds
 
@@ -25,7 +32,7 @@ These instructions apply to all coding agents working in this repository. Read t
 - Provide the successful Actions run URL and the `app-debug-<full-commit-SHA>` artifact link/name. Record the commit, Canary version, and workflow run number. The artifact ZIP contains `app-debug.apk`, `SHA256SUMS`, and `BUILD.txt`.
 - This signed debug APK updates **Muon Canary** and preserves its data; it is not a separate per-PR app. Branch artifacts expire after 14 days and do not appear in Obtainium's GitHub Releases feed. The release-variant artifact is also available, but use Canary for routine manual QA.
 - Android prevents ordinary version-code downgrades. When testing several branches, use a fresh workflow run of the desired head if its APK is older than the installed build. Do not uninstall the user's app or change signing to bypass this.
-- Keep manual QA marked **pending user testing** until the user supplies results. Automated checks do not establish playback, visual quality, or real-device behavior. For documentation-only PRs, say that device QA is not needed; the existing workflow still produces APKs.
+- Keep manual QA marked **pending user testing** until the user supplies results. Automated checks do not establish playback, visual quality, or real-device behavior. For documentation-only PRs, say that device QA is not needed. When CI selects documentation-only checks, provide the successful run and say no APK was generated. Do not add skip-CI commit markers; the workflow should report its check.
 
 ## Attribution on every PR
 
@@ -42,3 +49,12 @@ Review alone does not authorize merging. When the user requests review **and mer
 A successful `main` build automatically publishes a private Canary prerelease. Verify that publication and provide its link; report build/publication failures without claiming an update is ready. Stable `vMAJOR.MINOR.PATCH` tags require an explicit stable-release request. Do not create per-PR prereleases under the existing Canary feed.
 
 See `docs/agent-workflow.md` for starter prompts and the human handoff sequence.
+
+## Resuming or coordinating across agents
+
+- A user-selected successor Astra may take over backend work and coordination. Read [the coordinator runbook](docs/coordinator-handoff.md) and its linked latest checkpoint before broad exploration; verify live PR heads, checks, ownership and user authorization. A checkpoint records evidence, not new permission to merge or access devices.
+- Keep one active coordinator for a given batch. Agree file/worktree ownership before parallel work, and never concurrently resume the same Claude session. Claude owns frontend implementation; Astra owns backend implementation and integration review, with shared behavior agreed explicitly.
+- Work in small, independently reviewable slices. Before starting another, leave durable commit/PR/check/QA evidence for the previous slice. Reserve capacity for fixes and handoff; do not deliberately run into a hard limit with unrecorded edits.
+- Put portable state in repository documents and PR/issue comments. Local chat history, temporary files, tool memories and local session IDs are optional conveniences, never prerequisites for another contributor. Follow the existing attribution, secret-access and fork-build boundaries.
+
+- Coordinator rotation is reciprocal: a returning Astra follows the same live-state takeover checks as a new contributor. Before yielding, update the runbook checkpoint with active/idle ownership, exact commits, outstanding checks and the next bounded slice; never rely on the previous chat alone.

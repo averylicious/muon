@@ -9,6 +9,9 @@ when the shape of the app changes, not when individual lines do.
 A single-module Android app. One activity, one Compose tree, one media session. No DI framework, no
 navigation library, no repository layer — deliberately, per AGENTS.md.
 
+The UI layer is one file per screen plus a few shared files, all in `dev.avery.muon`. Composables
+that are called from another file are `internal`; the rest stay `private`.
+
 ```
 MainActivity ──binds──▶ PlaybackService (Media3 MediaSessionService)
       │                        │
@@ -17,21 +20,26 @@ MainActivity ──binds──▶ PlaybackService (Media3 MediaSessionService)
    MuonApp ◀──state── LibraryModel (AndroidViewModel)
       │                        │
       │                        └──▶ TauonApi ──HTTP──▶ Tauon desktop (LAN)
-      └──▶ screens: Connect │ Library │ Search │ Playing │ Lyrics │ Settings
+      └──▶ tabs: Library │ Search │ Settings, or Connect when there is no server
+             └──▶ overlay: Now Playing │ Lyrics, above whichever tab is showing
 ```
 
 | File | Holds |
 |---|---|
 | `MainActivity.kt` | Activity lifecycle, `MediaController` binding, edge-to-edge and system bar style |
 | `PlaybackService.kt` | The Media3 session and player; owns the queue and survives the UI |
-| `MuonApp.kt` | Every screen and composable. The big one — treat it as the UI layer, not a file |
+| `MuonApp.kt` | The shell: three tabs, the Now Playing overlay above them, the scaffold, and queue start |
+| `PlaybackState.kt` | `PlaybackUi`, the ticking position, and the player listener |
+| `LibraryScreen.kt`, `SearchScreen.kt`, `NowPlayingScreen.kt`, `LyricsScreen.kt`, `SettingsScreen.kt`, `ConnectScreen.kt` | One file per screen |
+| `TrackList.kt`, `MiniPlayer.kt`, `Components.kt` | Shared UI: the track list and row, the mini player, and the icon, control, error and busy pieces |
 | `LibraryModel.kt` | Connection state, playlists, tracks, busy/error/progress; owns `connection` prefs |
 | `TauonApi.kt` | HTTP calls, JSON parsing, response size limits. `Transport` holds the shared OkHttp client |
 | `ServerEndpoint.kt` | **Security boundary.** Parses and validates a server address |
 | `ServerDiscovery.kt` | NSD lookup of `_tauon-remote._tcp` |
 | `Artwork.kt` | Cover fetch, decode, and the in-memory `LruCache` |
 | `Appearance.kt` | Palette choice and Pure black; owns `appearance` prefs |
-| `MuonTheme.kt` | Colour schemes, the display typeface, black-surface override |
+| `MuonTheme.kt` | Colour schemes and the black-surface override |
+| `MuonTypography.kt` | Google Sans Flex and the Material 3 type roles; see `docs/fonts.md` |
 | `MuonIcons.kt` + `res/drawable/ic_*.xml` | The icon set; `iconRes` maps a kind string to a drawable |
 | `Motion.kt` | Animation durations and easing |
 | `PlaybackModes.kt`, `PlaybackProgress.kt`, `TrackSearch.kt`, `TrackIdentity.kt`, `MediaVolume.kt` | Pure helpers, all unit-tested |
@@ -44,7 +52,7 @@ MainActivity ──binds──▶ PlaybackService (Media3 MediaSessionService)
   reason. Do not merge them.
 - **`PlaybackService`** owns the queue and playback modes. The UI is a view onto it and may be
   destroyed and rebuilt at any time; modes are not persisted across process death.
-- **`PlaybackState`** in `MuonApp.kt` splits event-driven state (`PlaybackUi`) from the moving
+- **`PlaybackState`** in `PlaybackState.kt` splits event-driven state (`PlaybackUi`) from the moving
   position (`MutableLongState`) on purpose. Putting the position back into `PlaybackUi` would make
   every position tick recompose the whole tree — that was the bug fixed in PR #4.
 
@@ -115,4 +123,4 @@ Unit tests are plain JVM JUnit — no Robolectric, no instrumentation in CI.
 3. `LibraryModel.connect()` — cancellation, partial loads, and what the UI shows when a refresh fails
    after a successful load.
 4. `Artwork.kt` — the decode sizing behind #23.
-5. Everything else in `MuonApp.kt`, which is presentation and is best judged on a device.
+5. Everything else in the screen files, which is presentation and is best judged on a device.
