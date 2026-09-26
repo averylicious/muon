@@ -2,6 +2,7 @@ package dev.avery.muon
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -68,7 +69,7 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndpoint?, currentId: String?,
-    playing: Boolean, ready: Boolean, backLabel: String = "Back to albums", back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
+    playing: Boolean, ready: Boolean, backLabel: String = "Back to albums", actions: (TauonTrack) -> Unit, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = album?.tracks?.any { it.playable } == true && ready
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -112,7 +113,8 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                 .padding(horizontal = 12.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
-                .clickable(enabled = track.playable && ready, onClickLabel = "Play") { play(track) }
+                .combinedClickable(enabled = track.playable && ready, onClickLabel = "Play",
+                    onLongClickLabel = "Song actions", onLongClick = { actions(track) }) { play(track) }
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .semantics { if (current) stateDescription = "Now playing" },
                 verticalAlignment = Alignment.CenterVertically) {
