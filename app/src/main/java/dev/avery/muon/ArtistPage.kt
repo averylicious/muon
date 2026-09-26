@@ -42,7 +42,8 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
         }
         item(key = "header", contentType = "header") {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                ArtistAvatar(artist ?: LibraryArtist("", name, emptyList()), side = 96.dp)
+                ArtistAvatar(artist ?: LibraryArtist("", name, emptyList()), side = 96.dp,
+                    modifier = artist?.let { sharedPicture(artistPictureKey(it.key)) } ?: Modifier)
                 Column(Modifier.weight(1f).padding(start = 16.dp)) {
                     Text(artistLabel(artist?.name ?: name), style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis,
@@ -107,8 +108,9 @@ internal fun SectionHeading(text: String) {
 internal fun AlbumTile(album: LibraryAlbum, endpoint: ServerEndpoint?,
     subtitle: String = "${album.tracks.size} ${if (album.tracks.size == 1) "song" else "songs"}",
     modifier: Modifier = Modifier.width(148.dp), open: () -> Unit) {
-    Column(modifier.clip(RoundedCornerShape(16.dp)).clickable(onClickLabel = "Open album", onClick = open)) {
-        Artwork(albumArt(endpoint, album), Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
+    Column(modifier.then(springyClick("Open album", RoundedCornerShape(16.dp), open))) {
+        Artwork(albumArt(endpoint, album), sharedPicture(albumPictureKey(album.key))
+            .fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
         Text(albumLabel(album.title), style = MaterialTheme.typography.titleSmall, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, top = 8.dp))
         Text(subtitle, overflow = TextOverflow.Ellipsis,
