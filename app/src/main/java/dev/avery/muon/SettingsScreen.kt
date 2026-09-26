@@ -108,22 +108,40 @@ private fun StorageGroup(clear: () -> Unit) {
     var choosing by rememberSaveable { mutableStateOf(false) }
     // Free space where the downloads live, read once per visit; it changes slowly.
     val free = remember { runCatching { android.os.StatFs(context.filesDir.path).availableBytes }.getOrDefault(0L) }
+    // Offered only while a removable card is in and was found when the store opened; with none, the row
+    // is simply not there (the user's decision).
+    val card = remember { OfflineStore.get(context).card?.let { cardFolder(context) } }
+    var onCard by remember { mutableStateOf(OfflineStore.storeOnCard(context)) }
+    val rows = if (card != null) 5 else 4
     StorageBar(DownloadMarks.bytes, used, free)
     SettingsGroup {
-        SettingsRow(shape = rowShape(0, 4), headline = "Downloads",
+        SettingsRow(shape = rowShape(0, rows), headline = "Downloads",
             supporting = if (songs == 0) "None yet. Long-press a song, or use Download all on an album or artist."
                 else "$songs ${if (songs == 1) "song" else "songs"} · ${formatBytes(DownloadMarks.bytes)}",
             trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } })
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
-        SettingsRow(shape = rowShape(1, 4), headline = "Played-song cache",
+        SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
             supporting = "${formatBytes(used)} of ${formatBytes(limit)}" + if (full) " · full, oldest songs make room" else "",
             trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } })
-        SettingsRow(shape = rowShape(2, 4), headline = "Cache limit", supporting = formatBytes(limit),
+        SettingsRow(shape = rowShape(2, rows), headline = "Cache limit", supporting = formatBytes(limit),
             headlineColor = if (full) colors.primary else Color.Unspecified,
             trailing = { MuonIcon("collapse", Modifier.size(20.dp)) },
             modifier = Modifier.clickable(onClickLabel = "Change cache limit") { choosing = true })
-        SettingsRow(shape = rowShape(3, 4), headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
+        SettingsRow(shape = rowShape(3, rows), headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
+        if (card != null) {
+            val cardName = remember(card) { cardDescription(context, card) }
+            val cardFree = remember(card) { runCatching { android.os.StatFs(card.path).availableBytes }.getOrDefault(0L) }
+            SettingsRow(shape = rowShape(4, rows), headline = "Store on SD card",
+                supporting = "$cardName · ${formatBytes(cardFree)} free",
+                trailing = { Switch(checked = onCard, onCheckedChange = null) },
+                modifier = Modifier.toggleable(value = onCard, role = Role.Switch) {
+                    onCard = it; OfflineStore.setStoreOnCard(context, it)
+                })
+        }
     }
+    if (card != null) Text("New downloads go to the card. Removing the card hides its downloads until it is back.",
+        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp))
     Text("The cache keeps Opus copies of songs you play, so they also play without Tauon. " +
         "Downloaded songs stay until you remove them. Lossless streams play from memory and never touch storage.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,

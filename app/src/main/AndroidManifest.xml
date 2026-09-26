@@ -21,5 +21,7 @@
         <!-- Downloads for offline listening (#112); only Muon starts it. -->
         <service android:name=".MuonDownloadService" android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service android:name=".MuonCardDownloadService" android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

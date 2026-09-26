@@ -2,6 +2,7 @@ package dev.avery.muon
 
 import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.C
@@ -12,11 +13,12 @@ import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.offline.DefaultDownloadIndex
+import androidx.media3.exoplayer.offline.DefaultDownloaderFactory
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
@@ -25,14 +27,41 @@ import java.io.File
 import java.util.concurrent.Executors
 
 /**
- * The downloaded songs and the machinery that keeps them (#112): one Media3 [DownloadManager] over one
- * [SimpleCache] in the app's own storage, shared by the UI and the playback service in this process.
- * Created on the main thread, where the manager reports its changes.
+ * Where downloads are kept: the phone's own storage, or a removable SD card (#112, mockup 01). Each has
+ * its own cache, its own download index and its own service, so a card taken out simply takes its
+ * downloads with it until it is back.
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val service: Class<out DownloadService>) {
+    /** Reads this shelf's copies; anything not on it streams, and nothing streamed is written. */
+    val source: CacheDataSource.Factory = CacheDataSource.Factory().setCache(cache)
+        .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client)).setCacheWriteDataSinkFactory(null)
+
+    fun completed(id: String): Boolean =
+        runCatching { manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED }.getOrDefault(false)
+}
+
+/** A mounted removable SD card's folder for Muon, if there is one. Muon needs no permission for it. */
+internal fun cardFolder(context: Context): File? = context.getExternalFilesDirs(null).drop(1).firstOrNull {
+    it != null && runCatching { Environment.isExternalStorageRemovable(it) &&
+        Environment.getExternalStorageState(it) == Environment.MEDIA_MOUNTED }.getOrDefault(false)
+}
+
+/**
+ * The downloaded songs and the machinery that keeps them (#112): a Media3 [DownloadManager] over a
+ * [SimpleCache] in the app's own storage, and another on the SD card when one is in, shared by the UI
+ * and the playback service in this process. Created on the main thread, where the managers report.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal object OfflineStore {
-    class Store(val cache: SimpleCache, val manager: DownloadManager, val art: DownloadArt,
-        val played: PlayedSongEvictor, val prefs: android.content.SharedPreferences)
+    class Store(val phone: Shelf, val art: DownloadArt, val played: PlayedSongEvictor,
+        val prefs: android.content.SharedPreferences, val database: StandaloneDatabaseProvider,
+        val record: (Download) -> Unit, val removed: (Download) -> Unit) {
+        /** The phone's cache, which also holds the played-song copies. */
+        val cache: SimpleCache get() = phone.cache
+        @Volatile var card: Shelf? = null
+        val shelves: List<Shelf> get() = listOfNotNull(phone, card)
+    }
 
     /** Set while the library shows only what is on the phone; the player then also plays cached songs. */
     @Volatile var offline = false
@@ -48,6 +77,16 @@ internal object OfflineStore {
     @Synchronized
     fun get(context: Context): Store = store ?: create(context.applicationContext).also { store = it }
 
+    private fun shelf(context: Context, folder: File, evictor: androidx.media3.datasource.cache.CacheEvictor,
+        database: StandaloneDatabaseProvider, index: String, service: Class<out DownloadService>): Shelf {
+        val cache = SimpleCache(folder, evictor, database)
+        val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client))
+        val manager = DownloadManager(context, DefaultDownloadIndex(database, index),
+            DefaultDownloaderFactory(factory, Executors.newFixedThreadPool(2)))
+        manager.maxParallelDownloads = 2
+        return Shelf(cache, manager, service)
+    }
+
     private fun create(context: Context): Store {
         val database = StandaloneDatabaseProvider(context)
         val prefs = context.getSharedPreferences("storage", Context.MODE_PRIVATE)
@@ -56,10 +95,7 @@ internal object OfflineStore {
         PlayedCacheState.limit = limit
         // Downloads stay until removed: only played-song copies are ever evicted, oldest first.
         val played = PlayedSongEvictor(limit) { used -> main.post { PlayedCacheState.used = used } }
-        val cache = SimpleCache(File(context.filesDir, "downloads"), played, database)
-        val manager = DownloadManager(context, database, cache, OkHttpDataSource.Factory(Transport.client),
-            Executors.newFixedThreadPool(2))
-        manager.maxParallelDownloads = 2
+        val phone = shelf(context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java)
         val art = DownloadArt(File(context.filesDir, "downloads-art"))
         // Covers are fetched one at a time, beside the downloads rather than in their way.
         val artwork = Executors.newSingleThreadExecutor()
@@ -78,47 +114,66 @@ internal object OfflineStore {
             if (mark != null && !art.has(id)) artwork.execute { art.fetch(id) }
             DownloadMarks.bytes = sizes.values.sum()
         }
-        manager.addListener(object : DownloadManager.Listener {
-            override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) = record(download)
-            override fun onDownloadRemoved(m: DownloadManager, download: Download) {
-                artwork.execute { art.remove(download.request.id) }
-                DownloadMarks.marks.remove(download.request.id)
-                sizes.remove(download.request.id)
-                DownloadMarks.bytes = sizes.values.sum()
-            }
-        })
-        // What was downloaded before this launch, read off the main thread and reported on it.
-        Executors.newSingleThreadExecutor().execute {
-            val known = ArrayList<Download>()
-            runCatching { manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
-            main.post { known.forEach(::record) }
+        fun removed(download: Download) {
+            artwork.execute { art.remove(download.request.id) }
+            DownloadMarks.marks.remove(download.request.id)
+            sizes.remove(download.request.id)
+            DownloadMarks.bytes = sizes.values.sum()
         }
-        return Store(cache, manager, art, played, prefs)
+        val store = Store(phone, art, played, prefs, database, ::record, ::removed)
+        watch(phone, store, main)
+        cardFolder(context)?.let { folder ->
+            runCatching { shelf(context, File(folder, "downloads"), NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java) }
+                .getOrNull()?.let { card -> store.card = card; watch(card, store, main) }
+        }
+        return store
     }
 
-    /** Whether a finished download of [id] is on the phone. Called from the player's loading thread. */
-    fun downloaded(context: Context, id: String): Boolean =
-        runCatching { get(context).manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED }.getOrDefault(false)
+    /** Reports one shelf's downloads to the UI: those already there, then every change. */
+    private fun watch(shelf: Shelf, store: Store, main: Handler) {
+        shelf.manager.addListener(object : DownloadManager.Listener {
+            override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) = store.record(download)
+            override fun onDownloadRemoved(m: DownloadManager, download: Download) = store.removed(download)
+        })
+        Executors.newSingleThreadExecutor().execute {
+            val known = ArrayList<Download>()
+            runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
+            main.post { known.forEach(store.record) }
+        }
+    }
+
+    /** Where new downloads go: the card when chosen and in, otherwise the phone. */
+    private fun target(store: Store): Shelf = store.card?.takeIf { store.prefs.getBoolean("onCard", false) } ?: store.phone
+
+    /** Whether new downloads go to the SD card; only offered while one is in. */
+    fun storeOnCard(context: Context): Boolean = get(context).prefs.getBoolean("onCard", false)
+
+    fun setStoreOnCard(context: Context, onCard: Boolean) { get(context).prefs.edit().putBoolean("onCard", onCard).apply() }
+
+    /** The shelf holding a finished download of [id], if any. Called from the player's loading thread. */
+    fun downloadedOn(context: Context, id: String): Shelf? = get(context).shelves.firstOrNull { it.completed(id) }
+
+    /** Whether a finished download of [id] is on the phone or its card. */
+    fun downloaded(context: Context, id: String): Boolean = downloadedOn(context, id) != null
 
     /**
-     * The player's data source: a song with a finished download plays its Opus copy from the phone,
-     * with no network at all; every other request streams as before, and nothing streamed is written.
+     * The player's data source: a song with a finished download plays its Opus copy from wherever it is
+     * kept, with no network at all; every other request streams as before, and nothing streamed is written.
      */
-    fun playbackSource(context: Context, upstream: DataSource.Factory): DataSource.Factory {
-        val cached = CacheDataSource.Factory().setCache(get(context).cache)
-            .setUpstreamDataSourceFactory(upstream).setCacheWriteDataSinkFactory(null)
-        return ResolvingDataSource.Factory(cached) { spec ->
-            val found = downloadForStream(spec.uri.scheme, spec.uri.encodedAuthority, spec.uri.path)
-            when {
-                found == null -> spec
-                downloaded(context, found.first) -> spec.buildUpon().setUri(Uri.parse(found.second)).setKey(found.first).build()
-                // Recent listening plays from the phone only when Tauon cannot be reached; at home the
-                // original stream is always preferred.
-                offline && playedCopy(context, found.first) -> spec.buildUpon().setUri(Uri.parse(found.second))
-                    .setKey(playedKey(found.first)).build()
-                else -> spec
-            }
-        }
+    @Suppress("UNUSED_PARAMETER")
+    fun playbackSource(context: Context, upstream: DataSource.Factory): DataSource.Factory =
+        DataSource.Factory { OfflineDataSource { spec -> route(context, spec) } }
+
+    /** Which shelf serves [spec], and the request to make of it. */
+    private fun route(context: Context, spec: DataSpec): Pair<Shelf, DataSpec> {
+        val phone = get(context).phone
+        val found = downloadForStream(spec.uri.scheme, spec.uri.encodedAuthority, spec.uri.path) ?: return phone to spec
+        downloadedOn(context, found.first)?.let { return it to spec.buildUpon().setUri(Uri.parse(found.second)).setKey(found.first).build() }
+        // Recent listening plays from the phone only when Tauon cannot be reached; at home the original
+        // stream is always preferred.
+        if (offline && playedCopy(context, found.first))
+            return phone to spec.buildUpon().setUri(Uri.parse(found.second)).setKey(playedKey(found.first)).build()
+        return phone to spec
     }
 
     /** Whether a complete played-song copy of [id] is on the phone. */
@@ -172,7 +227,7 @@ internal object OfflineStore {
             if (DownloadMarks.marks[id] != null) return@forEach
             val request = DownloadRequest.Builder(id, Uri.parse(endpoint.url("/api1/fileopus/${track.id}")))
                 .setCustomCacheKey(id).setData(encodeSong(track)).build()
-            DownloadService.sendAddDownload(context, MuonDownloadService::class.java, request, false)
+            DownloadService.sendAddDownload(context, target(get(context)).service, request, false)
         }
     }
 
@@ -182,15 +237,15 @@ internal object OfflineStore {
      */
     fun downloadedSongs(context: Context, origin: String): List<TauonTrack> {
         val songs = ArrayList<TauonTrack>()
-        runCatching {
-            get(context).manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
+        get(context).shelves.forEach { shelf -> runCatching {
+            shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
                 while (cursor.moveToNext()) {
                     val download = cursor.download
                     if (!download.request.id.startsWith("$origin/")) continue
                     decodeSong(download.request.data)?.takeIf { downloadId(origin, it.id) == download.request.id }?.let(songs::add)
                 }
             }
-        }
+        } }
         // And the songs played recently enough to still have a complete copy.
         runCatching {
             val cache = get(context).cache
@@ -210,21 +265,22 @@ internal object OfflineStore {
      */
     fun downloadedLibrary(context: Context): Pair<String, List<TauonTrack>>? {
         val origins = HashMap<String, Int>()
-        runCatching {
-            get(context).manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
+        get(context).shelves.forEach { shelf -> runCatching {
+            shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
                 while (cursor.moveToNext()) {
                     val origin = cursor.download.request.id.substringBeforeLast('/', "")
                     if (origin.isNotEmpty()) origins[origin] = (origins[origin] ?: 0) + 1
                 }
             }
-        }
+        } }
         val origin = origins.maxByOrNull { it.value }?.key ?: return null
         return downloadedSongs(context, origin).takeIf { it.isNotEmpty() }?.let { origin to it }
     }
 
     /** Removes these downloads, finished or not. */
-    fun remove(context: Context, ids: List<String>) = ids.forEach {
-        DownloadService.sendRemoveDownload(context, MuonDownloadService::class.java, it, false)
+    fun remove(context: Context, ids: List<String>) = get(context).shelves.forEach { shelf ->
+        // A download is on one shelf; asking the other to remove it does nothing.
+        ids.forEach { DownloadService.sendRemoveDownload(context, shelf.service, it, false) }
     }
 
     /**
@@ -232,8 +288,15 @@ internal object OfflineStore {
      * once there is nothing to do.
      */
     fun resume(context: Context) {
-        runCatching { DownloadService.start(context, MuonDownloadService::class.java) }
+        get(context).shelves.forEach { runCatching { DownloadService.start(context, it.service) } }
     }
 
-    fun removeAll(context: Context) = DownloadService.sendRemoveAllDownloads(context, MuonDownloadService::class.java, false)
+    fun removeAll(context: Context) = get(context).shelves.forEach {
+        DownloadService.sendRemoveAllDownloads(context, it.service, false)
+    }
 }
+
+/** The card's name as Android shows it ("SanDisk SD card"), or a plain one. */
+internal fun cardDescription(context: Context, folder: File): String = runCatching {
+    context.getSystemService(android.os.storage.StorageManager::class.java)?.getStorageVolume(folder)?.getDescription(context)
+}.getOrNull() ?: "SD card"
