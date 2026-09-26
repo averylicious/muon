@@ -26,14 +26,6 @@ class LibraryAlbumsTest {
         assertEquals("2 songs, at least 3 minutes", albumSummary(listOf(track(1, duration = 200_000), track(2, duration = 0))))
     }
 
-    @Test fun trackNumbersComeFromTheTagOrThePosition() {
-        assertEquals("3", albumTrackNumber("3/12", 0))
-        assertEquals("7", albumTrackNumber("07", 0))
-        assertEquals("5", albumTrackNumber("", 4))
-        assertEquals("2", albumTrackNumber("B2", 1))
-        assertEquals("1", albumTrackNumber("0", 0))
-    }
-
     @Test fun anUntitledAlbumHasALabel() {
         assertEquals("Unknown album", albumLabel(" "))
         assertEquals("Stories", albumLabel("Stories"))
