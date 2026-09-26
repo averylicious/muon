@@ -81,6 +81,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var songList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
         var artistList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
         var playlistList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
+        // The open artist's page keeps its place while one of its albums is open; another artist starts at the top.
+        val artistPageList = rememberSaveable(artistKey, saver = LazyListState.Saver) { LazyListState() }
         var albumGrid by rememberSaveable(stateSaver = LazyGridState.Saver) { mutableStateOf(LazyGridState()) }
         var libraryBar by rememberSaveable(stateSaver = TopAppBarState.Saver) { mutableStateOf(TopAppBarState(
             initialHeightOffsetLimit = -Float.MAX_VALUE, initialHeightOffset = 0f, initialContentOffset = 0f)) }
@@ -200,7 +202,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 BackTarget.Queue -> queueOpen = false
                 BackTarget.Player -> playerOpen = false
                 BackTarget.Tab -> tab = Tab.Library
-                BackTarget.Playlist -> { openOrigin = null; openId = null; closeArtist(); closeAlbum() }
+                // An album opened from an artist's page goes back to that page; anything else, to the top.
+                BackTarget.Playlist -> if (albumPage && artistPage) closeAlbum()
+                    else { openOrigin = null; openId = null; closeArtist(); closeAlbum() }
                 BackTarget.None -> Unit
             }
         }
@@ -314,6 +318,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     val title = keptWhileLeaving(leaving, albumTitle.orEmpty())
                                                     LibraryPane(model.busy, { model.connect() }) {
                                                         AlbumPage(album, title, model.endpoint, ui.item?.mediaId, ui.playing, player != null,
+                                                            backLabel = if (shown.fromArtist != null) "Back to artist" else "Back to albums",
                                                             back = { closeAlbum() },
                                                             playAll = { shuffle -> album?.let { playAll(it.tracks, shuffle) } }) {
                                                             startQueue(album?.tracks.orEmpty(), it)
@@ -324,17 +329,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     val artist = keptWhileLeaving(leaving,
                                                         openArtist?.takeIf { it.key == shown.artistKey })
                                                     val name = keptWhileLeaving(leaving, artistName.orEmpty())
-                                                    Column {
-                                                        // An interim artist page: the playlist's bar and list, over
-                                                        // the songs credited to this artist. While this snapshot is
-                                                        // still being grouped it waits, empty, with Back available.
-                                                        PlaylistBar(artistLabel(artist?.name ?: name), artist?.tracks?.size,
-                                                            backLabel = "Back to artists") { closeArtist() }
-                                                        LibraryPane(model.busy, { model.connect() }) {
-                                                            val tracks = artist?.tracks.orEmpty()
-                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing,
-                                                                emptyText = "No songs by this artist. Refresh to update.",
-                                                                loading = model.busy || artist == null) { startQueue(tracks, it) }
+                                                    val appearsOn = remember(artist, albums) {
+                                                        if (artist == null || albums == null) emptyList() else artistAlbums(artist, albums)
+                                                    }
+                                                    LibraryPane(model.busy, { model.connect() }) {
+                                                        ArtistPage(artist, name, appearsOn, model.endpoint, ui.item?.mediaId, ui.playing,
+                                                            player != null, keptWhileLeaving(leaving, artistPageList), back = { closeArtist() },
+                                                            playAll = { shuffle -> artist?.let { playAll(it.tracks, shuffle) } },
+                                                            // Opened over this page, so Back returns here.
+                                                            openAlbum = { albumOrigin = origin; albumKey = it.key; albumTitle = it.title }) {
+                                                            startQueue(artist?.tracks.orEmpty(), it)
                                                         }
                                                     }
                                                 }

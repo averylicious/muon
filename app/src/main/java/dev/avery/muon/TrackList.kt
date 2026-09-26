@@ -58,9 +58,13 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
     }
 }
 
+/**
+ * One song: cover, title, a line under it, and length. The current song sits on a tonal surface with
+ * the equalizer over its cover. [subtitle] defaults to the credits and album.
+ */
 @Composable
-private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean, ready: Boolean,
-    modifier: Modifier = Modifier, play: () -> Unit) {
+internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean, ready: Boolean,
+    modifier: Modifier = Modifier, subtitle: String = trackSubtitle(t.artist, t.album, t.playable), play: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
         .padding(horizontal = 12.dp)
@@ -85,7 +89,6 @@ private fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean,
                 fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
             // An untagged file has nothing to say here, so the line is left out rather than
             // printed as a stray separator.
-            val subtitle = trackSubtitle(t.artist, t.album, t.playable)
             if (subtitle.isNotEmpty()) Text(subtitle,
                 color = if (current) colors.onSecondaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)

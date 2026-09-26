@@ -28,14 +28,17 @@ internal sealed interface LibraryPage {
     data object Top : LibraryPage { override val key = "top" }
     data class Playlist(val id: String) : LibraryPage { override val key = "playlist:$id" }
     data class Artist(val artistKey: String) : LibraryPage { override val key = "artist:$artistKey" }
-    data class Album(val albumKey: String) : LibraryPage { override val key = "album:$albumKey" }
+    /** [fromArtist] is the artist page it was opened over, if any, which Back returns to. */
+    data class Album(val albumKey: String, val fromArtist: String? = null) : LibraryPage {
+        override val key = "album:$albumKey"
+    }
 }
 
 /** The page on show, with the same precedence the Library tab has always used: a playlist first. */
 internal fun libraryPage(openPlaylist: String?, artistPage: Boolean, artistKey: String?,
     albumPage: Boolean = false, albumKey: String? = null): LibraryPage = when {
     openPlaylist != null -> LibraryPage.Playlist(openPlaylist)
-    albumPage && albumKey != null -> LibraryPage.Album(albumKey)
+    albumPage && albumKey != null -> LibraryPage.Album(albumKey, if (artistPage) artistKey else null)
     artistPage && artistKey != null -> LibraryPage.Artist(artistKey)
     else -> LibraryPage.Top
 }
@@ -44,7 +47,14 @@ internal fun libraryPage(openPlaylist: String?, artistPage: Boolean, artistKey: 
 internal enum class LibraryMotion { Forward, Back, Across }
 
 internal fun libraryMotion(from: LibraryPage, to: LibraryPage): LibraryMotion {
-    val depth = { page: LibraryPage -> if (page == LibraryPage.Top) 0 else 1 }
+    // An album opened from an artist's page is a level below that page.
+    val depth = { page: LibraryPage ->
+        when {
+            page == LibraryPage.Top -> 0
+            page is LibraryPage.Album && page.fromArtist != null -> 2
+            else -> 1
+        }
+    }
     return when {
         depth(to) > depth(from) -> LibraryMotion.Forward
         depth(to) < depth(from) -> LibraryMotion.Back

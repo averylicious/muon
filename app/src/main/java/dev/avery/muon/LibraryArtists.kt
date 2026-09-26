@@ -84,3 +84,19 @@ internal fun storedArtist(savedOrigin: String?, savedKey: String?, origin: Strin
  */
 internal fun artistPageShown(selection: StoredSelection, connected: Boolean): Boolean =
     connected && (selection == StoredSelection.Open || selection == StoredSelection.Wait)
+
+/**
+ * The albums an artist appears on, newest first, as the Albums view's Recently added: every album
+ * holding at least one of the artist's songs, including a compilation or another artist's album
+ * they guest on. Opening one shows the whole album.
+ */
+internal fun artistAlbums(artist: LibraryArtist, albums: List<LibraryAlbum>): List<LibraryAlbum> {
+    val ids = artist.tracks.mapTo(HashSet()) { it.id }
+    return sortAlbums(albums.filter { album -> album.tracks.any { it.id in ids } }, AlbumOrder.Added)
+}
+
+/** "1 album, 14 songs" under an artist's name; only the songs when none of them has an album. */
+internal fun artistSummary(albums: Int, songs: Int): String {
+    val count = "$songs ${if (songs == 1) "song" else "songs"}"
+    return if (albums <= 0) count else "$albums ${if (albums == 1) "album" else "albums"}, $count"
+}
