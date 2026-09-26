@@ -29,7 +29,9 @@ class PlaybackService : MediaSessionService() {
             setSmallIcon(R.drawable.ic_notification)
         })
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(Transport.client)))
+            // A downloaded song plays its copy from the phone; everything else streams as before (#112).
+            .setMediaSourceFactory(DefaultMediaSourceFactory(
+                OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client))))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK).build()

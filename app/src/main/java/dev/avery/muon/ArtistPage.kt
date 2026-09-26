@@ -63,6 +63,7 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
                 }
             }
         }
+        if (artist != null) item(key = "download", contentType = "download") { DownloadAll(artist.tracks, endpoint) }
         if (artist == null) {
             item(key = "waiting", contentType = "waiting") {
                 Text("Loading artist…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
