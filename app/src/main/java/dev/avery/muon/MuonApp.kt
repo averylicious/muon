@@ -24,6 +24,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -89,6 +90,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var query by rememberSaveable { mutableStateOf("") }
         // Whether the open library page was opened from Search, which Back then returns to.
         var fromSearch by rememberSaveable { mutableStateOf(false) }
+        // Whether the search bar is expanded over the Search tab; kept here so a page opened from the
+        // results comes back to them.
+        var searchOpen by rememberSaveable { mutableStateOf(false) }
         val playback = rememberPlayback(player)
         val ui = playback.ui
         val position = remember(playback) { { playback.position } }
@@ -149,6 +153,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Kept here so Back from a page opened from the results finds them where they were; a new
         // search starts from its top.
         val searchList = rememberSaveable(search.completed, saver = LazyListState.Saver) { LazyListState() }
+        // What Search shows before anything is typed.
+        val browseArtists = remember(artists) { artists?.let { topArtists(it) }.orEmpty() }
+        val browseAlbums = remember(albums) { albums?.let { newestAlbums(it) }.orEmpty() }
         // An endpoint exists only after a complete load succeeded, so it is both the identity of
         // the server and the signal that there is something to judge a saved selection against.
         val selection = storedSelection(openOrigin, openId, origin, model.playlists)
@@ -354,6 +361,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     playlistList = LazyListState()
                                     libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
                                     lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library; fromSearch = false
+                                    searchOpen = false
                                 }
                                 Tab.Library -> {
                                     val page = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey)
@@ -469,18 +477,19 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     }
                                 }
                                 Tab.Search -> {
-                                    Column {
-                                        SearchField(query, { query = it }, search.searching)
+                                    val openArtistPage = { a: LibraryArtist -> openFromSearch { artistOrigin = origin; artistKey = a.key; artistName = a.name } }
+                                    val openAlbumPage = { a: LibraryAlbum -> openFromSearch { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } }
+                                    val keyboard = LocalSoftwareKeyboardController.current
+                                    SearchScreen(query, { query = it }, searchOpen, { searchOpen = it }, search.searching,
+                                        browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage) {
                                         TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
                                             emptyText = searchEmptyText(query, search.searching, search.completed), state = searchList,
-                                            header = {
-                                                searchCollection(foundArtists, foundAlbums, model.endpoint,
-                                                    openArtist = { a -> openFromSearch { artistOrigin = origin; artistKey = a.key; artistName = a.name } },
-                                                    openAlbum = { a -> openFromSearch { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } })
-                                            }) {
+                                            header = { searchCollection(foundArtists, foundAlbums, model.endpoint, openArtistPage, openAlbumPage) }) {
                                             // A search finds where to start, not what to play: the song plays on
                                             // through the whole library in the Songs order, so Next and Shuffle
                                             // reach every song rather than only the few that matched.
+                                            // The keyboard goes, so the mini player shows what started.
+                                            keyboard?.hide()
                                             startQueue(songs, it)
                                         }
                                     }

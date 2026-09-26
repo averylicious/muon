@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** Material's large bar asks for this much height when expanded, before any font scaling. */
@@ -283,14 +284,12 @@ internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: 
     }
 }
 
-private val LARGE_AVATAR = 96.dp
-
 /**
  * Initials on one of the theme's tonal containers, or a generic artist icon for a blank name.
- * [large] is the artist page's header, where the circle is [LARGE_AVATAR] across.
+ * [side] is the circle's width at the default font scale; from 64 dp the initials are set large.
  */
 @Composable
-internal fun ArtistAvatar(artist: LibraryArtist, large: Boolean = false) {
+internal fun ArtistAvatar(artist: LibraryArtist, side: Dp = 40.dp) {
     val colors = MaterialTheme.colorScheme
     val (container, content) = when (artistTone(artist.key)) {
         0 -> colors.primaryContainer to colors.onPrimaryContainer
@@ -299,11 +298,12 @@ internal fun ArtistAvatar(artist: LibraryArtist, large: Boolean = false) {
     }
     val initials = artistInitials(artist.name)
     // Grows with the text, so large fonts keep both initials inside the circle.
-    val side = (if (large) LARGE_AVATAR else 40.dp) * LocalDensity.current.fontScale.coerceAtLeast(1f)
-    Box(Modifier.size(side).clip(CircleShape).background(container).clearAndSetSemantics {},
+    val large = side >= 64.dp
+    val scaled = side * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    Box(Modifier.size(scaled).clip(CircleShape).background(container).clearAndSetSemantics {},
         contentAlignment = Alignment.Center) {
         CompositionLocalProvider(LocalContentColor provides content) {
-            if (initials.isEmpty()) MuonIcon("artist", Modifier.size(if (large) 44.dp else 20.dp))
+            if (initials.isEmpty()) MuonIcon("artist", Modifier.size(side / 2))
             else Text(initials, style = if (large) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.labelLarge,
                 fontWeight = if (large) FontWeight.Medium else null, maxLines = 1, softWrap = false)
         }
