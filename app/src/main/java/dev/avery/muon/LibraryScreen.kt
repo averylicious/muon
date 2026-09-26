@@ -276,7 +276,8 @@ internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: 
                     Text(artistLabel(artist.name), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 supportingContent = { Text(artistSongCount(artist.tracks.size)) },
-                leadingContent = { ArtistAvatar(artist) },
+                // The circle that grows into the artist page's (motion pass 2).
+                leadingContent = { ArtistAvatar(artist, modifier = sharedPicture(artistPictureKey(artist.key))) },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
                 modifier = Modifier.clickable(onClickLabel = "Open artist") { open(artist) },
             )
@@ -289,7 +290,7 @@ internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: 
  * [side] is the circle's width at the default font scale; from 64 dp the initials are set large.
  */
 @Composable
-internal fun ArtistAvatar(artist: LibraryArtist, side: Dp = 40.dp) {
+internal fun ArtistAvatar(artist: LibraryArtist, side: Dp = 40.dp, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val (container, content) = when (artistTone(artist.key)) {
         0 -> colors.primaryContainer to colors.onPrimaryContainer
@@ -300,7 +301,7 @@ internal fun ArtistAvatar(artist: LibraryArtist, side: Dp = 40.dp) {
     // Grows with the text, so large fonts keep both initials inside the circle.
     val large = side >= 64.dp
     val scaled = side * LocalDensity.current.fontScale.coerceAtLeast(1f)
-    Box(Modifier.size(scaled).clip(CircleShape).background(container).clearAndSetSemantics {},
+    Box(modifier.size(scaled).clip(CircleShape).background(container).clearAndSetSemantics {},
         contentAlignment = Alignment.Center) {
         CompositionLocalProvider(LocalContentColor provides content) {
             if (initials.isEmpty()) MuonIcon("artist", Modifier.size(side / 2))

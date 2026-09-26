@@ -97,7 +97,9 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                 verticalAlignment = Alignment.CenterVertically) {
                 if (!narrow) ShuffleControl(p, player)
                 Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
+                // Round while paused, a rounded square while playing (motion pass 2).
                 FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
+                    shape = playButtonShape(p.playing, 72.dp),
                     modifier = Modifier.size(72.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
                     Crossfade(p.playing, animationSpec = motionShort(), label = "play/pause") { playing ->
                         MuonIcon(if (playing) "pause" else "play", Modifier.size(32.dp))

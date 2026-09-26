@@ -2,6 +2,8 @@ package dev.avery.muon
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.expandVertically
@@ -40,6 +42,7 @@ import kotlinx.coroutines.withContext
  */
 private enum class Tab { Library, Search, Settings }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryModel = viewModel(),
     darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme()) {
@@ -385,9 +388,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     // Opening a playlist or an artist steps down a level, so the page
                                     // moves along the reading direction; Back reverses it. Back itself is
                                     // still decided above, from the logical state, never from here.
+                                    SharedTransitionLayout {
+                                    val shared = this
                                     AnimatedContent(page, contentKey = { it.key }, label = "library page",
                                         transitionSpec = { libraryPageTransform(shift) }) { shown ->
                                         val leaving = transition.targetState != EnterExitState.Visible
+                                        // The pages share their pictures while one replaces another (motion pass 2).
+                                        CompositionLocalProvider(LocalSharedMotion provides SharedMotion(shared, this)) {
                                         Box(Modifier.fillMaxSize().leaving(leaving)) {
                                             when (shown) {
                                                 is LibraryPage.Album -> {
@@ -490,6 +497,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                 }
                                             }
                                         }
+                                        }
+                                    }
                                     }
                                 }
                                 Tab.Search -> {

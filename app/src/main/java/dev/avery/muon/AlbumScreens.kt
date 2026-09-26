@@ -49,8 +49,10 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         items(albums, key = { it.key }, contentType = { "album" }) { album ->
-            Column(Modifier.clip(RoundedCornerShape(16.dp)).clickable(onClickLabel = "Open album") { open(album) }) {
-                Artwork(albumArt(endpoint, album), Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
+            Column(springyClick("Open album", RoundedCornerShape(16.dp)) { open(album) }) {
+                // The cover that grows into the album page's (motion pass 2).
+                Artwork(albumArt(endpoint, album), sharedPicture(albumPictureKey(album.key))
+                    .fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
                 Text(albumLabel(album.title), style = MaterialTheme.typography.titleSmall, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, top = 8.dp))
                 Text(artistLabel(displayCredits(album.artist)), style = MaterialTheme.typography.bodySmall,
@@ -79,7 +81,8 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
         }
         item(key = "header", contentType = "header") {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(album?.let { albumArt(endpoint, it) }, Modifier.size(140.dp).clip(RoundedCornerShape(16.dp)))
+                Artwork(album?.let { albumArt(endpoint, it) },
+                    (album?.let { sharedPicture(albumPictureKey(it.key)) } ?: Modifier).size(140.dp).clip(RoundedCornerShape(16.dp)))
                 Column(Modifier.weight(1f).padding(start = 16.dp)) {
                     Text(albumLabel(album?.title ?: title), style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
