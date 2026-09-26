@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,6 +31,8 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     // Survives rotation and process death: a half-answered destructive question should not vanish.
     var confirmDisconnect by rememberSaveable { mutableStateOf(false) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     // Flattening every playlist is O(library). Do it when the library changes, never while scrolling.
     val trackCount = remember(model.tracksByPlaylist) { model.allTracks.size }
     // The expanded title is 36sp, so its bar has to grow with the user's font scale or it clips.
@@ -66,16 +69,43 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
                     modifier = Modifier.clickable(onClickLabel = "Disconnect") { confirmDisconnect = true })
             }
 
+            GroupLabel("Storage")
+            StorageGroup { confirmClear = true }
+
             GroupLabel("Appearance")
             AppearanceGroup(appearance)
 
             PrivacyNote()
         }
     }
+    if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false },
+        title = { Text("Remove all downloads?") },
+        text = { Text("Songs you downloaded will stream again, and need Tauon to play.") },
+        confirmButton = { TextButton(onClick = { confirmClear = false; OfflineStore.removeAll(context) }) { Text("Remove") } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } })
     if (confirmDisconnect) DisconnectDialog(model.address, dismiss = { confirmDisconnect = false }) {
         confirmDisconnect = false
         disconnect()
     }
+}
+
+/**
+ * Storage (#112, mockup 01): what the downloads hold, with Clear, and the quality they are kept at.
+ * Downloads are kept across disconnecting, since offline is exactly when they are wanted.
+ */
+@Composable
+private fun StorageGroup(clear: () -> Unit) {
+    val songs = DownloadMarks.marks.values.count { it == DownloadMark.Done }
+    SettingsGroup {
+        SettingsRow(shape = rowShape(0, 2), headline = "Downloads",
+            supporting = if (songs == 0) "None yet. Long-press a song, or use Download all on an album or artist."
+                else "$songs ${if (songs == 1) "song" else "songs"} · ${formatBytes(DownloadMarks.bytes)}",
+            trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } })
+        SettingsRow(shape = rowShape(1, 2), headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
+    }
+    Text("Downloaded songs play from the phone, without Tauon. Lossless streams play from memory and never touch storage.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp))
 }
 
 /**
@@ -195,5 +225,5 @@ internal fun PrivacyNote() {
     HorizontalDivider()
     Text("A private connection", style = MaterialTheme.typography.titleMedium)
     Text("Tauon's remote API is for trusted LANs. It has no login or encryption over HTTP. Never expose port 7814 to the Internet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Text("Direct original audio · No transcoding\nAndroid playback · Desktop playback stays independent", style = MaterialTheme.typography.bodySmall)
+    Text("Streams the original audio · Downloads keep Opus copies\nAndroid playback · Desktop playback stays independent", style = MaterialTheme.typography.bodySmall)
 }

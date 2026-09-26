@@ -103,6 +103,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                 }
             }
         }
+        if (album != null) item(key = "download", contentType = "download") { DownloadAll(album.tracks, endpoint) }
         if (album == null) item(key = "waiting", contentType = "waiting") {
             Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
         } else itemsIndexed(album.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { i, track ->
@@ -137,6 +138,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                 Text(formatTime(track.durationMs), style = MaterialTheme.typography.labelSmall,
                     color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant,
                     textAlign = TextAlign.End, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
+                DownloadBadge(downloadMark(endpoint, track))
             }
         }
     }

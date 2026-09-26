@@ -38,6 +38,7 @@ internal fun iconRes(kind: String): Int = when (kind) {
     "artist" -> R.drawable.ic_artist
     "delete" -> R.drawable.ic_delete
     "drag-handle" -> R.drawable.ic_drag_handle
+    "download" -> R.drawable.ic_download
     else -> R.drawable.ic_settings
 }
 
@@ -54,5 +55,5 @@ internal val ICON_KINDS = listOf(
     "play", "pause", "previous", "next", "shuffle", "repeat", "repeat-one",
     "volume", "volume-low", "search", "library", "music", "check", "settings",
     "back", "collapse", "close", "queue", "lyrics",
-    "play-next", "add-queue", "album", "artist", "delete", "drag-handle",
+    "play-next", "add-queue", "album", "artist", "delete", "drag-handle", "download",
 )

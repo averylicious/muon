@@ -44,7 +44,8 @@ internal fun queuedMessage(title: String, next: Boolean): String {
 @Composable
 internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQueue: Boolean,
     album: LibraryAlbum?, artists: List<LibraryArtist>, dismiss: () -> Unit,
-    queue: (next: Boolean) -> Unit, goToAlbum: (LibraryAlbum) -> Unit, goToArtist: (LibraryArtist) -> Unit) {
+    queue: (next: Boolean) -> Unit, goToAlbum: (LibraryAlbum) -> Unit, goToArtist: (LibraryArtist) -> Unit,
+    download: DownloadMark? = null, canDownload: Boolean = false, toggleDownload: () -> Unit = {}) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
@@ -72,6 +73,12 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
             if (canQueue) {
                 SheetAction("play-next", "Play next") { choose { queue(true) } }
                 SheetAction("add-queue", "Add to queue") { choose { queue(false) } }
+            }
+            // Keep on the phone, or stop keeping it (#112).
+            when (download) {
+                DownloadMark.Done -> SheetAction("delete", "Remove download") { choose(toggleDownload) }
+                DownloadMark.Queued, DownloadMark.Downloading -> SheetAction("close", "Cancel download") { choose(toggleDownload) }
+                null -> if (canDownload) SheetAction("download", "Download") { choose(toggleDownload) }
             }
             album?.let { a -> SheetAction("album", "Go to album") { choose { goToAlbum(a) } } }
             artists.forEach { a ->

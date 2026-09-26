@@ -57,6 +57,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var queueOpen by rememberSaveable { mutableStateOf(false) }
         val library = rememberLibrarySettings()
         val context = LocalContext.current
+        // Downloads are read in at launch, so rows can mark them and a downloaded song plays offline.
+        LaunchedEffect(Unit) { OfflineStore.get(context) }
         val scope = rememberCoroutineScope()
         // Which playlist is open is about this sitting, not a preference. It is saved with the
         // server it was chosen on, so it survives rotation but never crosses servers, and a
@@ -507,7 +509,15 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     album = songAlbum(track, albums)?.takeIf { !(here is LibraryPage.Album && here.albumKey == it.key) },
                     artists = songArtists(track, artists).filter { !(here is LibraryPage.Artist && here.artistKey == it.key) },
                     dismiss = { actionTrack = null }, queue = { next -> queueSong(track, next) },
-                    goToAlbum = ::goToAlbum, goToArtist = ::goToArtist)
+                    goToAlbum = ::goToAlbum, goToArtist = ::goToArtist,
+                    download = downloadMark(model.endpoint, track), canDownload = model.endpoint != null && track.playable,
+                    toggleDownload = {
+                        model.endpoint?.let { endpoint ->
+                            if (DownloadMarks.marks[downloadId(endpoint.origin, track.id)] != null)
+                                OfflineStore.remove(context, listOf(downloadId(endpoint.origin, track.id)))
+                            else OfflineStore.add(context, endpoint, listOf(track))
+                        }
+                    })
             }
             // Dims the library under the player, so a player being dragged, closed or previewed
             // by Back reads as a sheet over it rather than more of the same surface. It stays
