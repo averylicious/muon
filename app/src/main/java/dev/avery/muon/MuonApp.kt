@@ -362,7 +362,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // A rising preview obscures them just the same, so they leave the tree for it too, and
             // come back as soon as it is cancelled. Only semantics change: the mini player's own
             // gesture detector, which is carrying the preview, is not touched.
-            Row(Modifier.fillMaxSize().then(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier)) {
+            // Painted with the theme's own background: sideways, the player panel sits in this row
+            // beside the scaffold, which stops short of it, so the window background showed around
+            // the panel in a slightly different colour (and grey under pure black).
+            Row(Modifier.fillMaxSize().background(colors.background)
+                .then(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier)) {
                 AnimatedVisibility(visible = connected && rail,
                     enter = slideInHorizontally(motionMedium()) { -it } + fadeIn(motionShort()),
                     exit = slideOutHorizontally(motionMedium()) { -it } + fadeOut(motionShort())) {
