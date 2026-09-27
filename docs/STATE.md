@@ -2,7 +2,7 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence, not permission (see `CLAUDE.md`). Live truth is GitHub: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-27, after #165, by Claude Opus 5.5 (Claude Code project thread)._
+_Last updated: 2026-09-27, after #172, by Claude Opus 5.5 (Claude Code project thread)._
 
 ## Where things are
 
@@ -14,6 +14,9 @@ _Last updated: 2026-09-27, after #165, by Claude Opus 5.5 (Claude Code project t
   - landscape layouts (#157), sharp thumbnails (#158), deal-then-skip on the artwork swipe (#159) and the QA polish (#160);
   - Lyrics and Queue in landscape Now Playing's top bar (#162), and the landscape player as a panel beside the list (#164, mockup in `docs/design/landscape/`);
   - volume normalization (#97): an opt-in **Even out volume** switch applying ReplayGain track gain (#163), with untagged songs turned down by the library's typical gain (#165).
+  - offline leftovers (#168): Download all on playlists, and moving downloads between phone and SD card, so #112 is closed;
+  - design pass (#169–#172): Play/Shuffle on playlists, clearer library subtitle, lyrics on the 16 dp keyline, artist pictures and playlist rows made from album covers, and Now Playing coloured from the song's cover;
+  - CI (#167): a docs-only merge on `main` can no longer skip a Canary.
 - **Canary:** each `main` build publishes `0.1.0-canary.<run>` automatically. Stable has not been released since the redesign.
 - **Package IDs:** Canary is `dev.avery.muon`, Stable is `dev.avery.muon.release`. They keep separate storage, so downloads don't cross channels. Don't change them.
 
@@ -34,7 +37,6 @@ _Last updated: 2026-09-27, after #165, by Claude Opus 5.5 (Claude Code project t
 
 ## Open items and known limits
 
-- #112 leftovers: playlist downloads, and moving downloads between the phone and the card.
 - #83 baseline profiles: needs device measurement.
 - #109 "recently liked" sorting: needs Tauon to expose `loved_timestamp`.
 - Material 3 Expressive components wait for material3 1.5.0 stable (see #40).
