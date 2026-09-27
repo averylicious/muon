@@ -183,15 +183,24 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            LargeTopAppBar(
+            val backButton: @Composable () -> Unit = {
+                IconButton(onClick = back, modifier = Modifier.semantics { contentDescription = "Back to Now Playing" }) {
+                    MuonIcon("back")
+                }
+            }
+            val barColors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
+                scrolledContainerColor = colors.surfaceContainer)
+            // The Canary experiment: Material 3 Expressive's flexible bar, as in Settings.
+            if (Expressive.motion) LargeFlexibleTopAppBar(
                 title = { QueueTitle() },
-                navigationIcon = {
-                    IconButton(onClick = back, modifier = Modifier.semantics { contentDescription = "Back to Now Playing" }) {
-                        MuonIcon("back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
-                    scrolledContainerColor = colors.surfaceContainer),
+                navigationIcon = backButton,
+                colors = barColors,
+                windowInsets = WindowInsets(0, 0, 0, 0),
+                scrollBehavior = scrollBehavior,
+            ) else LargeTopAppBar(
+                title = { QueueTitle() },
+                navigationIcon = backButton,
+                colors = barColors,
                 // The overlay hosting this screen already applied the system bar insets.
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 scrollBehavior = scrollBehavior,

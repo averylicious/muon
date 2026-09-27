@@ -22,6 +22,10 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -43,7 +47,17 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 2f)
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
-        LargeTopAppBar(
+        // The Canary experiment: Material 3 Expressive's flexible bar, which carries a subtitle, closer
+        // to Android 17's own Settings. The subtitle names the build, which is handy while testing.
+        if (Expressive.motion) LargeFlexibleTopAppBar(
+            title = { CollapsingTitle("Settings") },
+            subtitle = { Text(appVersion(context), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
+                scrolledContainerColor = colors.background),
+            expandedHeight = TopAppBarDefaults.LargeFlexibleAppBarWithSubtitleExpandedHeight * fontScale,
+            windowInsets = WindowInsets(0, 0, 0, 0),
+            scrollBehavior = scrollBehavior,
+        ) else LargeTopAppBar(
             title = { CollapsingTitle("Settings") },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
                 scrolledContainerColor = colors.background),
@@ -60,18 +74,18 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
 
             GroupLabel("Connection")
             SettingsGroup {
-                SettingsRow(shape = rowShape(0, 3), headline = "Tauon desktop", supporting = model.address.removePrefix("http://"),
+                SettingsRow(index = 0, count = 3, headline = "Tauon desktop", supporting = model.address.removePrefix("http://"),
                     trailing = { ConnectedBadge(model.offline) })
-                SettingsRow(shape = rowShape(1, 3), headline = "Refresh library",
+                SettingsRow(index = 1, count = 3, headline = "Refresh library",
                     supporting = if (model.busy) model.progress.ifBlank { "Refreshing…" }
                         else if (model.offline) model.progress
                         else "$trackCount ${if (trackCount == 1) "track" else "tracks"} loaded",
                     enabled = !model.busy,
-                    modifier = Modifier.clickable(enabled = !model.busy, onClickLabel = "Refresh library") { model.connect() })
-                SettingsRow(shape = rowShape(2, 3), headline = "Disconnect",
+                    clickLabel = "Refresh library", onClick = { model.connect() })
+                SettingsRow(index = 2, count = 3, headline = "Disconnect",
                     supporting = "Stops playback and forgets this server",
                     headlineColor = colors.error,
-                    modifier = Modifier.clickable(onClickLabel = "Disconnect") { confirmDisconnect = true })
+                    clickLabel = "Disconnect", onClick = { confirmDisconnect = true })
             }
 
             GroupLabel("Playback")
@@ -126,18 +140,18 @@ private fun StorageGroup(clear: () -> Unit) {
     val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
     StorageBar(DownloadMarks.bytes, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
-        SettingsRow(shape = rowShape(0, rows), headline = "Downloads",
+        SettingsRow(index = 0, count = rows, headline = "Downloads",
             supporting = if (moving != null) "Moving ${moving.first} of ${moving.second}…"
                 else if (songs == 0) "None yet. Long-press a song, or use Download all on an album, artist or playlist."
                 else "$songs ${if (songs == 1) "song" else "songs"} · ${formatBytes(DownloadMarks.bytes)}",
             trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } })
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
-        SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
+        SettingsRow(index = 1, count = rows, headline = "Played-song cache",
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
                 if (full) " · full, oldest songs make room" else "",
             trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } })
         // The limit is chosen right here, from four sizes side by side, rather than in a dialog.
-        Surface(shape = rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = if (Expressive.motion) ListItemDefaults.segmentedShapes(2, rows).shape else rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)) {
                 Text("Cache limit", style = MaterialTheme.typography.bodyLarge,
                     color = if (full) colors.primary else colors.onSurface)
@@ -153,14 +167,14 @@ private fun StorageGroup(clear: () -> Unit) {
                 }
             }
         }
-        SettingsRow(shape = rowShape(3, rows), headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
+        SettingsRow(index = 3, count = rows, headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
         if (card != null) {
             val cardName = remember(card) { cardDescription(context, card) }
             val cardFree = remember(card) { runCatching { android.os.StatFs(card.path).availableBytes }.getOrDefault(0L) }
-            SettingsRow(shape = rowShape(4, rows), headline = "Store on SD card",
+            SettingsRow(index = 4, count = rows, headline = "Store on SD card",
                 supporting = "$cardName · ${formatBytes(cardFree)} free",
                 trailing = { Switch(checked = onCard, onCheckedChange = null) },
-                modifier = Modifier.toggleable(value = onCard, role = Role.Switch) {
+                toggled = onCard, onToggle = {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
                     val left = OfflineStore.downloadsOn(context, card = !it)
                     if (left > 0 && moving == null) offerMove = it to left
@@ -262,24 +276,74 @@ private fun rowShape(index: Int, count: Int) = RoundedCornerShape(
 )
 
 /**
- * One row. The whole row is the target, so any control it carries is passive: the modifier that
- * makes it clickable, selectable or toggleable is applied here, once.
+ * One row, number [index] of the [count] in its group. The whole row is the target, so any control
+ * it carries is passive: [onClick] acts on the row, a row with [toggled] is a switch that calls
+ * [onToggle] with its new value, and a row with [selected] is a radio choice.
+ *
+ * With [Expressive.motion] it is Material 3 Expressive's `SegmentedListItem`, whose corners morph
+ * while pressed and whose selected row is tinted; otherwise the hand-built row it replaced.
  */
 @Composable
-private fun SettingsRow(shape: Shape, headline: String, supporting: String? = null,
-    modifier: Modifier = Modifier, enabled: Boolean = true, headlineColor: Color = Color.Unspecified,
-    trailing: @Composable (() -> Unit)? = null, leading: @Composable (() -> Unit)? = null) {
-    val faded = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-    Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth().then(modifier)) {
+private fun SettingsRow(index: Int, count: Int, headline: String, supporting: String? = null,
+    enabled: Boolean = true, headlineColor: Color = Color.Unspecified,
+    trailing: @Composable (() -> Unit)? = null, leading: @Composable (() -> Unit)? = null,
+    onClick: (() -> Unit)? = null, clickLabel: String? = null,
+    toggled: Boolean? = null, onToggle: ((Boolean) -> Unit)? = null, selected: Boolean? = null) {
+    val colors = MaterialTheme.colorScheme
+    val faded = colors.onSurface.copy(alpha = 0.38f)
+    val headlineText: @Composable () -> Unit = { Text(headline, color = if (!enabled) faded else headlineColor) }
+    val supportingText: (@Composable () -> Unit)? =
+        supporting?.let { { Text(it, color = if (!enabled) faded else Color.Unspecified) } }
+    if (Expressive.motion) {
+        ExpressiveSettingsRow(index, count, enabled, headlineText, supportingText, trailing, leading,
+            onClick, toggled, onToggle, selected)
+        return
+    }
+    val action = when {
+        toggled != null && onToggle != null ->
+            Modifier.toggleable(value = toggled, enabled = enabled, role = Role.Switch, onValueChange = onToggle)
+        selected != null && onClick != null ->
+            Modifier.selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+        onClick != null -> Modifier.clickable(enabled = enabled, onClickLabel = clickLabel, onClick = onClick)
+        else -> Modifier
+    }
+    Surface(shape = rowShape(index, count), color = colors.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().then(action)) {
         ListItem(
             // No fixed height: a long title or a large font scale grows the row instead of clipping.
-            headlineContent = { Text(headline, color = if (!enabled) faded else headlineColor) },
-            supportingContent = supporting?.let { { Text(it, color = if (!enabled) faded else Color.Unspecified) } },
+            headlineContent = headlineText,
+            supportingContent = supportingText,
             leadingContent = leading,
             trailingContent = trailing,
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         )
+    }
+}
+
+/** [SettingsRow] as a segmented list item, choosing the overload that matches what the row does. */
+@Composable
+private fun ExpressiveSettingsRow(index: Int, count: Int, enabled: Boolean,
+    headline: @Composable () -> Unit, supporting: (@Composable () -> Unit)?,
+    trailing: @Composable (() -> Unit)?, leading: @Composable (() -> Unit)?,
+    onClick: (() -> Unit)?, toggled: Boolean?, onToggle: ((Boolean) -> Unit)?, selected: Boolean?) {
+    val shapes = ListItemDefaults.segmentedShapes(index, count)
+    val rowColors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+    val wide = Modifier.fillMaxWidth()
+    when {
+        // A switch keeps its switch semantics: the plain click overload adds none of its own, where
+        // the checked overload would announce a checkbox.
+        toggled != null && onToggle != null -> SegmentedListItem(onClick = { onToggle(!toggled) }, shapes = shapes,
+            modifier = wide.semantics { role = Role.Switch; toggleableState = ToggleableState(toggled) },
+            enabled = enabled, leadingContent = leading, trailingContent = trailing,
+            supportingContent = supporting, colors = rowColors, content = headline)
+        selected != null && onClick != null -> SegmentedListItem(selected = selected, onClick = onClick,
+            shapes = shapes, modifier = wide, enabled = enabled, leadingContent = leading, trailingContent = trailing,
+            supportingContent = supporting, colors = rowColors, content = headline)
+        onClick != null -> SegmentedListItem(onClick = onClick, shapes = shapes, modifier = wide, enabled = enabled,
+            leadingContent = leading, trailingContent = trailing, supportingContent = supporting,
+            colors = rowColors, content = headline)
+        else -> SegmentedListItem(shapes = shapes, modifier = wide, enabled = enabled, leadingContent = leading,
+            trailingContent = trailing, supportingContent = supporting, colors = rowColors, content = headline)
     }
 }
 
@@ -299,10 +363,10 @@ private fun ConnectedBadge(offline: Boolean = false) {
 private fun PlaybackGroup() {
     val loudness = rememberReplayGainSettings()
     SettingsGroup {
-        SettingsRow(shape = rowShape(0, 1), headline = "Even out volume",
+        SettingsRow(index = 0, count = 1, headline = "Even out volume",
             supporting = "Plays songs at a similar loudness, using the ReplayGain tags in your music files",
             trailing = { Switch(checked = loudness.enabled, onCheckedChange = null) },
-            modifier = Modifier.toggleable(value = loudness.enabled, role = Role.Switch) { loudness.choose(it) })
+            toggled = loudness.enabled, onToggle = { loudness.choose(it) })
     }
 }
 
@@ -314,17 +378,16 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
     SettingsGroup {
         PaletteChoice.entries.forEachIndexed { index, choice ->
             val enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable
-            SettingsRow(shape = rowShape(index, PaletteChoice.entries.size + 1),
+            SettingsRow(index = index, count = PaletteChoice.entries.size + 1,
                 headline = paletteLabel(choice), supporting = paletteDescription(choice), enabled = enabled,
                 // A radio mark, not a tint, so the choice is readable without relying on colour.
                 trailing = { RadioButton(selected = shown == choice, onClick = null, enabled = enabled) },
-                modifier = Modifier.selectable(selected = shown == choice, enabled = enabled,
-                    role = Role.RadioButton) { appearance.choose(choice) })
+                selected = shown == choice, onClick = { appearance.choose(choice) })
         }
-        SettingsRow(shape = rowShape(PaletteChoice.entries.size, PaletteChoice.entries.size + 1),
+        SettingsRow(index = PaletteChoice.entries.size, count = PaletteChoice.entries.size + 1,
             headline = "Pure black", supporting = "Black backgrounds in dark mode",
             trailing = { Switch(checked = appearance.amoled, onCheckedChange = null) },
-            modifier = Modifier.toggleable(value = appearance.amoled, role = Role.Switch) {
+            toggled = appearance.amoled, onToggle = {
                 appearance.chooseAmoled(it)
             })
     }
@@ -339,18 +402,17 @@ private fun ExpressiveGroup(appearance: AppearanceSettings) {
     // Compose applies blur from Android 12; older phones keep the dimming alone.
     val blurAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     SettingsGroup {
-        SettingsRow(shape = rowShape(0, 2), headline = "Expressive motion",
+        SettingsRow(index = 0, count = 2, headline = "Expressive motion",
             supporting = "Springy transitions, and Material's expressive motion for its own controls",
             trailing = { Switch(checked = Expressive.motion, onCheckedChange = null) },
-            modifier = Modifier.toggleable(value = Expressive.motion, role = Role.Switch) {
+            toggled = Expressive.motion, onToggle = {
                 appearance.chooseExpressiveMotion(it)
             })
-        SettingsRow(shape = rowShape(1, 2), headline = "Blur behind the player",
-            supporting = if (blurAvailable) "Blurs the library behind Now Playing and the song menu"
-                else "Needs Android 12 or newer",
-            enabled = blurAvailable,
-            trailing = { Switch(checked = Expressive.blur && blurAvailable, onCheckedChange = null, enabled = blurAvailable) },
-            modifier = Modifier.toggleable(value = Expressive.blur, enabled = blurAvailable, role = Role.Switch) {
+        SettingsRow(index = 1, count = 2, headline = "Blur",
+            supporting = if (blurAvailable) "Now Playing on a blurred cover, and the library blurred behind the player and the song menu"
+                else "Now Playing on a blurred cover. Blurring the library behind the player needs Android 12 or newer",
+            trailing = { Switch(checked = Expressive.blur, onCheckedChange = null) },
+            toggled = Expressive.blur, onToggle = {
                 appearance.chooseExpressiveBlur(it)
             })
     }
@@ -387,6 +449,11 @@ internal fun PrivacyNote() {
     Text("Tauon's remote API is for trusted LANs. It has no login or encryption over HTTP. Never expose port 7814 to the Internet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
     Text("Streams the original audio · Downloads keep Opus copies\nAndroid playback · Desktop playback stays independent", style = MaterialTheme.typography.bodySmall)
 }
+
+/** The installed build, as the launcher's About screen would show it. */
+private fun appVersion(context: android.content.Context): String =
+    runCatching { "Version " + context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+        .getOrDefault("Muon")
 
 /** A stored amount's share of the storage bar: its true share, but never less than a visible sliver. */
 internal fun storageShare(bytes: Long, total: Long): Float =

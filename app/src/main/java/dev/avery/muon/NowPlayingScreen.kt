@@ -7,6 +7,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -150,9 +151,13 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit, actions: Boolean = true) {
     val item = p.item ?: return
     if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
-    if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
+    if (p.buffering) {
+        if (Expressive.motion) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+        else LinearProgressIndicator(Modifier.fillMaxWidth())
+    }
     SeekControls(item.mediaId, position, p.duration, p.seekable, player)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+    if (Expressive.motion) ExpressiveTransport(p, player, toggles = !narrow)
+    else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically) {
         if (!narrow) ShuffleControl(p, player)
         Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
@@ -428,6 +433,66 @@ private fun ArtworkGesture(p: PlaybackUi, player: MediaController?, shown: Int,
                 shadowElevation = (kotlin.math.abs(offset.value) / 12f).coerceAtMost(12.dp.toPx())
                 shape = card; clip = true
             })
+    }
+}
+
+/** The transport buttons' height, and the width of Previous and Next, which are wide pills. */
+private val TransportHeight = 64.dp
+private val TransportSideWidth = 72.dp
+private val PlaySide = 80.dp
+
+/**
+ * The Canary experiment's transport: Previous, Play and Next as a Material 3 Expressive button group,
+ * so the pressed button widens and squeezes its neighbours, with Shuffle and Repeat as toggle buttons
+ * either side that change shape when on. Play morphs between Material shapes ([playButtonShape]).
+ * Every button keeps the label and state a screen reader heard before.
+ */
+@Composable
+private fun ExpressiveTransport(p: PlaybackUi, player: MediaController?, toggles: Boolean) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (toggles) Arrangement.SpaceBetween else Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically) {
+        if (toggles) ShuffleControl(p, player)
+        ButtonGroup(
+            overflowIndicator = { menu -> TextButton(onClick = { menu.show() }) { Text("More") } },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            customItem({
+                val press = remember { MutableInteractionSource() }
+                FilledTonalIconButton(onClick = { player?.seekToPreviousMediaItem() }, shapes = IconButtonDefaults.shapes(),
+                    enabled = p.previous && player != null, interactionSource = press,
+                    modifier = Modifier.animateWidth(press).size(TransportSideWidth, TransportHeight)
+                        .semantics { contentDescription = "Previous track" }) { MuonIcon("previous") }
+            }, { menu ->
+                DropdownMenuItem(text = { Text("Previous track") }, enabled = p.previous && player != null,
+                    onClick = { menu.dismiss(); player?.seekToPreviousMediaItem() })
+            })
+            customItem({
+                val press = remember { MutableInteractionSource() }
+                FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
+                    shape = playButtonShape(p.playing, PlaySide), interactionSource = press,
+                    modifier = Modifier.animateWidth(press).size(PlaySide)
+                        .semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
+                    Crossfade(p.playing, animationSpec = motionShort(), label = "play/pause") { playing ->
+                        MuonIcon(if (playing) "pause" else "play", Modifier.size(32.dp))
+                    }
+                }
+            }, { menu ->
+                DropdownMenuItem(text = { Text(if (p.playing) "Pause" else "Play") }, enabled = player != null,
+                    onClick = { menu.dismiss(); if (p.playing) player?.pause() else player?.play() })
+            })
+            customItem({
+                val press = remember { MutableInteractionSource() }
+                FilledTonalIconButton(onClick = { player?.seekToNextMediaItem() }, shapes = IconButtonDefaults.shapes(),
+                    enabled = p.next && player != null, interactionSource = press,
+                    modifier = Modifier.animateWidth(press).size(TransportSideWidth, TransportHeight)
+                        .semantics { contentDescription = "Next track" }) { MuonIcon("next") }
+            }, { menu ->
+                DropdownMenuItem(text = { Text("Next track") }, enabled = p.next && player != null,
+                    onClick = { menu.dismiss(); player?.seekToNextMediaItem() })
+            })
+        }
+        if (toggles) RepeatControl(p, player)
     }
 }
 

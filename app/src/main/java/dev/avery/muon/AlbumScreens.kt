@@ -145,10 +145,18 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
 @Composable
 internal fun PlayAllButtons(enabled: Boolean, playAll: (shuffle: Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Button(onClick = { playAll(false) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+        // The Canary experiment: Expressive buttons, which squash towards a square while pressed.
+        val shapes = if (Expressive.motion) ButtonDefaults.shapes() else null
+        if (shapes != null) Button(onClick = { playAll(false) }, shapes = shapes, enabled = enabled,
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+            MuonIcon("play", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
+        } else Button(onClick = { playAll(false) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
             MuonIcon("play", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
         }
-        FilledTonalButton(onClick = { playAll(true) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+        if (shapes != null) FilledTonalButton(onClick = { playAll(true) }, shapes = shapes, enabled = enabled,
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+            MuonIcon("shuffle", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
+        } else FilledTonalButton(onClick = { playAll(true) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
             MuonIcon("shuffle", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
         }
     }

@@ -45,7 +45,10 @@ internal fun ErrorCard(message: String, action: String? = null, quiet: Boolean =
 
 @Composable
 internal fun Control(kind: String, label: String, enabled: Boolean = true, action: () -> Unit) {
-    IconButton(onClick = action, enabled = enabled, modifier = Modifier.semantics { contentDescription = label }) { MuonIcon(kind) }
+    // The Canary experiment: Expressive's icon buttons squash towards a square while pressed.
+    if (Expressive.motion) IconButton(onClick = action, shapes = IconButtonDefaults.shapes(), enabled = enabled,
+        modifier = Modifier.semantics { contentDescription = label }) { MuonIcon(kind) }
+    else IconButton(onClick = action, enabled = enabled, modifier = Modifier.semantics { contentDescription = label }) { MuonIcon(kind) }
 }
 
 @Composable
@@ -53,6 +56,19 @@ internal fun ToggleControl(kind: String, label: String, state: String, active: B
     // On is a tonal container behind the icon, Material's toggle, rather than a colour change and a
     // dot (#120). TalkBack hears the state either way.
     val colors = MaterialTheme.colorScheme
+    // The Canary experiment: a Material 3 Expressive toggle button, round while off and a rounded
+    // square while on, morphing between them (and squashing while pressed).
+    if (Expressive.motion) {
+        FilledTonalIconToggleButton(checked = active, onCheckedChange = { action() },
+            shapes = IconButtonDefaults.toggleableShapes(), enabled = enabled,
+            colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
+                containerColor = Color.Transparent, contentColor = colors.onSurfaceVariant,
+                checkedContainerColor = colors.secondaryContainer, checkedContentColor = colors.onSecondaryContainer),
+            modifier = Modifier.semantics { contentDescription = label; stateDescription = state }) {
+            MuonIcon(kind)
+        }
+        return
+    }
     IconButton(onClick = action, enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
             containerColor = if (active) colors.secondaryContainer else Color.Transparent,

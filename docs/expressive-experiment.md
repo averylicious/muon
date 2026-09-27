@@ -12,10 +12,20 @@ This branch, `claude/m3-expressive-alpha`, tries Material 3 Expressive on Muon C
 
 **Settings → Material 3 Expressive experiment** has one switch per part, so each can be compared with it off on the same phone.
 
-- **Expressive motion.** Material's own controls use `MotionScheme.expressive()`. Muon's transitions use Expressive's springs instead of eased tweens: what moves or resizes (overlays, pages, the rail, the mini player, list reordering) uses the default spatial spring, which overshoots a little; what fades or changes colour uses the effects springs, which don't. Full-screen overlays (Lyrics, Queue) use the spatial stiffness without the overshoot, so their far edge never lifts off the screen. Pull to refresh and the Connect scan show the shape-morphing `LoadingIndicator`. The player sheet's own settle spring is unchanged.
-- **Blur behind the player.** The library blurs under Now Playing in proportion to how far the player has risen, so dragging it or previewing it from the mini player blurs as the finger moves. The song actions sheet blurs the library behind it too. The existing dimming stays on top. Blur needs Android 12 or newer; older phones keep the dimming alone.
+- **Expressive motion** covers the motion and every Expressive component:
+  - Material's own controls use `MotionScheme.expressive()`. Muon's transitions use Expressive's springs instead of eased tweens: what moves or resizes (overlays, pages, the rail, the mini player, list reordering) uses the default spatial spring, which overshoots a little; what fades or changes colour uses the effects springs, which don't. Full-screen overlays (Lyrics, Queue) use the spatial stiffness without the overshoot, so their far edge never lifts off the screen. The player sheet's own settle spring is unchanged.
+  - Now Playing's Previous, Play and Next are a `ButtonGroup`: the pressed button widens and squeezes its neighbours. Shuffle and Repeat are tonal toggle buttons that turn from round to a rounded square when on.
+  - The play button, in Now Playing, the mini player and the side panel, morphs between `MaterialShapes`: a nine-sided cookie while paused, a rounded square while playing, turning a little as it goes.
+  - Icon buttons, Play and Shuffle on albums, artists and playlists squash while pressed.
+  - Settings rows are `SegmentedListItem`s, whose corners morph while pressed; Settings and Queue use `LargeFlexibleTopAppBar`, and Settings' subtitle names the installed build.
+  - Pull to refresh and the Connect scan show the shape-morphing `LoadingIndicator`; buffering, connecting and downloads show wavy progress bars. The seek bar stays flat, as decided on #40.
+- **Blur** covers two things:
+  - Now Playing sits on its song's cover, blurred and stretched behind the whole player under a veil of the cover-tinted background, so each song glows in its own colours. It is blurred once per song on a 40 px copy, so it costs nothing per frame and works on every Android version. Pure black keeps its black player.
+  - The library blurs behind the player in proportion to how far the player has risen, and behind the song actions sheet. This part needs Android 12 or newer.
 
 ## Known limits
 
-- Blur is Compose's `RenderEffect` on the library's own layer, not the system's cross-window blur, so it matches Android 17's look rather than reproducing SystemUI's tuning. It costs a GPU pass per frame while the player is up; watch for dropped frames on the Poco.
+- The library blur is Compose's `RenderEffect` on the library's own layer, not the system's cross-window blur, so it matches Android 17's look rather than reproducing SystemUI's tuning. It costs a GPU pass per frame while the player is up; watch for dropped frames on the Poco.
 - Alpha APIs can change or vanish before 1.5.0 is stable. Anything adopted from here needs re-checking against the stable artifact.
+- With Expressive motion on, a Settings switch row is announced as a switch, but the rows no longer carry the custom click labels ("Refresh library", "Disconnect") that the hand-built rows had.
+- Frosted glass for the mini player, the tab bar and the song menu (the list's covers blurring through them) is not built yet. Compose has no built-in backdrop blur, so it needs a small layer-recording helper of our own.

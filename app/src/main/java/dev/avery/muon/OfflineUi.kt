@@ -71,7 +71,10 @@ internal fun DownloadAll(tracks: List<TauonTrack>, endpoint: ServerEndpoint?) {
                             OfflineStore.remove(context, ids.filter { DownloadMarks.marks[it] != DownloadMark.Done })
                         }) { Text("Cancel") }
                     }
-                    LinearProgressIndicator(progress = { progress.done.toFloat() / progress.wanted },
+                    // The Canary experiment: Material 3 Expressive's wavy bar, which moves while it works.
+                    if (Expressive.motion) LinearWavyProgressIndicator(progress = { progress.done.toFloat() / progress.wanted },
+                        modifier = Modifier.fillMaxWidth().padding(end = 12.dp))
+                    else LinearProgressIndicator(progress = { progress.done.toFloat() / progress.wanted },
                         modifier = Modifier.fillMaxWidth().padding(end = 12.dp))
                 }
             }

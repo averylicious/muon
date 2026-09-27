@@ -656,7 +656,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // shrinks while a Back gesture is deciding whether to close it.
             // In the colours of the song's cover, which fade from one song to the next.
             ArtworkTheme(ui.item) {
-            PlayerHost(sheet, open = playerShown, preview = {
+            PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), preview = {
                 rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
             }) {
                 // Only a player that is actually on screen carries the drag: an outgoing one hands
@@ -754,7 +754,7 @@ private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit)
  * focused while they slide away.
  */
 @Composable
-private fun PlayerHost(sheet: PlayerSheet, open: Boolean,
+private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?,
     preview: @Composable () -> PlayerBackPreview?, content: @Composable () -> Unit) {
     if (!playerSheetPresent(open, sheet.onScreen)) return
     // Two layers, each owning its own properties: the sheet moves the surface, the Back preview
@@ -765,6 +765,8 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean,
     Surface(Modifier.fillMaxSize()
         .playerSheet(sheet, WindowInsets.safeDrawing, edge).playerBackPreview(preview()),
         color = colors.background) {
+        // The cover's glass (CoverBackdrop.kt) fills the whole sheet, status bar included.
+        if (showCoverBackdrop(Expressive.blur, colors.background)) CoverBackdrop(backdrop)
         // The content gives back the top inset as the sheet drops below the status bar.
         Box(Modifier.reclaimTopInset(sheet, WindowInsets.safeDrawing).safeDrawingPadding()) {
             Box(if (open) Modifier else Modifier.clearAndSetSemantics {}) { content() }

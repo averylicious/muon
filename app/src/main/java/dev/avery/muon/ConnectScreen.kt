@@ -74,7 +74,8 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
                     Text(if (model.busy) "Connecting…" else "Connect", style = MaterialTheme.typography.titleMedium)
                 }
                 if (model.busy) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (Expressive.motion) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(Modifier.fillMaxWidth())
                     if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall,
                         color = colors.onSurfaceVariant)
                 }
