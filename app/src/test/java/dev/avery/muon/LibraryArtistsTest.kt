@@ -239,4 +239,12 @@ class LibraryArtistsTest {
         assertEquals(2, beck.tracks.size)
         assertEquals("2 songs", artistSongCount(beck.tracks.size))
     }
+
+    @Test fun coverTracksAreOnePerAlbumNewestFirst() {
+        fun song(id: Long, album: String) = TauonTrack(id, "Song $id", "Zedd", album, 1000, true, false)
+        val zedd = LibraryArtist("artist:zedd", "Zedd", listOf(song(1, "Clarity"), song(2, "Clarity"),
+            song(5, "True Colors"), song(3, "Stay"), song(9, ""), song(8, "")))
+        assertEquals(listOf(9L, 5L, 3L, 2L), artistCoverTracks(zedd, 4).map { it.id })
+        assertEquals(listOf(9L), artistCoverTracks(zedd, 1).map { it.id })
+    }
 }

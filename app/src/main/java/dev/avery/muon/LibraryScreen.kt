@@ -266,7 +266,7 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, stat
  */
 @Composable
 internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: LazyListState,
-    open: (LibraryArtist) -> Unit) {
+    endpoint: ServerEndpoint? = null, open: (LibraryArtist) -> Unit) {
     if (artists.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize()) {
         item {
             // Full height so the list can still be pulled down to refresh.
@@ -285,7 +285,7 @@ internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: 
                 },
                 supportingContent = { Text(artistSongCount(artist.tracks.size)) },
                 // The circle that grows into the artist page's (motion pass 2).
-                leadingContent = { ArtistAvatar(artist, modifier = sharedPicture(artistPictureKey(artist.key))) },
+                leadingContent = { ArtistAvatar(artist, endpoint = endpoint, modifier = sharedPicture(artistPictureKey(artist.key))) },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
                 modifier = Modifier.clickable(onClickLabel = "Open artist") { open(artist) },
             )
@@ -294,11 +294,32 @@ internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: 
 }
 
 /**
- * Initials on one of the theme's tonal containers, or a generic artist icon for a blank name.
+ * An artist's picture: their own album covers in a circle, the newest one, or four of them as a
+ * mosaic from 64 dp up (the artist page and Search's browse). Tauon has no artist photos, and
+ * initials on a tonal circle all looked alike, so a list of artists read as a wall of letters.
+ *
+ * Without covers to show (no server, as offline, or an artist with no songs yet) it falls back to
+ * initials on one of the theme's tonal containers, or a generic artist icon for a blank name.
  * [side] is the circle's width at the default font scale; from 64 dp the initials are set large.
  */
 @Composable
-internal fun ArtistAvatar(artist: LibraryArtist, side: Dp = 40.dp, modifier: Modifier = Modifier) {
+internal fun ArtistAvatar(artist: LibraryArtist, side: Dp = 40.dp, endpoint: ServerEndpoint? = null,
+    modifier: Modifier = Modifier) {
+    val covers = remember(artist.key, artist.tracks.size, endpoint) {
+        if (endpoint == null) emptyList()
+        else artistCoverTracks(artist, if (side >= 64.dp) 4 else 1).map { endpoint.url("/api1/pic/medium/${it.id}") }
+    }
+    if (covers.isNotEmpty()) {
+        Box(modifier.size(side).clip(CircleShape).clearAndSetSemantics {}) {
+            if (covers.size < 4) Artwork(covers.first(), Modifier.fillMaxSize())
+            else Column(Modifier.fillMaxSize()) {
+                covers.chunked(2).forEach { pair ->
+                    Row(Modifier.weight(1f)) { pair.forEach { Artwork(it, Modifier.weight(1f).fillMaxHeight()) } }
+                }
+            }
+        }
+        return
+    }
     val colors = MaterialTheme.colorScheme
     val (container, content) = when (artistTone(artist.key)) {
         0 -> colors.primaryContainer to colors.onPrimaryContainer

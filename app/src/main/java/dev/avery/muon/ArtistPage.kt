@@ -42,7 +42,7 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
         }
         item(key = "header", contentType = "header") {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                ArtistAvatar(artist ?: LibraryArtist("", name, emptyList()), side = 96.dp,
+                ArtistAvatar(artist ?: LibraryArtist("", name, emptyList()), side = 96.dp, endpoint = endpoint,
                     modifier = artist?.let { sharedPicture(artistPictureKey(it.key)) } ?: Modifier)
                 Column(Modifier.weight(1f).padding(start = 16.dp)) {
                     Text(artistLabel(artist?.name ?: name), style = MaterialTheme.typography.headlineMedium,
