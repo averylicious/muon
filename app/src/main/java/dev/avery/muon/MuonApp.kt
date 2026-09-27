@@ -649,6 +649,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
             // The player rises from the bottom, where the mini player it grew out of sits, and
             // shrinks while a Back gesture is deciding whether to close it.
+            // In the colours of the song's cover, which fade from one song to the next.
+            ArtworkTheme(ui.item) {
             PlayerHost(sheet, open = playerShown, preview = {
                 rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
             }) {
@@ -659,6 +661,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // the player has gone, cannot put away whatever took its place.
                     collapse = { if (playerShown) playerOpen = false },
                     queue = { queueOpen = true }) { lyricsOpen = true }
+            }
             }
             FullScreenOverlay(visible = lyricsShown) {
                 LyricsScreen(ui.item) { lyricsOpen = false }
