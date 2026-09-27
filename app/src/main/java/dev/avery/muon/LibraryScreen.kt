@@ -95,8 +95,9 @@ private fun Greeting(tracks: Int, offline: Boolean) {
     } else Column {
         Text("Your music,\nnearby.", style = MaterialTheme.typography.displaySmall,
             fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        // Offline, the songs are the ones on this phone, not the desktop's (#16 QA).
-        if (tracks > 0) Text("$tracks ${if (tracks == 1) "track" else "tracks"} " + if (offline) "on this phone" else "from your desktop",
+        // Where the music is coming from. The count is left to each view's own bar ("962 songs",
+        // "891 albums"), which it only repeated on Songs and contradicted on the others.
+        if (tracks > 0) Text(if (offline) "Offline · songs saved on this phone" else "Streaming from Tauon on your desktop",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -337,7 +338,8 @@ internal fun PlaylistBar(name: String, count: Int?, backLabel: String = "Back to
             }
         },
         actions = {
-            if (count != null) Text("$count", style = MaterialTheme.typography.labelLarge,
+            // "16 songs" rather than a bare number, which read as anything.
+            if (count != null) Text("$count ${if (count == 1) "song" else "songs"}", style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(end = 16.dp))
         },
