@@ -47,6 +47,26 @@ class ScopeTest(unittest.TestCase):
         head = self.commit('README.md', '# Updated\n')
         self.assertTrue(self.scope(head, code))
 
+    def test_docs_after_unpublished_code_on_main_still_builds(self):
+        # Code merged, its run cancelled by a docs merge: the last Canary is still the base.
+        self.git('tag', '0.1.0-canary.9', self.base)
+        code = self.commit('app/Thing.kt', 'class Thing')
+        head = self.commit('docs/note.md', '# Note\n')
+        self.assertTrue(self.scope(head, code, ref='refs/heads/main'))
+
+    def test_docs_after_published_code_on_main_skips(self):
+        self.git('tag', '0.1.0-canary.9', self.base)
+        code = self.commit('app/Thing.kt', 'class Thing')
+        self.git('tag', '0.1.0-canary.10', code)
+        head = self.commit('docs/note.md', '# Note\n')
+        self.assertFalse(self.scope(head, code, ref='refs/heads/main'))
+
+    def test_newest_canary_is_chosen_by_run_number(self):
+        self.git('tag', '0.1.0-canary.9', self.base)
+        code = self.commit('app/Thing.kt', 'class Thing')
+        self.git('tag', '0.1.0-canary.10', code)
+        self.assertEqual('0.1.0-canary.10', ci_scope.last_canary(code))
+
     def test_multi_commit_push_includes_code(self):
         self.commit('app/Thing.kt', 'class Thing')
         head = self.commit('docs/note.md', '# Note\n')
