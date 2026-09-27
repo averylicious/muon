@@ -247,4 +247,10 @@ class LibraryArtistsTest {
         assertEquals(listOf(9L, 5L, 3L, 2L), artistCoverTracks(zedd, 4).map { it.id })
         assertEquals(listOf(9L), artistCoverTracks(zedd, 1).map { it.id })
     }
+
+    @Test fun playlistCoversKeepThePlaylistOrder() {
+        fun song(id: Long, album: String) = TauonTrack(id, "Song $id", "Various", album, 1000, true, false)
+        val songs = listOf(song(7, "B"), song(2, "A"), song(9, "B"), song(4, "C"))
+        assertEquals(listOf(7L, 2L, 4L), playlistCoverTracks(songs, 4).map { it.id })
+    }
 }

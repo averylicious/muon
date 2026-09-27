@@ -543,7 +543,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     artistOrigin = origin; artistKey = it.key; artistName = it.name
                                                                 }
                                                             }
-                                                            LibraryView.Playlists -> PlaylistRows(model.playlists, model.busy, playlistList) {
+                                                            LibraryView.Playlists -> PlaylistRows(model.playlists, model.busy, playlistList,
+                                                                model.tracksByPlaylist, model.endpoint) {
                                                                 openOrigin = origin; openId = it
                                                             }
                                                         }

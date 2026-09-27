@@ -100,7 +100,11 @@ internal fun artistAlbums(artist: LibraryArtist, albums: List<LibraryAlbum>): Li
  * of. Songs with no album tag share one group, so a run of singles gives one cover, not several.
  */
 internal fun artistCoverTracks(artist: LibraryArtist, count: Int): List<TauonTrack> =
-    artist.tracks.sortedByDescending { it.id }.distinctBy(::trackAlbumKey).take(count)
+    playlistCoverTracks(artist.tracks.sortedByDescending { it.id }, count)
+
+/** Up to [count] of [tracks], one per album, in their own order: a playlist's cover mosaic. */
+internal fun playlistCoverTracks(tracks: List<TauonTrack>, count: Int): List<TauonTrack> =
+    tracks.distinctBy(::trackAlbumKey).take(count)
 
 /** "1 album, 14 songs" under an artist's name; only the songs when none of them has an album. */
 internal fun artistSummary(albums: Int, songs: Int): String {
