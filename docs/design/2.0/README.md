@@ -1,5 +1,7 @@
 # Muon 2.0 design mockups
 
+> **Superseded as the reference (2026-09-27).** The redesign has shipped, and several screens have moved on since these were drawn. For what the app looks like now, see [`../current/`](../current/README.md), real screenshots in light, dark and landscape. These mockups stay as the record of the design intent.
+
 The agreed visual target for the Muon 2.0 rework. The specification is issue #40; the build steps are #41 to #51.
 
 Implementation PRs should match these screens. Audits compare against them, so design is settled here rather than negotiated during review.
