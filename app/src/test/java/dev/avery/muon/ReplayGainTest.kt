@@ -48,4 +48,10 @@ class ReplayGainTest {
         assertEquals(0.5012f, volumeForGain(-6f), 0.001f)
         assertEquals(0.1f, volumeForGain(-20f), 0.0001f)
     }
+
+    @Test fun typicalGainIsTheMiddleOne() {
+        assertNull(typicalGainDb(emptyList()))
+        assertEquals(-11f, typicalGainDb(listOf(-13f, -11f, -4f))!!, 0.001f)
+        assertEquals(-10f, typicalGainDb(listOf(-4f, -13f, -11f, -9f))!!, 0.001f)
+    }
 }

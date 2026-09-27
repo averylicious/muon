@@ -60,6 +60,14 @@ internal fun appliedGainDb(loudness: TrackLoudness): Float {
     return minOf(loudness.gainDb, headroom, 0f)
 }
 
+/** The middle of the gains seen so far, for a song with none of its own; null before any. */
+internal fun typicalGainDb(gains: Collection<Float>): Float? {
+    if (gains.isEmpty()) return null
+    val sorted = gains.sorted()
+    val mid = sorted.size / 2
+    return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2f
+}
+
 /** The player volume for a gain in dB. */
 internal fun volumeForGain(gainDb: Float): Float = 10f.pow(gainDb / 20f).coerceIn(0f, 1f)
 
@@ -68,8 +76,10 @@ internal fun volumeForGain(gainDb: Float): Float = 10f.pow(gainDb / 20f).coerceI
  *
  * Remembering the gain means a song already heard is set right the moment it starts, before its
  * stream's tags are read, and a download made before the library was tagged still plays at its
- * level. A song with no tag and no remembered gain plays unchanged, and never inherits the previous
- * song's gain. Off by default: turning it on makes most modern songs quieter.
+ * level. A song with no tag and no remembered gain, such as one added to the library and not yet
+ * tagged, is turned down by the library's typical gain, so it lands near its neighbours rather than
+ * standing out; it never inherits the previous song's gain. Off by default: turning it on makes most
+ * modern songs quieter.
  */
 internal class ReplayGainSettings(private val prefs: SharedPreferences) {
     var enabled by mutableStateOf(prefs.getBoolean(KEY_ENABLED, false))
@@ -85,21 +95,30 @@ internal class ReplayGainSettings(private val prefs: SharedPreferences) {
     fun reload() { enabled = prefs.getBoolean(KEY_ENABLED, false) }
 
     fun remember(mediaId: String, gainDb: Float) {
-        if (prefs.getFloat(gainKey(mediaId), Float.NaN) != gainDb)
+        if (prefs.getFloat(gainKey(mediaId), Float.NaN) != gainDb) {
             prefs.edit().putFloat(gainKey(mediaId), gainDb).apply()
+            typical = null
+        }
     }
+
+    // Worked out from every remembered gain when first needed, and again after one changes.
+    private var typical: Float? = null
+    private fun typicalGain(): Float? = typical ?: typicalGainDb(prefs.all.mapNotNull { (key, value) ->
+        (value as? Float)?.takeIf { key.startsWith(GAIN_PREFIX) && it.isFinite() }
+    }).also { typical = it }
 
     fun gainFor(mediaId: String?): Float? =
         mediaId?.let { prefs.getFloat(gainKey(it), Float.NaN) }?.takeIf { !it.isNaN() }
 
-    /** The volume for a song: 1 when off, or when its gain is not known. */
+    /** The volume for a song: 1 when off; its own gain, or else the library's typical one, when on. */
     fun volumeFor(mediaId: String?): Float =
-        if (!enabled) 1f else gainFor(mediaId)?.let(::volumeForGain) ?: 1f
+        if (!enabled) 1f else (gainFor(mediaId) ?: typicalGain())?.let(::volumeForGain) ?: 1f
 
     companion object {
         const val FILE = "loudness"
         const val KEY_ENABLED = "enabled"
-        private fun gainKey(mediaId: String) = "gain:$mediaId"
+        private const val GAIN_PREFIX = "gain:"
+        private fun gainKey(mediaId: String) = GAIN_PREFIX + mediaId
     }
 }
 
