@@ -4,7 +4,6 @@
 // docs/baseline-profile.md for how it is run and where the result goes.
 plugins {
     id("com.android.test")
-    id("org.jetbrains.kotlin.android")
 }
 android {
     namespace = "dev.avery.muon.baselineprofile"
@@ -40,4 +39,3 @@ dependencies {
     implementation("androidx.test.ext:junit:1.3.0")
     implementation("androidx.test:runner:1.7.0")
 }
-kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }

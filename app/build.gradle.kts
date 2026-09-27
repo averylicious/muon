@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
@@ -65,7 +64,11 @@ android {
             matchingFallbacks += listOf("release")
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        // The launcher labels above are resValues, which AGP 9 no longer enables by default.
+        resValues = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -73,8 +76,10 @@ android {
 }
 dependencies {
     implementation("androidx.activity:activity-compose:1.11.0")
-    implementation(platform("androidx.compose:compose-bom:2025.10.00"))
-    implementation("androidx.compose.material3:material3")
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
+    // Canary-only Material 3 Expressive experiment: the BOM still maps material3 to 1.4.0, so the
+    // alpha is named here. It also pulls the Compose foundation, runtime and animation 1.13 alphas.
+    implementation("androidx.compose.material3:material3:1.5.0-alpha29")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.media3:media3-exoplayer:1.11.0")
@@ -90,4 +95,3 @@ dependencies {
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
 }
 
-kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
