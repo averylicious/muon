@@ -4,6 +4,8 @@ These are real screenshots of Canary .276 on the user's Pixel 8 (Android 17, 108
 
 **This folder is the reference for the current app.** The drawn mockups in `../2.0/`, `../offline/` and `../landscape/` are the proposals that led here, and they no longer match in places. Where they differ, trust these screenshots, then the code. Retake them (see the end) after a change a reviewer would need to see.
 
+`hero.jpg`, at the top of the project README, shows four of these: Songs, an artist page, and Now Playing for two covers, taken on Canary .276 the same day.
+
 ![Light](overview-light.jpg)
 
 ![Dark](overview-dark.jpg)
