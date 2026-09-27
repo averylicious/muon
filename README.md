@@ -1,84 +1,52 @@
 # Muon
 
-A LAN-first Android streaming companion for Tauon Music Box. Kotlin, Compose and Media3. Audio plays on the phone; controls do not change desktop playback.
+**Your Tauon library, on your phone.** Muon is an Android player for [Tauon Music Box](https://tauonmusicbox.rocks/). It streams the music from your desktop over your home network, and keeps copies on the phone for when you're away. It's written in Kotlin with Jetpack Compose and Media3.
 
-See [feasibility and protocol](docs/feasibility.md) and [measured validation](docs/validation.md). The real-track milestone passed on a Pixel 8 before the full UI was built. This MVP includes connection/settings, playlist browsing, local search, Now Playing, artwork and lyrics, plus background playback with notification and MediaSession controls.
+![Muon in light mode](docs/design/current/overview-light.jpg)
 
-## Desktop setup
+## What it does
 
-1. In Tauon, enable **remote control / server for remote app**. **Restart Tauon** after changing it. Listen Along is a separate server and is not required.
-2. Keep Tauon running with local music in a playlist. Original-file streaming does not cover CUE segments or tracks backed only by another network service.
-3. Put phone and desktop on the same trusted LAN. Find the desktop address with `ip -brief address`; connect to `http://<desktop-LAN-IP>:7814`.
-4. If connection fails, first test `curl http://<desktop-LAN-IP>:7814/api1/version`. If localhost works but the phone cannot connect, inspect the LAN firewall, guest-Wi-Fi isolation, and VPN LAN-access settings. Only permit this port from your trusted LAN if necessary; never port-forward it to the Internet.
+- **Your whole library**, browsable by songs, albums, artists or playlists, with search across all of them.
+- **Plays on the phone**, not the desktop. It has background playback, lock-screen and notification controls, and a queue you can reorder.
+- **Now Playing in the colours of each cover**, with lyrics, the queue, shuffle and repeat, and a volume slider.
+- **Offline listening:** download an album, an artist or a playlist, or let the songs you play be kept automatically. It uses the SD card too, on phones that have one.
+- **Even out volume**, an optional setting that plays songs at a similar loudness using ReplayGain tags.
+- **Finds Tauon by itself** on your network, or you can type its address.
+- **Looks after itself:** Material You colours, pure black for OLED, landscape layouts, and a Baseline Profile so it starts fast.
 
-**Security:** Tauon's API has no authentication or encryption and exposes desktop controls and file paths. Muon currently accepts numeric private LAN addresses and loopback only. It neither configures a server nor opens ports. A VPN/Tailscale transport can be added later with explicit address policy and ACLs; direct Internet use is out of scope.
+## Get it
 
-## GitHub builds
+Muon is private. Two versions install side by side and update through [Obtainium](https://github.com/ImranR98/Obtainium):
 
-For contributing with coding agents, read [AGENTS.md](AGENTS.md) and the [PR workflow and starter prompts](docs/agent-workflow.md). Implementation agents supply a PR and signed test APK; the user handles phone QA, then requests Astra review and merging in a later cycle.
+| | Channel | Updates |
+|---|---|---|
+| **Muon** | Stable | only when a version is released |
+| **Muon β** | Canary | after every change that lands on `main` |
 
-The private [repository](https://github.com/averylicious/muon) builds signed APKs on every branch push. Successful `main` builds publish **Muon Canary** prereleases; explicit `vMAJOR.MINOR.PATCH` tags publish **Muon** stable releases. Both can be installed together and updated separately using Obtainium. See the **[Obtainium and PAT setup guide](docs/obtainium.md)** and [Releases](https://github.com/averylicious/muon/releases).
+Setup is in **[Installing and updating with Obtainium](docs/obtainium.md)**.
 
-Canary keeps the milestone/debug app's identity and uses a diamond with a large C. Stable keeps the previous Muon Release identity and uses a circle with three bars. Their shapes distinguish the channels without relying on colour. [Actions](https://github.com/averylicious/muon/actions/workflows/android.yml) also retains debug/release APK artifacts for 14 days; published release assets have no such expiry. See [CI and signing recovery](docs/ci.md).
+## Set up the desktop
 
-## Build
+1. In Tauon, turn on **remote control / server for remote app**, then restart Tauon.
+2. Keep your music in a Tauon playlist.
+3. Put the phone on the same Wi-Fi, and open Muon. It looks for Tauon and connects.
 
-Use JDK 17, Android SDK Platform 36 and Build Tools 36.0.0. Set `sdk.dir=/absolute/path/to/Android/Sdk` in an untracked `local.properties`, or use `ANDROID_HOME`.
+If it can't find Tauon, see **[Desktop setup and troubleshooting](docs/desktop-setup.md)**.
 
-```sh
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug
-```
+> **Home network only.** Tauon's remote API has no password or encryption. Never expose port 7814 to the internet.
 
-APK: `app/build/outputs/apk/debug/app-debug.apk`. Debug signing uses an ignored `.local/debug.keystore`; preserve it to install future debug updates without uninstalling. A fresh checkout can generate a different local debug key, so restore the original key or use a CI artifact to update the existing app. For a signed local release, use `python3 tools/build-signed.py`; without signing environment variables, `assembleRelease` produces an unsigned APK. Android 9/API 28 or newer. Targets Android 16/API 36. Gradle 8.13 wrapper includes its distribution checksum. Dependencies are pinned; no old Android client source is included in the app.
+## Documentation
 
-## Reproduce the first milestone
-
-```sh
-python3 tools/probe_tauon.py http://192.168.1.10:7814
-ffprobe proof-private/track.flac
-# With a paired Android device and the two debug APKs built:
-./tools/device-proof.sh PHONE_IP:ADB_PORT http://192.168.1.10:7814 TRACK_ID
-```
-
-The HTTP probe finds a downloadable FLAC in the exposed playlists, fetches original bytes, compares three range responses byte-for-byte and checks 416. It stores music/report data in ignored `proof-private/`. Use the reported `track_id` for the device test.
-
-The instrumentation test connects through the production MediaController/MediaSessionService, requires decoded playback progress, seeks to 50%, verifies resumed progress, and tests pause/resume, next/previous, background progress and the media notification. It requires a second playable track for queue checks. It briefly plays audio on the device. Separately use Home/lock-screen media controls to validate background behavior.
-
-`python3 tools/test_tauon_ranges.py` tests the installed Tauon `send_file` function in isolation on CachyOS. It does not alter Tauon or substitute for the live/device tests.
-
-## Scope and limitations
-
-- Library/search can cover tracks in exposed Tauon playlists, not a complete server-wide library API. Tauon has no search/pagination endpoint.
-- Direct original audio is the default. FLAC is supported through Media3/platform decoding; uncommon codecs and unusually high-resolution profiles remain device-dependent.
-- Tauon's optional Opus transcode endpoint exists but lacks the seek/range behavior needed for the default player path.
-- Stored plain lyrics and available artwork can be fetched; lyrics retrieval/synchronization is not guaranteed by Tauon.
-- No offline download manager, account system, public hosting, persistent queue restoration after process death, or desktop remote-control mode is planned for this first MVP.
-
-For this CachyOS machine, UFW was confirmed to drop the Pixel's incoming TCP 7814 packets. The proposed narrow rule was:
-
-```sh
-sudo ufw allow in on enp2s0 from 192.168.100.70 to 192.168.100.69 port 7814 proto tcp comment 'Tauon from Pixel LAN'
-# To remove that same rule:
-sudo ufw delete allow in on enp2s0 from 192.168.100.70 to 192.168.100.69 port 7814 proto tcp
-```
-
-These addresses are specific to this LAN. DHCP address changes require reviewing the rule. It does not permit the whole subnet or alter router forwarding.
-
-## Using the app
-
-- Before connecting, Muon shows only the Connect screen: the address field, LAN discovery and the trusted-LAN note. Settings, including Appearance, appears in the navigation bar once connected. Connect with a numeric private LAN address, or try **Find Tauon on my LAN**. Discovery requires Tauon to advertise `_tauon-remote._tcp`; manual connection is the reliable fallback.
-- The library combines exposed playlists and removes duplicate track IDs. The Library bar carries **Refresh**, which reloads desktop changes. Choose a playlist chip to browse it; each chip carries its track count, and the selected chip is marked with a check. Search matches titles, artists and albums across the loaded playlists; its field sits at the top of the screen, and it distinguishes an untouched search from one still running and from one with no matches.
-- Tap a track to play. The track being played is marked by a bar beside its row as well as by colour, and is announced as “Now playing”. The current list becomes the Android queue; unavailable network/CUE tracks are skipped. The mini-player sits against the navigation bar as one piece of bottom chrome, carries play/pause and skip, and opens Now Playing when tapped. Use the slider, play/pause and previous/next controls, or the Android media notification.
-- In-app icons are one vector set on a shared 24dp grid, tinted by the theme, rather than glyphs drawn per call site.
-- Screen changes, the bottom chrome, artwork and list reordering are animated from one set of motion values. Artwork already in memory still draws instantly. Muon follows the system animator scale, so turning animations off turns these off.
-- Headings use DM Serif Display, bundled under the SIL Open Font License (`docs/licenses/DMSerifDisplay-OFL.txt`). Body text, labels and controls stay on the system face so list rows and controls remain legible at large font scales.
-- Both channels ship an adaptive launcher icon with a monochrome layer, so they follow the launcher's mask and themed-icon setting. Stable and Canary are the same mark: Canary differs in colour **and** in silhouette, so the two are still distinguishable in grayscale.
-- Now Playing keeps controls together in portrait; compact windows, large text, and stream errors allow scrolling when space is limited. Active Shuffle/Repeat controls have a dot as well as colour; Repeat One also displays a “1”.
-- In Now Playing, **Shuffle** changes the queue order and **Repeat** cycles Off → All → One. Repeat All loops the active Android queue (including a search-results queue), not the whole desktop library. The modes remain active while the playback service lives; they are not saved after process death.
-- **Volume** opens the Android media-volume slider; hardware volume changes are reflected while it is open. It controls the device media stream, including the current headphone/Bluetooth route, rather than desktop volume. Fixed-volume devices cannot be adjusted here.
-- Colours follow the system light/dark theme. **Settings → Appearance** chooses where the accent colours come from: **Material You** (the default) takes them from your wallpaper on Android 12+, and **Muon** uses the app's own green palette. **Pure black** drives backgrounds to true black for OLED screens while leaving accents and card surfaces alone; it applies only while the system is in dark mode. The choice applies immediately, survives disconnecting from a server, and is kept separately from the connection settings. On Android 9–11 there is no dynamic colour, so Material You is unavailable and the Muon palette is used. The launch window matches the default for each Android version — the system's wallpaper neutrals on Android 12+, Muon's own palette below that — so a cold start does not flash a different colour; choosing a non-default palette or Pure black leaves a brief mismatch that a static theme resource cannot avoid.
-- **Open lyrics** displays stored lyrics for the phone's current track, independent of what Tauon is playing.
-- Short transport failures receive Media3's bounded retries. Persistent failures show a retry action; the queue/position stay in the service. Library refresh failures retain the prior in-memory list. Changing servers requires Disconnect, which stops the queue to avoid mixing server track IDs.
-- The last server is saved; reopening the app reconnects. Queue restoration after process death is not implemented. Android battery policies and vendor codec differences need broader device testing.
-
-For the playback and appearance changes, see the [device acceptance checklist](docs/qol-validation.md).
+| For | Read |
+|---|---|
+| Every feature and setting, explained | [Using Muon](docs/features.md) |
+| Connecting, firewalls, discovery | [Desktop setup and troubleshooting](docs/desktop-setup.md) |
+| Installing and updating the two channels | [Obtainium](docs/obtainium.md) · [Release naming](docs/release-naming.md) |
+| What the app looks like right now | [Reference screens](docs/design/current/README.md) |
+| Building it yourself, and the test tools | [Building Muon](docs/building.md) |
+| How CI builds, signs and publishes | [CI and signing](docs/ci.md) |
+| Where the code lives | [Codebase map](docs/codebase-map.md) |
+| What's done and what's next | [Current state](docs/STATE.md) · [Roadmap](docs/roadmap.md) |
+| Working on Muon with coding agents | [AGENTS.md](AGENTS.md) · [Agent workflow](docs/agent-workflow.md) |
+| Startup performance | [Baseline Profile](docs/baseline-profile.md) |
+| Background and history | [Feasibility](docs/feasibility.md) · [First validation](docs/validation.md) · [Fonts](docs/fonts.md) |

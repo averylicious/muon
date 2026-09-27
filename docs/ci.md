@@ -56,7 +56,7 @@ The password-protected keystore plus the alias and passwords are the signing bac
 
 ## Local build without GitHub signing services
 
-With JDK 17 and SDK 36 configured as in README:
+With JDK 17 and the Android SDK configured as in [Building Muon](building.md):
 
 ```sh
 python3 tools/build-signed.py

@@ -1,13 +1,17 @@
 # Road to 1.0
 
 What "1.0" should mean for Muon, and what has to be true before the version number claims it. Muon is
-currently a working MVP on a private Canary channel: it streams, it holds a queue, and its UI is being
-rebuilt. It is not yet something to hand to someone who has never met it.
+a working app on a private Canary channel. It streams, holds a queue, works offline, and has had its
+redesign. It is not yet something to hand to someone who has never met it.
+
+> **Status, 2026-09-27:** 0.2 is done. The Collection redesign, offline listening, volume
+> normalization and a Baseline Profile have all shipped, and Stable is next when the user asks.
+> The later milestones below still stand. [STATE.md](STATE.md) has the live detail.
 
 **1.0 means: a person installs it, connects once, and it behaves — on their device, in their
 language of interaction, without an agent standing behind it.** Everything below follows from that.
 
-## 0.2 — UI/UX foundation *(in flight)*
+## 0.2 — UI/UX foundation *(done)*
 
 Rebuild the surface so later work is not rewritten. This is the current `UI/UX rework` milestone.
 
@@ -25,7 +29,7 @@ Stop reasoning about behaviour and start measuring it.
 - **#23 is measured, not argued.** A profile exists showing where list frames go, the fix addresses
   what the profile implicates, and the user confirms it against the build they compared to.
 - **#26's backend audit is complete**, with findings either fixed or filed.
-- **Queue and position survive process death.** Today they do not (README says so plainly); a music
+- **Queue and position survive process death.** Today they do not (see [STATE.md](STATE.md)); a music
   player that forgets what it was playing is not 1.0.
 - **The server disappearing mid-playback is defined behaviour**, not whatever happens. Same for a
   DHCP address change, a Wi-Fi drop, and a VPN that eats the LAN.
