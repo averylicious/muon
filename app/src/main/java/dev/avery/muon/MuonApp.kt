@@ -18,7 +18,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
@@ -345,15 +347,39 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Measured here rather than on the player's host, which is not composed until a preview has
         // moved it: the root is always measured and is the size the sheet will be, so the first move
         // of a preview can already be turned into a position, and that position mounts the host.
-        Box(Modifier.fillMaxSize().onSizeChanged { sheet.height = it.height.toFloat() }) {
+        BoxWithConstraints(Modifier.fillMaxSize().onSizeChanged { sheet.height = it.height.toFloat() }) {
+            // A phone on its side: the tabs move to a rail at the start, so the height they took
+            // along the bottom goes to the list instead, and the mini player keeps the bottom alone.
+            val rail = sidewaysLayout(maxWidth.value, maxHeight.value)
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
             // out of the accessibility tree, so TalkBack cannot wander into hidden content.
             // A rising preview obscures them just the same, so they leave the tree for it too, and
             // come back as soon as it is cancelled. Only semantics change: the mini player's own
             // gesture detector, which is carrying the preview, is not touched.
-            Box(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier) {
-                Scaffold(containerColor = colors.background, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
-                    Column {
+            Row(Modifier.fillMaxSize().then(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier)) {
+                AnimatedVisibility(visible = connected && rail,
+                    enter = slideInHorizontally(motionMedium()) { -it } + fadeIn(motionShort()),
+                    exit = slideOutHorizontally(motionMedium()) { -it } + fadeOut(motionShort())) {
+                    NavigationRail(containerColor = colors.background) {
+                        // Centred, where a thumb holding the phone sideways reaches them.
+                        Spacer(Modifier.weight(1f))
+                        Tab.entries.forEach { destination ->
+                            NavigationRailItem(selected = tab == destination,
+                                onClick = { tab = destination; fromSearch = false },
+                                icon = { TabIcon(destination) }, label = { Text(destination.name) })
+                        }
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+                // The rail takes the start inset itself, so the content leaves it out.
+                Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { SnackbarHost(snackbar) },
+                    contentWindowInsets = if (rail && connected) ScaffoldDefaults.contentWindowInsets
+                        .only(WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom)
+                        else ScaffoldDefaults.contentWindowInsets, bottomBar = {
+                    // Without the navigation bar under it, the mini player keeps clear of the system
+                    // bars itself; the bottom one, and the end one where three-button navigation sits.
+                    Column(if (rail) Modifier.windowInsetsPadding(
+                        WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier) {
                         AnimatedVisibility(visible = ui.item != null && !overlayOpen,
                             enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
@@ -368,16 +394,14 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 next = { player?.seekToNextMediaItem() },
                                 previous = { player?.seekToPreviousMediaItem() })
                         }
-                        AnimatedVisibility(visible = connected,
+                        AnimatedVisibility(visible = connected && !rail,
                             enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
                             NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
                                 Tab.entries.forEach { destination ->
                                     NavigationBarItem(selected = tab == destination,
                                         onClick = { tab = destination; fromSearch = false },
-                                        icon = { MuonIcon(when (destination) {
-                                            Tab.Library -> "library"; Tab.Search -> "search"; else -> "settings"
-                                        }) }, label = { Text(destination.name) })
+                                        icon = { TabIcon(destination) }, label = { Text(destination.name) })
                                 }
                             }
                         }
@@ -471,7 +495,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     // Greeting, chips, then the list; only the list pulls, and
                                                     // the greeting unfolds before a pull begins.
                                                     LibraryTop(all.size, library.view, library::choose,
-                                                        model.busy, { model.connect() }, libraryBar) {
+                                                        model.busy, { model.connect() }, libraryBar, titled = !rail) {
                                                         when (library.view) {
                                                             // A new order starts from its top, rather than
                                                             // wherever the previous first row now sits.
@@ -606,6 +630,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
         }
     }
+}
+
+@Composable
+private fun TabIcon(destination: Tab) {
+    MuonIcon(when (destination) { Tab.Library -> "library"; Tab.Search -> "search"; Tab.Settings -> "settings" })
 }
 
 /** What a Back press acts on, named in the order the screens are stacked. */

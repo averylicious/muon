@@ -42,6 +42,7 @@ MainActivity ──binds──▶ PlaybackService (Media3 MediaSessionService)
 | `MuonTypography.kt` | Google Sans Flex and the Material 3 type roles; see `docs/fonts.md` |
 | `MuonIcons.kt` + `res/drawable/ic_*.xml` | The icon set; `iconRes` maps a kind string to a drawable |
 | `Motion.kt` | Animation durations and easing |
+| `WindowLayout.kt` | When a short, wide window goes sideways: the navigation rail and the two-pane Now Playing |
 | `PlaybackModes.kt`, `PlaybackProgress.kt`, `TrackSearch.kt`, `TrackIdentity.kt`, `MediaVolume.kt` | Pure helpers, all unit-tested |
 
 ## State ownership

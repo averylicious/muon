@@ -42,91 +42,135 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
     if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
-        val narrow = maxWidth < 360.dp
-        // Keep the compact portrait design, but allow every control to remain reachable in
-        // landscape, split screen, large text, or when an error needs additional space.
-        val scrollable = maxHeight < 600.dp * fontScale || narrow || p.error != null
-        val scroll = rememberScrollState()
         // Taken here, where this scope's own height is in reach, rather than down inside the
         // column and a density block, where the outer receiver is no longer resolvable.
         val tall = maxHeight
         val dragHeight = with(LocalDensity.current) { tall.toPx() }
-        Column(Modifier.fillMaxSize()
-            .then(if (scrollable) Modifier.verticalScroll(scroll) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // A visible way out, so a gesture is never the only exit (#40). The bar is also the
-            // one place the player can be dragged away from, which leaves the content below it
-            // scrolling, the artwork swiping and the sliders seeking as they did.
-            val away by rememberUpdatedState(collapse)
-            Box(Modifier.fillMaxWidth().dismissDrag(dismiss, dragHeight) { away() },
-                contentAlignment = Alignment.Center) {
-                // A decorative grabber marks the existing draggable bar without adding another
-                // control or shrinking its touch area. Center it on the player, not the space
-                // left beside the collapse button, and use the active theme's surface contrast.
-                // Painted rather than a Surface, which would add an empty node for a screen reader
-                // to land on and a touch target of its own.
-                Box(Modifier.size(width = 32.dp, height = 4.dp)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant, RoundedCornerShape(50)))
-                FilledTonalIconButton(onClick = collapse,
-                    modifier = Modifier.align(Alignment.CenterStart)
-                        .semantics { contentDescription = "Collapse the player" }) {
-                    MuonIcon("collapse", Modifier.size(20.dp))
-                }
-            }
-            Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
-                contentAlignment = Alignment.Center) {
-                SwipeableArtwork(p, player, revision, Modifier.widthIn(max = 400.dp).aspectRatio(1f))
-            }
-            Column(Modifier.fillMaxWidth()) {
-                Text(p.item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(p.item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // Left out for singles, whose album is usually the title again.
-                albumLine(p.item.mediaMetadata.title?.toString(), p.item.mediaMetadata.albumTitle?.toString())?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
-            if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
-            SeekControls(p.item.mediaId, position, p.duration, p.seekable, player)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+        val away by rememberUpdatedState(collapse)
+        if (sidewaysLayout(maxWidth.value, maxHeight.value)) {
+            // Landscape: stacked, the controls fell off the bottom of a short screen. The cover takes
+            // the height on the start side and everything else sits beside it, scrolling only if
+            // large text still needs more room than the height gives.
+            val side = minOf(maxHeight - 24.dp, maxWidth * 0.45f).coerceAtLeast(0.dp)
+            Row(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                if (!narrow) ShuffleControl(p, player)
-                Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
-                // Round while paused, a rounded square while playing (motion pass 2).
-                FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
-                    shape = playButtonShape(p.playing, 72.dp),
-                    modifier = Modifier.size(72.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
-                    Crossfade(p.playing, animationSpec = motionShort(), label = "play/pause") { playing ->
-                        MuonIcon(if (playing) "pause" else "play", Modifier.size(32.dp))
+                SwipeableArtwork(p, player, revision, Modifier.size(side))
+                BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                    val narrow = maxWidth < 360.dp
+                    // At least the pane's height, so the controls are centred beside the cover
+                    // whenever they fit, and scroll from the top when they do not.
+                    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight),
+                        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
+                        PlayerBar(dismiss, dragHeight, collapse) { away() }
+                        PlayerTitles(p)
+                        PlayerControls(p, position, player, narrow, queue, lyrics)
                     }
                 }
-                Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
-                if (!narrow) RepeatControl(p, player)
             }
-            if (narrow) Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                ShuffleControl(p, player)
-                RepeatControl(p, player)
-            }
-            VolumeRow()
-            // Wrapping preserves readable labels at large font/display sizes. Lyrics sits at the start
-            // and Queue at the end, as in the mockup; on a narrow width they wrap rather than clip.
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = lyrics) {
-                    MuonIcon("lyrics", Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Lyrics")
+        } else {
+            val narrow = maxWidth < 360.dp
+            // Keep the compact portrait design, but allow every control to remain reachable in
+            // split screen, large text, or when an error needs additional space.
+            val scrollable = maxHeight < 600.dp * fontScale || narrow || p.error != null
+            val scroll = rememberScrollState()
+            Column(Modifier.fillMaxSize()
+                .then(if (scrollable) Modifier.verticalScroll(scroll) else Modifier)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                PlayerBar(dismiss, dragHeight, collapse) { away() }
+                Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
+                    contentAlignment = Alignment.Center) {
+                    SwipeableArtwork(p, player, revision, Modifier.widthIn(max = 400.dp).aspectRatio(1f))
                 }
-                TextButton(onClick = queue) {
-                    MuonIcon("queue", Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Queue")
-                }
+                PlayerTitles(p)
+                PlayerControls(p, position, player, narrow, queue, lyrics)
             }
+        }
+    }
+}
+
+/**
+ * A visible way out, so a gesture is never the only exit (#40). The bar is also the one place the
+ * player can be dragged away from, which leaves the content below it scrolling, the artwork swiping
+ * and the sliders seeking as they did.
+ */
+@Composable
+private fun PlayerBar(dismiss: PlayerSheet?, dragHeight: Float, collapse: () -> Unit, away: () -> Unit) {
+    Box(Modifier.fillMaxWidth().dismissDrag(dismiss, dragHeight) { away() },
+        contentAlignment = Alignment.Center) {
+        // A decorative grabber marks the existing draggable bar without adding another
+        // control or shrinking its touch area. Center it on the player, not the space
+        // left beside the collapse button, and use the active theme's surface contrast.
+        // Painted rather than a Surface, which would add an empty node for a screen reader
+        // to land on and a touch target of its own.
+        Box(Modifier.size(width = 32.dp, height = 4.dp)
+            .background(MaterialTheme.colorScheme.onSurfaceVariant, RoundedCornerShape(50)))
+        FilledTonalIconButton(onClick = collapse,
+            modifier = Modifier.align(Alignment.CenterStart)
+                .semantics { contentDescription = "Collapse the player" }) {
+            MuonIcon("collapse", Modifier.size(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun PlayerTitles(p: PlaybackUi) {
+    val item = p.item ?: return
+    Column(Modifier.fillMaxWidth()) {
+        Text(item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Left out for singles, whose album is usually the title again.
+        albumLine(item.mediaMetadata.title?.toString(), item.mediaMetadata.albumTitle?.toString())?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Everything under the titles: seek, transport, volume, then Lyrics and Queue. */
+@Composable
+private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, player: MediaController?,
+    narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit) {
+    val item = p.item ?: return
+    if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
+    if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
+    SeekControls(item.mediaId, position, p.duration, p.seekable, player)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically) {
+        if (!narrow) ShuffleControl(p, player)
+        Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
+        // Round while paused, a rounded square while playing (motion pass 2).
+        FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
+            shape = playButtonShape(p.playing, 72.dp),
+            modifier = Modifier.size(72.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
+            Crossfade(p.playing, animationSpec = motionShort(), label = "play/pause") { playing ->
+                MuonIcon(if (playing) "pause" else "play", Modifier.size(32.dp))
+            }
+        }
+        Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
+        if (!narrow) RepeatControl(p, player)
+    }
+    if (narrow) Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        ShuffleControl(p, player)
+        RepeatControl(p, player)
+    }
+    VolumeRow()
+    // Wrapping preserves readable labels at large font/display sizes. Lyrics sits at the start
+    // and Queue at the end, as in the mockup; on a narrow width they wrap rather than clip.
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        TextButton(onClick = lyrics) {
+            MuonIcon("lyrics", Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Lyrics")
+        }
+        TextButton(onClick = queue) {
+            MuonIcon("queue", Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Queue")
         }
     }
 }
