@@ -56,15 +56,19 @@ internal fun LyricsScreen(item: MediaItem?, back: () -> Unit) {
 private fun Lyrics(item: MediaItem?, back: () -> Unit) {
     var lyrics by remember { mutableStateOf("Loading lyrics…") }
     var failure by remember { mutableStateOf(false) }
+    // Whether there is real text to show; placeholders are set smaller and carry no footnote.
+    var found by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
-        failure = false
+        failure = false; found = false
         if (item == null) { lyrics = "Choose a track to see its lyrics."; return@LaunchedEffect }
         lyrics = "Loading lyrics…"
         try {
             val id = item.mediaId.substringAfterLast('/').toLong()
             val endpoint = ServerEndpoint.parse(item.mediaId.substringBeforeLast('/'))
-            lyrics = TauonApi(endpoint).lyrics(id).ifBlank { "No lyrics stored for this track in Tauon." }
+            val text = TauonApi(endpoint).lyrics(id)
+            found = text.isNotBlank()
+            lyrics = text.ifBlank { "No lyrics stored for this track in Tauon." }
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { lyrics = friendlyError(e); failure = true }
     }
@@ -108,11 +112,13 @@ private fun Lyrics(item: MediaItem?, back: () -> Unit) {
                 if (failure) ErrorCard(lyrics, "Retry", modifier = Modifier) { attempt++ }
                 // Left aligned and large enough to read at arm's length, and selectable so a line can
                 // be copied out.
+                else if (!found) Text(lyrics, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
                 else SelectionContainer {
                     Text(lyrics, style = MaterialTheme.typography.titleLarge,
                         lineHeight = MaterialTheme.typography.headlineMedium.lineHeight)
                 }
-                Text("Stored lyrics from Tauon · Not time-synchronised",
+                // Only about lyrics that are there.
+                if (found) Text("Stored lyrics from Tauon · Not time-synchronised",
                     style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
         }

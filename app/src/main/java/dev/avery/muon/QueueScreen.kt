@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -70,7 +71,7 @@ private fun queueSnapshot(player: Player): QueueSnapshot {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun QueueScreen(player: MediaController?, revision: () -> Int, back: () -> Unit) {
+internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding: Boolean, back: () -> Unit) {
     val rev = revision()
     val snapshot = remember(player, rev) { player?.let(::queueSnapshot) ?: QueueSnapshot(null, emptyList()) }
     val snackbar = remember { SnackbarHostState() }
@@ -201,7 +202,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, back: ()
             item(key = "now-label", contentType = "label") { SectionLabel("Now playing") }
             snapshot.current?.let { current ->
                 item(key = "now:${current.index}:${current.item.mediaId}", contentType = "now") {
-                    QueueRow(current.item, playing = true, onClick = null)
+                    QueueRow(current.item, playing = true, onClick = null, sounding = sounding)
                 }
             }
             item(key = "next-label", contentType = "label") {
@@ -301,12 +302,17 @@ private fun SectionLabel(text: String) {
 
 @Composable
 private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, remove: (() -> Unit)? = null,
-    moveUp: (() -> Unit)? = null, moveDown: (() -> Unit)? = null, handle: Modifier? = null) {
+    moveUp: (() -> Unit)? = null, moveDown: (() -> Unit)? = null, handle: Modifier? = null, sounding: Boolean = false) {
     val colors = MaterialTheme.colorScheme
     val meta = item.mediaMetadata
-    Row(Modifier.fillMaxWidth().background(colors.background).heightIn(min = 64.dp)
+    // The playing song sits on the same tonal surface, with the same equalizer over its cover, as in
+    // every song list (#136), rather than only changing colour.
+    Row(Modifier.fillMaxWidth().background(colors.background)
+        .then(if (playing) Modifier.padding(horizontal = 12.dp).clip(RoundedCornerShape(16.dp))
+            .background(colors.secondaryContainer) else Modifier)
+        .heightIn(min = 64.dp)
         .then(if (onClick != null) Modifier.clickable(onClickLabel = "Play", onClick = onClick) else Modifier)
-        .padding(horizontal = 24.dp, vertical = 8.dp)
+        .padding(horizontal = if (playing) 12.dp else 24.dp, vertical = 8.dp)
         .semantics {
             if (playing) stateDescription = "Now playing"
             customActions = listOfNotNull(
@@ -316,10 +322,16 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
             )
         },
         verticalAlignment = Alignment.CenterVertically) {
-        Artwork(meta.artworkUri?.toString(), Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)))
+        Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Artwork(meta.artworkUri?.toString(), Modifier.fillMaxSize())
+            if (playing) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
+                NowPlayingBars(sounding, color = Color.White)
+            }
+        }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
             Text(meta.title?.toString().orEmpty().ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (playing) colors.primary else colors.onSurface,
+                color = if (playing) colors.onSecondaryContainer else colors.onSurface,
                 fontWeight = if (playing) FontWeight.SemiBold else FontWeight.Medium)
             val artist = meta.artist?.toString().orEmpty()
             if (artist.isNotBlank()) Text(artist, style = MaterialTheme.typography.bodySmall,

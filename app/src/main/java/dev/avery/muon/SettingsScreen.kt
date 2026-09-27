@@ -2,6 +2,7 @@ package dev.avery.muon
 
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -59,7 +60,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
 
             GroupLabel("Connection")
             SettingsGroup {
-                SettingsRow(shape = rowShape(0, 3), headline = "Tauon desktop", supporting = model.address,
+                SettingsRow(shape = rowShape(0, 3), headline = "Tauon desktop", supporting = model.address.removePrefix("http://"),
                     trailing = { ConnectedBadge(model.offline) })
                 SettingsRow(shape = rowShape(1, 3), headline = "Refresh library",
                     supporting = if (model.busy) model.progress.ifBlank { "Refreshing…" }
@@ -112,7 +113,9 @@ private fun StorageGroup(clear: () -> Unit) {
     val card = remember { OfflineStore.get(context).card?.let { cardFolder(context) } }
     var onCard by remember { mutableStateOf(OfflineStore.storeOnCard(context)) }
     val rows = if (card != null) 5 else 4
-    StorageBar(DownloadMarks.bytes, used, free)
+    // Free space where new downloads go: the card's when they go there (#16 QA).
+    val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
+    StorageBar(DownloadMarks.bytes, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
         SettingsRow(shape = rowShape(0, rows), headline = "Downloads",
             supporting = if (songs == 0) "None yet. Long-press a song, or use Download all on an album or artist."
@@ -120,7 +123,8 @@ private fun StorageGroup(clear: () -> Unit) {
             trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } })
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
         SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
-            supporting = "${formatBytes(used)} of ${formatBytes(limit)}" + if (full) " · full, oldest songs make room" else "",
+            supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
+                if (full) " · full, oldest songs make room" else "",
             trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } })
         // The limit is chosen right here, from four sizes side by side, rather than in a dialog.
         Surface(shape = rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
@@ -177,24 +181,30 @@ private fun StorageBar(downloads: Long, cache: Long, free: Long) {
             }
             Row(Modifier.padding(vertical = 12.dp).fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))
                 .background(colors.surfaceVariant)) {
-                if (downloads > 0) Box(Modifier.fillMaxHeight().weight(downloads.toFloat() / total).background(colors.primary))
-                if (cache > 0) Box(Modifier.fillMaxHeight().weight(cache.toFloat() / total).background(colors.primary.copy(alpha = 0.45f)))
-                val rest = 1f - (downloads + cache).toFloat() / total
+                // Anything stored shows at least as a sliver (1.5% of the bar): a few megabytes of a
+                // phone's gigabytes would otherwise draw nothing, and the bar would read as empty (#16 QA).
+                val downloadShare = storageShare(downloads, total)
+                val cacheShare = storageShare(cache, total)
+                if (downloadShare > 0f) Box(Modifier.fillMaxHeight().weight(downloadShare).background(colors.primary))
+                if (cacheShare > 0f) Box(Modifier.fillMaxHeight().weight(cacheShare).background(colors.primary.copy(alpha = 0.45f)))
+                val rest = 1f - downloadShare - cacheShare
                 if (rest > 0f) Spacer(Modifier.weight(rest))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Legend(colors.primary, "Downloads")
                 Legend(colors.primary.copy(alpha = 0.45f), "Played-song cache")
-                Legend(colors.surfaceVariant, "Free")
+                Legend(colors.surfaceVariant, "Free", outlined = true)
             }
         }
     }
 }
 
 @Composable
-private fun Legend(color: Color, label: String) {
+private fun Legend(color: Color, label: String, outlined: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(color))
+        // Free matches its card's own colour, so it is drawn with an outline to be seen at all.
+        Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(color)
+            .then(if (outlined) Modifier.border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(5.dp)) else Modifier))
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 6.dp))
     }
@@ -321,3 +331,7 @@ internal fun PrivacyNote() {
     Text("Tauon's remote API is for trusted LANs. It has no login or encryption over HTTP. Never expose port 7814 to the Internet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
     Text("Streams the original audio · Downloads keep Opus copies\nAndroid playback · Desktop playback stays independent", style = MaterialTheme.typography.bodySmall)
 }
+
+/** A stored amount's share of the storage bar: its true share, but never less than a visible sliver. */
+internal fun storageShare(bytes: Long, total: Long): Float =
+    if (bytes <= 0 || total <= 0) 0f else maxOf(bytes.toFloat() / total, 0.015f).coerceAtMost(1f)
