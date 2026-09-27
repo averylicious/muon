@@ -106,8 +106,9 @@ private fun Lyrics(item: MediaItem?, back: () -> Unit) {
                 colors = barColors,
                 windowInsets = WindowInsets(0, 0, 0, 0),
             )
+            // On the bar title's 16 dp keyline, so the words line up under the song's name.
             Column(Modifier.verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                .padding(horizontal = 16.dp).padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 if (failure) ErrorCard(lyrics, "Retry", modifier = Modifier) { attempt++ }
                 // Left aligned and large enough to read at arm's length, and selectable so a line can

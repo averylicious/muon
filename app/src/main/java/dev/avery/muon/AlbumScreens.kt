@@ -97,16 +97,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                 }
             }
         }
-        item(key = "actions", contentType = "actions") {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { playAll(false) }, enabled = playable, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    MuonIcon("play", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
-                }
-                FilledTonalButton(onClick = { playAll(true) }, enabled = playable, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    MuonIcon("shuffle", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
-                }
-            }
-        }
+        item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll) }
         if (album != null) item(key = "download", contentType = "download") { DownloadAll(album.tracks, endpoint) }
         if (album == null) item(key = "waiting", contentType = "waiting") {
             Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
@@ -146,6 +137,19 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                     textAlign = TextAlign.End, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
                 DownloadBadge(downloadMark(endpoint, track))
             }
+        }
+    }
+}
+
+/** Play, filled, and Shuffle, tonal: the pair under an album's, an artist's or a playlist's header. */
+@Composable
+internal fun PlayAllButtons(enabled: Boolean, playAll: (shuffle: Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Button(onClick = { playAll(false) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+            MuonIcon("play", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
+        }
+        FilledTonalButton(onClick = { playAll(true) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+            MuonIcon("shuffle", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
         }
     }
 }

@@ -54,16 +54,7 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
                 }
             }
         }
-        item(key = "actions", contentType = "actions") {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { playAll(false) }, enabled = playable, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    MuonIcon("play", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
-                }
-                FilledTonalButton(onClick = { playAll(true) }, enabled = playable, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    MuonIcon("shuffle", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
-                }
-            }
-        }
+        item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll) }
         if (artist != null) item(key = "download", contentType = "download") { DownloadAll(artist.tracks, endpoint) }
         if (artist == null) {
             item(key = "waiting", contentType = "waiting") {
