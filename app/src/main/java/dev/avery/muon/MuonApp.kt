@@ -596,12 +596,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 AnimatedVisibility(visible = rail && connected && ui.item != null,
                     enter = slideInHorizontally(motionMedium()) { it } + fadeIn(motionShort()),
                     exit = slideOutHorizontally(motionMedium()) { it } + fadeOut(motionShort())) {
+                    // Lyrics and Queue are layered over the player, so they open it too; Back from
+                    // either then steps down through Now Playing, as it does when they are opened there.
+                    fun openPlayer(): Boolean {
+                        if (model.endpoint != null && player != null && playback.ui.item != null) playerOpen = true
+                        return playerOpen
+                    }
                     PlayerPanel(ui, position, revision, player,
-                        open = {
-                            if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
-                                playerOpen = true
-                        },
-                        lyrics = { lyricsOpen = true }, queue = { queueOpen = true },
+                        open = { if (!overlayOpen) openPlayer() },
+                        lyrics = { if (openPlayer()) lyricsOpen = true },
+                        queue = { if (openPlayer()) queueOpen = true },
                         modifier = Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)
                             .only(WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom))
                             .padding(top = 8.dp, end = 12.dp, bottom = 8.dp))
