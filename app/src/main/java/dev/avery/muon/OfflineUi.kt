@@ -45,7 +45,7 @@ internal fun downloadMark(endpoint: ServerEndpoint?, track: TauonTrack): Downloa
     endpoint?.let { DownloadMarks.marks[downloadId(it.origin, track.id)] }
 
 /**
- * Download all, for an album's or an artist's songs (mockup 02): a tonal button with how many songs
+ * Download all, for an album's, an artist's or a playlist's songs (mockup 02): a tonal button with how many songs
  * and roughly how much space; while they download, a card with progress and Cancel; once all are on
  * the phone, a line saying so with Remove.
  */

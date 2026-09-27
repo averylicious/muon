@@ -108,6 +108,9 @@ internal object OfflineStore {
                 Download.STATE_DOWNLOADING -> DownloadMark.Downloading
                 else -> null
             }
+            // While a song moves between shelves, one shelf is still queuing or removing it while the
+            // other holds it complete: it stays downloaded throughout.
+            if (mark != DownloadMark.Done && listOfNotNull(phone, store?.card).any { it.completed(id) }) return
             if (mark == null) DownloadMarks.marks.remove(id) else DownloadMarks.marks[id] = mark
             if (mark == DownloadMark.Done) sizes[id] = download.bytesDownloaded else sizes.remove(id)
             // Also fills in the cover of a download made before covers were kept, when Tauon answers.
@@ -115,24 +118,35 @@ internal object OfflineStore {
             DownloadMarks.bytes = sizes.values.sum()
         }
         fun removed(download: Download) {
+            // Moved rather than removed: the song is still kept, on the other shelf.
+            if (listOfNotNull(phone, store?.card).any { it.completed(download.request.id) }) return
             artwork.execute { art.remove(download.request.id) }
             DownloadMarks.marks.remove(download.request.id)
             sizes.remove(download.request.id)
             DownloadMarks.bytes = sizes.values.sum()
         }
-        val store = Store(phone, art, played, prefs, database, ::record, ::removed)
-        watch(phone, store, main)
+        val made = Store(phone, art, played, prefs, database, ::record, ::removed)
+        watch(context, phone, made, main)
         cardFolder(context)?.let { folder ->
             runCatching { shelf(context, File(folder, "downloads"), NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java) }
-                .getOrNull()?.let { card -> store.card = card; watch(card, store, main) }
+                .getOrNull()?.let { card -> made.card = card; watch(context, card, made, main) }
         }
-        return store
+        return made
     }
 
-    /** Reports one shelf's downloads to the UI: those already there, then every change. */
-    private fun watch(shelf: Shelf, store: Store, main: Handler) {
+    /**
+     * Reports one shelf's downloads to the UI: those already there, then every change. A song is kept on
+     * one shelf only, so once it finishes on this one, a copy left on the other (a move) is removed.
+     */
+    private fun watch(context: Context, shelf: Shelf, store: Store, main: Handler) {
         shelf.manager.addListener(object : DownloadManager.Listener {
-            override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) = store.record(download)
+            override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) {
+                store.record(download)
+                if (download.state != Download.STATE_COMPLETED) return
+                val id = download.request.id
+                store.shelves.filter { it !== shelf && it.completed(id) }
+                    .forEach { DownloadService.sendRemoveDownload(context, it.service, id, false) }
+            }
             override fun onDownloadRemoved(m: DownloadManager, download: Download) = store.removed(download)
         })
         Executors.newSingleThreadExecutor().execute {
@@ -289,6 +303,53 @@ internal object OfflineStore {
      */
     fun resume(context: Context) {
         get(context).shelves.forEach { runCatching { DownloadService.start(context, it.service) } }
+    }
+
+    /** Moves one download at a time, behind everything else. */
+    private val mover = Executors.newSingleThreadExecutor()
+
+    /** How many finished downloads are on the card ([card]) or the phone. Reads the index. */
+    fun downloadsOn(context: Context, card: Boolean): Int {
+        val store = get(context)
+        val shelf = (if (card) store.card else store.phone) ?: return 0
+        return runCatching { shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { it.count } }.getOrDefault(0)
+    }
+
+    /**
+     * Moves every finished download to the card ([toCard]) or back to the phone. Each song's copy is
+     * written from one shelf's cache into the other's on the phone itself, with no Tauon, then handed to
+     * that shelf's manager, which finds it already complete; the original goes once it is recorded there
+     * (see [watch]). A song that fails to copy stays where it was.
+     */
+    fun move(context: Context, toCard: Boolean) {
+        val store = get(context)
+        val card = store.card ?: return
+        val from = if (toCard) store.phone else card
+        val to = if (toCard) card else store.phone
+        val main = Handler(Looper.getMainLooper())
+        mover.execute {
+            val downloads = ArrayList<Download>()
+            runCatching { from.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { while (it.moveToNext()) downloads += it.download } }
+            main.post { DownloadMarks.moving = 0 to downloads.size }
+            downloads.forEachIndexed { index, download ->
+                if (runCatching { copy(download, from, to) }.isSuccess)
+                    main.post { DownloadService.sendAddDownload(context, to.service, download.request, false) }
+                main.post { DownloadMarks.moving = index + 1 to downloads.size }
+            }
+            main.post { DownloadMarks.moving = null }
+        }
+    }
+
+    /** Writes one finished download's bytes from [from]'s cache into [to]'s, under the same key. */
+    private fun copy(download: Download, from: Shelf, to: Shelf) {
+        val id = download.request.id
+        val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(id))
+        require(length != C.LENGTH_UNSET.toLong() && from.cache.isCached(id, 0, length)) { "Not fully downloaded" }
+        // No upstream: a byte missing from the source fails the copy rather than reaching the network.
+        val reader = CacheDataSource.Factory().setCache(from.cache).setCacheWriteDataSinkFactory(null)
+        val writer = CacheDataSource.Factory().setCache(to.cache).setUpstreamDataSourceFactory(reader).createDataSourceForDownloading()
+        CacheWriter(writer, DataSpec.Builder().setUri(download.request.uri).setKey(id).build(), null, null).cache()
+        to.cache.applyContentMetadataMutations(id, ContentMetadataMutations.setContentLength(ContentMetadataMutations(), length))
     }
 
     fun removeAll(context: Context) = get(context).shelves.forEach {

@@ -3,6 +3,7 @@ package dev.avery.muon
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 /**
@@ -63,6 +64,8 @@ internal object DownloadMarks {
     val marks = mutableStateMapOf<String, DownloadMark>()
     /** Bytes the finished downloads take. */
     var bytes by mutableLongStateOf(0L)
+    /** Songs moved so far and how many are moving, while downloads move between phone and card. */
+    var moving by mutableStateOf<Pair<Int, Int>?>(null)
 }
 
 /**
