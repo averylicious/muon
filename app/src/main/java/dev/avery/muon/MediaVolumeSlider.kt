@@ -12,6 +12,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,12 +74,16 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
     val pressed by interaction.collectIsPressedAsState()
     val showBubble = !state.fixed && (dragged || pressed)
 
+    // material3 1.5 keeps custom thumbs and tracks only on the SliderState overload. The state is the
+    // system volume's mirror, set on every composition, as the plain-value overload itself does.
+    // No steps: a tick per device volume step drew a dotted ruler along the track (#117). The
+    // value still lands on whole steps, because it is rounded before it is set.
+    val range = state.minimum.toFloat()..maxOf(state.maximum, state.minimum + 1).toFloat()
+    val slider = remember(range) { SliderState(state.current.toFloat(), trackRange = range) }
+    slider.value = state.current.toFloat()
     Slider(
-        value = state.current.toFloat(),
+        state = slider,
         onValueChange = { setVolume(it.roundToInt()) },
-        valueRange = state.minimum.toFloat()..maxOf(state.maximum, state.minimum + 1).toFloat(),
-        // No steps: a tick per device volume step drew a dotted ruler along the track (#117). The
-        // value still lands on whole steps, because it is rounded before it is set.
         enabled = enabled,
         interactionSource = interaction,
         modifier = modifier.fillMaxWidth()
