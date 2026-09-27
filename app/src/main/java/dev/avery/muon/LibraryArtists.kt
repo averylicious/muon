@@ -95,6 +95,13 @@ internal fun artistAlbums(artist: LibraryArtist, albums: List<LibraryAlbum>): Li
     return sortAlbums(albums.filter { album -> album.tracks.any { it.id in ids } }, AlbumOrder.Added)
 }
 
+/**
+ * Up to [count] of an artist's songs, one per album, newest first: the covers their picture is made
+ * of. Songs with no album tag share one group, so a run of singles gives one cover, not several.
+ */
+internal fun artistCoverTracks(artist: LibraryArtist, count: Int): List<TauonTrack> =
+    artist.tracks.sortedByDescending { it.id }.distinctBy(::trackAlbumKey).take(count)
+
 /** "1 album, 14 songs" under an artist's name; only the songs when none of them has an album. */
 internal fun artistSummary(albums: Int, songs: Int): String {
     val count = "$songs ${if (songs == 1) "song" else "songs"}"

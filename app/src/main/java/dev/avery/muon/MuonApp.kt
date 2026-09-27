@@ -539,7 +539,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     ArtistOrder.entries, library.artistOrder, { it.label }) {
                                                                     library.chooseArtistOrder(it); artistList = LazyListState()
                                                                 }
-                                                                ArtistRows(sortedArtists, model.busy, artistList) {
+                                                                ArtistRows(sortedArtists, model.busy, artistList, model.endpoint) {
                                                                     artistOrigin = origin; artistKey = it.key; artistName = it.name
                                                                 }
                                                             }

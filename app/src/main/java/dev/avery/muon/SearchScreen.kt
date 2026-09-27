@@ -100,7 +100,7 @@ private fun SearchBrowse(artists: List<LibraryArtist>, albums: List<LibraryAlbum
                         Column(Modifier.width(96.dp).clip(RoundedCornerShape(16.dp))
                             .clickable(onClickLabel = "Open artist") { openArtist(artist) }.padding(vertical = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally) {
-                            ArtistAvatar(artist, side = 80.dp)
+                            ArtistAvatar(artist, side = 80.dp, endpoint = endpoint)
                             Text(artistLabel(artist.name), style = MaterialTheme.typography.labelLarge, maxLines = 1,
                                 overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp))
@@ -138,7 +138,7 @@ private fun SearchSuggestions(artists: List<LibraryArtist>, albums: List<Library
         items(suggestions, key = { it.fold({ a -> a.key }, { a -> a.key }) }) { suggestion ->
             suggestion.fold({ artist ->
                 ListItem(headlineContent = { Text(artistLabel(artist.name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    supportingContent = { Text("Artist") }, leadingContent = { ArtistAvatar(artist, side = 48.dp) },
+                    supportingContent = { Text("Artist") }, leadingContent = { ArtistAvatar(artist, side = 48.dp, endpoint = endpoint) },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))
                         .clickable(onClickLabel = "Open artist") { openArtist(artist) })
@@ -193,7 +193,7 @@ internal fun LazyListScope.searchCollection(artists: List<LibraryArtist>, albums
             ListItem(
                 headlineContent = { Text(artistLabel(artist.name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingContent = { Text("Artist · ${artistSongCount(artist.tracks.size)}") },
-                leadingContent = { ArtistAvatar(artist) },
+                leadingContent = { ArtistAvatar(artist, endpoint = endpoint) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))
                     .clickable(onClickLabel = "Open artist") { openArtist(artist) },
