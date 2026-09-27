@@ -28,6 +28,7 @@ MainActivity ──binds──▶ PlaybackService (Media3 MediaSessionService)
 |---|---|
 | `MainActivity.kt` | Activity lifecycle, `MediaController` binding, edge-to-edge and system bar style |
 | `PlaybackService.kt` | The Media3 session and player; owns the queue and survives the UI |
+| `ReplayGain.kt` | Volume normalization (#97): reads ReplayGain tags, sets the player's volume, remembers each song's gain |
 | `MuonApp.kt` | The shell: three tabs, the Now Playing overlay above them, the scaffold, and queue start |
 | `PlaybackState.kt` | `PlaybackUi`, the ticking position, and the player listener |
 | `LibraryScreen.kt`, `SearchScreen.kt`, `NowPlayingScreen.kt`, `LyricsScreen.kt`, `SettingsScreen.kt`, `ConnectScreen.kt` | One file per screen |

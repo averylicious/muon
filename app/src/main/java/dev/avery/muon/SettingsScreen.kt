@@ -74,6 +74,9 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
                     modifier = Modifier.clickable(onClickLabel = "Disconnect") { confirmDisconnect = true })
             }
 
+            GroupLabel("Playback")
+            PlaybackGroup()
+
             GroupLabel("Storage")
             StorageGroup { confirmClear = true }
 
@@ -270,6 +273,18 @@ private fun ConnectedBadge(offline: Boolean = false) {
         shape = RoundedCornerShape(50)) {
         Text(if (offline) "Offline" else "Connected", style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+    }
+}
+
+/** Volume normalization (#97), off until chosen: it turns most songs down to meet the quieter ones. */
+@Composable
+private fun PlaybackGroup() {
+    val loudness = rememberReplayGainSettings()
+    SettingsGroup {
+        SettingsRow(shape = rowShape(0, 1), headline = "Even out volume",
+            supporting = "Plays songs at a similar loudness, using the ReplayGain tags in your music files",
+            trailing = { Switch(checked = loudness.enabled, onCheckedChange = null) },
+            modifier = Modifier.toggleable(value = loudness.enabled, role = Role.Switch) { loudness.choose(it) })
     }
 }
 

@@ -2,11 +2,13 @@ package dev.avery.muon
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.SharedPreferences
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
@@ -22,6 +24,8 @@ import com.google.common.util.concurrent.ListenableFuture
 @androidx.annotation.OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
+    // Held here: SharedPreferences keeps its listeners only weakly.
+    private var loudnessListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     override fun onCreate() {
         super.onCreate()
         // Keep Media3's notification/actions and foreground handling; only supply our app mark.
@@ -50,6 +54,28 @@ class PlaybackService : MediaSessionService() {
                     player.setShuffleOrder(QueueShuffleOrder.startingWith(player.mediaItemCount, player.currentMediaItemIndex))
             }
         })
+        // Volume normalization (#97): each song at its ReplayGain level, set as the player's volume.
+        val loudnessPrefs = getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
+        val loudness = ReplayGainSettings(loudnessPrefs)
+        fun applyLoudness() { player.volume = loudness.volumeFor(player.currentMediaItem?.mediaId) }
+        player.addListener(object : Player.Listener {
+            // A song already heard starts at its level; one not yet heard plays unchanged until its
+            // tags are read, rather than at the previous song's gain.
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = applyLoudness()
+            override fun onTracksChanged(tracks: Tracks) {
+                val id = player.currentMediaItem?.mediaId
+                val found = tracks.groups.asSequence().filter { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+                    .flatMap { group -> (0 until group.length).asSequence().filter(group::isTrackSelected)
+                        .map { group.getTrackFormat(it) } }
+                    .firstNotNullOfOrNull { trackLoudness(it.metadata) }
+                if (id != null && found != null) loudness.remember(id, appliedGainDb(found))
+                applyLoudness()
+            }
+        })
+        loudnessListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == ReplayGainSettings.KEY_ENABLED) { loudness.reload(); applyLoudness() }
+        }.also(loudnessPrefs::registerOnSharedPreferenceChangeListener)
+        applyLoudness()
         // Shuffle and repeat as the user left them, restored before the session exists so no
         // controller sees the defaults, and saved whenever they change by any route — the app, the
         // notification or another controller — rather than at shutdown, which may never be reached.
@@ -97,6 +123,8 @@ class PlaybackService : MediaSessionService() {
     }
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
     override fun onDestroy() {
+        loudnessListener?.let { getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
+            .unregisterOnSharedPreferenceChangeListener(it) }; loudnessListener = null
         session?.run { player.release(); release() }; session = null
         super.onDestroy()
     }
