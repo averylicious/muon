@@ -115,13 +115,17 @@ private fun StorageGroup(clear: () -> Unit) {
     // is simply not there (the user's decision).
     val card = remember { OfflineStore.get(context).card?.let { cardFolder(context) } }
     var onCard by remember { mutableStateOf(OfflineStore.storeOnCard(context)) }
+    // Where to move, and how many: offered when the switch leaves downloads on the other side.
+    var offerMove by remember { mutableStateOf<Pair<Boolean, Int>?>(null) }
+    val moving = DownloadMarks.moving
     val rows = if (card != null) 5 else 4
     // Free space where new downloads go: the card's when they go there (#16 QA).
     val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
     StorageBar(DownloadMarks.bytes, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
         SettingsRow(shape = rowShape(0, rows), headline = "Downloads",
-            supporting = if (songs == 0) "None yet. Long-press a song, or use Download all on an album or artist."
+            supporting = if (moving != null) "Moving ${moving.first} of ${moving.second}…"
+                else if (songs == 0) "None yet. Long-press a song, or use Download all on an album, artist or playlist."
                 else "$songs ${if (songs == 1) "song" else "songs"} · ${formatBytes(DownloadMarks.bytes)}",
             trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } })
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
@@ -155,8 +159,19 @@ private fun StorageGroup(clear: () -> Unit) {
                 trailing = { Switch(checked = onCard, onCheckedChange = null) },
                 modifier = Modifier.toggleable(value = onCard, role = Role.Switch) {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
+                    val left = OfflineStore.downloadsOn(context, card = !it)
+                    if (left > 0 && moving == null) offerMove = it to left
                 })
         }
+    }
+    offerMove?.let { (toCard, count) ->
+        val what = "$count ${if (count == 1) "download" else "downloads"}"
+        AlertDialog(onDismissRequest = { offerMove = null },
+            title = { Text(if (toCard) "Move $what to the SD card?" else "Move $what back to the phone?") },
+            text = { Text(if (toCard) "New downloads go to the card now. Moving the ones already on the phone frees its space. It's done on the phone, without Tauon."
+                else "New downloads stay on the phone now. Moving the ones on the card keeps them playable when the card is out. It's done on the phone, without Tauon.") },
+            confirmButton = { TextButton(onClick = { offerMove = null; OfflineStore.move(context, toCard) }) { Text("Move") } },
+            dismissButton = { TextButton(onClick = { offerMove = null }) { Text("Not now") } })
     }
     if (card != null) Text("New downloads go to the card. Removing the card hides its downloads until it is back.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,

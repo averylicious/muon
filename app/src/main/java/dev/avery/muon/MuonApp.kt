@@ -559,6 +559,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                             val tracks = model.tracksByPlaylist[open.id].orEmpty()
                                                             TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
                                                                 emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
+                                                                // A whole playlist downloads at once, as an album or an artist does (#112).
+                                                                header = { item(key = "download", contentType = "download") {
+                                                                    Box(Modifier.padding(top = 4.dp)) { DownloadAll(tracks, model.endpoint) }
+                                                                } },
                                                                 loading = model.busy) { startQueue(tracks, it) }
                                                         }
                                                     }
