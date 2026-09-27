@@ -352,17 +352,22 @@ private fun ArtworkGesture(p: PlaybackUi, player: MediaController?, shown: Int,
                         else swipeAction(drag, size.width, minimum, now.canNext, now.canPrevious)
                     // Cleared before dispatching, so a second gesture cannot repeat this one.
                     release()
-                    if (action != SwipeAction.None) {
+                    if (action != SwipeAction.None && live != null) {
                         haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
-                        if (action == SwipeAction.Next) live?.seekToNextMediaItem()
-                        else live?.seekToPreviousMediaItem()
-                        // The top card carries on off the side it was going; the player's event then
-                        // rebuilds this group with the revealed cover on top. Only if that never comes
-                        // does the card return.
+                        // The top card is dealt off the side it was going first, and only then does the
+                        // player move on. The player answers within a frame or two, and its event
+                        // rebuilds this group with the revealed cover on top; skipping first took the
+                        // card away mid-flight, so a slow swipe's card vanished instead of leaving.
                         val away = size.width * 1.3f * (if (action == SwipeAction.Next) -1 else 1)
                         moving?.cancel()
                         moving = scope.launch {
                             offset.animateTo(away, tween(STACK_DEAL_MS))
+                            // The release's checks again: a track that ended by itself while the card
+                            // was leaving is not skipped as well.
+                            if (controller.value === live && swipeTargetUnchanged(now, swipeTarget(live, revision()))) {
+                                if (action == SwipeAction.Next) live.seekToNextMediaItem() else live.seekToPreviousMediaItem()
+                            }
+                            // Only if the player never answers does the card come back.
                             delay(STACK_RETURN_MS)
                             offset.animateTo(0f, SwipeSpring)
                         }
