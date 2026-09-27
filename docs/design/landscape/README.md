@@ -1,6 +1,6 @@
 # Landscape mini player mockups
 
-A design proposal for review, drawn on 2026-09-27 at the user's request. Pixel 8 held sideways (914 × 411 dp), light theme, in the Collection redesign's palette, Google Sans Flex and the refined icon set. The song names come from the user's library; the covers are stand-ins. **Not implemented.**
+A design proposal for review, drawn on 2026-09-27 at the user's request. Pixel 8 held sideways (914 × 411 dp), light theme, in the Collection redesign's palette, Google Sans Flex and the refined icon set. The song names come from the user's library; the covers are stand-ins. Implemented in the PR that added this folder, with one change found on the Pixel: Lyrics and Queue sit beside the cover rather than at the panel's foot, where they fell below a phone's short side.
 
 ![Overview](overview.png)
 

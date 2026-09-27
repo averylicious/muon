@@ -37,10 +37,18 @@ internal fun PlayerPanel(p: PlaybackUi, position: () -> Long, revision: () -> In
         modifier = modifier.width(PLAYER_PANEL_WIDTH).fillMaxHeight()
             .clickable(enabled = player != null, onClickLabel = "Open Now Playing", onClick = open)) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SwipeableArtwork(p, player, revision, Modifier.size(120.dp))
-            Spacer(Modifier.height(4.dp))
-            Text(item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.titleLarge,
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Lyrics and Queue sit beside the cover, in the room it leaves, as they sit at the top
+            // of landscape Now Playing: under the controls they fell off a phone's short side.
+            Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                SwipeableArtwork(p, player, revision, Modifier.size(112.dp))
+                Spacer(Modifier.weight(1f))
+                Column {
+                    Control("lyrics", "Lyrics", action = lyrics)
+                    Control("queue", "Queue", action = queue)
+                }
+            }
+            Text(item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(item.mediaMetadata.artist?.toString().orEmpty(), color = colors.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -57,10 +65,6 @@ internal fun PlayerPanel(p: PlaybackUi, position: () -> Long, revision: () -> In
                 }
                 Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Control("lyrics", "Lyrics", action = lyrics)
-                Control("queue", "Queue", action = queue)
-            }
         }
     }
 }
@@ -71,7 +75,9 @@ private fun PanelProgress(position: () -> Long, duration: Long) {
     val at = position()
     Column {
         LinearProgressIndicator(progress = { progressFraction(at, duration) },
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(4.dp), drawStopIndicator = {})
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(4.dp),
+            // The default track is the panel's own colour; a step darker keeps the bar readable.
+            trackColor = MaterialTheme.colorScheme.outlineVariant, drawStopIndicator = {})
         Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
             Text(formatTime(at), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
