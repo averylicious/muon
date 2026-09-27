@@ -297,7 +297,7 @@ private fun neighbours(player: MediaController?, target: SwipeTarget?): Neighbou
  * length, or shuffle being toggled, would commit to a cover the user was never shown.
  */
 @Composable
-private fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, revision: () -> Int,
+internal fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, revision: () -> Int,
     modifier: Modifier = Modifier) {
     // One gesture per controller and event revision. When the player moves on, the gesture below
     // is disposed and rebuilt: its pointer coroutine is cancelled, its settling job dies with its
