@@ -47,7 +47,7 @@ internal class MorphShape(private val morph: Morph, private val progress: Float,
 /**
  * The play button's shape. With [Expressive.motion] it morphs between two of Material 3 Expressive's
  * shapes: a nine-sided cookie while paused, which reads as "press to play", and a rounded square
- * while playing, turning a little on the way, with a spring that overshoots so the change has life.
+ * while playing, turning a quarter on the way so the square lands upright, with a spring that overshoots so the change has life.
  * Otherwise it is the round-to-rounded-square of motion pass 2. [size] is the button's side.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -65,5 +65,8 @@ internal fun playButtonShape(playing: Boolean, size: Dp): Shape {
     return MorphShape(morph, progress, rotation = progress * PLAY_MORPH_TURN)
 }
 
-/** How far the play button turns while it morphs, in degrees: one scallop of the nine-sided cookie. */
-private const val PLAY_MORPH_TURN = 40f
+/**
+ * How far the play button turns while it morphs, in degrees. A quarter turn lands the square upright;
+ * any other amount leaves it standing on a corner, as a diamond.
+ */
+private const val PLAY_MORPH_TURN = 90f
