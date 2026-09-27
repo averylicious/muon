@@ -62,9 +62,18 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                     // whenever they fit, and scroll from the top when they do not.
                     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight),
                         verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
-                        PlayerBar(dismiss, dragHeight, collapse) { away() }
+                        // Lyrics and Queue join the top bar: along the bottom they fell below the fold,
+                        // where only a scroll with nothing hinting at it would find them.
+                        PlayerBar(dismiss, dragHeight, collapse, actions = {
+                            IconButton(onClick = lyrics, modifier = Modifier.semantics { contentDescription = "Lyrics" }) {
+                                MuonIcon("lyrics", Modifier.size(20.dp))
+                            }
+                            IconButton(onClick = queue, modifier = Modifier.semantics { contentDescription = "Queue" }) {
+                                MuonIcon("queue", Modifier.size(20.dp))
+                            }
+                        }) { away() }
                         PlayerTitles(p)
-                        PlayerControls(p, position, player, narrow, queue, lyrics)
+                        PlayerControls(p, position, player, narrow, queue, lyrics, actions = false)
                     }
                 }
             }
@@ -97,7 +106,8 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
  * and the sliders seeking as they did.
  */
 @Composable
-private fun PlayerBar(dismiss: PlayerSheet?, dragHeight: Float, collapse: () -> Unit, away: () -> Unit) {
+private fun PlayerBar(dismiss: PlayerSheet?, dragHeight: Float, collapse: () -> Unit,
+    actions: (@Composable RowScope.() -> Unit)? = null, away: () -> Unit) {
     Box(Modifier.fillMaxWidth().dismissDrag(dismiss, dragHeight) { away() },
         contentAlignment = Alignment.Center) {
         // A decorative grabber marks the existing draggable bar without adding another
@@ -112,6 +122,7 @@ private fun PlayerBar(dismiss: PlayerSheet?, dragHeight: Float, collapse: () -> 
                 .semantics { contentDescription = "Collapse the player" }) {
             MuonIcon("collapse", Modifier.size(20.dp))
         }
+        if (actions != null) Row(Modifier.align(Alignment.CenterEnd), content = actions)
     }
 }
 
@@ -133,10 +144,10 @@ private fun PlayerTitles(p: PlaybackUi) {
     }
 }
 
-/** Everything under the titles: seek, transport, volume, then Lyrics and Queue. */
+/** Everything under the titles: seek, transport, volume, then Lyrics and Queue unless [actions] is false. */
 @Composable
 private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, player: MediaController?,
-    narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit) {
+    narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit, actions: Boolean = true) {
     val item = p.item ?: return
     if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
     if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -163,7 +174,7 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     VolumeRow()
     // Wrapping preserves readable labels at large font/display sizes. Lyrics sits at the start
     // and Queue at the end, as in the mockup; on a narrow width they wrap rather than clip.
-    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    if (actions) FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         TextButton(onClick = lyrics) {
             MuonIcon("lyrics", Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
