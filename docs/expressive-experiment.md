@@ -1,6 +1,6 @@
 # Material 3 Expressive experiment (Canary only)
 
-This branch, `claude/project-thread-ef0w2w`, tries Material 3 Expressive on Muon Canary. It never merges to `main`, and Stable is untouched. Test builds come from the branch's own **Android APKs** runs: the `app-debug-<commit>` artifact updates Muon Canary in place.
+This branch, `claude/m3-expressive-alpha`, tries Material 3 Expressive on Muon Canary. It never merges to `main`, and Stable is untouched. Test builds come from the branch's own **Android APKs** runs: the `app-debug-<commit>` artifact updates Muon Canary in place.
 
 ## What changed in the build
 
