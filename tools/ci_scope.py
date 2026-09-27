@@ -9,6 +9,7 @@ import subprocess
 ROOT_DOCS = {'README.md', 'AGENTS.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE'}
 DOC_SUFFIXES = {'.md', '.txt', '.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.pdf'}
 SHA = re.compile(r'[0-9a-f]{40}')
+CANARY = re.compile(r'\d+\.\d+\.\d+-canary\.(\d+)')
 
 
 def is_documentation(path):
@@ -31,6 +32,13 @@ def changed_paths(base, head):
                .decode('utf-8').rstrip('\0').split('\0')) - {''}
 
 
+def last_canary(head):
+    """The newest Canary tag in head's history, by run number, or None when there is none."""
+    tags = git('tag', '--merged', head, '--list', '*-canary.*').decode('utf-8').split()
+    numbered = [(int(m.group(1)), tag) for tag in tags if (m := CANARY.fullmatch(tag))]
+    return max(numbered)[1] if numbered else None
+
+
 def classify(event_name, ref, head, event):
     """Return (build_apks, reason, changed paths). Unknown history builds, never skips."""
     if event_name != 'push' or not ref.startswith('refs/heads/'):
@@ -48,6 +56,12 @@ def classify(event_name, ref, head, event):
             paths.update(changed_paths(before, head))
         elif ref == 'refs/heads/main':
             raise ValueError('No previous main commit')
+        if ref == 'refs/heads/main':
+            # A newer push cancels a main run still in progress, so app work merged just before a
+            # docs-only merge would never reach a Canary. Compare with the last Canary published too.
+            tag = last_canary(head)
+            if tag:
+                paths.update(changed_paths(tag, head))
         if ref != 'refs/heads/main':
             # Include all unmerged feature work even when the last push only edits docs.
             base = git('merge-base', head, 'refs/remotes/origin/main').decode().strip()
