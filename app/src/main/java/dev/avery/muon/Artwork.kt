@@ -85,6 +85,13 @@ private fun encodeArtwork(art: Bitmap): ByteArray = ByteArrayOutputStream().use 
 
 private fun memoryKey(url: String, size: Int) = "$url#$size"
 
+/**
+ * A small decode of [url] for reading colours from (Now Playing's theme): the mini player's size, so
+ * it is usually already in memory. Null if it cannot be had.
+ */
+internal suspend fun artworkBitmap(context: android.content.Context, url: String): Bitmap? =
+    artCache.get(memoryKey(url, 128)) ?: fetchArtwork(url, 128, ArtworkStore.disk(context))
+
 /** A picture decoded for one of [ARTWORK_SIZES]. */
 private class LoadedArtwork(val bitmap: Bitmap, val size: Int)
 
