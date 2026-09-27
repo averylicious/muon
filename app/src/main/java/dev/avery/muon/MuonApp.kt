@@ -99,6 +99,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var playlistList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
         // The open artist's page keeps its place while one of its albums is open; another artist starts at the top.
         val artistPageList = rememberSaveable(artistKey, saver = LazyListState.Saver) { LazyListState() }
+        // The library switching between what is on the phone and Tauon's whole collection is a new
+        // list, not the old one grown or shrunk: every list starts again from its top (#16 QA).
+        LaunchedEffect(model.offline) {
+            if (songList.firstVisibleItemIndex == 0 && songList.firstVisibleItemScrollOffset == 0) return@LaunchedEffect
+            songList = LazyListState(); artistList = LazyListState(); playlistList = LazyListState()
+        }
         var albumGrid by rememberSaveable(stateSaver = LazyGridState.Saver) { mutableStateOf(LazyGridState()) }
         var libraryBar by rememberSaveable(stateSaver = TopAppBarState.Saver) { mutableStateOf(TopAppBarState(
             initialHeightOffsetLimit = -Float.MAX_VALUE, initialHeightOffset = 0f, initialContentOffset = 0f)) }
@@ -495,12 +501,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     // Greeting, chips, then the list; only the list pulls, and
                                                     // the greeting unfolds before a pull begins.
                                                     LibraryTop(all.size, library.view, library::choose,
-                                                        model.busy, { model.connect() }, libraryBar, titled = !rail) {
+                                                        model.busy, { model.connect() }, libraryBar, titled = !rail, offline = model.offline) {
                                                         when (library.view) {
                                                             // A new order starts from its top, rather than
                                                             // wherever the previous first row now sits.
                                                             LibraryView.Songs -> Column {
-                                                                if (songs.isNotEmpty()) SortBar(null,
+                                                                // Counted like Albums and Artists (#16 QA).
+                                                                if (songs.isNotEmpty()) SortBar("${songs.size} ${if (songs.size == 1) "song" else "songs"}",
                                                                     SongOrder.entries, library.songOrder, { it.label }) {
                                                                     library.chooseSongOrder(it); songList = LazyListState()
                                                                 }
@@ -626,7 +633,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 LyricsScreen(ui.item) { lyricsOpen = false }
             }
             FullScreenOverlay(visible = queueShown) {
-                QueueScreen(player, revision) { queueOpen = false }
+                QueueScreen(player, revision, ui.playing) { queueOpen = false }
             }
         }
     }

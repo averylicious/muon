@@ -119,7 +119,9 @@ private fun PlayerBar(dismiss: PlayerSheet?, dragHeight: Float, collapse: () -> 
 private fun PlayerTitles(p: PlaybackUi) {
     val item = p.item ?: return
     Column(Modifier.fillMaxWidth()) {
+        // Medium, as the app's other titles are (#16 QA).
         Text(item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.headlineSmall,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(item.mediaMetadata.artist?.toString().orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1, overflow = TextOverflow.Ellipsis)

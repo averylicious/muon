@@ -57,7 +57,7 @@ internal fun libraryHeaderHeight(windowHeight: Float, fontScale: Float): Float? 
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LibraryHeader(tracks: Int, expandedHeight: Float?, titled: Boolean,
+private fun LibraryHeader(tracks: Int, expandedHeight: Float?, titled: Boolean, offline: Boolean,
     scrollBehavior: TopAppBarScrollBehavior) {
     val colors = TopAppBarDefaults.topAppBarColors(
         containerColor = MaterialTheme.colorScheme.background,
@@ -72,7 +72,7 @@ private fun LibraryHeader(tracks: Int, expandedHeight: Float?, titled: Boolean,
             colors = colors, windowInsets = insets)
     } else {
         LargeTopAppBar(
-            title = { Greeting(tracks) },
+            title = { Greeting(tracks, offline) },
             colors = colors,
             expandedHeight = expandedHeight.dp,
             windowInsets = insets,
@@ -87,7 +87,7 @@ private fun LibraryHeader(tracks: Int, expandedHeight: Float?, titled: Boolean,
  * given says which slot this is, without watching the scroll position from composition.
  */
 @Composable
-private fun Greeting(tracks: Int) {
+private fun Greeting(tracks: Int, offline: Boolean) {
     val collapsed = LocalTextStyle.current.fontSize == MaterialTheme.typography.titleLarge.fontSize
     if (collapsed) {
         Text("Library", style = MaterialTheme.typography.barTitle,
@@ -95,7 +95,8 @@ private fun Greeting(tracks: Int) {
     } else Column {
         Text("Your music,\nnearby.", style = MaterialTheme.typography.displaySmall,
             fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (tracks > 0) Text("$tracks ${if (tracks == 1) "track" else "tracks"} from your desktop",
+        // Offline, the songs are the ones on this phone, not the desktop's (#16 QA).
+        if (tracks > 0) Text("$tracks ${if (tracks == 1) "track" else "tracks"} " + if (offline) "on this phone" else "from your desktop",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -120,12 +121,12 @@ private fun Greeting(tracks: Int) {
 @Composable
 internal fun LibraryTop(tracks: Int, view: LibraryView, choose: (LibraryView) -> Unit,
     refreshing: Boolean, refresh: () -> Unit, bar: TopAppBarState = rememberTopAppBarState(),
-    titled: Boolean = true, content: @Composable BoxScope.() -> Unit) {
+    titled: Boolean = true, offline: Boolean = false, content: @Composable BoxScope.() -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = libraryHeaderHeight(maxHeight.value, LocalDensity.current.fontScale)
         val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(bar)
         Column(Modifier.fillMaxSize()) {
-            LibraryHeader(tracks, expanded, titled, scrollBehavior)
+            LibraryHeader(tracks, expanded, titled, offline, scrollBehavior)
             LibraryChips(view, choose)
             LibraryPane(refreshing, refresh) {
                 Box(Modifier.fillMaxSize().then(
@@ -306,7 +307,9 @@ internal fun ArtistAvatar(artist: LibraryArtist, side: Dp = 40.dp, modifier: Mod
     val initials = artistInitials(artist.name)
     // Grows with the text, so large fonts keep both initials inside the circle.
     val large = side >= 64.dp
-    val scaled = side * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    // Grows with the text so the initials fit, but a header circle only a little: at the largest font
+    // it doubled to 192 dp and squeezed the artist's name into a column (#16 QA).
+    val scaled = side * LocalDensity.current.fontScale.coerceIn(1f, if (large) 1.25f else 2f)
     Box(modifier.size(scaled).clip(CircleShape).background(container).clearAndSetSemantics {},
         contentAlignment = Alignment.Center) {
         CompositionLocalProvider(LocalContentColor provides content) {

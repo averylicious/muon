@@ -81,14 +81,15 @@ internal fun DownloadAll(tracks: List<TauonTrack>, endpoint: ServerEndpoint?) {
                     color = colors.onSurfaceVariant, modifier = Modifier.weight(1f).padding(start = 8.dp))
                 TextButton(onClick = { OfflineStore.remove(context, ids) }) { Text("Remove") }
             }
-            else -> Row(verticalAlignment = Alignment.CenterVertically) {
+            // The details wrap under the button when large text leaves no room beside it (#16 QA).
+            else -> FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+                itemVerticalAlignment = Alignment.CenterVertically) {
                 val missing = playable.filterIndexed { i, _ -> DownloadMarks.marks[ids[i]] != DownloadMark.Done }
                 FilledTonalButton(onClick = { OfflineStore.add(context, endpoint, missing) }, modifier = Modifier.heightIn(min = 48.dp)) {
                     MuonIcon("download", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Download all")
                 }
                 Text("${missing.size} ${if (missing.size == 1) "song" else "songs"}\nabout ${formatBytes(downloadEstimate(missing))}",
-                    style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp))
+                    style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
         }
     }
