@@ -113,7 +113,9 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
         val searching = scan.status == DiscoveryStatus.SEARCHING
         GroupRow(groupShape(rows - 1, rows), onClick = { round++ }, enabled = !searching && !model.busy, label = "Scan again") {
             if (searching) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                // The Canary experiment: Material 3 Expressive's shape-morphing loader instead of the spinner.
+                if (Expressive.motion) ExpressiveLoader(Modifier.size(24.dp))
+                else CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 Text("Looking for Tauon…", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp))
             } else Column {
@@ -163,3 +165,7 @@ private fun GroupRow(shape: RoundedCornerShape, onClick: () -> Unit, enabled: Bo
             verticalAlignment = Alignment.CenterVertically, content = content)
     }
 }
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ExpressiveLoader(modifier: Modifier) = LoadingIndicator(modifier)

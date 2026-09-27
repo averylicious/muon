@@ -24,8 +24,29 @@ internal val MotionEasing: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
  */
 internal val PredictiveBackEasing: Easing = CubicBezierEasing(0.1f, 0.1f, 0f, 1f)
 
-internal fun <T> motionShort(): FiniteAnimationSpec<T> = tween(MOTION_SHORT, easing = MotionEasing)
-internal fun <T> motionMedium(): FiniteAnimationSpec<T> = tween(MOTION_MEDIUM, easing = MotionEasing)
+/**
+ * For what fades or changes colour. With [Expressive.motion] these are Material 3 Expressive's
+ * effects springs (fast and default), which never overshoot; otherwise the eased tweens above.
+ */
+internal fun <T> motionShort(): FiniteAnimationSpec<T> =
+    if (Expressive.motion) spring(dampingRatio = 1f, stiffness = 3800f) else tween(MOTION_SHORT, easing = MotionEasing)
+internal fun <T> motionMedium(): FiniteAnimationSpec<T> =
+    if (Expressive.motion) spring(dampingRatio = 1f, stiffness = 1600f) else tween(MOTION_MEDIUM, easing = MotionEasing)
+
+/**
+ * For what moves or changes size: Material 3 Expressive's default spatial spring, which overshoots a
+ * little and settles, so a surface arrives with some life. Without [Expressive.motion], [motionMedium].
+ * The values are material3 1.5.0-alpha29's `ExpressiveMotionTokens`, which are internal there.
+ */
+internal fun <T> motionSpatial(): FiniteAnimationSpec<T> =
+    if (Expressive.motion) spring(dampingRatio = 0.8f, stiffness = 380f) else tween(MOTION_MEDIUM, easing = MotionEasing)
+
+/**
+ * For a surface that covers the whole screen: the same spring without the overshoot, which would
+ * lift the surface's far edge off the screen and show a strip of what it covers.
+ */
+internal fun <T> motionSpatialFull(): FiniteAnimationSpec<T> =
+    if (Expressive.motion) spring(dampingRatio = 1f, stiffness = 380f) else tween(MOTION_MEDIUM, easing = MotionEasing)
 
 /**
  * The player sheet's settle: a spring rather than a fixed curve, so a release hands on the finger's

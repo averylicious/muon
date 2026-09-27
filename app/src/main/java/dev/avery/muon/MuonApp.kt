@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.AnimatedVisibility
@@ -357,15 +358,19 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // A phone on its side: the tabs move to a rail at the start, so the height they took
             // along the bottom goes to the list instead, and the mini player keeps the bottom alone.
             val rail = sidewaysLayout(maxWidth.value, maxHeight.value)
+            // The Canary experiment's blur: the library and the side panel soften under the player
+            // as it rises, and behind the song menu. Read in the draw phase only (BlurBehind.kt).
+            val menuBlur by animateFloatAsState(if (actionTrack != null) 1f else 0f, motionMedium(), label = "menu blur")
+            val behind = Modifier.blurBehind(sheet) { menuBlur }
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
             // out of the accessibility tree, so TalkBack cannot wander into hidden content.
             // A rising preview obscures them just the same, so they leave the tree for it too, and
             // come back as soon as it is cancelled. Only semantics change: the mini player's own
             // gesture detector, which is carrying the preview, is not touched.
-            Row(Modifier.fillMaxSize().then(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier)) {
+            Row(Modifier.fillMaxSize().then(behind).then(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier)) {
                 AnimatedVisibility(visible = connected && rail,
-                    enter = slideInHorizontally(motionMedium()) { -it } + fadeIn(motionShort()),
-                    exit = slideOutHorizontally(motionMedium()) { -it } + fadeOut(motionShort())) {
+                    enter = slideInHorizontally(motionSpatial()) { -it } + fadeIn(motionShort()),
+                    exit = slideOutHorizontally(motionSpatial()) { -it } + fadeOut(motionShort())) {
                     NavigationRail(containerColor = colors.background) {
                         // Centred, where a thumb holding the phone sideways reaches them.
                         Spacer(Modifier.weight(1f))
@@ -390,8 +395,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier) {
                         // Sideways, the player is a panel beside the list instead (mockup B).
                         AnimatedVisibility(visible = ui.item != null && !overlayOpen && !(rail && connected),
-                            enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
-                            exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
+                            enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
+                            exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
                             MiniPlayer(ui, position, player != null,
                                 active = connected && player != null && ui.item != null && !overlayOpen,
                                 sheet = sheet,
@@ -404,8 +409,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 previous = { player?.seekToPreviousMediaItem() })
                         }
                         AnimatedVisibility(visible = connected && !rail,
-                            enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
-                            exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
+                            enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
+                            exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
                             NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
                                 Tab.entries.forEach { destination ->
                                     NavigationBarItem(selected = tab == destination,
@@ -418,13 +423,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }) { padding ->
                     Column(Modifier.padding(padding).fillMaxSize()) {
                         AnimatedVisibility(controllerError != null,
-                            enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
-                            exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
+                            enter = expandVertically(motionSpatial()) + fadeIn(motionShort()),
+                            exit = shrinkVertically(motionSpatial()) + fadeOut(motionShort())) {
                             ErrorCard(controllerError.orEmpty())
                         }
                         AnimatedVisibility(connected && model.error != null && tab != Tab.Settings,
-                            enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
-                            exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
+                            enter = expandVertically(motionSpatial()) + fadeIn(motionShort()),
+                            exit = shrinkVertically(motionSpatial()) + fadeOut(motionShort())) {
                             // Without Android 17's local network access, Retry cannot help: the card asks for it instead.
                             if (!LocalNetworkState.granted) ErrorCard(model.error.orEmpty(), "Allow", quiet = true) { allowLocalNetwork() }
                             else ErrorCard(model.error.orEmpty(), "Retry", quiet = model.offline) { model.connect() }
@@ -432,7 +437,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         BusyStrip(model.busy && connected)
                         // Tabs are siblings, so this fades with a small lift rather than sliding sideways.
                         AnimatedContent(if (connected) tab else null, transitionSpec = {
-                            (fadeIn(motionMedium()) + slideInVertically(motionMedium()) { it / 24 })
+                            (fadeIn(motionMedium()) + slideInVertically(motionSpatial()) { it / 24 })
                                 .togetherWith(fadeOut(motionShort()))
                         }, label = "screen") { shown ->
                             when (shown) {
@@ -603,8 +608,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 // A phone on its side: the player sits beside the list rather than under it
                 // (mockup B), clear of the status bar, the navigation bar and a side cutout.
                 AnimatedVisibility(visible = rail && connected && ui.item != null,
-                    enter = slideInHorizontally(motionMedium()) { it } + fadeIn(motionShort()),
-                    exit = slideOutHorizontally(motionMedium()) { it } + fadeOut(motionShort())) {
+                    enter = slideInHorizontally(motionSpatial()) { it } + fadeIn(motionShort()),
+                    exit = slideOutHorizontally(motionSpatial()) { it } + fadeOut(motionShort())) {
                     // Lyrics and Queue are layered over the player, so they open it too; Back from
                     // either then steps down through Now Playing, as it does when they are opened there.
                     fun openPlayer(): Boolean {
@@ -615,7 +620,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         open = { if (!overlayOpen) openPlayer() },
                         lyrics = { if (openPlayer()) lyricsOpen = true },
                         queue = { if (openPlayer()) queueOpen = true },
-                        modifier = Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)
+                        modifier = behind.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)
                             .only(WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom))
                             .padding(top = 8.dp, end = 12.dp, bottom = 8.dp))
                 }
@@ -728,8 +733,8 @@ private fun PlayerScrim() {
 @Composable
 private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
     AnimatedVisibility(visible = visible,
-        enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
-        exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
+        enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
+        exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.safeDrawingPadding()) { content() }
         }

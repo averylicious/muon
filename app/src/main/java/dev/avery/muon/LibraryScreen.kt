@@ -12,6 +12,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -150,11 +152,19 @@ internal fun LibraryTop(tracks: Int, view: LibraryView, choose: (LibraryView) ->
  * explicit accessibility action — declined while a refresh is already running, which is what the
  * disabled button used to express.
  */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun LibraryPane(refreshing: Boolean, refresh: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    val state = rememberPullToRefreshState()
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = refresh,
+        state = state,
+        // The Canary experiment: Material 3 Expressive's shape-morphing loader instead of the spinner.
+        indicator = {
+            if (Expressive.motion) PullToRefreshDefaults.LoadingIndicator(state, refreshing, Modifier.align(Alignment.TopCenter))
+            else PullToRefreshDefaults.Indicator(state, refreshing, Modifier.align(Alignment.TopCenter))
+        },
         modifier = Modifier.fillMaxSize().semantics {
             customActions = listOf(CustomAccessibilityAction("Refresh library") {
                 if (refreshing) false else { refresh(); true }

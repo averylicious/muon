@@ -88,7 +88,7 @@ internal fun rememberPlayerBackPreview(enabled: Boolean, back: () -> Unit): Play
             }
             current()
         } catch (cancelled: CancellationException) {
-            preview.restore = scope.launch { preview.shown.animateTo(0f, motionMedium()) }
+            preview.restore = scope.launch { preview.shown.animateTo(0f, motionSpatial()) }
         }
     }
     return preview

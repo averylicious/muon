@@ -109,13 +109,13 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                             minimum, flick, hasNext, hasPrevious)
                     val width = size.width.toFloat()
                     scope.launch {
-                        if (action == SwipeAction.None) { swipe.animateTo(0f, motionMedium()); return@launch }
+                        if (action == SwipeAction.None) { swipe.animateTo(0f, motionSpatial()); return@launch }
                         // Off towards where the finger was going, then in from the other side.
                         val away = logical(if (action == SwipeAction.Next) -width else width)
                         swipe.animateTo(away, motionShort())
                         if (action == SwipeAction.Next) skipNext() else skipPrevious()
                         swipe.snapTo(-away * 0.4f)
-                        swipe.animateTo(0f, motionMedium())
+                        swipe.animateTo(0f, motionSpatial())
                     }
                 }
             }

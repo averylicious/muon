@@ -83,6 +83,9 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             GroupLabel("Appearance")
             AppearanceGroup(appearance)
 
+            GroupLabel("Material 3 Expressive experiment")
+            ExpressiveGroup(appearance)
+
             PrivacyNote()
         }
     }
@@ -328,6 +331,29 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
     if (!dynamicAvailable) Text("Material You needs Android 12 or newer, so this device uses the Muon palette.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
+}
+
+/** The Canary experiment's switches, so each part can be compared with it off on the same phone. */
+@Composable
+private fun ExpressiveGroup(appearance: AppearanceSettings) {
+    // Compose applies blur from Android 12; older phones keep the dimming alone.
+    val blurAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    SettingsGroup {
+        SettingsRow(shape = rowShape(0, 2), headline = "Expressive motion",
+            supporting = "Springy transitions, and Material's expressive motion for its own controls",
+            trailing = { Switch(checked = Expressive.motion, onCheckedChange = null) },
+            modifier = Modifier.toggleable(value = Expressive.motion, role = Role.Switch) {
+                appearance.chooseExpressiveMotion(it)
+            })
+        SettingsRow(shape = rowShape(1, 2), headline = "Blur behind the player",
+            supporting = if (blurAvailable) "Blurs the library behind Now Playing and the song menu"
+                else "Needs Android 12 or newer",
+            enabled = blurAvailable,
+            trailing = { Switch(checked = Expressive.blur && blurAvailable, onCheckedChange = null, enabled = blurAvailable) },
+            modifier = Modifier.toggleable(value = Expressive.blur, enabled = blurAvailable, role = Role.Switch) {
+                appearance.chooseExpressiveBlur(it)
+            })
+    }
 }
 
 /** Disconnect clears the saved server and stops playback, so it asks first and names the server. */

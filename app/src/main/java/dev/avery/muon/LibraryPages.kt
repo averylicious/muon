@@ -87,8 +87,8 @@ internal fun AnimatedContentTransitionScope<LibraryPage>.libraryPageTransform(sh
         LibraryMotion.Back -> SlideDirection.End
         LibraryMotion.Across -> return fadeIn(motionMedium()) togetherWith fadeOut(motionShort())
     }
-    return (slideIntoContainer(towards, motionMedium()) { pageShift(it, shift) } + fadeIn(motionMedium()))
-        .togetherWith(slideOutOfContainer(towards, motionMedium()) { pageShift(it, shift) } + fadeOut(motionShort()))
+    return (slideIntoContainer(towards, motionSpatial()) { pageShift(it, shift) } + fadeIn(motionMedium()))
+        .togetherWith(slideOutOfContainer(towards, motionSpatial()) { pageShift(it, shift) } + fadeOut(motionShort()))
 }
 
 /**

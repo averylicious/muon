@@ -51,7 +51,7 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
                 header?.invoke(this)
                 itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
                     TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", playing, ready,
-                        Modifier.animateItem(placementSpec = motionMedium()), actions = actions?.let { { it(t) } }) { play(t) }
+                        Modifier.animateItem(placementSpec = motionSpatial()), actions = actions?.let { { it(t) } }) { play(t) }
                 }
             }
             if (sections != null) AlphabetScroller(indicator, tracks.size) { i ->
