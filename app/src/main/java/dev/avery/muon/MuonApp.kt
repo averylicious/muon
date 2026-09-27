@@ -358,8 +358,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // A phone on its side: the tabs move to a rail at the start, so the height they took
             // along the bottom goes to the list instead, and the mini player keeps the bottom alone.
             val rail = sidewaysLayout(maxWidth.value, maxHeight.value)
-            // The Canary experiment's blur: the library and the side panel soften under the player
-            // as it rises, and behind the song menu. Read in the draw phase only (BlurBehind.kt).
+            // The Canary experiment's blur: the library, and the side panel in the same row, soften
+            // under the player as it rises, and behind the song menu. Draw phase only (BlurBehind.kt).
             val menuBlur by animateFloatAsState(if (actionTrack != null) 1f else 0f, motionMedium(), label = "menu blur")
             val behind = Modifier.blurBehind(sheet) { menuBlur }
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
@@ -367,7 +367,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // A rising preview obscures them just the same, so they leave the tree for it too, and
             // come back as soon as it is cancelled. Only semantics change: the mini player's own
             // gesture detector, which is carrying the preview, is not touched.
-            Row(Modifier.fillMaxSize().then(behind).then(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier)) {
+            // Painted with the theme's own background: the side panel sits in this row beside the
+            // scaffold, which stops short of it, so the window background showed through around the
+            // panel in a slightly different colour (and grey under pure black).
+            Row(Modifier.fillMaxSize().then(behind).background(colors.background).then(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier)) {
                 AnimatedVisibility(visible = connected && rail,
                     enter = slideInHorizontally(motionSpatial()) { -it } + fadeIn(motionShort()),
                     exit = slideOutHorizontally(motionSpatial()) { -it } + fadeOut(motionShort())) {
@@ -620,7 +623,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         open = { if (!overlayOpen) openPlayer() },
                         lyrics = { if (openPlayer()) lyricsOpen = true },
                         queue = { if (openPlayer()) queueOpen = true },
-                        modifier = behind.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)
+                        modifier = Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)
                             .only(WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom))
                             .padding(top = 8.dp, end = 12.dp, bottom = 8.dp))
                 }
