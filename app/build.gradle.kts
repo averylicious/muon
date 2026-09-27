@@ -50,6 +50,20 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
         }
+        // Only for recording the Baseline Profile (#83; docs/baseline-profile.md): Stable's code,
+        // unminified so the profile names real classes (R8 rewrites them for the release build),
+        // profileable, and in a package of its own ("Muon Benchmark") so Canary and Stable are
+        // never touched. Signed with the debug key. Never published.
+        create("benchmark") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".benchmark"
+            resValue("string", "app_name", "Muon Benchmark")
+            isMinifyEnabled = false
+            isShrinkResources = false
+            isProfileable = true
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -66,6 +80,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.11.0")
     implementation("androidx.media3:media3-session:1.11.0")
     implementation("androidx.media3:media3-datasource-okhttp:1.11.0")
+    // Installs the Baseline Profile shipped in the APK on phones that are not updated through Play.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")

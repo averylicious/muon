@@ -5,3 +5,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Muon"
 include(":app")
+// Records the Baseline Profile on a phone (#83); not part of the ordinary build.
+include(":baselineprofile")
