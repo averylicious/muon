@@ -60,8 +60,9 @@ def classify(event_name, ref, head, event):
             # A newer push cancels a main run still in progress, so app work merged just before a
             # docs-only merge would never reach a Canary. Compare with the last Canary published too.
             tag = last_canary(head)
-            if tag:
-                paths.update(changed_paths(tag, head))
+            if tag is None:
+                raise ValueError('No reachable Canary publication baseline')
+            paths.update(changed_paths(tag, head))
         if ref != 'refs/heads/main':
             # Include all unmerged feature work even when the last push only edits docs.
             base = git('merge-base', head, 'refs/remotes/origin/main').decode().strip()

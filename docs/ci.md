@@ -15,6 +15,8 @@ The conservative allowlist is root README/AGENTS/CHANGELOG/CONTRIBUTING/LICENSE,
 
 Deleted-branch events do not build APKs. Full history is checked out for conservative merge-base comparisons, including design assets; this is a small checkout cost in exchange for skipping Android work safely.
 
+If main has no reachable Canary tag, publication history is unknown and even a documentation-only push takes the full build path. An unrelated branch's Canary tag is not a baseline. CI also checks that the manifest and extraction rules keep all Android storage domains excluded from backup and device transfer.
+
 Tags and **Run workflow** always take the full signed build path. Avoid commit-message skip directives and top-level path filters: those can leave required checks pending ([GitHub documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)). This change does not enable fork builds, broaden secret permissions or alter package/signing identities. No branch protection is configured as of 2026-09-20; the existing check name remains available if protection is added later.
 
 Full builds still produce the artifacts described below; documentation-only runs produce none. Workflow run numbers continue increasing on docs-only runs, so version codes may have gaps. Only compare APK versions for runs that actually built them.
