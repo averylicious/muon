@@ -43,7 +43,7 @@ Manual connection loaded 962 unique tracks across 3 Tauon playlists. Album thumb
 
 Remaining coverage: DNS-SD did not produce a verified live discovery result on this desktop, so manual connection is the proven path. No long-duration soak, Wi-Fi loss/rejoin test, process-death queue resumption, alternate Android device or high-resolution FLAC matrix was performed. Decoder/progress assertions are objective results; no subjective audio-quality judgment is claimed.
 
-Build tools were downloaded under `/tmp/muon-tools` for this session (JDK 17 and SDK Platform 36); the local, ignored `local.properties` points there. For builds after temporary files are cleaned, install these prerequisites in your normal development environment and update `sdk.dir` as described in README.
+Build tools were downloaded under `/tmp/muon-tools` for this session (JDK 17 and SDK Platform 36); the local, ignored `local.properties` points there. For builds after temporary files are cleaned, install these prerequisites in your normal development environment and update `sdk.dir` as described in [Building Muon](building.md).
 
 ## Repository and CI setup — 2026-09-11
 

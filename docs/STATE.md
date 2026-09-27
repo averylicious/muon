@@ -1,43 +1,46 @@
 # Muon: current state
 
-A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence, not permission (see `CLAUDE.md`). Live truth is GitHub: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
+A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-27, after #172, by Claude Opus 5.5 (Claude Code project thread)._
+_Last updated: 2026-09-27, after #177, by Claude Opus 5.5 (Claude Code project thread)._
 
 ## Where things are
 
-- **`main`:** the Collection redesign is complete, plus:
-  - offline listening: downloads, played-song cache, SD card;
-  - auto-connect: an mDNS scan and a LAN port probe;
-  - the Android 17 target (SDK 37, local network permission);
-  - motion pass 2;
-  - landscape layouts (#157), sharp thumbnails (#158), deal-then-skip on the artwork swipe (#159) and the QA polish (#160);
-  - Lyrics and Queue in landscape Now Playing's top bar (#162), and the landscape player as a panel beside the list (#164, mockup in `docs/design/landscape/`);
-  - volume normalization (#97): an opt-in **Even out volume** switch applying ReplayGain track gain (#163), with untagged songs turned down by the library's typical gain (#165).
-  - offline leftovers (#168): Download all on playlists, and moving downloads between phone and SD card, so #112 is closed;
-  - design pass (#169–#172): Play/Shuffle on playlists, clearer library subtitle, lyrics on the 16 dp keyline, artist pictures and playlist rows made from album covers, and Now Playing coloured from the song's cover;
-  - CI (#167): a docs-only merge on `main` can no longer skip a Canary.
-- **Canary:** each `main` build publishes `0.1.0-canary.<run>` automatically. Stable has not been released since the redesign.
-- **Package IDs:** Canary is `dev.avery.muon`, Stable is `dev.avery.muon.release`. They keep separate storage, so downloads don't cross channels. Don't change them.
+- **`main`:** the Collection redesign and everything after it through #177. Feature by feature, [features.md](features.md) is the user-facing guide, and [design/current](design/current/README.md) has real screenshots of every screen. Recent work, newest first:
+  - README simplified, and its technical parts moved into [features.md](features.md), [desktop-setup.md](desktop-setup.md) and [building.md](building.md) (#177);
+  - reference screenshots in `docs/design/current/` (#176);
+  - a Baseline Profile recorded on the Pixel, and the tools to re-record it (#175, [baseline-profile.md](baseline-profile.md));
+  - design pass (#169–#172): Play and Shuffle on playlists, artist pictures and playlist rows made of album covers, and Now Playing coloured from the cover;
+  - offline leftovers (#168): Download all on playlists, and moving downloads between the phone and the SD card;
+  - CI (#167): a docs-only merge right after an app merge can no longer skip a Canary;
+  - volume normalization (#163, #165) and landscape layouts (#157, #162, #164).
+- **Canary:** each `main` build that changes the app publishes `0.1.0-canary.<run>`. **Stable** has not been released since the redesign.
+- **Package IDs:** Canary is `dev.avery.muon`, Stable `dev.avery.muon.release`, and the Baseline Profile tool `dev.avery.muon.benchmark` (never published). Don't change them.
+- **Desktop:** all 962 songs in `~/Music/random playlist` carry ReplayGain tags (2026-09-27). `~/CHANGES.md` has the manual steps for tagging new songs.
 
 ## The user's agreed roadmap
 
-1. **Polish and bug-fixing** (in progress). The device QA findings are on #16. Items 1–16 have shipped, and the after-screenshots were taken on .250 (only item 12 was left as it was).
-2. **Volume normalization (#97), before Stable:** shipped.
-   - all 962 songs in `~/Music/random playlist` were tagged with `rsgain` on 2026-09-27 (tags backed up, logged in `~/CHANGES.md` with manual steps for new songs);
-   - Muon applies the track gain as the player's volume (#163, #165). Listening QA is the user's.
-3. **Stable release,** only on the user's explicit request.
-4. **Experimental material3 1.5 alpha motion,** on a Canary-only branch after Stable.
+1. ~~Polish, volume normalization, Baseline Profile~~: done.
+2. **Stable release:** only on the user's explicit request. It also brings the redesign to the Stable app, which is still the pre-redesign 0.1.0.
+3. **After Stable:** the Material 3 Expressive experiment (material3 alpha animations, blur and so on) on a Canary-only branch. See #40.
+4. **Maybe:** an independent Astra audit of the self-reviewed work, if the user asks.
 
 ## Authorization
 
-- **Standing since 2026-09-27:** merge any PR with no blockers without asking (the user's words: "You are authorized to merge PRs without any blockers without asking for permission in future sessions"). Merge at the CI-verified head and record it on the PR as a self-review; Astra audits later. Releases, Stable tags and anything with a blocker still need the user.
-- **Device QA over ADB** on the Pixel 8 (Android 17, wireless) and the Poco X3 NFC (Android 16, USB, SD card), for the polish phase. Settings are changed only temporarily and restored. On 2026-09-27 the user also allowed Canary updates with `adb install -r` (never uninstalls).
-- Device QA over ADB still needs the user's go-ahead in each new cycle.
+- **Standing since 2026-09-27:** merge any PR with no blockers without asking. The user's words: "You are authorized to merge PRs without any blockers without asking for permission in future sessions". Merge at the CI-verified head and record it on the PR as a self-review; Astra audits later. **Stable releases, release tags and anything with a blocker still need the user.**
+- **Device access over ADB needs the user's go-ahead in each new conversation.** Once given, it has covered:
+  - screenshots and UI automation;
+  - Canary updates with `adb install -r`;
+  - installing, then uninstalling, the two Baseline Profile tools.
+  Never uninstall Canary or Stable. Mute media volume before anything plays, and restore every setting you change (dark mode, rotation, font scale, volume).
+- **Devices:**
+  - Pixel 8 (Android 17): wireless ADB, and the port changes, so check `adb devices`.
+  - Poco X3 NFC (Android 16, custom ROM): USB, with a SanDisk SD card.
 
 ## Open items and known limits
 
-- #83 baseline profiles: needs device measurement.
-- #109 "recently liked" sorting: needs Tauon to expose `loved_timestamp`.
-- Material 3 Expressive components wait for material3 1.5.0 stable (see #40).
-- A new Claude Code on the web session has no local context. Hand it a bounded slice and this file.
+- **#83:** the Baseline Profile ships, but its before-and-after speed measurement hasn't been done.
+- **Fresh-install discovery:** on 2026-09-27, a fresh install (Muon Benchmark) scanned the network and found no Tauon, although Tauon answered and the phone could reach port 7814. Typing the address worked. This is not investigated yet; check Canary on a fresh install before assuming it's fixed.
+- **Queue after process death:** the queue and position are not restored (see [roadmap](roadmap.md) 0.3).
+- **Down the line:** 128 kbps downloads need a Tauon change, and "Recently liked" sorting (#174, not planned) needs Tauon to expose `loved_timestamp`.
+- A new cloud session has no local context: hand it a bounded slice, this file and [the coordinator runbook](coordinator-handoff.md).

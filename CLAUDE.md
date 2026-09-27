@@ -6,7 +6,7 @@
 
 1. Read [`docs/STATE.md`](docs/STATE.md): what is on `main`, the latest Canary, open PRs, what the user has authorized this cycle, and the next slice.
 2. Verify it live before acting: `gh pr list`, the latest `main` run, and the latest checkpoint comment on issue #40. `STATE.md` is updated at every merge, but GitHub is the truth.
-3. Permissions are **per cycle**. Merging, device access (ADB) and releases need the user's go-ahead in the current conversation; a note here or on #40 records evidence, not permission.
+3. Permissions: **merging a blocker-free PR** is a standing authorization from the user (2026-09-27, quoted in `docs/STATE.md`). **Device access (ADB) and releases** are per cycle: they need the user's go-ahead in the current conversation. A note here or on #40 records evidence, not new permission.
 
 ## Practical notes for this repo
 
@@ -17,3 +17,4 @@
 - **Merges:** when authorized, merge with `gh api -X PUT repos/averylicious/muon/pulls/<n>/merge -f merge_method=merge -f sha=<CI-verified head>`, and record the review on the PR first.
 - **Worktrees:** use one per branch under `~/.codex/worktrees/`, so parallel sessions never share a checkout.
 - **After each merge:** update `docs/STATE.md` in the next PR (or a docs-only PR), and post a checkpoint on #40 at the end of a batch.
+- **Phones:** the Pixel's wireless ADB port changes between sessions, so check `adb devices` rather than reusing an old serial. Device rules are in `docs/STATE.md` → Authorization.
