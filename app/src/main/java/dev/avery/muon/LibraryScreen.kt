@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -227,7 +228,7 @@ internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T
  */
 @Composable
 internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, state: LazyListState,
-    open: (String) -> Unit) {
+    tracks: Map<String, List<TauonTrack>> = emptyMap(), endpoint: ServerEndpoint? = null, open: (String) -> Unit) {
     val listed = playlists.filter { it.count > 0 }
     if (listed.isEmpty()) LazyColumn(Modifier.fillMaxSize()) {
         item {
@@ -246,7 +247,15 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, stat
                 supportingContent = {
                     Text("${playlist.count} ${if (playlist.count == 1) "song" else "songs"}")
                 },
-                leadingContent = { MuonIcon("library") },
+                // Its first four albums' covers, rather than the same grid icon on every row.
+                leadingContent = {
+                    val covers = remember(tracks[playlist.id], endpoint) {
+                        if (endpoint == null) emptyList()
+                        else playlistCoverTracks(tracks[playlist.id].orEmpty(), 4).map { endpoint.url("/api1/pic/medium/${it.id}") }
+                    }
+                    if (covers.isEmpty()) MuonIcon("library")
+                    else CoverMosaic(covers, Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).clearAndSetSemantics {})
+                },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
                 modifier = Modifier.clickable(onClickLabel = "Open playlist") { open(playlist.id) },
             )
@@ -310,14 +319,7 @@ internal fun ArtistAvatar(artist: LibraryArtist, side: Dp = 40.dp, endpoint: Ser
         else artistCoverTracks(artist, if (side >= 64.dp) 4 else 1).map { endpoint.url("/api1/pic/medium/${it.id}") }
     }
     if (covers.isNotEmpty()) {
-        Box(modifier.size(side).clip(CircleShape).clearAndSetSemantics {}) {
-            if (covers.size < 4) Artwork(covers.first(), Modifier.fillMaxSize())
-            else Column(Modifier.fillMaxSize()) {
-                covers.chunked(2).forEach { pair ->
-                    Row(Modifier.weight(1f)) { pair.forEach { Artwork(it, Modifier.weight(1f).fillMaxHeight()) } }
-                }
-            }
-        }
+        CoverMosaic(covers, modifier.size(side).clip(CircleShape).clearAndSetSemantics {})
         return
     }
     val colors = MaterialTheme.colorScheme
@@ -375,4 +377,17 @@ private fun LibraryChip(label: String, selected: Boolean, select: () -> Unit) {
     FilterChip(selected, select, label = { Text(label, maxLines = 1) },
         // A check mark, so the selected chip is not distinguished by its fill colour alone.
         leadingIcon = if (selected) { { MuonIcon("check", Modifier.size(18.dp)) } } else null)
+}
+
+/** One cover filling [modifier]'s shape, or, given four or more, the first four as a 2x2 mosaic. */
+@Composable
+internal fun CoverMosaic(covers: List<String>, modifier: Modifier) {
+    Box(modifier) {
+        if (covers.size < 4) Artwork(covers.firstOrNull(), Modifier.fillMaxSize())
+        else Column(Modifier.fillMaxSize()) {
+            covers.take(4).chunked(2).forEach { pair ->
+                Row(Modifier.weight(1f)) { pair.forEach { Artwork(it, Modifier.weight(1f).fillMaxHeight()) } }
+            }
+        }
+    }
 }
