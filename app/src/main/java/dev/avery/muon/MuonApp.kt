@@ -379,14 +379,17 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }
                 // The rail takes the start inset itself, so the content leaves it out.
                 Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { SnackbarHost(snackbar) },
+                    // The player panel, when it is there, takes the end inset in the same way.
                     contentWindowInsets = if (rail && connected) ScaffoldDefaults.contentWindowInsets
-                        .only(WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom)
+                        .only(if (ui.item != null) WindowInsetsSides.Top + WindowInsetsSides.Bottom
+                            else WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom)
                         else ScaffoldDefaults.contentWindowInsets, bottomBar = {
                     // Without the navigation bar under it, the mini player keeps clear of the system
                     // bars itself; the bottom one, and the end one where three-button navigation sits.
                     Column(if (rail) Modifier.windowInsetsPadding(
                         WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier) {
-                        AnimatedVisibility(visible = ui.item != null && !overlayOpen,
+                        // Sideways, the player is a panel beside the list instead (mockup B).
+                        AnimatedVisibility(visible = ui.item != null && !overlayOpen && !(rail && connected),
                             enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
                             MiniPlayer(ui, position, player != null,
@@ -587,6 +590,21 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             }
                         }
                     }
+                }
+                // A phone on its side: the player sits beside the list rather than under it
+                // (mockup B), clear of the status bar, the navigation bar and a side cutout.
+                AnimatedVisibility(visible = rail && connected && ui.item != null,
+                    enter = slideInHorizontally(motionMedium()) { it } + fadeIn(motionShort()),
+                    exit = slideOutHorizontally(motionMedium()) { it } + fadeOut(motionShort())) {
+                    PlayerPanel(ui, position, revision, player,
+                        open = {
+                            if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
+                                playerOpen = true
+                        },
+                        lyrics = { lyricsOpen = true }, queue = { queueOpen = true },
+                        modifier = Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)
+                            .only(WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom))
+                            .padding(top = 8.dp, end = 12.dp, bottom = 8.dp))
                 }
             }
             actionTrack?.let { track ->
