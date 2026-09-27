@@ -20,12 +20,22 @@ import org.json.JSONObject
  */
 internal fun probeCandidates(own: String, prefix: Int): List<String> {
     val parts = own.split('.').map { it.toIntOrNull() ?: return emptyList() }
-    if (parts.size != 4 || runCatching { ServerEndpoint.parse(own) }.isFailure) return emptyList()
-    val hosts = if (prefix > 24 && prefix < 31) {
-        val size = 1 shl (32 - prefix)
-        val start = parts[3] / size * size
-        (start + 1) until (start + size - 1)
-    } else 1..254
+    if (parts.size != 4 || prefix !in 0..32 ||
+        runCatching { ServerEndpoint.parse(own) }.isFailure) return emptyList()
+    val hosts = when {
+        prefix == 32 -> return emptyList()
+        // RFC 3021: both addresses on a /31 point-to-point link are hosts.
+        prefix == 31 -> {
+            val start = parts[3] / 2 * 2
+            start..(start + 1)
+        }
+        prefix > 24 -> {
+            val size = 1 shl (32 - prefix)
+            val start = parts[3] / size * size
+            (start + 1) until (start + size - 1)
+        }
+        else -> 1..254
+    }
     return hosts.filter { it != parts[3] }.map { "${parts[0]}.${parts[1]}.${parts[2]}.$it" }
 }
 

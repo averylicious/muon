@@ -27,6 +27,23 @@ class LanProbeTest {
         assertEquals(emptyList<String>(), probeCandidates("not an address", 24))
     }
 
+    @Test fun aPointToPointLinkOnlyAsksItsOtherEndpoint() {
+        assertEquals(listOf("10.0.0.43"), probeCandidates("10.0.0.42", 31))
+        assertEquals(listOf("10.0.0.42"), probeCandidates("10.0.0.43", 31))
+        assertEquals(listOf("10.0.0.0"), probeCandidates("10.0.0.1", 31))
+        assertEquals(listOf("10.0.0.255"), probeCandidates("10.0.0.254", 31))
+    }
+
+    @Test fun aHostRouteAndInvalidPrefixesDoNotProbeANeighbouringNetwork() {
+        for (prefix in listOf(-1, 32, 33, Int.MIN_VALUE, Int.MAX_VALUE)) {
+            assertTrue("prefix $prefix", probeCandidates("10.0.0.42", prefix).isEmpty())
+        }
+    }
+
+    @Test fun aSlashThirtyExcludesItsNetworkAndBroadcastAddresses() {
+        assertEquals(listOf("10.0.0.41"), probeCandidates("10.0.0.42", 30))
+    }
+
     private val a = DiscoveredServer("Tauon Remote (desk)", "http://192.168.1.10:7814")
     private val probed = DiscoveredServer("Tauon at 192.168.1.10", "http://192.168.1.10:7814")
 

@@ -52,6 +52,8 @@ See `docs/agent-workflow.md` for starter prompts and the human handoff sequence.
 
 ## Resuming or coordinating across agents
 
+- For the main-branch audit authorized on 2026-09-27, start with [the audit map and latest report](docs/audits/README.md). Astra may review/fix any component while Claude and the user experiment off main. Workstreams organize resumable evidence, not rigid frontend/backend restrictions. Coordinate overlapping files and preserve each branch's release behavior; apply the standing merge authorization above.
+
 - A user-selected successor Astra may take over backend work and coordination. Read [the coordinator runbook](docs/coordinator-handoff.md) and its linked latest checkpoint before broad exploration; verify live PR heads, checks, ownership and user authorization. A checkpoint records evidence, not new permission to merge or access devices.
 - Keep one active coordinator for a given batch. Agree file/worktree ownership before parallel work, and never concurrently resume the same Claude session. Claude owns frontend implementation; Astra owns backend implementation and integration review, with shared behavior agreed explicitly.
 - Work in small, independently reviewable slices. Before starting another, leave durable commit/PR/check/QA evidence for the previous slice. Reserve capacity for fixes and handoff; do not deliberately run into a hard limit with unrecorded edits.
