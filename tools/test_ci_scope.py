@@ -10,7 +10,10 @@ import ci_scope
 
 class ScopeTest(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory()
+        # Git can still be writing to .git (auto gc or maintenance) when cleanup runs, which made
+        # the removal fail with "Directory not empty" on a CI runner. Turn those off, and don't let
+        # a leftover temp file fail a test that passed.
+        temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(temp.cleanup)
         old = Path.cwd()
         os.chdir(temp.name)
@@ -19,6 +22,8 @@ class ScopeTest(unittest.TestCase):
         self.git('config', 'user.name', 'CI test')
         self.git('config', 'user.email', 'ci@example.invalid')
         self.git('config', 'commit.gpgsign', 'false')
+        self.git('config', 'gc.auto', '0')
+        self.git('config', 'maintenance.auto', 'false')
         self.base = self.commit('README.md', '# Hello\n')
         self.git('update-ref', 'refs/remotes/origin/main', self.base)
 

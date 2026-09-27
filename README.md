@@ -2,7 +2,7 @@
 
 **Your Tauon library, on your phone.** Muon is an Android player for [Tauon Music Box](https://tauonmusicbox.rocks/). It streams the music from your desktop over your home network, and keeps copies on the phone for when you're away. It's written in Kotlin with Jetpack Compose and Media3.
 
-![Muon in light mode](docs/design/current/overview-light.jpg)
+![The library, an artist page, and Now Playing coloured from two different covers](docs/design/current/hero.jpg)
 
 ## What it does
 
@@ -13,6 +13,17 @@
 - **Even out volume**, an optional setting that plays songs at a similar loudness using ReplayGain tags.
 - **Finds Tauon by itself** on your network, or you can type its address.
 - **Looks after itself:** Material You colours, pure black for OLED, landscape layouts, and a Baseline Profile so it starts fast.
+
+<details>
+<summary><b>Every screen</b>, in light, dark and landscape</summary>
+
+![Light](docs/design/current/overview-light.jpg)
+![Dark](docs/design/current/overview-dark.jpg)
+![Landscape library](docs/design/current/landscape-01-library.jpg)
+![Landscape Now Playing](docs/design/current/landscape-02-now-playing.jpg)
+
+What each screen shows: [reference screens](docs/design/current/README.md).
+</details>
 
 ## Get it
 
