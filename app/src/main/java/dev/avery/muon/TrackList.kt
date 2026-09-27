@@ -83,7 +83,7 @@ internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean
         .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            Artwork(endpoint?.url("/api1/pic/small/${t.id}"), Modifier.fillMaxSize())
+            Artwork(endpoint?.url("/api1/pic/medium/${t.id}"), Modifier.fillMaxSize())
             if (current) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
                 NowPlayingBars(playing, color = Color.White)

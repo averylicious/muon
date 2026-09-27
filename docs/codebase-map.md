@@ -36,7 +36,7 @@ MainActivity ──binds──▶ PlaybackService (Media3 MediaSessionService)
 | `TauonApi.kt` | HTTP calls, JSON parsing, response size limits. `Transport` holds the shared OkHttp client |
 | `ServerEndpoint.kt` | **Security boundary.** Parses and validates a server address |
 | `ServerDiscovery.kt` | NSD lookup of `_tauon-remote._tcp` |
-| `Artwork.kt` | Cover fetch, decode, and the in-memory `LruCache` |
+| `Artwork.kt` | Cover fetch, decode at the size it is drawn, and the in-memory `LruCache` |
 | `Appearance.kt` | Palette choice and Pure black; owns `appearance` prefs |
 | `MuonTheme.kt` | Colour schemes and the black-surface override |
 | `MuonTypography.kt` | Google Sans Flex and the Material 3 type roles; see `docs/fonts.md` |

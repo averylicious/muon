@@ -54,7 +54,7 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
     }
     ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet) {
         Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(endpoint?.url("/api1/pic/small/${track.id}"), Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)))
+            Artwork(endpoint?.url("/api1/pic/medium/${track.id}"), Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)))
             Column(Modifier.weight(1f).padding(start = 16.dp)) {
                 Text(track.title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
