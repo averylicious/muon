@@ -7,6 +7,11 @@ scrolls smoother. Muon ships it in `app/src/main/baseline-prof.txt`. AGP package
 build, R8 rewrites it for the release build, and `androidx.profileinstaller` installs it on phones
 updated outside Play, such as through Obtainium.
 
+The current profile was recorded on 2026-09-27 on the Pixel 8 (Android 17) against the user's
+962-song library, from commit `ef5db40`. It is about 32,000 rules, 2,500 of them Muon's own, covering
+startup, all three library lists, an album and an artist page, the mini player, Now Playing and the
+Queue.
+
 ## Recording it
 
 The profile is recorded on a real phone, against the user's real Tauon library, and re-recorded when
@@ -16,7 +21,9 @@ those paths change a lot. Recording never touches Canary or Stable.
    change `baselineprofile/`. It uploads `baseline-profile-tools-<sha>` with two debug-signed APKs:
    - `app-benchmark.apk`: **Muon Benchmark** (`dev.avery.muon.benchmark`), Stable's code, unminified and profileable, in its own package;
    - `baselineprofile-benchmark.apk`: the generator (`dev.avery.muon.baselineprofile`), the journeys in `BaselineProfileGenerator.kt`.
-2. On an Android 13+ phone on the same network as Tauon, with the user's go-ahead for device access:
+2. On an Android 13+ phone on the same network as Tauon, with the user's go-ahead for device access.
+   Install Muon Benchmark, open it once and connect it to Tauon, typing the address if the scan finds
+   nothing (it didn't on 2026-09-27). The recording starts from the library, not the Connect screen.
    ```bash
    adb install -r app-benchmark.apk
    adb install -r baselineprofile-benchmark.apk
