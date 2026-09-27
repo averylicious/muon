@@ -426,13 +426,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }) { padding ->
                     Column(Modifier.padding(padding).fillMaxSize()) {
                         AnimatedVisibility(controllerError != null,
-                            enter = expandVertically(motionSpatial()) + fadeIn(motionShort()),
-                            exit = shrinkVertically(motionSpatial()) + fadeOut(motionShort())) {
+                            enter = expandVertically(motionSpatialFull()) + fadeIn(motionShort()),
+                            exit = shrinkVertically(motionSpatialFull()) + fadeOut(motionShort())) {
                             ErrorCard(controllerError.orEmpty())
                         }
                         AnimatedVisibility(connected && model.error != null && tab != Tab.Settings,
-                            enter = expandVertically(motionSpatial()) + fadeIn(motionShort()),
-                            exit = shrinkVertically(motionSpatial()) + fadeOut(motionShort())) {
+                            enter = expandVertically(motionSpatialFull()) + fadeIn(motionShort()),
+                            exit = shrinkVertically(motionSpatialFull()) + fadeOut(motionShort())) {
                             // Without Android 17's local network access, Retry cannot help: the card asks for it instead.
                             if (!LocalNetworkState.granted) ErrorCard(model.error.orEmpty(), "Allow", quiet = true) { allowLocalNetwork() }
                             else ErrorCard(model.error.orEmpty(), "Retry", quiet = model.offline) { model.connect() }
@@ -736,8 +736,8 @@ private fun PlayerScrim() {
 @Composable
 private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
     AnimatedVisibility(visible = visible,
-        enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
-        exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
+        enter = slideInVertically(motionSpatialFull()) { it } + fadeIn(motionShort()),
+        exit = slideOutVertically(motionSpatialFull()) { it } + fadeOut(motionShort())) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.safeDrawingPadding()) { content() }
         }

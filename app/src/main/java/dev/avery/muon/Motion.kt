@@ -42,8 +42,10 @@ internal fun <T> motionSpatial(): FiniteAnimationSpec<T> =
     if (Expressive.motion) spring(dampingRatio = 0.8f, stiffness = 380f) else tween(MOTION_MEDIUM, easing = MotionEasing)
 
 /**
- * For a surface that covers the whole screen: the same spring without the overshoot, which would
- * lift the surface's far edge off the screen and show a strip of what it covers.
+ * The same spring without the overshoot, for motion that must not pass its target: a surface that
+ * covers the whole screen, whose far edge would lift off and show a strip of what it covers, and any
+ * size, padding or progress that settles at zero, where an overshoot goes negative. Negative padding
+ * throws, which crashed Search as its bar widened (canary.297).
  */
 internal fun <T> motionSpatialFull(): FiniteAnimationSpec<T> =
     if (Expressive.motion) spring(dampingRatio = 1f, stiffness = 380f) else tween(MOTION_MEDIUM, easing = MotionEasing)

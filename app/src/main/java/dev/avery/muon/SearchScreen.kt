@@ -44,7 +44,7 @@ internal fun SearchScreen(query: String, onQuery: (String) -> Unit, expanded: Bo
     // Leaving for a page puts the keyboard away first, so it is not waiting over the page.
     val toArtist = { a: LibraryArtist -> keyboard?.hide(); openArtist(a) }
     val toAlbum = { a: LibraryAlbum -> keyboard?.hide(); openAlbum(a) }
-    val inset by animateDpAsState(if (expanded) 0.dp else 16.dp, motionSpatial(), label = "search bar inset")
+    val inset by animateDpAsState(if (expanded) 0.dp else 16.dp, motionSpatialFull(), label = "search bar inset")
     Box(Modifier.fillMaxSize()) {
         if (!expanded) SearchBrowse(topArtists, newAlbums, endpoint, toArtist, toAlbum,
             Modifier.fillMaxSize().padding(top = SEARCH_BAR_ROOM))
