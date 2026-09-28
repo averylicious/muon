@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -21,7 +22,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -180,6 +184,7 @@ internal fun LibraryPane(refreshing: Boolean, refresh: () -> Unit, content: @Com
  */
 @Composable
 internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
+    if (Expressive.motion) { ConnectedViews(view, choose); return }
     // Deliberately plain: an earlier edge fade used an offscreen compositing layer and a DstOut
     // blend, which the user reported as a scroll regression. The chips overflow past the padding
     // instead, which costs nothing to draw.
@@ -380,6 +385,46 @@ internal fun PlaylistBar(name: String, count: Int?, backLabel: String = "Back to
         // The scaffold already applies the status bar inset to this content.
         windowInsets = WindowInsets(0, 0, 0, 0),
     )
+}
+
+/** The horizontal padding inside each view button, and so part of the width each one needs. */
+private val ViewButtonPadding = 12.dp
+
+/**
+ * The Canary experiment's view switcher: Material 3 Expressive's connected button group, one toggle
+ * button per view, joined with small inner corners. The chosen view's button fills and rounds fully,
+ * so it is marked by shape as well as colour. The buttons share the width equally while every label
+ * fits; with large text they keep their own widths and the row scrolls, as the chips did.
+ */
+@Composable
+private fun ConnectedViews(view: LibraryView, choose: (LibraryView) -> Unit) {
+    val views = LibraryView.entries
+    val style = MaterialTheme.typography.labelLarge
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val widest = remember(style, density) {
+        with(density) { views.maxOf { measurer.measure(it.name, style).size.width }.toDp() }
+    }
+    val gap = ButtonGroupDefaults.ConnectedSpaceBetween
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) {
+        val fits = (widest + ViewButtonPadding * 2) * views.size + gap * (views.size - 1) <= maxWidth
+        Row((if (fits) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState())).selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(gap)) {
+            views.forEachIndexed { index, choice ->
+                ToggleButton(checked = view == choice, onCheckedChange = { choose(choice) },
+                    shapes = when (index) {
+                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                        views.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                    },
+                    contentPadding = PaddingValues(horizontal = ViewButtonPadding),
+                    // One choice of four, so it reads as a radio button, as Material's own sample does.
+                    modifier = (if (fits) Modifier.weight(1f) else Modifier).semantics { role = Role.RadioButton }) {
+                    Text(choice.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
 }
 
 @Composable

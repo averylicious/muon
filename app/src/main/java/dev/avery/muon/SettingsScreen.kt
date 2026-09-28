@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -157,7 +158,23 @@ private fun StorageGroup(clear: () -> Unit) {
                     color = if (full) colors.primary else colors.onSurface)
                 Text("How much recent listening to keep", style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant)
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                // The Canary experiment: Material 3 Expressive replaces segmented buttons with the
+                // connected button group, whose chosen button rounds fully.
+                if (Expressive.motion) Row(Modifier.fillMaxWidth().padding(top = 12.dp).selectableGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+                    CACHE_LIMITS.forEachIndexed { index, option ->
+                        ToggleButton(checked = option == limit, onCheckedChange = { OfflineStore.setCacheLimit(context, option) },
+                            shapes = when (index) {
+                                0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                CACHE_LIMITS.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.weight(1f).semantics { role = Role.RadioButton }) {
+                            Text(formatBytes(option), maxLines = 1, softWrap = false)
+                        }
+                    }
+                } else SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 12.dp)) {
                     CACHE_LIMITS.forEachIndexed { index, option ->
                         SegmentedButton(selected = option == limit, onClick = { OfflineStore.setCacheLimit(context, option) },
                             shape = SegmentedButtonDefaults.itemShape(index, CACHE_LIMITS.size), icon = {}) {

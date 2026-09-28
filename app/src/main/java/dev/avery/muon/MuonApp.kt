@@ -33,7 +33,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -218,6 +220,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // closing animation. Opening and closing drive it from the logical state; progress never
         // decides where Back goes.
         val sheet = rememberPlayerSheet(openAtStart = playerShown)
+        // With Expressive motion the player grows out of the mini player rather than rising from
+        // below the screen (PlayerMorph), which changes how far its edge travels.
+        val morph = remember(sheet) { PlayerMorph(sheet).also { m -> sheet.morphTravel = { m.travel() } } }
+        val topInset = WindowInsets.safeDrawing.getTop(LocalDensity.current).toFloat()
+        SideEffect { morph.topInset = topInset }
         // Re-presents the logical state whenever it changes and whenever a preview from the mini
         // player ends. A preview that opened the player ends in the same event, so the sheet carries
         // on up from where the finger left it; every other ending — short, cancelled, Back, lost
@@ -354,7 +361,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Measured here rather than on the player's host, which is not composed until a preview has
         // moved it: the root is always measured and is the size the sheet will be, so the first move
         // of a preview can already be turned into a position, and that position mounts the host.
-        BoxWithConstraints(Modifier.fillMaxSize().onSizeChanged { sheet.height = it.height.toFloat() }) {
+        BoxWithConstraints(Modifier.fillMaxSize().onSizeChanged { sheet.height = it.height.toFloat() }
+            .onGloballyPositioned { morph.root = it }) {
             // A phone on its side: the tabs move to a rail at the start, so the height they took
             // along the bottom goes to the list instead, and the mini player keeps the bottom alone.
             val rail = sidewaysLayout(maxWidth.value, maxHeight.value)
@@ -397,7 +405,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     Column(if (rail) Modifier.windowInsetsPadding(
                         WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier) {
                         // Sideways, the player is a panel beside the list instead (mockup B).
-                        AnimatedVisibility(visible = ui.item != null && !overlayOpen && !(rail && connected),
+                        // With Expressive motion it stays while the player is open, since the player grows
+                        // out of it and shrinks back into it (PlayerMorph); the player covers it meanwhile.
+                        AnimatedVisibility(visible = ui.item != null && (!overlayOpen || Expressive.motion) && !(rail && connected),
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
                             MiniPlayer(ui, position, player != null,
@@ -409,12 +419,20 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 },
                                 toggle = { if (ui.playing) player?.pause() else player?.play() },
                                 next = { player?.seekToNextMediaItem() },
-                                previous = { player?.seekToPreviousMediaItem() })
+                                previous = { player?.seekToPreviousMediaItem() }, morph = morph)
                         }
                         AnimatedVisibility(visible = connected && !rail,
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
-                            NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
+                            // The Canary experiment: Material 3 Expressive's flexible navigation bar,
+                            // shorter, with a pill behind the chosen tab's icon.
+                            if (Expressive.motion) ShortNavigationBar(containerColor = colors.background) {
+                                Tab.entries.forEach { destination ->
+                                    ShortNavigationBarItem(selected = tab == destination,
+                                        onClick = { tab = destination; fromSearch = false },
+                                        icon = { TabIcon(destination) }, label = { Text(destination.name) })
+                                }
+                            } else NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
                                 Tab.entries.forEach { destination ->
                                     NavigationBarItem(selected = tab == destination,
                                         onClick = { tab = destination; fromSearch = false },
@@ -659,7 +677,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // shrinks while a Back gesture is deciding whether to close it.
             // In the colours of the song's cover, which fade from one song to the next.
             ArtworkTheme(ui.item) {
-            PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), preview = {
+            PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph, preview = {
                 rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
             }) {
                 // Only a player that is actually on screen carries the drag: an outgoing one hands
@@ -668,9 +686,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // Guarded, so a drag that ends after Lyrics opened over the player, or after
                     // the player has gone, cannot put away whatever took its place.
                     collapse = { if (playerShown) playerOpen = false },
-                    queue = { queueOpen = true }) { lyricsOpen = true }
+                    queue = { queueOpen = true }, morph = morph) { lyricsOpen = true }
             }
             }
+            // The cover flying between the mini player and Now Playing while the player grows or
+            // shrinks, over both (PlayerMorph). Only while any of the player is on screen.
+            if (playerSheetPresent(playerShown, sheet.onScreen)) MorphingCover(morph, ui.item?.mediaMetadata?.artworkUri?.toString())
             FullScreenOverlay(visible = lyricsShown) {
                 LyricsScreen(ui.item) { lyricsOpen = false }
             }
@@ -757,7 +778,7 @@ private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit)
  * focused while they slide away.
  */
 @Composable
-private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?,
+private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?, morph: PlayerMorph,
     preview: @Composable () -> PlayerBackPreview?, content: @Composable () -> Unit) {
     if (!playerSheetPresent(open, sheet.onScreen)) return
     // Two layers, each owning its own properties: the sheet moves the surface, the Back preview
@@ -766,12 +787,15 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?,
     val colors = MaterialTheme.colorScheme
     val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
     Surface(Modifier.fillMaxSize()
-        .playerSheet(sheet, WindowInsets.safeDrawing, edge).playerBackPreview(preview()),
+        .playerSheet(sheet, WindowInsets.safeDrawing, edge, morph).playerBackPreview(preview()),
         color = colors.background) {
         // The cover's glass (CoverBackdrop.kt) fills the whole sheet, status bar included.
         if (showCoverBackdrop(Expressive.blur, colors.background)) CoverBackdrop(backdrop)
         // The content gives back the top inset as the sheet drops below the status bar.
-        Box(Modifier.reclaimTopInset(sheet, WindowInsets.safeDrawing).safeDrawingPadding()) {
+        // Measured at the sheet's own top left, before the inset it gives back, so the flying cover
+        // can find Now Playing's cover inside it; and faded in while it grows (PlayerMorph).
+        Box(Modifier.onGloballyPositioned { morph.body = it }.graphicsLayer { alpha = morph.contentAlpha() }
+            .reclaimTopInset(sheet, WindowInsets.safeDrawing).safeDrawingPadding()) {
             Box(if (open) Modifier else Modifier.clearAndSetSemantics {}) { content() }
             if (!open) Box(Modifier.matchParentSize().pointerInput(Unit) {})
         }
