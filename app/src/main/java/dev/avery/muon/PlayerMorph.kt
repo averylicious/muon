@@ -47,6 +47,16 @@ private const val MORPH_CONTENT_SPAN = 0.5f
 /** The growing player's opacity when it is [open] of the way open: it fades in over the mini player. */
 internal fun morphSheetAlpha(open: Float): Float = (open / MORPH_SHEET_FADE).coerceIn(0f, 1f)
 
+/**
+ * How far the flying cover has come when the player is [open] of the way open: eased out, so it
+ * leaves the thumbnail promptly and reaches its place in Now Playing ahead of the content around it,
+ * rather than trailing low over the title while the player grows.
+ */
+internal fun morphFlight(open: Float): Float {
+    val left = 1f - open.coerceIn(0f, 1f)
+    return 1f - left * left
+}
+
 /** Now Playing's controls' opacity when the player is [open] of the way open. */
 internal fun morphContentAlpha(open: Float): Float = ((open - MORPH_CONTENT_FROM) / MORPH_CONTENT_SPAN).coerceIn(0f, 1f)
 
@@ -130,7 +140,7 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
         val from = root.localBoundingBoxOf(miniCover, clipBounds = false)
         val to = body.localBoundingBoxOf(cover, clipBounds = false).translate(0f, edge)
         val bottom = lerp(root.localBoundingBoxOf(mini, clipBounds = false).bottom, root.size.height.toFloat(), open)
-        return MorphFrame(lerp(from, to, open), open, edge, bottom)
+        return MorphFrame(lerp(from, to, morphFlight(open)), open, edge, bottom)
     }
 
     /** Hides the mini player's own cover while the flying one stands in for it. */

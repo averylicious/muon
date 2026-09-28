@@ -29,6 +29,13 @@ class PlayerMorphTest {
         assertEquals(1f, morphContentAlpha(1f), 0f)
     }
 
+    @Test fun theCoverLeavesPromptlyAndLandsExactly() {
+        assertEquals(0f, morphFlight(0f), 0f)
+        assertEquals(1f, morphFlight(1f), 0f)
+        assertEquals(0.75f, morphFlight(0.5f), 1e-6f)
+        assertEquals(1f, morphFlight(1.5f), 0f)
+    }
+
     // The rectangle rather than the Outline: an Outline with rounded corners builds an Android Path,
     // which JVM unit tests cannot create.
     @Test fun theGrowingPlayerShowsOnlyItsTopPartWithRoundedTopCorners() {
