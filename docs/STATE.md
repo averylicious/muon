@@ -2,12 +2,15 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-28, after #180, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-28-main-audit.md) for exact review/CI evidence._
+_Last updated: 2026-09-28, after #183, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-28-parallel-tracks.md) for exact review/CI evidence._
 
 ## Where things are
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
-- **`main` features:** the Collection redesign and everything after it through #180. Feature by feature, [features.md](features.md) is the user-facing guide, and [design/current](design/current/README.md) has real screenshots of every screen. Recent work, newest first:
+- **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
+- **Parallel work:** [the track protocol](parallel-tracks.md) separates sessions/worktrees and defines checked forward-sync PRs. Experimental owners land those PRs; Astra does not move their active branch. Inspect live checks/protection and the checkpoint for deployment status.
+- **`main` features:** the Collection redesign and everything after it through #183. Feature by feature, [features.md](features.md) is the user-facing guide, and [design/current](design/current/README.md) has real screenshots of every screen. Recent work, newest first:
+  - matching landscape player background (#183);
   - first audit fixes and portable audit plan (#180);
   - README hero and CI test cleanup (#178);
   - README simplified, and its technical parts moved into [features.md](features.md), [desktop-setup.md](desktop-setup.md) and [building.md](building.md) (#177);
@@ -25,12 +28,13 @@ _Last updated: 2026-09-28, after #180, by GPT-6 Astra (Codex). See the [latest c
 
 1. ~~Polish, volume normalization, Baseline Profile~~: done.
 2. **Main audit, now authorized:** Astra reviews correctness, security, privacy, CI and general code quality. Follow [the audit map and continuation plan](audits/README.md). Agents may follow findings across components; the workstreams organize handoff rather than impose scope restrictions.
-3. **Parallel experimentation:** Claude and the user are developing experimental Material 3 libraries on `claude/m3-expressive-alpha`. This supersedes the earlier Stable-first sequence. That branch currently uses Actions artifacts and the existing Canary package/signing identity. Main still publishes the existing Canary feed. A newer main APK can replace experimental features, so identify the branch before recommending installation. Coordinate any future channel change explicitly.
+3. **Parallel experimentation:** Claude and the user are developing experimental Material 3 libraries on `claude/m3-expressive-alpha`. This supersedes the earlier Stable-first sequence. That branch currently uses Actions artifacts and the existing Canary package/signing identity. Main still publishes the existing Canary feed. A newer main APK can replace experimental features, so identify the branch before recommending installation. Follow [parallel tracks](parallel-tracks.md); coordinate any future channel change explicitly.
 4. **Stable release:** only on the user's explicit request, after reviewing outstanding findings and QA. It also brings the redesign to the Stable app, which is still the pre-redesign 0.1.0.
 
 ## Authorization
 
 - **Standing since 2026-09-27:** merge any PR with no blockers without asking. The user's words: "You are authorized to merge PRs without any blockers without asking for permission in future sessions". Merge at the CI-verified head and record it on the PR as a self-review; Astra audits later. **Stable releases, release tags and anything with a blocker still need the user.**
+- **Parallel sessions, since 2026-09-28:** the user requested autonomous audit/experiment work with repository safeguards instead of routine live coordination. The user may allocate a separate audit Claude session; that does not authorize resuming their experimental session. Main-to-experiment syncs are separate PRs landed by the experimental owner at their own boundary.
 - **Device access over ADB needs the user's go-ahead in each new conversation.** Once given, it has covered:
   - screenshots and UI automation;
   - Canary updates with `adb install -r`;

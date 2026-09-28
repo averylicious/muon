@@ -1,8 +1,8 @@
 # Coordinator handoff
 
-This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The current checkpoint is [2026-09-28, main audit and SD-card follow-up](handoffs/2026-09-28-main-audit.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
+This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The current checkpoint is [2026-09-28, parallel tracks and landscape fix](handoffs/2026-09-28-parallel-tracks.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 
-Since 2026-09-27, the user authorizes Astra's main-branch audit alongside Claude/user experimental work off main. Both agents may independently merge blocker-free PRs at their CI-verified heads under STATE.md's standing authorization. The audit can follow findings across the repository; the historical frontend/backend split and one-slice defaults below are coordination aids, not restrictions on this audit. Do not concurrently edit the same files or resume the same Claude session.
+Since 2026-09-27, the user authorizes Astra's main-branch audit alongside Claude/user experimental work off main. Both agents may independently merge blocker-free PRs at their CI-verified heads under STATE.md's standing authorization. The audit can follow findings across the repository. Follow [parallel tracks](parallel-tracks.md): one writer per branch/worktree/session, independent changes on each track, and separate forward-sync PRs. The historical frontend/backend split does not restrict the audit.
 
 ## Start with a small refresh
 
@@ -16,29 +16,19 @@ GitHub and committed documents are the shared record across machines. Do not req
 
 ## Ownership and collaboration
 
-For the Collection redesign (formerly UI 2.0) takeover, the user explicitly intends the successor Astra to direct Claude as well as own backend work. Transfer the coordination role, not just a read-only snapshot. Use the existing Claude conversation when the successor can access it; otherwise establish the authorized Claude connection before delegating frontend edits.
+[Parallel tracks](parallel-tracks.md) is the current operating protocol. Astra owns the main audit; the user and their Claude session own the experiment. Each can fix any relevant component on their assigned track. Different tracks may touch the same file without a live handshake, but never share a checkout or rewrite the other's branch.
 
-| Area | Default owner | Coordination needed |
-| --- | --- | --- |
-| Screen layout, navigation, theme, fonts, icons and gestures | Claude frontend contributor | Backend state contracts and lifecycle implications |
-| Tauon API/models, discovery, playback service, grouping and queue contracts | Astra backend contributor | Data/actions required by the approved UI |
-| Artwork loading, playback UI state and shared screen wiring | Agree before editing | Assign individual files or sequence changes |
-| Review, dependencies, integration and durable handoff | One active Astra coordinator | Distinguish own authorship/fixes from independent review |
-| Phone QA and product decisions | User | Record observations separately from automated evidence |
+The experimental owner lands main-to-experiment sync PRs at a clean boundary. Astra can prepare those PRs and record required integration on #181 without resuming the user's Claude conversation. Generally useful experimental fixes are ported to a fresh main-based branch and reviewed against main's dependencies; the experimental branch itself never merges to main.
 
-This is responsibility allocation, not a ban on a coordinated fix. Actual filenames may change during extraction; verify them. Use separate worktrees for simultaneous work. Do not resume one Claude session from two processes or have two coordinators issue competing implementation instructions.
+### An explicitly allocated audit Claude session
 
-When the user authorizes direct coordination, send Claude a bounded assignment: issue/slice, base commit, worktree, owned files, expected behavior, exclusions, checks, PR destination and stop point. Ask for a short acknowledgement of ownership before overlapping work. If the other contributor's Claude session is unavailable, hand them the assignment through the user or an explicitly authorized shared channel. Do not silently start a replacement agent or reconstruct missing decisions.
+The user may provide a distinct Claude session for Astra's audit work. Before resuming it, check that exact session is idle, its checkout and assignment are independent, and no other coordinator is driving it. Do not use `--continue` or a historical ID to guess which session the user meant. Do not reset account/model settings or disable permission safeguards.
 
-### Taking control of Claude
-
-Confirm the previous coordinator has stopped dispatching work and the Claude session is idle. Send a short takeover message naming the new coordinator, current checkpoint, verified branches and next proposed slice. Ask Claude to report any uncommitted work, active assignment, ownership conflicts and available usage before editing. Then give one bounded assignment and continue backend work only where ownership is independent. Read Claude's result, inspect its actual diff and latest-head CI, and record review findings on the PR. A terminal exit alone is not evidence the task completed.
-
-On the original host, consult the dated checkpoint for the existing session ID and working directory. Check `claude --help` before using `--resume`; do not change account/model settings or disable safeguards as part of takeover. Keep prompts and outputs scoped and exclude secrets from shared records. If that session is inaccessible, report the concrete connection/history limitation and use the portable handoff with the user's chosen Claude session instead.
+Give one bounded assignment with the issue, base/head, isolated worktree, allowed changes or read-only scope, validation and stop point. Review its actual output and diff; an exit code alone is not completion evidence. If session ownership is unclear or the session is active, continue independent audit work and record the blocker rather than interrupting it. Local IDs and logs remain optional recovery hints, not a portable dependency.
 
 ## Bite-sized execution and quota boundaries
 
-- Keep one frontend slice and at most one independent backend slice active, only when both have useful work and non-overlapping ownership. Prefer a single slice near limits.
+- Keep each active audit assignment bounded, with one writer per branch/worktree/session. Prefer a single slice near limits. The user-led experiment proceeds independently; it does not wait for audit quota to reset.
 - A slice ends with a focused commit/PR, a source review or recorded findings, CI evidence for that exact head, and a manual QA checklist. Documentation-only heads run lightweight checks and produce no APK (see [CI](ci.md)); report that rather than an artifact. An open PR is a valid stopping point; a green build is not merge authorization.
 - Check each contributor's available usage at boundaries. Codex account limits are shared across tasks on that account; a different contributor uses their own account's allowance. A context window is separate from usage quota. Do not claim access to another contributor's quota if only they can see it.
 - Record source, time/window and whether a percentage means used or remaining. Treat missing data as unknown. If tool/dashboard readings disagree, retain the discrepancy and the user's corrected reading instead of inventing precision. No need to poll during every edit.
@@ -50,7 +40,7 @@ On the original host, consult the dated checkpoint for the existing session ID a
 The same process applies to a new contributor and to the original Astra returning after a reset. Neither account's older conversation is authoritative over newer committed evidence.
 
 1. **Outgoing coordinator:** finish or explicitly park the current slice; record commits, dirty files, running commands, Claude's active assignment and remaining checks using [the checkpoint template](handoffs/TEMPLATE.md). Push safe commits and link the checkpoint in issue #40. Record whether Claude is idle or still working; do not terminate or discard work merely to hand over.
-2. **Incoming coordinator:** verify the outgoing agent has stopped dispatching and inspect live state. Announce the takeover and owned slice in issue #40 before giving Claude new instructions. If another coordinator is still active, resolve ownership before overlapping edits. A user-assigned takeover is sufficient; do not require a reply from an agent already cut off.
+2. **Incoming coordinator:** verify the outgoing agent has stopped dispatching and inspect live state. Record the takeover and owned audit slice on #181 (and #40 for a batch checkpoint) before assigning audit work. If another coordinator is still active, resolve ownership before overlapping edits. A user-assigned takeover is sufficient; do not require a reply from an agent already cut off.
 3. **At every completed slice:** update the checkpoint and PR evidence. At a cutoff, mark the outcome unknown until inspected. Keep one current pointer here; retain dated checkpoints as history. A checkpoint may be updated within its documentation PR; record its revision commit in the shared issue rather than embedding a self-referential SHA.
 4. **On return:** repeat the incoming procedure even if you created the original plan. Inspect intervening diffs, user decisions and Claude's current assignment. Do not restart a completed slice, restore an old branch, or silently override the new contributor's work.
 
@@ -89,9 +79,11 @@ Preserve unrelated/unfinished work and don't duplicate existing PRs.
 
 Continue the main audit using docs/audits/README.md and its latest report.
 Follow findings across components as needed and leave reviewable checkpoints.
-Coordinate shared files directly with the available Claude contributor, who
-may be exploring experimental UI libraries off main. Preserve both tracks.
-If the old local Claude session is unavailable, use the portable handoff.
+Read docs/parallel-tracks.md. Preserve the separate user-led experimental
+checkout and session; do not resume that Claude session. A distinct audit
+Claude session may be used only when explicitly allocated and idle. Bring
+main fixes forward through a separate sync PR for the experimental owner
+to land. Use PR/issue evidence instead of routine live coordination.
 
 Use existing signed Actions builds and record actual model/role attribution,
 exact commit/build evidence and manual QA steps. I test on my phone; no ADB

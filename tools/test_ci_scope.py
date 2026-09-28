@@ -97,7 +97,7 @@ class ScopeTest(unittest.TestCase):
                      'tools/x.py', 'docs/generate.py', 'docs/signing-certificates.txt', '.gitignore', 'unknown.file']:
             with self.subTest(path=path):
                 self.assertFalse(ci_scope.is_documentation(path))
-        for path in ['AGENTS.md', 'docs/design/dark/player.png', '.github/pull_request_template.md']:
+        for path in ['AGENTS.md', 'CLAUDE.md', 'docs/design/dark/player.png', '.github/pull_request_template.md']:
             self.assertTrue(ci_scope.is_documentation(path))
 
     def test_rename_from_code_to_docs_builds(self):
