@@ -228,6 +228,12 @@ internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T
                             onClick = { open = false; choose(option) },
                             text = { Text(label(option)) },
                             shapes = MenuDefaults.itemShape(index, options.size),
+                            // The app's own tonal fill, as behind the current song, rather than
+                            // Material's default tertiary, a colour Muon uses nowhere else.
+                            colors = MenuDefaults.selectableItemColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer),
                             selectedLeadingIcon = { MuonIcon("check", Modifier.size(18.dp)) })
                     }
                 }
