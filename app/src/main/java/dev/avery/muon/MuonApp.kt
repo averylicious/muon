@@ -382,7 +382,19 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 AnimatedVisibility(visible = connected && rail,
                     enter = slideInHorizontally(motionSpatial()) { -it } + fadeIn(motionShort()),
                     exit = slideOutHorizontally(motionSpatial()) { -it } + fadeOut(motionShort())) {
-                    NavigationRail(containerColor = colors.background) {
+                    // The Canary experiment: Material 3 Expressive's navigation rail, collapsed, with
+                    // the same pill behind the chosen tab as the flexible navigation bar.
+                    if (Expressive.motion) WideNavigationRail(
+                        colors = WideNavigationRailDefaults.colors(containerColor = colors.background),
+                        // Centred, where a thumb holding the phone sideways reaches them.
+                        arrangement = Arrangement.Center) {
+                        Tab.entries.forEach { destination ->
+                            WideNavigationRailItem(selected = tab == destination,
+                                onClick = { tab = destination; fromSearch = false },
+                                icon = { TabIcon(destination) }, label = { Text(destination.name) },
+                                railExpanded = false)
+                        }
+                    } else NavigationRail(containerColor = colors.background) {
                         // Centred, where a thumb holding the phone sideways reaches them.
                         Spacer(Modifier.weight(1f))
                         Tab.entries.forEach { destination ->
