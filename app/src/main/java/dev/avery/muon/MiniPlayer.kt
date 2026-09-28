@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -41,7 +42,8 @@ internal val MINI_SWIPE_FLICK = 700.dp
 
 @Composable
 internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, active: Boolean,
-    sheet: PlayerSheet?, open: () -> Unit, toggle: () -> Unit, next: () -> Unit, previous: () -> Unit) {
+    sheet: PlayerSheet?, open: () -> Unit, toggle: () -> Unit, next: () -> Unit, previous: () -> Unit,
+    morph: PlayerMorph? = null) {
     val canOpen by rememberUpdatedState(active)
     // A drag hands the player over when it ends, which can be a long time after it began, so the
     // action is read then rather than captured when the gesture detector was set up.
@@ -57,8 +59,10 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
     // Attached to the navigation bar rather than floating above it: it was a card wedged against
     // the bottom chrome, so it now shares an edge with it and only rounds its top corners.
     Surface(color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = RoundedCornerShape(topStart = MINI_PLAYER_CORNER, topEnd = MINI_PLAYER_CORNER),
         modifier = Modifier.fillMaxWidth()
+            // Where the player grows from, with Expressive motion (PlayerMorph).
+            .then(if (morph != null) Modifier.onGloballyPositioned { morph.mini = it } else Modifier)
             // Tap still opens, with its own label, and the controls inside still take their own
             // taps: a drag only becomes a drag once it has passed the touch slop that the detector
             // applies before it reports anything.
@@ -149,19 +153,19 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                     }
                     // Refused once Back or a new presentation has ended this preview, even though
                     // the finger is still down.
-                    if (owned()) sheet.moveTo(playerSheetDragged(baseline, travel, sheet.height))
+                    if (owned()) sheet.moveTo(playerSheetDragged(baseline, travel, sheet.travel))
                 }
                 fun release(upMillis: Long) {
                     // Judged on the whole gesture and the lift's own event time. Only the release
                     // uses it: the sheet still follows the post-slop travel above.
                     val velocity = trace.releaseVelocity(upMillis)
                     val opens = playerPreviewOpens(sheet.previewing, startedAt, sheet.generation,
-                        trace.travel, sheetReleaseDistance(sheet.height, MINI_DRAG_OPEN.toPx()), canOpen,
+                        trace.travel, sheetReleaseDistance(sheet.travel, MINI_DRAG_OPEN.toPx()), canOpen,
                         velocity, SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
                     val mine = owned()
                     // Sets off at the same measured speed towards where the release decided; the
                     // presentation keeps that settle, or replaces it if the open is refused.
-                    if (mine) sheet.settleTo(if (opens) 0f else 1f, sheetFractionVelocity(velocity, sheet.height))
+                    if (mine) sheet.settleTo(if (opens) 0f else 1f, sheetFractionVelocity(velocity, sheet.travel))
                     // Opening and ending the preview together lets the presentation carry the sheet
                     // on up from here; any other ending lets it put the sheet away.
                     if (opens) current()
@@ -220,7 +224,8 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                     translationX = swipe.value
                     alpha = 1f - 0.7f * (kotlin.math.abs(swipe.value) / size.width.coerceAtLeast(1f)).coerceAtMost(1f)
                 }, verticalAlignment = Alignment.CenterVertically) {
-                Artwork(p.item?.mediaMetadata?.artworkUri?.toString(), Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
+                Artwork(p.item?.mediaMetadata?.artworkUri?.toString(), Modifier.size(48.dp)
+                    .then(morph?.miniCoverModifier() ?: Modifier).clip(RoundedCornerShape(MINI_COVER_CORNER)))
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     Text(p.item?.mediaMetadata?.title?.toString().orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleSmall)

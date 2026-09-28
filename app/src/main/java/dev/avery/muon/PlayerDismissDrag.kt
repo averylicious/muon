@@ -29,6 +29,7 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -229,8 +230,15 @@ internal class PlayerSheet(private val scope: CoroutineScope, openAtStart: Boole
     private var heading: Float? = null
     /** Whether any of the sheet is on screen. Composition sees this flip, never the float itself. */
     val onScreen by derivedStateOf { position.value < 1f }
-    /** The sheet's measured height, for turning finger travel into [position]. */
+    /** The sheet's measured height. */
     var height = 0f
+    /**
+     * Where the player grows out of the mini player instead ([PlayerMorph]), how far its edge travels
+     * between open and closed; null where it rises from below the screen.
+     */
+    var morphTravel: () -> Float? = { null }
+    /** How far the sheet's edge travels between open and closed, for turning finger travel into [position]. */
+    val travel: Float get() = morphTravel() ?: height
     /** The one animation or drag moving the sheet, while it still runs. */
     var settle: Job? = null
         private set
@@ -375,7 +383,7 @@ internal fun playerSheetEdgeDrop(dropped: Float, topInset: Float): Float =
  */
 internal fun Modifier.reclaimTopInset(state: PlayerSheet?, insets: WindowInsets): Modifier =
     if (state == null) this else offset {
-        val dropped = state.position.value * state.height
+        val dropped = state.position.value * state.travel
         IntOffset(0, -playerInsetReclaimed(dropped, insets.getTop(this).toFloat()).roundToInt())
     }
 
@@ -387,24 +395,35 @@ internal fun Modifier.reclaimTopInset(state: PlayerSheet?, insets: WindowInsets)
  * [edge] is the outline colour for a pure black theme, or null where the scrim and shadow already
  * separate the player from the library.
  */
-internal fun Modifier.playerSheet(state: PlayerSheet, insets: WindowInsets, edge: Color? = null): Modifier =
+internal fun Modifier.playerSheet(state: PlayerSheet, insets: WindowInsets, edge: Color? = null,
+    morph: PlayerMorph? = null): Modifier =
     run {
         val outline = Path()
         graphicsLayer {
             // The only vertical translation the player has: opening, closing and dragging alike.
             // Drawn lower than the finger's displacement by the inset its content gives back, so the
             // content itself — the grabber under the finger — moves exactly with the finger.
-            val dropped = playerSheetEdgeDrop(state.position.value * size.height, insets.getTop(this).toFloat())
+            val dropped = playerSheetEdgeDrop(state.position.value * state.travel, insets.getTop(this).toFloat())
             if (dropped <= 0f) return@graphicsLayer
             translationY = dropped
-            val corner = minOf(dropped, PLAYER_SHEET_CORNER.toPx())
-            shape = RoundedCornerShape(topStart = corner, topEnd = corner)
+            val open = 1f - state.position.value
+            val bottom = morph?.bottom(open)
+            if (bottom != null) {
+                // Growing out of the mini player (PlayerMorph): only the part down to the growing
+                // bottom edge shows, its corners start as the mini player's, and it fades in over it.
+                val corner = minOf(dropped, lerp(MINI_PLAYER_CORNER.toPx(), PLAYER_SHEET_CORNER.toPx(), open))
+                shape = TopRoundedClip(corner, bottom - dropped)
+                alpha = morphSheetAlpha(open)
+            } else {
+                val corner = minOf(dropped, PLAYER_SHEET_CORNER.toPx())
+                shape = RoundedCornerShape(topStart = corner, topEnd = corner)
+            }
             clip = true
             // A layer draws its own shadow outside its clip, so the edge stays visible.
             shadowElevation = minOf(dropped, PLAYER_SHEET_ELEVATION.toPx())
         }.drawWithContent {
             drawContent()
-            val dropped = playerSheetEdgeDrop(state.position.value * size.height, insets.getTop(this).toFloat())
+            val dropped = playerSheetEdgeDrop(state.position.value * state.travel, insets.getTop(this).toFloat())
             if (!playerSheetEdgeShown(dropped, pureBlack = edge != null) || edge == null) return@drawWithContent
             drawTopEdge(outline, edge, minOf(dropped, PLAYER_SHEET_CORNER.toPx()), PLAYER_SHEET_EDGE.toPx())
         }
@@ -470,7 +489,7 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
                     drag += amount
                     lastMove = change.uptimeMillis
                     tracker.addPosition(change.uptimeMillis, Offset(0f, drag))
-                    mine = state.moveTo(playerSheetDragged(baseline, drag, state.height))
+                    mine = state.moveTo(playerSheetDragged(baseline, drag, state.travel))
                 },
                 onDragCancel = { restore() },
                 onDragEnd = {
@@ -480,9 +499,9 @@ internal fun Modifier.dismissDrag(state: PlayerSheet?, height: Float, collapse: 
                     // Pointer times are MotionEvent event times, on this same clock.
                     val velocity = sheetReleaseVelocity(tracker.calculateVelocity().y, lastMove,
                         SystemClock.uptimeMillis())
-                    val speed = sheetFractionVelocity(velocity, state.height)
+                    val speed = sheetFractionVelocity(velocity, state.travel)
                     if (playerDismissCommits(startedAt, state.generation, drag,
-                            sheetReleaseDistance(state.height, PLAYER_DISMISS_DROP.toPx()), velocity,
+                            sheetReleaseDistance(state.travel, PLAYER_DISMISS_DROP.toPx()), velocity,
                             SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))) {
                         // Sets off down at the finger's speed; the presentation keeps that settle.
                         state.settleTo(1f, speed)

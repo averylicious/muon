@@ -1,0 +1,55 @@
+package dev.avery.muon
+
+import androidx.compose.ui.geometry.Size
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class PlayerMorphTest {
+    @Test fun theEdgeTravelsFromTheMiniPlayersTopToWhereAnOpenPlayersEdgeRests() {
+        // Closed, the edge is drawn at travel plus the inset the content gives back: the mini player's top.
+        val travel = morphTravel(miniTop = 2000f, topInset = 130f)!!
+        assertEquals(1870f, travel, 0f)
+        assertEquals(2000f, playerSheetEdgeDrop(1f * travel, 130f), 0f)
+        assertEquals(0f, playerSheetEdgeDrop(0f * travel, 130f), 0f)
+    }
+
+    @Test fun aMiniPlayerThatIsNotBelowTheInsetCannotBeGrownFrom() {
+        assertNull(morphTravel(miniTop = 100f, topInset = 130f))
+        assertNull(morphTravel(miniTop = 130f, topInset = 130f))
+    }
+
+    @Test fun thePlayerFadesInOverTheMiniPlayerEarlyAndItsControlsFollow() {
+        assertEquals(0f, morphSheetAlpha(0f), 0f)
+        assertEquals(1f, morphSheetAlpha(0.18f), 1e-6f)
+        assertEquals(1f, morphSheetAlpha(1f), 0f)
+        assertEquals(0f, morphContentAlpha(0.2f), 0f)
+        assertEquals(0.5f, morphContentAlpha(0.45f), 1e-6f)
+        assertEquals(1f, morphContentAlpha(0.7f), 1e-6f)
+        assertEquals(1f, morphContentAlpha(1f), 0f)
+    }
+
+    @Test fun theCoverLeavesPromptlyAndLandsExactly() {
+        assertEquals(0f, morphFlight(0f), 0f)
+        assertEquals(1f, morphFlight(1f), 0f)
+        assertEquals(0.75f, morphFlight(0.5f), 1e-6f)
+        assertEquals(1f, morphFlight(1.5f), 0f)
+    }
+
+    // The rectangle rather than the Outline: an Outline with rounded corners builds an Android Path,
+    // which JVM unit tests cannot create.
+    @Test fun theGrowingPlayerShowsOnlyItsTopPartWithRoundedTopCorners() {
+        val rect = topRoundedRect(Size(1080f, 2400f), corner = 40f, height = 180f)
+        assertEquals(180f, rect.bottom, 0f)
+        assertEquals(1080f, rect.right, 0f)
+        assertEquals(40f, rect.topLeftCornerRadius.x, 0f)
+        assertEquals(40f, rect.topRightCornerRadius.x, 0f)
+        assertEquals(0f, rect.bottomLeftCornerRadius.x, 0f)
+    }
+
+    @Test fun theOutlineStaysInsideTheLayerAndItsCornersFitIt() {
+        assertEquals(2400f, topRoundedRect(Size(1080f, 2400f), corner = 40f, height = 5000f).bottom, 0f)
+        assertEquals(15f, topRoundedRect(Size(1080f, 2400f), corner = 40f, height = 30f).topLeftCornerRadius.x, 0f)
+        assertEquals(0f, topRoundedRect(Size(1080f, 2400f), corner = 40f, height = -10f).bottom, 0f)
+    }
+}

@@ -2,6 +2,7 @@ package dev.avery.muon
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -21,6 +22,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,7 +41,8 @@ import kotlinx.coroutines.launch
  */
 @Composable
 internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: () -> Int,
-    player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, queue: () -> Unit, lyrics: () -> Unit) {
+    player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, queue: () -> Unit,
+    morph: PlayerMorph? = null, lyrics: () -> Unit) {
     if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
@@ -92,7 +95,9 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                 PlayerBar(dismiss, dragHeight, collapse) { away() }
                 Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
                     contentAlignment = Alignment.Center) {
-                    SwipeableArtwork(p, player, revision, Modifier.widthIn(max = 400.dp).aspectRatio(1f))
+                    // The cover the mini player's flies to while the player grows (PlayerMorph).
+                    SwipeableArtwork(p, player, revision, Modifier.widthIn(max = 400.dp).aspectRatio(1f)
+                        .then(morph?.coverModifier() ?: Modifier))
                 }
                 PlayerTitles(p)
                 PlayerControls(p, position, player, narrow, queue, lyrics)
@@ -151,11 +156,9 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit, actions: Boolean = true) {
     val item = p.item ?: return
     if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
-    if (p.buffering) {
-        if (Expressive.motion) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
-        else LinearProgressIndicator(Modifier.fillMaxWidth())
-    }
-    SeekControls(item.mediaId, position, p.duration, p.seekable, player)
+    // Buffering shows in the seek bar's own place (SeekControls), not as a bar above it: inserting one
+    // pushed everything up and shrank the cover each time a track buffered.
+    SeekControls(item.mediaId, position, p.duration, p.seekable, p.buffering, player)
     if (Expressive.motion) ExpressiveTransport(p, player, toggles = !narrow)
     else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically) {
@@ -511,15 +514,42 @@ private fun RepeatControl(p: PlaybackUi, player: MediaController?) {
     }
 }
 
+/**
+ * How long buffering must last before the seek bar shows it, so the brief stall at nearly every skip
+ * does not flicker the bar.
+ */
+private const val BUFFERING_SHOW_DELAY_MS = 300L
+
+/**
+ * The seek bar, which turns into a progress indicator in its own place while the track buffers and
+ * back again when it plays, so nothing around it moves (the bar used to be inserted above, pushing the
+ * cover smaller). A finger on the bar brings the seek bar back at once. The times stay put.
+ */
 @Composable
-private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, seekable: Boolean, player: MediaController?) {
+private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, seekable: Boolean,
+    buffering: Boolean, player: MediaController?) {
     var scrub by remember(mediaId) { mutableStateOf<Float?>(null) }
     val range = duration.coerceAtLeast(1).toFloat()
     val elapsed = scrub ?: position().toFloat().coerceIn(0f, range)
+    var stalled by remember { mutableStateOf(false) }
+    LaunchedEffect(buffering) {
+        if (buffering) { delay(BUFFERING_SHOW_DELAY_MS); stalled = true } else stalled = false
+    }
+    val waiting = stalled && scrub == null
+    val shown by animateFloatAsState(if (waiting) 1f else 0f, motionMedium(), label = "buffering")
     Column {
-        Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
-            onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
-            enabled = seekable && player != null, modifier = Modifier.semantics { contentDescription = "Seek position" })
+        Box(contentAlignment = Alignment.Center) {
+            Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
+                onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
+                enabled = seekable && player != null,
+                modifier = Modifier.graphicsLayer { alpha = 1f - shown }
+                    .semantics { contentDescription = if (waiting) "Seek position, buffering" else "Seek position" })
+            if (waiting || shown > 0f) Box(Modifier.matchParentSize().graphicsLayer { alpha = shown }.clearAndSetSemantics {},
+                contentAlignment = Alignment.Center) {
+                if (Expressive.motion) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                else LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(elapsed.toLong()), style = MaterialTheme.typography.labelSmall)
             Text(formatTime(duration), style = MaterialTheme.typography.labelSmall)
