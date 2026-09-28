@@ -32,6 +32,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -681,15 +682,26 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // entirely once the player has closed.
             // Also shown while a preview is rising, so new touches cannot reach the library under
             // it; a finger already down keeps its own stream, so the drag itself carries on.
+            // With Expressive motion it deepens with the player's growth instead (PlayerMorph), so a drag
+            // that has barely begun, or has come back down, dims nothing, the mini player included.
             AnimatedVisibility(visible = playerShown || sheet.previewing, enter = fadeIn(motionMedium()),
                 exit = fadeOut(motionMedium())) {
-                PlayerScrim()
+                PlayerScrim { morph.scrimFactor() }
             }
             // The player rises from the bottom, where the mini player it grew out of sits, and
             // shrinks while a Back gesture is deciding whether to close it.
             // In the colours of the song's cover, which fade from one song to the next.
             ArtworkTheme(ui.item) {
-            PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph, preview = {
+            PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph,
+                // The mini player as the panel starts: its colour and content, in the library's
+                // colours rather than the cover's, exactly as the mini player draws them.
+                miniColor = colors.surfaceVariant, face = {
+                    MaterialTheme(colorScheme = colors) {
+                        CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) {
+                            MiniPlayerFace(ui, position, ready = player != null, toggle = {}, next = {}, cover = null)
+                        }
+                    }
+                }, preview = {
                 rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
             }) {
                 // Only a player that is actually on screen carries the drag: an outgoing one hands
@@ -754,9 +766,10 @@ private const val PLAYER_SCRIM_ALPHA = 0.32f
  * nothing a screen reader could focus or activate: closing stays with the collapse button and Back.
  */
 @Composable
-private fun PlayerScrim() {
+private fun PlayerScrim(amount: () -> Float) {
+    val scrim = MaterialTheme.colorScheme.scrim
     Box(Modifier.fillMaxSize()
-        .background(MaterialTheme.colorScheme.scrim.copy(alpha = PLAYER_SCRIM_ALPHA))
+        .drawBehind { drawRect(scrim.copy(alpha = PLAYER_SCRIM_ALPHA * amount().coerceIn(0f, 1f))) }
         .pointerInput(Unit) {})
 }
 
@@ -791,6 +804,7 @@ private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit)
  */
 @Composable
 private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?, morph: PlayerMorph,
+    miniColor: Color, face: @Composable () -> Unit,
     preview: @Composable () -> PlayerBackPreview?, content: @Composable () -> Unit) {
     if (!playerSheetPresent(open, sheet.onScreen)) return
     // Two layers, each owning its own properties: the sheet moves the surface, the Back preview
@@ -798,11 +812,26 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?, mor
     // outlines its top edge, since nothing else can show where the player ends.
     val colors = MaterialTheme.colorScheme
     val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
+    val ground = colors.background
+    // The panel paints its own ground: Now Playing's, or, while it grows out of the mini player, the
+    // mini player's [miniColor] turning into it (PlayerMorph). Read in the draw phase.
     Surface(Modifier.fillMaxSize()
-        .playerSheet(sheet, WindowInsets.safeDrawing, edge, morph).playerBackPreview(preview()),
-        color = colors.background) {
-        // The cover's glass (CoverBackdrop.kt) fills the whole sheet, status bar included.
-        if (showCoverBackdrop(Expressive.blur, colors.background)) CoverBackdrop(backdrop)
+        .playerSheet(sheet, WindowInsets.safeDrawing, edge, morph).playerBackPreview(preview())
+        .drawBehind { drawRect(morph.panelColor(miniColor, ground)) },
+        color = Color.Transparent, contentColor = colors.onBackground) {
+        // The cover's glass (CoverBackdrop.kt) fills the whole sheet, status bar included, and arrives
+        // with Now Playing's colour while the panel grows.
+        if (showCoverBackdrop(Expressive.blur, colors.background))
+            CoverBackdrop(backdrop, Modifier.graphicsLayer { alpha = morph.backdropAlpha() })
+        // The mini player's own content, where it was, while the panel grows out of it; beneath Now
+        // Playing, fading out as that fades in. It is a picture of the mini player: it takes no touch
+        // and says nothing to a screen reader.
+        if (Expressive.motion) Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxWidth().graphicsLayer { alpha = morph.faceAlpha() }.clearAndSetSemantics {}) {
+                face()
+                Box(Modifier.matchParentSize().pointerInput(Unit) {})
+            }
+        }
         // The content gives back the top inset as the sheet drops below the status bar.
         // Measured at the sheet's own top left, before the inset it gives back, so the flying cover
         // can find Now Playing's cover inside it; and faded in while it grows (PlayerMorph).
