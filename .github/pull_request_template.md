@@ -2,6 +2,13 @@
 
 <!-- Describe the problem and resulting behavior. Keep scope and explanation proportional to the change. -->
 
+## Integration
+
+- Track / destination: <!-- main audit or Expressive experiment -->
+- Destination commit included in this head: <!-- full SHA; refresh before merging -->
+- Cross-track source / follow-up: <!-- source PR/commit for a port; forward-sync needed, already applied, or not applicable -->
+- Shared contracts affected: <!-- settings/schema, storage, playback/API or build/CI changes; None if not affected -->
+
 ## Agent attribution
 
 - Implementation: <!-- actual model; tool/client; effort if known -->
@@ -31,4 +38,4 @@
 
 ## Handoff
 
-Open for user QA and a later user-requested Astra review. No merge or release requested by this implementation handoff.
+<!-- Record remaining work and whether this stays open or is eligible under the current user/STATE.md merge authorization. Attribute self-review separately from independent review. A merge does not authorize a Stable release. -->
