@@ -224,8 +224,7 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
  * What the mini player shows: the track's progress, the song, and its controls. The mini player draws
  * it, and so does the player's panel at the start of growing out of the mini player (PlayerMorph),
  * where it fades out as Now Playing fades in, so the two read as one element. [swipe] is how far a
- * sideways skip has moved the song; [cover] goes on its cover, and null leaves the cover's place empty
- * for the flying one.
+ * sideways skip has moved the song; [cover] goes on its cover, and null leaves the cover's place empty.
  */
 @Composable
 internal fun MiniPlayerFace(p: PlaybackUi, position: () -> Long, ready: Boolean, toggle: () -> Unit,

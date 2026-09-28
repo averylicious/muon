@@ -698,7 +698,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 miniColor = colors.surfaceVariant, face = {
                     MaterialTheme(colorScheme = colors) {
                         CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) {
-                            MiniPlayerFace(ui, position, ready = player != null, toggle = {}, next = {}, cover = null)
+                            // Its cover shows until the flying one takes over, which needs Now
+                            // Playing laid out first: without it, the first frame of a drag
+                            // showed an empty space where the cover had been.
+                            MiniPlayerFace(ui, position, ready = player != null, toggle = {}, next = {},
+                                cover = Modifier.graphicsLayer { alpha = if (morph.frame() != null) 0f else 1f })
                         }
                     }
                 }, preview = {
