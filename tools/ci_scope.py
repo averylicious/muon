@@ -6,7 +6,7 @@ import re
 import subprocess
 
 
-ROOT_DOCS = {'README.md', 'AGENTS.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE'}
+ROOT_DOCS = {'README.md', 'AGENTS.md', 'CLAUDE.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE'}
 DOC_SUFFIXES = {'.md', '.txt', '.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.pdf'}
 SHA = re.compile(r'[0-9a-f]{40}')
 CANARY = re.compile(r'\d+\.\d+\.\d+-canary\.(\d+)')
