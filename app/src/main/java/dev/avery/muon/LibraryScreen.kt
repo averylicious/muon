@@ -219,7 +219,19 @@ internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T
                 Spacer(Modifier.width(4.dp))
                 MuonIcon("collapse", Modifier.size(18.dp))
             }
-            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            // The Canary experiment: Material 3 Expressive's menu, its choices in one rounded group,
+            // the chosen one filled and marked with a check.
+            if (Expressive.motion) DropdownMenuPopup(expanded = open, onDismissRequest = { open = false }) {
+                DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1)) {
+                    options.forEachIndexed { index, option ->
+                        SelectableDropdownMenuItem(selected = option == current,
+                            onClick = { open = false; choose(option) },
+                            text = { Text(label(option)) },
+                            shapes = MenuDefaults.itemShape(index, options.size),
+                            selectedLeadingIcon = { MuonIcon("check", Modifier.size(18.dp)) })
+                    }
+                }
+            } else DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 options.forEach { option ->
                     DropdownMenuItem(text = { Text(label(option)) },
                         onClick = { open = false; choose(option) },
