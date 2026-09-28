@@ -1,6 +1,8 @@
 # Coordinator handoff
 
-This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**, the living one-page state, updated at every merge. The last dated checkpoint is [2026-09-26, Claude's self-merge cycle](handoffs/2026-09-26-claude-cycle.md); later work is in STATE.md and on issue #40. It lists every PR Claude merged after **self-review** while Astra was unavailable (an Astra audit is expected), the work taken over from Astra, findings, and the open items in the user's agreed order. Earlier checkpoints, from [2026-09-23 coordinator state](handoffs/2026-09-23-coordinator-state.md) onwards, are history. See issue #40 for live status. Update this pointer when adding a newer checkpoint; older dated checkpoints are history, not current state. Checkpoints are dated evidence, not automatic authorization or live status.
+This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The current checkpoint is [2026-09-28, main audit and SD-card follow-up](handoffs/2026-09-28-main-audit.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
+
+Since 2026-09-27, the user authorizes Astra's main-branch audit alongside Claude/user experimental work off main. Both agents may independently merge blocker-free PRs at their CI-verified heads under STATE.md's standing authorization. The audit can follow findings across the repository; the historical frontend/backend split and one-slice defaults below are coordination aids, not restrictions on this audit. Do not concurrently edit the same files or resume the same Claude session.
 
 ## Start with a small refresh
 
@@ -74,7 +76,7 @@ Use a dated file in `docs/handoffs/` and link it from here and issue #40. Keep i
 - Next one or two slices, blockers and shared behavior decisions still needed.
 - Usage snapshots only if useful, with source/window and no assumption they remain current.
 
-Leave PRs open unless the current user explicitly requests review and merge. Merge authorization is per cycle: the user authorized sound, reviewed merges on 2026-09-23, but a successor verifies the current user instructions rather than treating the checkpoint itself as permission. Valid authorization in the continuing task does not require asking the user again. The general implementation default in AGENTS.md — leave the PR open — is unchanged. On an authorized merge cycle, reconcile prerequisites, resolve conflicts without losing sibling changes, review the resulting final head, verify checks, then verify main's Canary publication. Stable tags remain a separate explicit request.
+Use the current user's instructions and STATE.md's standing merge authorization. Since 2026-09-27, either agent may merge a blocker-free PR at the CI-verified head and record its self-review; distinguish independent review when another agent actually performed it. Reconcile prerequisites, resolve conflicts without losing sibling changes, and verify main's Canary publication. Leave unresolved or unverified work open with a clear checkpoint. Stable releases/tags remain a separate explicit request.
 
 ## Copyable prompt for the successor
 
@@ -85,16 +87,17 @@ still in an open documentation PR, read that PR's branch first; don't assume
 main has them. Refresh live GitHub heads, CI, user QA and active ownership.
 Preserve unrelated/unfinished work and don't duplicate existing PRs.
 
-Take over coordination and backend work for one small reviewable slice at
-a time. Coordinate directly with the available Claude frontend contributor
-within my authorized scope; agree file ownership and shared behavior before
-parallel edits. If the old local Claude session is unavailable, use the
-portable handoff and tell me what communication is needed.
+Continue the main audit using docs/audits/README.md and its latest report.
+Follow findings across components as needed and leave reviewable checkpoints.
+Coordinate shared files directly with the available Claude contributor, who
+may be exploring experimental UI libraries off main. Preserve both tracks.
+If the old local Claude session is unavailable, use the portable handoff.
 
 Use existing signed Actions builds and record actual model/role attribution,
 exact commit/build evidence and manual QA steps. I test on my phone; no ADB
-or live device debugging. Leave PRs open unless I explicitly request review
-and merge. No Stable release, signing changes or network configuration work.
+or live device debugging. Apply STATE.md's standing authorization for
+blocker-free, CI-verified merges and accurately record self/independent review.
+No Stable release, signing changes or network configuration work.
 
 Check available usage at slice boundaries and reserve capacity for fixes
 and a durable checkpoint. Stop safely before capacity is exhausted. Start

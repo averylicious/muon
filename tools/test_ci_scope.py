@@ -45,7 +45,22 @@ class ScopeTest(unittest.TestCase):
         head = self.commit('docs/a guide.md', '# Guide\n')
         self.assertFalse(self.scope(head))
         self.assertFalse(self.scope(head, '0' * 40))
+        self.git('tag', '0.1.0-canary.9', self.base)
         self.assertFalse(self.scope(head, ref='refs/heads/main'))
+
+    def test_main_without_a_reachable_canary_baseline_builds(self):
+        # A docs push can cancel an app build before the first publication, or after history loss.
+        code = self.commit('app/Thing.kt', 'class Thing')
+        head = self.commit('docs/note.md', '# Note\n')
+        self.assertTrue(self.scope(head, code, ref='refs/heads/main'))
+
+    def test_canary_on_an_unrelated_branch_is_not_a_publication_baseline(self):
+        self.git('checkout', '-qb', 'experiment')
+        self.commit('app/Experimental.kt', 'class Experimental')
+        self.git('tag', '0.1.0-canary.999')
+        self.git('checkout', 'main')
+        head = self.commit('docs/note.md', '# Note\n')
+        self.assertTrue(self.scope(head, ref='refs/heads/main'))
 
     def test_docs_after_code_on_feature_branch_still_build(self):
         code = self.commit('app/Thing.kt', 'class Thing')

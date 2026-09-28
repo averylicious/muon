@@ -31,4 +31,4 @@
 
 ## Handoff
 
-Open for user QA and a later user-requested Astra review. No merge or release requested by this implementation handoff.
+<!-- Record remaining work and whether this stays open or is eligible under the current user/STATE.md merge authorization. Attribute self-review separately from independent review. A merge does not authorize a Stable release. -->
