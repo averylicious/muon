@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The current checkpoint is [2026-09-28, parallel tracks and landscape fix](handoffs/2026-09-28-parallel-tracks.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
+This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The current checkpoint is [2026-09-28, main-to-Expressive integration](handoffs/2026-09-28-expressive-sync.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 
 Since 2026-09-27, the user authorizes Astra's main-branch audit alongside Claude/user experimental work off main. Both agents may independently merge blocker-free PRs at their CI-verified heads under STATE.md's standing authorization. The audit can follow findings across the repository. Follow [parallel tracks](parallel-tracks.md): one writer per branch/worktree/session, independent changes on each track, and separate forward-sync PRs. The historical frontend/backend split does not restrict the audit.
 

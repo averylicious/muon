@@ -2,12 +2,13 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-28, after #183, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-28-parallel-tracks.md) for exact review/CI evidence._
+_Last updated: 2026-09-28, after #184, with the experimental sync in progress, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-28-expressive-sync.md) for exact review/CI evidence._
 
 ## Where things are
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
+- **Integration boundary:** main #184 merged as `831f5465b630343a4decdc1b4cbf46570801d753`. The user requested Astra integrate it into experimental head `117015a73efe166af9460cf22160fcbe8d5a8bc0`; inspect the sync PR/#181 for final checks and merge state before starting duplicate work.
 - **Parallel work:** [the track protocol](parallel-tracks.md) separates sessions/worktrees and defines checked forward-sync PRs. Experimental owners land those PRs; Astra does not move their active branch. Inspect live checks/protection and the checkpoint for deployment status.
 - **`main` features:** the Collection redesign and everything after it through #183. Feature by feature, [features.md](features.md) is the user-facing guide, and [design/current](design/current/README.md) has real screenshots of every screen. Recent work, newest first:
   - matching landscape player background (#183);
