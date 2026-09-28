@@ -19,10 +19,17 @@ class PlayerMorphTest {
         assertNull(morphTravel(miniTop = 130f, topInset = 130f))
     }
 
-    @Test fun thePlayerFadesInOverTheMiniPlayerEarlyAndItsControlsFollow() {
-        assertEquals(0f, morphSheetAlpha(0f), 0f)
-        assertEquals(1f, morphSheetAlpha(0.18f), 1e-6f)
-        assertEquals(1f, morphSheetAlpha(1f), 0f)
+    @Test fun thePanelStartsAsTheMiniPlayerAndTurnsIntoNowPlaying() {
+        // The colour starts exactly at the mini player's, eases, and has arrived a third of the way open.
+        assertEquals(0f, morphColorProgress(0f), 0f)
+        assertEquals(0.5f, morphColorProgress(0.175f), 1e-6f)
+        assertEquals(1f, morphColorProgress(0.35f), 1e-6f)
+        assertEquals(1f, morphColorProgress(1f), 0f)
+        // The mini player's own content is fully there at the start and gone a quarter of the way open.
+        assertEquals(1f, morphFaceAlpha(0f), 0f)
+        assertEquals(0.5f, morphFaceAlpha(0.125f), 1e-6f)
+        assertEquals(0f, morphFaceAlpha(0.25f), 1e-6f)
+        assertEquals(0f, morphFaceAlpha(1f), 0f)
         assertEquals(0f, morphContentAlpha(0.2f), 0f)
         assertEquals(0.5f, morphContentAlpha(0.45f), 1e-6f)
         assertEquals(1f, morphContentAlpha(0.7f), 1e-6f)
