@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
@@ -43,7 +44,7 @@ internal val MINI_SWIPE_FLICK = 700.dp
 @Composable
 internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, active: Boolean,
     sheet: PlayerSheet?, open: () -> Unit, toggle: () -> Unit, next: () -> Unit, previous: () -> Unit,
-    morph: PlayerMorph? = null) {
+    morph: PlayerMorph? = null, color: Color = MaterialTheme.colorScheme.surfaceVariant) {
     val canOpen by rememberUpdatedState(active)
     // A drag hands the player over when it ends, which can be a long time after it began, so the
     // action is read then rather than captured when the gesture detector was set up.
@@ -58,7 +59,8 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     // Attached to the navigation bar rather than floating above it: it was a card wedged against
     // the bottom chrome, so it now shares an edge with it and only rounds its top corners.
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant,
+    // [color] is translucent when the bars are frosted glass (FrostedGlass.kt).
+    Surface(color = color,
         shape = RoundedCornerShape(topStart = MINI_PLAYER_CORNER, topEnd = MINI_PLAYER_CORNER),
         modifier = Modifier.fillMaxWidth()
             // Where the player grows from, with Expressive motion (PlayerMorph). While the panel that
