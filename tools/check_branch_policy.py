@@ -5,7 +5,8 @@ import subprocess
 
 
 EXPERIMENT = 'claude/m3-expressive-alpha'
-# First alpha/AGP-upgrade commit. An immutable anchor also catches renamed branches.
+# First alpha/AGP-upgrade commit. Its parent f0909f0 is on main (verified 2026-09-28).
+# An immutable anchor also catches renamed branches.
 EXPERIMENT_START = '454350a058fc4e272731afd0fff23bd9cd22e0f3'
 
 
