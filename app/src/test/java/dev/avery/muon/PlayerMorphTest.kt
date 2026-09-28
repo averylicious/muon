@@ -1,9 +1,6 @@
 package dev.avery.muon
 
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.LayoutDirection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -32,21 +29,20 @@ class PlayerMorphTest {
         assertEquals(1f, morphContentAlpha(1f), 0f)
     }
 
+    // The rectangle rather than the Outline: an Outline with rounded corners builds an Android Path,
+    // which JVM unit tests cannot create.
     @Test fun theGrowingPlayerShowsOnlyItsTopPartWithRoundedTopCorners() {
-        val outline = TopRoundedClip(corner = 40f, height = 180f)
-            .createOutline(Size(1080f, 2400f), LayoutDirection.Ltr, Density(1f)) as Outline.Rounded
-        assertEquals(180f, outline.roundRect.bottom, 0f)
-        assertEquals(1080f, outline.roundRect.right, 0f)
-        assertEquals(40f, outline.roundRect.topLeftCornerRadius.x, 0f)
-        assertEquals(0f, outline.roundRect.bottomLeftCornerRadius.x, 0f)
+        val rect = topRoundedRect(Size(1080f, 2400f), corner = 40f, height = 180f)
+        assertEquals(180f, rect.bottom, 0f)
+        assertEquals(1080f, rect.right, 0f)
+        assertEquals(40f, rect.topLeftCornerRadius.x, 0f)
+        assertEquals(40f, rect.topRightCornerRadius.x, 0f)
+        assertEquals(0f, rect.bottomLeftCornerRadius.x, 0f)
     }
 
     @Test fun theOutlineStaysInsideTheLayerAndItsCornersFitIt() {
-        val tall = TopRoundedClip(corner = 40f, height = 5000f)
-            .createOutline(Size(1080f, 2400f), LayoutDirection.Ltr, Density(1f)) as Outline.Rounded
-        assertEquals(2400f, tall.roundRect.bottom, 0f)
-        val short = TopRoundedClip(corner = 40f, height = 30f)
-            .createOutline(Size(1080f, 2400f), LayoutDirection.Ltr, Density(1f)) as Outline.Rounded
-        assertEquals(15f, short.roundRect.topLeftCornerRadius.x, 0f)
+        assertEquals(2400f, topRoundedRect(Size(1080f, 2400f), corner = 40f, height = 5000f).bottom, 0f)
+        assertEquals(15f, topRoundedRect(Size(1080f, 2400f), corner = 40f, height = 30f).topLeftCornerRadius.x, 0f)
+        assertEquals(0f, topRoundedRect(Size(1080f, 2400f), corner = 40f, height = -10f).bottom, 0f)
     }
 }

@@ -182,10 +182,13 @@ internal fun MorphingCover(morph: PlayerMorph, url: String?) {
  * bottom is square, like the mini player's, which sits on the navigation bar.
  */
 internal class TopRoundedClip(private val corner: Float, private val height: Float) : Shape {
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val bottom = height.coerceIn(0f, size.height)
-        val radius = CornerRadius(corner.coerceIn(0f, bottom / 2f))
-        return Outline.Rounded(RoundRect(0f, 0f, size.width, bottom, topLeftCornerRadius = radius,
-            topRightCornerRadius = radius))
-    }
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
+        Outline.Rounded(topRoundedRect(size, corner, height))
+}
+
+/** [TopRoundedClip]'s rectangle: within the layer, and with corners no larger than half its height. */
+internal fun topRoundedRect(size: Size, corner: Float, height: Float): RoundRect {
+    val bottom = height.coerceIn(0f, size.height)
+    val radius = CornerRadius(corner.coerceIn(0f, bottom / 2f))
+    return RoundRect(0f, 0f, size.width, bottom, topLeftCornerRadius = radius, topRightCornerRadius = radius)
 }
