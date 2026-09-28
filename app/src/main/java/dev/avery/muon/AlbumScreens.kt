@@ -36,7 +36,7 @@ internal fun albumArt(endpoint: ServerEndpoint?, album: LibraryAlbum): String? =
 @Composable
 internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: ServerEndpoint?,
     state: LazyGridState, open: (LibraryAlbum) -> Unit) {
-    if (albums.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+    if (albums.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalUnderBars.current)) {
         item {
             // Full height so the grid can still be pulled down to refresh.
             Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -48,7 +48,7 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
     } else LazyVerticalGrid(GridCells.Adaptive(160.dp), Modifier.fillMaxSize(), state = state,
         // Each tile carries 8 dp of its own padding, so a press lights a box with room around the
         // title; the grid's gaps shrink to match, and the covers sit exactly where they did.
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 8.dp)) {
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 8.dp + LocalUnderBars.current)) {
         items(albums, key = { it.key }, contentType = { "album" }) { album ->
             Column(springyClick("Open album", RoundedCornerShape(24.dp)) { open(album) }.padding(8.dp)) {
                 // The cover that grows into the album page's (motion pass 2).
@@ -75,7 +75,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
     playing: Boolean, ready: Boolean, backLabel: String = "Back to albums", actions: (TauonTrack) -> Unit, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = album?.tracks?.any { it.playable } == true && ready
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
         item(key = "back", contentType = "back") {
             IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
                 .semantics { contentDescription = backLabel }) { MuonIcon("back") }

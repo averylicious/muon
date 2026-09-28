@@ -86,12 +86,12 @@ private val SEARCH_BAR_ROOM = 80.dp
 private fun SearchBrowse(artists: List<LibraryArtist>, albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
     openArtist: (LibraryArtist) -> Unit, openAlbum: (LibraryAlbum) -> Unit, modifier: Modifier) {
     if (artists.isEmpty() && albums.isEmpty()) {
-        Box(modifier.padding(32.dp), contentAlignment = Alignment.Center) {
+        Box(modifier.padding(bottom = LocalUnderBars.current).padding(32.dp), contentAlignment = Alignment.Center) {
             Text("Your collection, one search away.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
-    LazyColumn(modifier, contentPadding = PaddingValues(bottom = 16.dp)) {
+    LazyColumn(modifier, contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
         if (artists.isNotEmpty()) {
             item(key = "artists-label", contentType = "label") { SectionHeading("Artists") }
             item(key = "artists", contentType = "artists") {
@@ -130,7 +130,7 @@ private fun SearchBrowse(artists: List<LibraryArtist>, albums: List<LibraryAlbum
 private fun SearchSuggestions(artists: List<LibraryArtist>, albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
     openArtist: (LibraryArtist) -> Unit, openAlbum: (LibraryAlbum) -> Unit) {
     val suggestions = remember(artists, albums) { searchSuggestions(artists, albums) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
         if (suggestions.isNotEmpty()) item(key = "label", contentType = "label") {
             Text("From your library", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp))

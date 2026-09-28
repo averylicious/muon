@@ -30,7 +30,7 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
     if (tracks.isEmpty() && loading) PlaceholderRows()
     // A list of one full-height item rather than a plain box: an empty library is exactly when a
     // refresh is wanted, and a pull gesture needs something scrollable to pull.
-    else if (tracks.isEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+    else if (tracks.isEmpty()) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalUnderBars.current)) {
         item {
             Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(emptyText, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -43,19 +43,23 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
         // With [sections], the list is alphabetical and its thumb can be grabbed to jump through it.
         val indicator = rememberScrollIndicator(state)
         val grabbable = sections != null
+        // Under glass bars the list runs on behind them; its indicator and letter scroller stop above.
+        val under = LocalUnderBars.current
         Box {
             LazyColumn(Modifier.scrollIndicator(indicator, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 width = if (grabbable) SCROLLER_WIDTH else INDICATOR_WIDTH,
-                minLength = if (grabbable) SCROLLER_MIN_LENGTH else INDICATOR_MIN_LENGTH),
-                state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+                minLength = if (grabbable) SCROLLER_MIN_LENGTH else INDICATOR_MIN_LENGTH, bottomInset = under),
+                state = state, contentPadding = PaddingValues(bottom = 12.dp + under)) {
                 header?.invoke(this)
                 itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
                     TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", playing, ready,
                         Modifier.animateItem(placementSpec = motionSpatial()), actions = actions?.let { { it(t) } }) { play(t) }
                 }
             }
-            if (sections != null) AlphabetScroller(indicator, tracks.size) { i ->
-                tracks.getOrNull(i)?.let(sections).orEmpty()
+            if (sections != null) Box(Modifier.matchParentSize().padding(bottom = under)) {
+                AlphabetScroller(indicator, tracks.size) { i ->
+                    tracks.getOrNull(i)?.let(sections).orEmpty()
+                }
             }
         }
     }

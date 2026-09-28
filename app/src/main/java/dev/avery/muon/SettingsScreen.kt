@@ -68,7 +68,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             scrollBehavior = scrollBehavior,
         )
         Column(Modifier.verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            .padding(horizontal = 16.dp).padding(bottom = 24.dp + LocalUnderBars.current),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // A failed refresh keeps the previous library on screen; this says why it is stale.
             model.error?.let { ErrorCard(it, "Retry", quiet = model.offline, modifier = Modifier) { model.connect() } }

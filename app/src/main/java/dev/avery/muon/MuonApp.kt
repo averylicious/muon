@@ -36,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -714,8 +715,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             ArtworkTheme(ui.item) {
             PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph,
                 // The mini player as the panel starts: its colour and content, in the library's
-                // colours rather than the cover's, exactly as the mini player draws them.
-                miniColor = colors.surfaceVariant, face = {
+                // colours rather than the cover's, exactly as the mini player draws them. Under glass
+                // the mini player is a tint over the blurred list, so the panel starts as that tint
+                // over the background: the nearest solid colour, without the blur it cannot carry.
+                miniColor = if (frost != null) colors.surfaceVariant.copy(alpha = barTint).compositeOver(colors.background)
+                    else colors.surfaceVariant, face = {
                     MaterialTheme(colorScheme = colors) {
                         CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) {
                             // Its cover shows until the flying one takes over, which needs Now
