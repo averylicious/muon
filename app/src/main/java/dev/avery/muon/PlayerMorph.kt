@@ -16,6 +16,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.lerp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
@@ -38,14 +39,25 @@ internal val MINI_PLAYER_CORNER: Dp = 16.dp
 internal val MINI_COVER_CORNER: Dp = 10.dp
 internal val NOW_PLAYING_COVER_CORNER: Dp = 24.dp
 
-/** How much of the opening it takes the growing player to become opaque over the mini player. */
-private const val MORPH_SHEET_FADE = 0.18f
+/** How much of the opening it takes the panel's colour to turn from the mini player's to Now Playing's. */
+private const val MORPH_COLOR_SPAN = 0.35f
+/** How much of the opening it takes the mini player's own content to fade from the panel. */
+private const val MORPH_FACE_FADE = 0.25f
 /** When, during the opening, Now Playing's controls fade in, as fractions of the way open. */
 private const val MORPH_CONTENT_FROM = 0.2f
 private const val MORPH_CONTENT_SPAN = 0.5f
 
-/** The growing player's opacity when it is [open] of the way open: it fades in over the mini player. */
-internal fun morphSheetAlpha(open: Float): Float = (open / MORPH_SHEET_FADE).coerceIn(0f, 1f)
+/**
+ * How far the panel's colour, and the blurred cover behind Now Playing, have come from the mini
+ * player's when the player is [open] of the way open: eased at both ends, so neither end jumps.
+ */
+internal fun morphColorProgress(open: Float): Float {
+    val x = (open / MORPH_COLOR_SPAN).coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
+}
+
+/** The mini player's own content in the growing panel, fading out as Now Playing fades in. */
+internal fun morphFaceAlpha(open: Float): Float = (1f - open / MORPH_FACE_FADE).coerceIn(0f, 1f)
 
 /**
  * How far the flying cover has come when the player is [open] of the way open: eased out, so it
@@ -70,9 +82,11 @@ internal fun morphTravel(miniTop: Float, topInset: Float): Float? = (miniTop - t
 /**
  * The mini player growing into Now Playing, and shrinking back into it (the Canary experiment, with
  * Expressive motion on): Material's container transform. The player no longer rises from below the
- * screen as a separate sheet. It starts as the mini player's own rectangle and grows to the whole
- * screen, fading in over the mini player as it goes, while the cover flies from the mini player's
- * thumbnail to its place in Now Playing and the rest of Now Playing fades in behind it.
+ * screen as a separate sheet: the mini player itself becomes the player. The panel starts as the mini
+ * player's own rectangle, in its colour and showing its content (the real mini player steps aside
+ * meanwhile), and grows to the whole screen. As it grows its colour turns into Now Playing's, the mini
+ * player's content fades out and Now Playing's fades in, and the cover flies from the thumbnail to its
+ * place in Now Playing. There is never a second panel fading in over the first.
  *
  * The sheet's one position ([PlayerSheet.position]) still drives everything, so opening, closing, the
  * drag up from the mini player and the drag down from the player's bar all morph, and following a
@@ -110,6 +124,42 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
         val root = root.live() ?: return null
         val mini = mini.live() ?: return null
         return lerp(root.localBoundingBoxOf(mini, clipBounds = false).bottom, root.size.height.toFloat(), open)
+    }
+
+    /** How far open the player is while it grows out of the mini player, or null if it is not doing that. */
+    private fun growth(): Float? {
+        val position = sheet.position.value
+        if (position <= 0f || travel() == null) return null
+        return 1f - position
+    }
+
+    /**
+     * Whether the panel grown from the mini player is on screen, so the mini player itself should step
+     * aside: the panel is the mini player until it has grown. Only once the panel has been laid out,
+     * so there is never a frame with neither.
+     */
+    fun covering(): Boolean = sheet.position.value < 1f && travel() != null && body.live() != null
+
+    /** The panel's colour: the mini player's [from] turning into Now Playing's [to] as it grows. */
+    fun panelColor(from: Color, to: Color): Color {
+        val open = growth() ?: return to
+        return androidx.compose.ui.graphics.lerp(from, to, morphColorProgress(open))
+    }
+
+    /** The mini player's own content in the panel: shown only while the panel is growing out of it. */
+    fun faceAlpha(): Float = growth()?.let(::morphFaceAlpha) ?: 0f
+
+    /** The blurred cover behind Now Playing, arriving with Now Playing's colour. */
+    fun backdropAlpha(): Float = growth()?.let(::morphColorProgress) ?: 1f
+
+    /**
+     * How much of the dimming shows: all of it while the player rises from below as before, and in
+     * proportion to how far it has grown when it grows out of the mini player, so a drag that has
+     * barely begun, or has come back down, dims nothing.
+     */
+    fun scrimFactor(): Float {
+        if (travel() == null) return 1f
+        return 1f - sheet.position.value
     }
 
     /** Now Playing's controls' opacity: fading in while the player grows, and fully shown otherwise. */

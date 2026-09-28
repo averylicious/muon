@@ -410,10 +410,10 @@ internal fun Modifier.playerSheet(state: PlayerSheet, insets: WindowInsets, edge
             val bottom = morph?.bottom(open)
             if (bottom != null) {
                 // Growing out of the mini player (PlayerMorph): only the part down to the growing
-                // bottom edge shows, its corners start as the mini player's, and it fades in over it.
+                // bottom edge shows, and its corners start as the mini player's. It is opaque from
+                // the start: it is the mini player, not something fading in over it.
                 val corner = minOf(dropped, lerp(MINI_PLAYER_CORNER.toPx(), PLAYER_SHEET_CORNER.toPx(), open))
                 shape = TopRoundedClip(corner, bottom - dropped)
-                alpha = morphSheetAlpha(open)
             } else {
                 val corner = minOf(dropped, PLAYER_SHEET_CORNER.toPx())
                 shape = RoundedCornerShape(topStart = corner, topEnd = corner)
