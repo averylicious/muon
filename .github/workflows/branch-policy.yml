@@ -1,0 +1,33 @@
+name: Branch policy
+
+on:
+  pull_request:
+    branches: [main, claude/m3-expressive-alpha]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  direction:
+    name: Branch direction
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify branch policy logic
+        run: python3 -m unittest discover -s tools -p test_ci_branch_policy.py
+      - name: Check destination and ancestry
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_SOURCE: ${{ github.event.pull_request.head.ref }}
+        run: python3 tools/check_branch_policy.py --base "$PR_BASE" --head "$PR_HEAD" --source "$PR_SOURCE"

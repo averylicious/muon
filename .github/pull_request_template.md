@@ -2,6 +2,13 @@
 
 <!-- Describe the problem and resulting behavior. Keep scope and explanation proportional to the change. -->
 
+## Integration
+
+- Track / destination: <!-- main audit or Expressive experiment -->
+- Destination commit included in this head: <!-- full SHA; refresh before merging -->
+- Cross-track source / follow-up: <!-- source PR/commit for a port; forward-sync needed, already applied, or not applicable -->
+- Shared contracts affected: <!-- settings/schema, storage, playback/API or build/CI changes; None if not affected -->
+
 ## Agent attribution
 
 - Implementation: <!-- actual model; tool/client; effort if known -->
