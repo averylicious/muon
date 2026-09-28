@@ -69,6 +69,16 @@ internal fun morphFlight(open: Float): Float {
     return 1f - left * left
 }
 
+/**
+ * Where the flying cover is: its place in the panel, measured from the panel's top edge, moving from
+ * the thumbnail's [from] to Now Playing's [to], drawn at the panel's current [edge]. Measured from the
+ * edge, the cover rises with the panel from the first pixel. Measured from the screen, it headed
+ * straight for where Now Playing's cover would end up, which starts far below the little panel, so
+ * early in a drag it sank and was clipped by the panel's bottom instead of rising.
+ */
+internal fun morphCoverRect(from: Rect, to: Rect, edge: Float, open: Float): Rect =
+    lerp(from, to, morphFlight(open)).translate(0f, edge)
+
 /** Now Playing's controls' opacity when the player is [open] of the way open. */
 internal fun morphContentAlpha(open: Float): Float = ((open - MORPH_CONTENT_FROM) / MORPH_CONTENT_SPAN).coerceIn(0f, 1f)
 
@@ -187,10 +197,13 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
         // The player's content moves with its layer's translation, which is worked out here exactly as
         // the layer itself works it out (Modifier.playerSheet), so the cover lands where it is drawn.
         val edge = playerSheetEdgeDrop(position * travel, topInset)
-        val from = root.localBoundingBoxOf(miniCover, clipBounds = false)
-        val to = body.localBoundingBoxOf(cover, clipBounds = false).translate(0f, edge)
-        val bottom = lerp(root.localBoundingBoxOf(mini, clipBounds = false).bottom, root.size.height.toFloat(), open)
-        return MorphFrame(lerp(from, to, morphFlight(open)), open, edge, bottom)
+        val miniBox = root.localBoundingBoxOf(mini, clipBounds = false)
+        // Both covers measured from the panel's top edge: the thumbnail from the mini player's top,
+        // where the edge starts, and Now Playing's from the top of the player's content.
+        val from = root.localBoundingBoxOf(miniCover, clipBounds = false).translate(0f, -miniBox.top)
+        val to = body.localBoundingBoxOf(cover, clipBounds = false)
+        val bottom = lerp(miniBox.bottom, root.size.height.toFloat(), open)
+        return MorphFrame(morphCoverRect(from, to, edge, open), open, edge, bottom)
     }
 
     /** Hides the mini player's own cover while the flying one stands in for it. */

@@ -1,8 +1,10 @@
 package dev.avery.muon
 
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerMorphTest {
@@ -41,6 +43,17 @@ class PlayerMorphTest {
         assertEquals(1f, morphFlight(1f), 0f)
         assertEquals(0.75f, morphFlight(0.5f), 1e-6f)
         assertEquals(1f, morphFlight(1.5f), 0f)
+    }
+
+    @Test fun theCoverRisesWithThePanelFromTheThumbnailToNowPlaying() {
+        val thumbnail = Rect(30f, 26f, 156f, 152f)        // from the mini player's top
+        val nowPlaying = Rect(42f, 300f, 1038f, 1296f)    // from the player's top
+        // Closed, it is the thumbnail where the mini player is; open, Now Playing's cover.
+        assertEquals(thumbnail.translate(0f, 2000f), morphCoverRect(thumbnail, nowPlaying, edge = 2000f, open = 0f))
+        assertEquals(nowPlaying, morphCoverRect(thumbnail, nowPlaying, edge = 0f, open = 1f))
+        // A little way up a drag it has risen with the panel, not sunk towards Now Playing's place.
+        val early = morphCoverRect(thumbnail, nowPlaying, edge = 1900f, open = 0.05f)
+        assertTrue(early.top < thumbnail.top + 2000f)
     }
 
     // The rectangle rather than the Outline: an Outline with rounded corners builds an Android Path,
