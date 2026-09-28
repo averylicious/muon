@@ -69,6 +69,7 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
 internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean, ready: Boolean,
     modifier: Modifier = Modifier, subtitle: String = trackSubtitle(t.artist, t.album, t.playable),
     actions: (() -> Unit)? = null, play: () -> Unit) {
+    if (Expressive.motion) { ExpressiveTrackRow(t, endpoint, current, playing, ready, modifier, subtitle, actions, play); return }
     val colors = MaterialTheme.colorScheme
     Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
         .padding(horizontal = 12.dp)
@@ -82,13 +83,7 @@ internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean
         .padding(horizontal = 12.dp, vertical = 8.dp)
         .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
         verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            Artwork(endpoint?.url("/api1/pic/medium/${t.id}"), Modifier.fillMaxSize())
-            if (current) {
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
-                NowPlayingBars(playing, color = Color.White)
-            }
-        }
+        TrackCover(t, endpoint, current, playing)
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
             Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (current) colors.onSecondaryContainer else colors.onSurface,
@@ -105,6 +100,61 @@ internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean
             color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant, textAlign = TextAlign.End,
             maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
         DownloadBadge(downloadMark(endpoint, t))
+    }
+}
+
+/** A song's cover, with the equalizer over it while it is the current song. */
+@Composable
+private fun TrackCover(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean) {
+    Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+        Artwork(endpoint?.url("/api1/pic/medium/${t.id}"), Modifier.fillMaxSize())
+        if (current) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
+            NowPlayingBars(playing, color = Color.White)
+        }
+    }
+}
+
+/**
+ * [TrackRow] as Material 3 Expressive's list item (the Canary experiment): the same cover, lines,
+ * length and download mark, and the current song on the same tonal surface, but the row's corners
+ * morph while it is pressed. It uses the plain click overload, which adds no semantics of its own,
+ * so a song is still announced as a song ("Now playing" on the current one), not as a radio button.
+ * A row that cannot play keeps its colours, as the hand-built row did.
+ */
+@Composable
+private fun ExpressiveTrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean,
+    ready: Boolean, modifier: Modifier, subtitle: String, actions: (() -> Unit)?, play: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val ground = if (current) colors.secondaryContainer else Color.Transparent
+    val ink = if (current) colors.onSecondaryContainer else colors.onSurface
+    val quiet = if (current) colors.onSecondaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant
+    ListItem(onClick = play, enabled = t.playable && ready,
+        // A long press opens the song's actions (#46).
+        onLongClick = actions, onLongClickLabel = if (actions != null) "Song actions" else null,
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp)
+            .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
+        shapes = ListItemDefaults.shapes(shape = RoundedCornerShape(16.dp)),
+        colors = ListItemDefaults.colors(containerColor = ground, contentColor = ink,
+            supportingContentColor = quiet, trailingContentColor = quiet,
+            disabledContainerColor = ground, disabledContentColor = ink,
+            disabledSupportingContentColor = quiet, disabledTrailingContentColor = quiet,
+            disabledLeadingContentColor = ink),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        leadingContent = { TrackCover(t, endpoint, current, playing) },
+        // An untagged file has nothing to say here, so the line is left out.
+        supportingContent = if (subtitle.isEmpty()) null else {
+            { Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.End,
+                    maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
+                DownloadBadge(downloadMark(endpoint, t))
+            }
+        }) {
+        Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
     }
 }
 
