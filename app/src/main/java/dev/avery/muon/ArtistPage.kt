@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.carousel.CarouselParallaxScrollEffectState
+import androidx.compose.material3.carousel.carouselParallaxScrollEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -65,11 +67,7 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
         if (albums.isNotEmpty()) {
             item(key = "albums-label", contentType = "label") { SectionHeading("Albums") }
             item(key = "albums", contentType = "albums") {
-                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-                    items(albums, key = { it.key }, contentType = { "album" }) { album ->
-                        AlbumTile(album, endpoint) { openAlbum(album) }
-                    }
-                }
+                AlbumRow(albums, endpoint, open = openAlbum)
             }
         }
         item(key = "songs-label", contentType = "label") { SectionHeading("Songs") }
@@ -94,15 +92,43 @@ internal fun SectionHeading(text: String) {
         modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 8.dp).semantics { heading() })
 }
 
-/** One album in a row of them: its cover, title and a line under it, opening the whole album. */
+/**
+ * A sideways row of albums, on an artist's page and in search results. With Expressive motion on,
+ * each cover slides a little slower than the row inside its rounded frame as it nears either edge
+ * (Material's `carouselParallaxScrollEffect`, the multi-aspect carousel's look on an ordinary row),
+ * so the row reads as a carousel. Only the cover moves: the title under it stays put and readable.
+ * [subtitle] replaces the song count under each title when given.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AlbumRow(albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
+    subtitle: ((LibraryAlbum) -> String)? = null, open: (LibraryAlbum) -> Unit) {
+    val state = rememberLazyListState()
+    val parallax = remember(state) { CarouselParallaxScrollEffectState(state) }
+    val moving = Expressive.motion
+    LazyRow(state = state, contentPadding = PaddingValues(horizontal = 12.dp)) {
+        itemsIndexed(albums, key = { _, album -> album.key }, contentType = { _, _ -> "album" }) { index, album ->
+            val cover = if (moving) Modifier.carouselParallaxScrollEffect(index, parallax, COVER_SHAPE) else Modifier
+            if (subtitle == null) AlbumTile(album, endpoint, cover = cover) { open(album) }
+            else AlbumTile(album, endpoint, subtitle = subtitle(album), cover = cover) { open(album) }
+        }
+    }
+}
+
+private val COVER_SHAPE = RoundedCornerShape(16.dp)
+
+/**
+ * One album in a row of them: its cover, title and a line under it, opening the whole album. [cover]
+ * goes on the cover only, outside its shared-element hand-off, for [AlbumRow]'s parallax.
+ */
 @Composable
 internal fun AlbumTile(album: LibraryAlbum, endpoint: ServerEndpoint?,
     subtitle: String = "${album.tracks.size} ${if (album.tracks.size == 1) "song" else "songs"}",
-    modifier: Modifier = Modifier.width(164.dp), open: () -> Unit) {
+    modifier: Modifier = Modifier.width(164.dp), cover: Modifier = Modifier, open: () -> Unit) {
     // Padded inside its own press box, so a press lights room around the title as well as the cover.
     Column(modifier.then(springyClick("Open album", RoundedCornerShape(24.dp), open)).padding(8.dp)) {
-        Artwork(albumArt(endpoint, album), sharedPicture(albumPictureKey(album.key))
-            .fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
+        Artwork(albumArt(endpoint, album), cover.then(sharedPicture(albumPictureKey(album.key)))
+            .fillMaxWidth().aspectRatio(1f).clip(COVER_SHAPE))
         Text(albumLabel(album.title), style = MaterialTheme.typography.titleSmall, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, top = 8.dp))
         Text(subtitle, overflow = TextOverflow.Ellipsis,

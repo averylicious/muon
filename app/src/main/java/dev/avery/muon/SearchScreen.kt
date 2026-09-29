@@ -203,11 +203,7 @@ internal fun LazyListScope.searchCollection(artists: List<LibraryArtist>, albums
     if (albums.isNotEmpty()) {
         item(key = "search:albums", contentType = "label") { SectionHeading("Albums") }
         item(key = "search:album-row", contentType = "albums") {
-            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-                items(albums, key = { it.key }, contentType = { "album" }) { album ->
-                    AlbumTile(album, endpoint, subtitle = artistLabel(displayCredits(album.artist))) { openAlbum(album) }
-                }
-            }
+            AlbumRow(albums, endpoint, subtitle = { artistLabel(displayCredits(it.artist)) }, open = openAlbum)
         }
     }
     item(key = "search:songs", contentType = "label") { SectionHeading("Songs") }
