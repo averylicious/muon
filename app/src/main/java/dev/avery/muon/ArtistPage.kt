@@ -35,7 +35,7 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
     playAll: (shuffle: Boolean) -> Unit, openAlbum: (LibraryAlbum) -> Unit, play: (TauonTrack) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = artist?.tracks?.any { it.playable } == true && ready
-    LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 16.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
         item(key = "back", contentType = "back") {
             IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
                 .semantics { contentDescription = backLabel }) { MuonIcon("back") }

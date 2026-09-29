@@ -1,5 +1,7 @@
 package dev.avery.muon
 
+import android.os.Build
+import androidx.compose.ui.platform.LocalLayoutDirection
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -34,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -371,6 +374,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // under the player as it rises, and behind the song menu. Draw phase only (BlurBehind.kt).
             val menuBlur by animateFloatAsState(if (actionTrack != null) 1f else 0f, motionMedium(), label = "menu blur")
             val behind = Modifier.blurBehind(sheet) { menuBlur }
+            // Frosted glass (FrostedGlass.kt): with the experiment's blur on, Android 12 or newer and
+            // the bars along the bottom, the mini player and navigation bar show the tab under them,
+            // blurred, and the lists scroll on underneath. Otherwise the bars stay solid, as before.
+            val glass = rememberFrost()
+            val frost = if (connected && frostedGlassOn(Expressive.blur, Build.VERSION.SDK_INT, rail)) glass else null
+            val barTint = if (frost != null) GLASS_TINT else 1f
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
             // out of the accessibility tree, so TalkBack cannot wander into hidden content.
             // A rising preview obscures them just the same, so they leave the tree for it too, and
@@ -415,8 +424,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         else ScaffoldDefaults.contentWindowInsets, bottomBar = {
                     // Without the navigation bar under it, the mini player keeps clear of the system
                     // bars itself; the bottom one, and the end one where three-button navigation sits.
-                    Column(if (rail) Modifier.windowInsetsPadding(
-                        WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier) {
+                    Column((if (rail) Modifier.windowInsetsPadding(
+                        WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier)
+                        .frostedBehind(frost, backdrop = colors.background)) {
                         // Sideways, the player is a panel beside the list instead (mockup B).
                         // With Expressive motion it stays while the player is open, since the player grows
                         // out of it and shrinks back into it (PlayerMorph); the player covers it meanwhile.
@@ -432,20 +442,21 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 },
                                 toggle = { if (ui.playing) player?.pause() else player?.play() },
                                 next = { player?.seekToNextMediaItem() },
-                                previous = { player?.seekToPreviousMediaItem() }, morph = morph)
+                                previous = { player?.seekToPreviousMediaItem() }, morph = morph,
+                                color = colors.surfaceVariant.copy(alpha = barTint))
                         }
                         AnimatedVisibility(visible = connected && !rail,
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
                             // The Canary experiment: Material 3 Expressive's flexible navigation bar,
                             // shorter, with a pill behind the chosen tab's icon.
-                            if (Expressive.motion) ShortNavigationBar(containerColor = colors.background) {
+                            if (Expressive.motion) ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint)) {
                                 Tab.entries.forEach { destination ->
                                     ShortNavigationBarItem(selected = tab == destination,
                                         onClick = { tab = destination; fromSearch = false },
                                         icon = { TabIcon(destination) }, label = { Text(destination.name) })
                                 }
-                            } else NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
+                            } else NavigationBar(containerColor = colors.background.copy(alpha = barTint), tonalElevation = 0.dp) {
                                 Tab.entries.forEach { destination ->
                                     NavigationBarItem(selected = tab == destination,
                                         onClick = { tab = destination; fromSearch = false },
@@ -455,7 +466,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         }
                     }
                 }) { padding ->
-                    Column(Modifier.padding(padding).fillMaxSize()) {
+                    // Under glass the content runs to the bottom, behind the bars, and each list adds the
+                    // bars' height to its own end padding instead (LocalUnderBars), so its last row can
+                    // still scroll clear of them.
+                    val direction = LocalLayoutDirection.current
+                    CompositionLocalProvider(LocalUnderBars provides if (frost != null) padding.calculateBottomPadding() else 0.dp) {
+                    Column(Modifier.frostSource(frost)
+                        .then(if (frost != null) Modifier.padding(start = padding.calculateStartPadding(direction),
+                            top = padding.calculateTopPadding(), end = padding.calculateEndPadding(direction))
+                            else Modifier.padding(padding))
+                        .fillMaxSize()) {
                         AnimatedVisibility(controllerError != null,
                             enter = expandVertically(motionSpatialFull()) + fadeIn(motionShort()),
                             exit = shrinkVertically(motionSpatialFull()) + fadeOut(motionShort())) {
@@ -638,6 +658,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             }
                         }
                     }
+                    }
                 }
                 // A phone on its side: the player sits beside the list rather than under it
                 // (mockup B), clear of the status bar, the navigation bar and a side cutout.
@@ -694,8 +715,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             ArtworkTheme(ui.item) {
             PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph,
                 // The mini player as the panel starts: its colour and content, in the library's
-                // colours rather than the cover's, exactly as the mini player draws them.
-                miniColor = colors.surfaceVariant, face = {
+                // colours rather than the cover's, exactly as the mini player draws them. Under glass
+                // the mini player is a tint over the blurred list, so the panel starts as that tint
+                // over the background: the nearest solid colour, without the blur it cannot carry.
+                miniColor = if (frost != null) colors.surfaceVariant.copy(alpha = barTint).compositeOver(colors.background)
+                    else colors.surfaceVariant, face = {
                     MaterialTheme(colorScheme = colors) {
                         CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) {
                             // Its cover shows until the flying one takes over, which needs Now

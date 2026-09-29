@@ -25,10 +25,10 @@ This branch, `claude/m3-expressive-alpha`, tries Material 3 Expressive on Muon C
 - **Blur** covers two things:
   - Now Playing sits on its song's cover, blurred and stretched behind the whole player under a veil of the cover-tinted background, so each song glows in its own colours. It is blurred once per song on a 40 px copy, so it costs nothing per frame and works on every Android version. Pure black keeps its black player.
   - The library blurs behind the player in proportion to how far the player has risen, and behind the song actions sheet. This part needs Android 12 or newer.
+  - The mini player and the navigation bar are frosted glass: the lists scroll on underneath them, and the covers show through blurred, under the bars' own colours at 80% (`FrostedGlass.kt`). Compose has no backdrop blur, so the tab content records itself into a layer, and the bars draw that layer, moved to where they sit and blurred, behind themselves. Each list adds the bars' height to its own end padding so its last row still scrolls clear, and the scroll indicator and A–Z scroller stop above the bars. Limits: Android 12 or newer, portrait only (sideways the rail and side panel stay solid), and one GPU blur pass per frame while the bars are shown. The player's morph starts from the tint over the background, the nearest solid colour, since the panel cannot carry the blur. The song menu is not frosted.
 
 ## Known limits
 
 - The library blur is Compose's `RenderEffect` on the library's own layer, not the system's cross-window blur, so it matches Android 17's look rather than reproducing SystemUI's tuning. It costs a GPU pass per frame while the player is up; watch for dropped frames on the Poco.
 - Alpha APIs can change or vanish before 1.5.0 is stable. Anything adopted from here needs re-checking against the stable artifact.
 - With Expressive motion on, a Settings switch row is announced as a switch, but the rows no longer carry the custom click labels ("Refresh library", "Disconnect") that the hand-built rows had.
-- Frosted glass for the mini player, the tab bar and the song menu (the list's covers blurring through them) is not built yet. Compose has no built-in backdrop blur, so it needs a small layer-recording helper of our own.

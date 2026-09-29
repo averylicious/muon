@@ -55,7 +55,7 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     // Mockup 17: a tinted page with the bold greeting — the one deliberate exception to the app's
     // medium titles — then the address card, what was found on this network, and what is on this phone.
     Column(Modifier.fillMaxSize().background(colors.surfaceContainer).verticalScroll(rememberScrollState())
-        .padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+        .padding(horizontal = 16.dp).padding(bottom = 24.dp + LocalUnderBars.current)) {
         Text("Bring your\nlibrary along.", style = MaterialTheme.typography.screenTitle, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 40.dp))
         Text("Play your Tauon library on this phone, over your own network.",

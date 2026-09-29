@@ -263,7 +263,7 @@ internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T
 internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, state: LazyListState,
     tracks: Map<String, List<TauonTrack>> = emptyMap(), endpoint: ServerEndpoint? = null, open: (String) -> Unit) {
     val listed = playlists.filter { it.count > 0 }
-    if (listed.isEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+    if (listed.isEmpty()) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalUnderBars.current)) {
         item {
             // Full height so the list can still be pulled down to refresh.
             Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -273,7 +273,8 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, stat
             }
         }
     } else LazyColumn(Modifier.fillMaxSize().scrollIndicator(rememberScrollIndicator(state),
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), bottomInset = LocalUnderBars.current), state = state,
+        contentPadding = PaddingValues(bottom = 12.dp + LocalUnderBars.current)) {
         items(listed, key = { it.id }, contentType = { "playlist" }) { playlist ->
             ListItem(
                 headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -309,7 +310,7 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, stat
 @Composable
 internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: LazyListState,
     endpoint: ServerEndpoint? = null, open: (LibraryArtist) -> Unit) {
-    if (artists.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+    if (artists.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalUnderBars.current)) {
         item {
             // Full height so the list can still be pulled down to refresh.
             Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -319,7 +320,8 @@ internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: 
             }
         }
     } else LazyColumn(Modifier.fillMaxSize().scrollIndicator(rememberScrollIndicator(state),
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), bottomInset = LocalUnderBars.current), state = state,
+        contentPadding = PaddingValues(bottom = 12.dp + LocalUnderBars.current)) {
         items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
             ListItem(
                 headlineContent = {
