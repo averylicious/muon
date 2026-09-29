@@ -2,7 +2,7 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-30, network audit review, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-30-private-service.md) for exact review/CI evidence._
+_Last updated: 2026-09-30, controller fix and private-service QA, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-30-private-service.md) for exact review/CI evidence._
 
 ## Where things are
 

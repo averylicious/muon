@@ -2,7 +2,7 @@
 
 ## Ownership and scope
 
-GPT-6 Astra (Codex desktop; effort not reported) owns `codex/private-playback-service` in the isolated main-audit worktree. This slice addresses N1 and Q4 from [Sonnet's network audit](../audits/2026-09-30-network-entry-points.md), reviewed and merged as #203 at `916a50597b4577bea2ffcb192bcd14e525b0b30d`. N2's separate controller policy is #204; inspect its latest head and result. No Claude session, experimental checkout, phone or network configuration is touched.
+GPT-6 Astra (Codex desktop; effort not reported) owns `codex/private-playback-service` in the isolated main-audit worktree. This slice addresses N1 and Q4 from [Sonnet's network audit](../audits/2026-09-30-network-entry-points.md), reviewed and merged as #203 at `916a50597b4577bea2ffcb192bcd14e525b0b30d`. N2's separate controller policy is #204, now merged at `4fd3af9373bfa232e637c06e9705dae49b9b8fe1`; its exact-head run 362 passed all 387 tests per variant, lint and APK checks. This branch includes that merge. No Claude session, experimental checkout, phone or network configuration is touched.
 
 ## Change and compatibility boundary
 
@@ -37,3 +37,10 @@ The main-track artifact updates the same Canary package; it can replace experime
 Check #204 and this PR, current main, exact-head checks and the latest #181 comment. Preserve clean branch boundaries and the user-owned experimental checkout. If main moves, merge it into this branch, reconcile checkpoint pointers and rerun CI before landing. The production N1 change and export gate must travel together. Forward integration goes through a separate tested experimental PR; its owner lands it.
 
 N3 request deadlines/cancellation is the next independent code slice. Q1 discovery/remembered-address behavior remains a product decision. Existing offline-card preservation work (#179) remains unresolved. No active local test/build, Claude or device process is needed to resume these commits.
+
+## Recorded boundary before refreshed CI
+
+- Open PR: [#205](https://github.com/averylicious/muon/pull/205). Initial head `b32494a2fed30e0d03f27587c4b3c5d69cba233d` passed [run 360](https://github.com/averylicious/muon/actions/runs/36602311933), including the packaged export gate on both signed variants. That initial artifact lacked #204.
+- Main `4fd3af9373bfa232e637c06e9705dae49b9b8fe1` is incorporated; only the three latest-checkpoint links conflicted, resolved to this handoff while retaining both implementation histories. The updated combined head needs fresh CI; its result/artifact is recorded on #205 and #181.
+- #202's CI fix is merged and published as main-track Canary .356. #203's report is merged; main run 358 passed the lightweight path with no APK. #204's main publication is a separate run to verify, not implied by its branch result.
+- Astra's checkout is clean when committed/pushed; no Claude or device task is active. This PR stays open for the compatibility gate. A successor starts from current GitHub heads/checks and this checkpoint, not old account quota percentages.
