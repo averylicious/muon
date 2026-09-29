@@ -14,6 +14,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -59,9 +60,14 @@ internal fun BoxScope.PageToolbar(state: LazyListState, actionsIndex: Int, enabl
         exit = fadeOut(motionShort()) + scaleOut(motionShort(), targetScale = 0.8f) +
             slideOutVertically(motionShort()) { it / 2 },
         label = "page toolbar") {
-        HorizontalFloatingToolbar(expanded = true, colors = FloatingToolbarDefaults.vibrantFloatingToolbarColors(),
+        // Vibrant, but with Play in the primary colour every other Play button in Muon wears; Material's
+        // own vibrant button is tertiary, which on the Pixel read as a mustard stranger beside it.
+        val colors = MaterialTheme.colorScheme
+        HorizontalFloatingToolbar(expanded = true, colors = FloatingToolbarDefaults.vibrantFloatingToolbarColors(
+            fabContainerColor = colors.primary, fabContentColor = colors.onPrimary),
             floatingActionButton = {
                 FloatingToolbarDefaults.VibrantFloatingActionButton(onClick = { playAll(false) },
+                    containerColor = colors.primary, contentColor = colors.onPrimary,
                     modifier = Modifier.semantics { contentDescription = "Play" }) { MuonIcon("play") }
             }) {
             IconButton(onClick = back, modifier = Modifier.semantics { contentDescription = backLabel }) { MuonIcon("back") }
