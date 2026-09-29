@@ -51,10 +51,10 @@ internal fun rememberFrost(): Frost {
 internal fun frostedGlassOn(blur: Boolean, sdk: Int, sideways: Boolean): Boolean = blur && sdk >= 31 && !sideways
 
 /** How much of the bars' own colour lies over the blur: enough to read them, not so much it looks solid. */
-internal const val GLASS_TINT = 0.8f
+internal const val GLASS_TINT = 0.65f
 
 /** How strongly the content blurs under the bars. */
-internal val GLASS_BLUR: Dp = 24.dp
+internal val GLASS_BLUR: Dp = 32.dp
 
 /**
  * The room at the bottom a scrolling list leaves for the bars when they are glass, so its last row can
@@ -96,3 +96,6 @@ internal fun Modifier.frostedBehind(frost: Frost?, backdrop: Color, radius: Dp =
         clipRect { drawLayer(frost.blurred) }
     }
 }
+
+/** Extra room above the navigation bar's pill, beyond Material's flexible bar's own. */
+internal val NAV_BAR_TOP_ROOM: Dp = 6.dp

@@ -450,7 +450,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
                             // The Canary experiment: Material 3 Expressive's flexible navigation bar,
                             // shorter, with a pill behind the chosen tab's icon.
-                            if (Expressive.motion) ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint)) {
+                            // 6 dp more room above the pill than the flexible bar's own: with no edge to the
+                            // glass, its tight top made the bar look cut short (the user's layout-bounds
+                            // check on the Pixel). Added as an inset, so the bar's tint covers it.
+                            if (Expressive.motion) ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint),
+                                windowInsets = ShortNavigationBarDefaults.windowInsets.add(WindowInsets(top = NAV_BAR_TOP_ROOM))) {
                                 Tab.entries.forEach { destination ->
                                     ShortNavigationBarItem(selected = tab == destination,
                                         onClick = { tab = destination; fromSearch = false },
