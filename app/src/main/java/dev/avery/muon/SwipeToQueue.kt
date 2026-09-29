@@ -97,12 +97,10 @@ internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifie
                 var dy = 0f
                 var swiping = false
                 while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    val change = event.changes.firstOrNull { it.id == down.id }
-                    if (change == null) { android.util.Log.d("MuonSwipe", "no change for ${down.id}: ${event.changes.map { it.id }}"); break }
+                    val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                        .firstOrNull { it.id == down.id } ?: break
                     if (!change.pressed) {
                         // Let go: past the threshold, the song is queued.
-                        android.util.Log.d("MuonSwipe", "up swiping=$swiping offset=$offset width=$width queue=${currentQueue != null} action=${swipeQueueAction(offset, width)}")
                         if (swiping) {
                             change.consume()
                             swipeQueueAction(offset, width)?.let { currentQueue?.invoke(currentTrack, it) }
@@ -113,7 +111,7 @@ internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifie
                     if (!swiping) {
                         dx += moved.x
                         dy += moved.y
-                        if (abs(dy) > slop && abs(dy) >= abs(dx)) { android.util.Log.d("MuonSwipe", "vertical"); break }
+                        if (abs(dy) > slop && abs(dy) >= abs(dx)) break
                         if (abs(dx) <= slop) continue
                         swiping = true
                         change.consume()

@@ -63,6 +63,8 @@ private enum class Tab { Library, Search, Settings }
 fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryModel = viewModel(),
     darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme()) {
     val appearance = rememberAppearanceSettings()
+    // The controller as it is now, for callbacks that outlive the composition that made them.
+    val currentPlayer by rememberUpdatedState(player)
     MuonTheme(darkTheme = darkTheme, dynamicColor = appearance.palette == PaletteChoice.MaterialYou,
         blackSurfaces = useBlackSurfaces(appearance.amoled, darkTheme)) {
         val colors = MaterialTheme.colorScheme
@@ -345,9 +347,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // order keeps both there with shuffle on. With nothing queued, the song simply plays. Undo
         // takes back that same entry, found again if the queue has moved since.
         fun queueSong(track: TauonTrack, next: Boolean) {
-            android.util.Log.d("MuonSwipe", "queueSong ${track.id} next=$next endpoint=${model.endpoint != null} player=${player != null}")
             val endpoint = model.endpoint ?: return
-            val p = player ?: return
+            val p = currentPlayer ?: return
             val item = track.mediaItem(endpoint)
             if (p.mediaItemCount == 0) { p.setMediaItems(listOf(item)); p.prepare(); p.play(); return }
             val at = if (next) p.currentMediaItemIndex + 1 else p.mediaItemCount
@@ -361,7 +362,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 entries.minByOrNull { kotlin.math.abs(it - at) }?.let { p.removeMediaItem(it) }
             }
         }
-        // One lambda for the whole composition, so providing it to the rows never recomposes them.
+        // One lambda for the whole composition, so providing it to the rows never recomposes them. The
+        // compiler memoizes `::queueSong` itself, so a copy made before the player connected can be the
+        // one called; queueSong reads the player through [currentPlayer] so even that copy finds it
+        // (on the Pixel, .351, a swipe's queueSong saw no player and did nothing).
         val latestQueueSong by rememberUpdatedState(::queueSong)
         val queueFromSwipe = remember { { track: TauonTrack, next: Boolean -> latestQueueSong(track, next) } }
         // Go to album and Go to artist open the page over the one on show: an album over an open artist
