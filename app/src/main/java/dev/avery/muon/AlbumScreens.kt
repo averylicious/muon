@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -32,10 +33,11 @@ internal fun albumArt(endpoint: ServerEndpoint?, album: LibraryAlbum): String? =
  * The albums as a grid of covers (mockup 02), as many columns as fit at about 160 dp each, so two on
  * a phone and more on a tablet. [albums] is null while the library is still being grouped. [state] is
  * owned by the caller so the position outlives an open album, as the lists' positions do (#105).
+ * [recent], the albums played lately, leads the grid as Jump back in when there are enough of them.
  */
 @Composable
 internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: ServerEndpoint?,
-    state: LazyGridState, open: (LibraryAlbum) -> Unit) {
+    state: LazyGridState, recent: List<LibraryAlbum> = emptyList(), open: (LibraryAlbum) -> Unit) {
     if (albums.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalUnderBars.current)) {
         item {
             // Full height so the grid can still be pulled down to refresh.
@@ -49,6 +51,7 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
         // Each tile carries 8 dp of its own padding, so a press lights a box with room around the
         // title; the grid's gaps shrink to match, and the covers sit exactly where they did.
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 8.dp + LocalUnderBars.current)) {
+        if (recent.size >= RECENT_ALBUMS_SHOWN_FROM) jumpBackIn(recent, endpoint, open)
         items(albums, key = { it.key }, contentType = { "album" }) { album ->
             Column(springyClick("Open album", RoundedCornerShape(24.dp)) { open(album) }.padding(8.dp)) {
                 // The cover that grows into the album page's (motion pass 2).
@@ -75,69 +78,76 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
     playing: Boolean, ready: Boolean, backLabel: String = "Back to albums", actions: (TauonTrack) -> Unit, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = album?.tracks?.any { it.playable } == true && ready
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
-        item(key = "back", contentType = "back") {
-            IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
-                .semantics { contentDescription = backLabel }) { MuonIcon("back") }
-        }
-        item(key = "header", contentType = "header") {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(album?.let { albumArt(endpoint, it) },
-                    (album?.let { sharedPicture(albumPictureKey(it.key)) } ?: Modifier).size(140.dp).clip(RoundedCornerShape(16.dp)))
-                Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                    Text(albumLabel(album?.title ?: title), style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    if (album != null) {
-                        Text(artistLabel(displayCredits(album.artist)), style = MaterialTheme.typography.titleMedium,
-                            color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 4.dp))
-                        Text(albumSummary(album.tracks), style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+    val state = rememberLazyListState()
+    val toolbarRoom = if (Expressive.motion) PAGE_TOOLBAR_ROOM else 0.dp
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), state = state,
+            contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current + toolbarRoom)) {
+            item(key = "back", contentType = "back") {
+                IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
+                    .semantics { contentDescription = backLabel }) { MuonIcon("back") }
+            }
+            item(key = "header", contentType = "header") {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Artwork(album?.let { albumArt(endpoint, it) },
+                        (album?.let { sharedPicture(albumPictureKey(it.key)) } ?: Modifier).size(140.dp).clip(RoundedCornerShape(16.dp)))
+                    Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                        Text(albumLabel(album?.title ?: title), style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        if (album != null) {
+                            Text(artistLabel(displayCredits(album.artist)), style = MaterialTheme.typography.titleMedium,
+                                color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 4.dp))
+                            Text(albumSummary(album.tracks), style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                        }
                     }
                 }
             }
-        }
-        item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll) }
-        if (album != null) item(key = "download", contentType = "download") { DownloadAll(album.tracks, endpoint) }
-        if (album == null) item(key = "waiting", contentType = "waiting") {
-            Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
-        } else itemsIndexed(album.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { i, track ->
-            val current = currentId == "${endpoint?.origin}/${track.id}"
-            // The playing song sits on its own tonal surface, its number replaced by the moving
-            // equalizer, so it stands out from the list rather than only changing colour.
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                .padding(horizontal = 12.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
-                .combinedClickable(enabled = track.playable && ready, onClickLabel = "Play",
-                    onLongClickLabel = "Song actions", onLongClick = { actions(track) }) { play(track) }
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .semantics { if (current) stateDescription = "Now playing" },
-                verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.widthIn(min = 28.dp), contentAlignment = Alignment.CenterStart) {
-                    if (current) NowPlayingBars(playing)
-                    // Counted down the page (the user's choice): an album the library holds only part of would
-                    // otherwise read 2, 12 or skip a number where its tags leave gaps.
-                    else Text("${i + 1}", style = MaterialTheme.typography.labelLarge,
-                        color = colors.onSurfaceVariant)
+            item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll) }
+            if (album != null) item(key = "download", contentType = "download") { DownloadAll(album.tracks, endpoint) }
+            if (album == null) item(key = "waiting", contentType = "waiting") {
+                Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
+            } else itemsIndexed(album.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { i, track ->
+                val current = currentId == "${endpoint?.origin}/${track.id}"
+                // The playing song sits on its own tonal surface, its number replaced by the moving
+                // equalizer, so it stands out from the list rather than only changing colour.
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                    .padding(horizontal = 12.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
+                    .combinedClickable(enabled = track.playable && ready, onClickLabel = "Play",
+                        onLongClickLabel = "Song actions", onLongClick = { actions(track) }) { play(track) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .semantics { if (current) stateDescription = "Now playing" },
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.widthIn(min = 28.dp), contentAlignment = Alignment.CenterStart) {
+                        if (current) NowPlayingBars(playing)
+                        // Counted down the page (the user's choice): an album the library holds only part of would
+                        // otherwise read 2, 12 or skip a number where its tags leave gaps.
+                        else Text("${i + 1}", style = MaterialTheme.typography.labelLarge,
+                            color = colors.onSurfaceVariant)
+                    }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text(track.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (current) colors.onSecondaryContainer else if (track.playable) colors.onSurface else colors.onSurfaceVariant,
+                            fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
+                        // Only a guest artist is worth a line: the album's own artist is already above.
+                        val credits = displayCredits(track.artist)
+                        if (credits.isNotBlank() && !credits.equals(displayCredits(album.artist), ignoreCase = true))
+                            Text(credits, style = MaterialTheme.typography.bodySmall,
+                                color = if (current) colors.onSecondaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Text(formatTime(track.durationMs), style = MaterialTheme.typography.labelSmall,
+                        color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant,
+                        textAlign = TextAlign.End, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
+                    DownloadBadge(downloadMark(endpoint, track))
                 }
-                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                    Text(track.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = if (current) colors.onSecondaryContainer else if (track.playable) colors.onSurface else colors.onSurfaceVariant,
-                        fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
-                    // Only a guest artist is worth a line: the album's own artist is already above.
-                    val credits = displayCredits(track.artist)
-                    if (credits.isNotBlank() && !credits.equals(displayCredits(album.artist), ignoreCase = true))
-                        Text(credits, style = MaterialTheme.typography.bodySmall,
-                            color = if (current) colors.onSecondaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(formatTime(track.durationMs), style = MaterialTheme.typography.labelSmall,
-                    color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant,
-                    textAlign = TextAlign.End, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
-                DownloadBadge(downloadMark(endpoint, track))
             }
         }
+        // Items: Back 0, header 1, then Play and Shuffle at 2.
+        PageToolbar(state, actionsIndex = 2, enabled = playable, backLabel = backLabel, back = back, playAll = playAll)
     }
 }
 

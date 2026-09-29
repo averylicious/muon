@@ -108,7 +108,30 @@ class LibrarySettings(private val prefs: SharedPreferences) {
         prefs.edit().putString(KEY_ARTIST_ORDER, choice.name).apply()
     }
 
+    /**
+     * Albums played lately, most recent first, for Jump back in, and the server they were played
+     * from: album keys mean nothing on another server, so a new one starts the list afresh.
+     */
+    var recentOrigin by mutableStateOf(prefs.getString(KEY_RECENT_ORIGIN, null))
+        private set
+    var recentAlbums by mutableStateOf(prefs.getString(KEY_RECENT_ALBUMS, null)
+        ?.split(RECENT_SEPARATOR)?.filter { it.isNotEmpty() }.orEmpty())
+        private set
+
+    fun played(origin: String, album: String) {
+        val next = playedAlbum(if (origin == recentOrigin) recentAlbums else emptyList(), album)
+        if (origin == recentOrigin && next == recentAlbums) return
+        recentOrigin = origin
+        recentAlbums = next
+        prefs.edit().putString(KEY_RECENT_ORIGIN, origin)
+            .putString(KEY_RECENT_ALBUMS, next.joinToString(RECENT_SEPARATOR)).apply()
+    }
+
     private companion object {
+        const val KEY_RECENT_ORIGIN = "recentOrigin"
+        const val KEY_RECENT_ALBUMS = "recentAlbums"
+        /** The unit separator: album keys are built from tags and never contain it. */
+        const val RECENT_SEPARATOR = "\u001F"
         const val KEY_VIEW = "view"
         const val KEY_SONG_ORDER = "songOrder"
         const val KEY_ARTIST_ORDER = "artistOrder"

@@ -14,7 +14,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -68,6 +70,9 @@ internal fun BoxScope.AlphabetScroller(indicator: ScrollIndicator, count: Int, s
         val touch = with(density) { SCROLLER_TOUCH.toPx() }
         var frozenCenter by remember { mutableStateOf<Float?>(null) }
         var letter by remember { mutableStateOf("") }
+        // A light tick at each new letter, as the system's own fast scrollers give, so a drag can be
+        // felt passing through the alphabet without watching the bubble.
+        val haptics = LocalHapticFeedback.current
         // Read through these by the gesture, which outlives the composition that started it: a
         // rotation changes the height, and a refresh the rows, while a finger may be down.
         val currentHeight by rememberUpdatedState(height)
@@ -105,7 +110,9 @@ internal fun BoxScope.AlphabetScroller(indicator: ScrollIndicator, count: Int, s
                     indicator.dragFraction = fraction
                     val index = scrollerIndex(fraction, currentCount)
                     indicator.state.requestScrollToItem(index)
-                    letter = currentSection(index)
+                    val next = currentSection(index)
+                    if (next != letter && next.isNotEmpty()) haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                    letter = next
                 }
             })
         if (indicator.held && letter.isNotEmpty()) {

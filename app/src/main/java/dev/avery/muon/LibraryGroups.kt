@@ -11,7 +11,7 @@ internal data class LibraryArtist(val key: String, val name: String, val tracks:
 
 private fun canonicalTag(tag: String): String = tag.trim().lowercase(Locale.ROOT)
 
-private fun albumKey(track: TauonTrack): String {
+internal fun albumKey(track: TauonTrack): String {
     val title = canonicalTag(track.album)
     val artist = canonicalTag(albumArtistTag(track.albumArtist, track.artist))
     // Length-prefix both fields: a tag containing our separator cannot collide with another pair.

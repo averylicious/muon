@@ -12,6 +12,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 /**
  * A busy indicator that occupies its space whether or not it is showing. Inserting one into the
@@ -59,7 +61,12 @@ internal fun ToggleControl(kind: String, label: String, state: String, active: B
     // The Canary experiment: a Material 3 Expressive toggle button, round while off and a rounded
     // square while on, morphing between them (and squashing while pressed).
     if (Expressive.motion) {
-        FilledTonalIconToggleButton(checked = active, onCheckedChange = { action() },
+        // Felt as well as seen: the system's toggle-on and toggle-off feedback as the shape morphs.
+        val haptics = LocalHapticFeedback.current
+        FilledTonalIconToggleButton(checked = active, onCheckedChange = { on ->
+            haptics.performHapticFeedback(if (on) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
+            action()
+        },
             shapes = IconButtonDefaults.toggleableShapes(), enabled = enabled,
             colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
                 containerColor = Color.Transparent, contentColor = colors.onSurfaceVariant,
