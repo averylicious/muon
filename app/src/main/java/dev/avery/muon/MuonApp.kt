@@ -36,7 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -64,6 +63,8 @@ private enum class Tab { Library, Search, Settings }
 fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryModel = viewModel(),
     darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme()) {
     val appearance = rememberAppearanceSettings()
+    // The controller as it is now, for callbacks that outlive the composition that made them.
+    val currentPlayer by rememberUpdatedState(player)
     MuonTheme(darkTheme = darkTheme, dynamicColor = appearance.palette == PaletteChoice.MaterialYou,
         blackSurfaces = useBlackSurfaces(appearance.amoled, darkTheme)) {
         val colors = MaterialTheme.colorScheme
@@ -347,7 +348,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // takes back that same entry, found again if the queue has moved since.
         fun queueSong(track: TauonTrack, next: Boolean) {
             val endpoint = model.endpoint ?: return
-            val p = player ?: return
+            val p = currentPlayer ?: return
             val item = track.mediaItem(endpoint)
             if (p.mediaItemCount == 0) { p.setMediaItems(listOf(item)); p.prepare(); p.play(); return }
             val at = if (next) p.currentMediaItemIndex + 1 else p.mediaItemCount
@@ -361,6 +362,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 entries.minByOrNull { kotlin.math.abs(it - at) }?.let { p.removeMediaItem(it) }
             }
         }
+        // One lambda for the whole composition, so providing it to the rows never recomposes them. The
+        // compiler memoizes `::queueSong` itself, so a copy made before the player connected can be the
+        // one called; queueSong reads the player through [currentPlayer] so even that copy finds it
+        // (on the Pixel, .351, a swipe's queueSong saw no player and did nothing).
+        val latestQueueSong by rememberUpdatedState(::queueSong)
+        val queueFromSwipe = remember { { track: TauonTrack, next: Boolean -> latestQueueSong(track, next) } }
         // Go to album and Go to artist open the page over the one on show: an album over an open artist
         // page returns to it, as from the artist's own row; from Search, Back returns to the results.
         fun goToAlbum(album: LibraryAlbum) {
@@ -444,17 +451,21 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         AnimatedVisibility(visible = ui.item != null && (!overlayOpen || Expressive.motion) && !(rail && connected),
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
-                            MiniPlayer(ui, position, player != null,
-                                active = connected && player != null && ui.item != null && !overlayOpen,
-                                sheet = sheet,
-                                open = {
-                                    if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
-                                        playerOpen = true
-                                },
-                                toggle = { if (ui.playing) player?.pause() else player?.play() },
-                                next = { player?.seekToNextMediaItem() },
-                                previous = { player?.seekToPreviousMediaItem() }, morph = morph,
-                                color = colors.surfaceVariant.copy(alpha = barTint))
+                            // In the song cover's colours, as Now Playing is, so the player grows out of a
+                            // mini player already wearing them; the navigation bar keeps the library's.
+                            ArtworkTheme(ui.item) {
+                                MiniPlayer(ui, position, player != null,
+                                    active = connected && player != null && ui.item != null && !overlayOpen,
+                                    sheet = sheet,
+                                    open = {
+                                        if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
+                                            playerOpen = true
+                                    },
+                                    toggle = { if (ui.playing) player?.pause() else player?.play() },
+                                    next = { player?.seekToNextMediaItem() },
+                                    previous = { player?.seekToPreviousMediaItem() }, morph = morph,
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = barTint))
+                            }
                         }
                         AnimatedVisibility(visible = connected && !rail,
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
@@ -485,7 +496,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // bars' height to its own end padding instead (LocalUnderBars), so its last row can
                     // still scroll clear of them.
                     val direction = LocalLayoutDirection.current
-                    CompositionLocalProvider(LocalUnderBars provides if (frost != null) padding.calculateBottomPadding() else 0.dp) {
+                    CompositionLocalProvider(LocalUnderBars provides if (frost != null) padding.calculateBottomPadding() else 0.dp,
+                        LocalQueueSong provides queueFromSwipe.takeIf { player != null && connected }) {
                     Column(Modifier.frostSource(frost)
                         .then(if (frost != null) Modifier.padding(start = padding.calculateStartPadding(direction),
                             top = padding.calculateTopPadding(), end = padding.calculateEndPadding(direction))
@@ -729,15 +741,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // shrinks while a Back gesture is deciding whether to close it.
             // In the colours of the song's cover, which fade from one song to the next.
             ArtworkTheme(ui.item) {
+            // Captured here, where the cover's scheme is in force, for the mini player's face below.
+            val tinted = MaterialTheme.colorScheme
             PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph,
-                // The mini player as the panel starts: its colour and content, in the library's
-                // colours rather than the cover's, exactly as the mini player draws them. Under glass
-                // the mini player is a tint over the blurred list, so the panel starts as that tint
-                // over the background: the nearest solid colour, without the blur it cannot carry.
-                miniColor = if (frost != null) colors.surfaceVariant.copy(alpha = barTint).compositeOver(colors.background)
-                    else colors.surfaceVariant, face = {
-                    MaterialTheme(colorScheme = colors) {
-                        CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) {
+                // The mini player as the panel starts: its colour and content, in the cover's colours
+                // exactly as the mini player draws them. Under glass that is its translucent tint, over
+                // the same blurred library the mini player shows (frostedPanel), thickening to Now
+                // Playing's colour as the panel grows.
+                miniColor = tinted.surfaceVariant.copy(alpha = barTint), frost = frost, libraryGround = colors.background, face = {
+                    MaterialTheme(colorScheme = tinted) {
+                        CompositionLocalProvider(LocalContentColor provides tinted.onSurfaceVariant) {
                             // Its cover shows until the flying one takes over, which needs Now
                             // Playing laid out first: without it, the first frame of a drag
                             // showed an empty space where the cover had been.
@@ -848,7 +861,7 @@ private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit)
  */
 @Composable
 private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?, morph: PlayerMorph,
-    miniColor: Color, face: @Composable () -> Unit,
+    miniColor: Color, frost: Frost?, libraryGround: Color, face: @Composable () -> Unit,
     preview: @Composable () -> PlayerBackPreview?, content: @Composable () -> Unit) {
     if (!playerSheetPresent(open, sheet.onScreen)) return
     // Two layers, each owning its own properties: the sheet moves the surface, the Back preview
@@ -858,9 +871,11 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?, mor
     val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
     val ground = colors.background
     // The panel paints its own ground: Now Playing's, or, while it grows out of the mini player, the
-    // mini player's [miniColor] turning into it (PlayerMorph). Read in the draw phase.
+    // mini player's [miniColor] turning into it (PlayerMorph), over the mini player's glass when the
+    // bars are frosted ([frost]). Read in the draw phase.
     Surface(Modifier.fillMaxSize()
         .playerSheet(sheet, WindowInsets.safeDrawing, edge, morph).playerBackPreview(preview())
+        .frostedPanel(frost, libraryGround) { morph.growing() }
         .drawBehind { drawRect(morph.panelColor(miniColor, ground)) },
         color = Color.Transparent, contentColor = colors.onBackground) {
         // The cover's glass (CoverBackdrop.kt) fills the whole sheet, status bar included, and arrives
