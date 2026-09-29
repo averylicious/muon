@@ -2,13 +2,14 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-29, cache audit, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-29-cache-audit.md) for exact review/CI evidence._
+_Last updated: 2026-09-29, publication-history audit, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-29-publication.md) for exact review/CI evidence._
 
 ## Where things are
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
-- **Cache audit:** a [disposable Media3 characterization harness](audits/2026-09-29-cache-characterization.md) tests #179's index-loss sequence and controls. No production lifecycle fix is included; see the PR/issue for verified execution results.
+- **Cache audit:** #192 merged the [disposable Media3 characterization harness](audits/2026-09-29-cache-characterization.md). All five cases passed in both variants, demonstrating the modeled index-loss sequence; main run 331 published Canary .331. #179 remains unfixed.
+- **Publication audit:** the [published-baseline fix](audits/2026-09-29-publication.md) prevents tags without a complete published Canary from hiding app work. Check its PR/#181 for final-head CI and merge status.
 - **Parallel work:** [the track protocol](parallel-tracks.md) separates sessions/worktrees and defines checked forward-sync PRs. Experimental owners land those PRs; Astra does not move their active branch. Inspect live checks/protection and the checkpoint for deployment status.
 - **`main` features:** the Collection redesign and everything after it through #183. Feature by feature, [features.md](features.md) is the user-facing guide, and [design/current](design/current/README.md) has real screenshots of every screen. Recent work, newest first:
   - matching landscape player background (#183);

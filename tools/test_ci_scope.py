@@ -1,9 +1,12 @@
 """Exercise real Git histories so docs commits cannot hide unmerged application work."""
+import copy
+import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import ci_scope
 
@@ -24,11 +27,20 @@ class ScopeTest(unittest.TestCase):
         self.git('config', 'commit.gpgsign', 'false')
         self.git('config', 'gc.auto', '0')
         self.git('config', 'maintenance.auto', 'false')
+        self.published = {}
+        releases = patch.object(ci_scope, 'published_canaries', return_value=self.published, create=True)
+        self.release_query = releases.start()
+        self.addCleanup(releases.stop)
         self.base = self.commit('README.md', '# Hello\n')
         self.git('update-ref', 'refs/remotes/origin/main', self.base)
 
     def git(self, *args):
         return subprocess.check_output(['git', *args], stderr=subprocess.PIPE).decode().strip()
+
+    def tag(self, name, ref='HEAD', published=True):
+        self.git('tag', name, ref)
+        if published:
+            self.published[name] = self.git('rev-parse', ref)
 
     def commit(self, name, content):
         path = Path(name)
@@ -45,7 +57,7 @@ class ScopeTest(unittest.TestCase):
         head = self.commit('docs/a guide.md', '# Guide\n')
         self.assertFalse(self.scope(head))
         self.assertFalse(self.scope(head, '0' * 40))
-        self.git('tag', '0.1.0-canary.9', self.base)
+        self.tag('0.1.0-canary.9', self.base)
         self.assertFalse(self.scope(head, ref='refs/heads/main'))
 
     def test_main_without_a_reachable_canary_baseline_builds(self):
@@ -57,7 +69,7 @@ class ScopeTest(unittest.TestCase):
     def test_canary_on_an_unrelated_branch_is_not_a_publication_baseline(self):
         self.git('checkout', '-qb', 'experiment')
         self.commit('app/Experimental.kt', 'class Experimental')
-        self.git('tag', '0.1.0-canary.999')
+        self.tag('0.1.0-canary.999')
         self.git('checkout', 'main')
         head = self.commit('docs/note.md', '# Note\n')
         self.assertTrue(self.scope(head, ref='refs/heads/main'))
@@ -69,22 +81,52 @@ class ScopeTest(unittest.TestCase):
 
     def test_docs_after_unpublished_code_on_main_still_builds(self):
         # Code merged, its run cancelled by a docs merge: the last Canary is still the base.
-        self.git('tag', '0.1.0-canary.9', self.base)
+        self.tag('0.1.0-canary.9', self.base)
         code = self.commit('app/Thing.kt', 'class Thing')
         head = self.commit('docs/note.md', '# Note\n')
         self.assertTrue(self.scope(head, code, ref='refs/heads/main'))
 
     def test_docs_after_published_code_on_main_skips(self):
-        self.git('tag', '0.1.0-canary.9', self.base)
+        self.tag('0.1.0-canary.9', self.base)
         code = self.commit('app/Thing.kt', 'class Thing')
-        self.git('tag', '0.1.0-canary.10', code)
+        self.tag('0.1.0-canary.10', code)
         head = self.commit('docs/note.md', '# Note\n')
         self.assertFalse(self.scope(head, code, ref='refs/heads/main'))
 
-    def test_newest_canary_is_chosen_by_run_number(self):
-        self.git('tag', '0.1.0-canary.9', self.base)
+    def test_tag_without_published_release_does_not_hide_app_work(self):
+        self.tag('0.1.0-canary.9', self.base)
         code = self.commit('app/Thing.kt', 'class Thing')
-        self.git('tag', '0.1.0-canary.10', code)
+        self.tag('0.1.0-canary.10', code, published=False)
+        head = self.commit('docs/note.md', '# Note\n')
+        self.assertTrue(self.scope(head, code, ref='refs/heads/main'))
+
+    def test_tag_moved_away_from_release_commit_is_not_a_baseline(self):
+        self.tag('0.1.0-canary.9', self.base)
+        code = self.commit('app/Thing.kt', 'class Thing')
+        self.git('tag', '-f', '0.1.0-canary.9', code)
+        head = self.commit('docs/note.md', '# Note\n')
+        self.assertTrue(self.scope(head, code, ref='refs/heads/main'))
+
+    def test_unknown_release_status_builds_instead_of_skipping(self):
+        self.tag('0.1.0-canary.9', self.base)
+        head = self.commit('docs/note.md', '# Note\n')
+        for error in [OSError('unavailable'), ValueError('malformed JSON'),
+                      subprocess.CalledProcessError(1, 'gh'),
+                      subprocess.TimeoutExpired('gh', 30)]:
+            with self.subTest(error=type(error).__name__):
+                self.release_query.side_effect = error
+                self.assertTrue(self.scope(head, ref='refs/heads/main'))
+
+    def test_feature_docs_do_not_need_release_api(self):
+        self.release_query.side_effect = AssertionError('No release lookup on a feature branch')
+        head = self.commit('docs/note.md', '# Note\n')
+        self.assertFalse(self.scope(head))
+        self.release_query.assert_not_called()
+
+    def test_newest_canary_is_chosen_by_run_number(self):
+        self.tag('0.1.0-canary.9', self.base)
+        code = self.commit('app/Thing.kt', 'class Thing')
+        self.tag('0.1.0-canary.10', code)
         self.assertEqual('0.1.0-canary.10', ci_scope.last_canary(code))
 
     def test_multi_commit_push_includes_code(self):
@@ -148,6 +190,59 @@ class ScopeTest(unittest.TestCase):
         path.write_bytes(b'\xff')
         with self.assertRaises(UnicodeError):
             ci_scope.check_documents([str(path)])
+
+
+class PublishedCanaryTest(unittest.TestCase):
+    def release(self, tag='0.1.0-canary.10'):
+        return {'tag_name': tag, 'target_commitish': 'a' * 40, 'draft': False,
+                'prerelease': True, 'published_at': '2026-09-29T00:00:00Z',
+                'assets': [{'name': name, 'state': 'uploaded', 'size': 10}
+                           for name in [f'muon-canary-{tag}.apk', 'SHA256SUMS', 'BUILD.txt']]}
+
+    def query(self, pages):
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'owner/repo'}), \
+                patch.object(ci_scope.subprocess, 'check_output', return_value=json.dumps(pages)) as api:
+            result = ci_scope.published_canaries()
+            api.assert_called_once_with(
+                ['gh', 'api', '--paginate', '--slurp', 'repos/owner/repo/releases?per_page=100'],
+                stderr=subprocess.PIPE, text=True, timeout=30)
+            return result
+
+    def test_complete_release_on_a_later_page_is_included(self):
+        self.assertEqual({'0.1.0-canary.10': 'a' * 40}, self.query([[], [self.release()]]))
+
+    def test_unpublished_or_unverifiable_releases_are_not_baselines(self):
+        for change in [{'draft': True}, {'prerelease': False}, {'published_at': None},
+                       {'target_commitish': 'main'}, {'target_commitish': 'b' * 39},
+                       {'tag_name': 'v1.0.0'}, {'draft': None}, {'assets': None}]:
+            with self.subTest(change=change):
+                release = self.release()
+                release.update(change)
+                self.assertEqual({}, self.query([[release]]))
+
+    def test_missing_pending_empty_or_wrongly_named_assets_are_rejected(self):
+        for index in range(3):
+            for change in [None, {'state': 'new'}, {'size': 0}, {'size': '10'},
+                           {'size': True}, {'name': 'unrelated.txt'}]:
+                with self.subTest(asset=index, change=change):
+                    release = copy.deepcopy(self.release())
+                    if change is None:
+                        release['assets'].pop(index)
+                    else:
+                        release['assets'][index].update(change)
+                    self.assertEqual({}, self.query([[release]]))
+
+    def test_malformed_top_level_response_fails_conservatively(self):
+        for pages in [{}, [None], [[None]]]:
+            with self.subTest(pages=pages), self.assertRaises(ValueError):
+                self.query(pages)
+
+    def test_unknown_repository_never_calls_api(self):
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': ''}), \
+                patch.object(ci_scope.subprocess, 'check_output') as api, \
+                self.assertRaises(ValueError):
+            ci_scope.published_canaries()
+        api.assert_not_called()
 
 
 if __name__ == '__main__':

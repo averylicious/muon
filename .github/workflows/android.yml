@@ -35,6 +35,9 @@ jobs:
 
       - name: Select CI scope and check documentation
         id: scope
+        env:
+          # Read-only release metadata; signing secrets remain in the later build step.
+          GH_TOKEN: ${{ github.token }}
         run: python3 tools/ci_scope.py
 
       - name: Select version and publication channel
