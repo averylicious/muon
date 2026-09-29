@@ -444,17 +444,21 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         AnimatedVisibility(visible = ui.item != null && (!overlayOpen || Expressive.motion) && !(rail && connected),
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
-                            MiniPlayer(ui, position, player != null,
-                                active = connected && player != null && ui.item != null && !overlayOpen,
-                                sheet = sheet,
-                                open = {
-                                    if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
-                                        playerOpen = true
-                                },
-                                toggle = { if (ui.playing) player?.pause() else player?.play() },
-                                next = { player?.seekToNextMediaItem() },
-                                previous = { player?.seekToPreviousMediaItem() }, morph = morph,
-                                color = colors.surfaceVariant.copy(alpha = barTint))
+                            // In the song cover's colours, as Now Playing is, so the player grows out of a
+                            // mini player already wearing them; the navigation bar keeps the library's.
+                            ArtworkTheme(ui.item) {
+                                MiniPlayer(ui, position, player != null,
+                                    active = connected && player != null && ui.item != null && !overlayOpen,
+                                    sheet = sheet,
+                                    open = {
+                                        if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
+                                            playerOpen = true
+                                    },
+                                    toggle = { if (ui.playing) player?.pause() else player?.play() },
+                                    next = { player?.seekToNextMediaItem() },
+                                    previous = { player?.seekToPreviousMediaItem() }, morph = morph,
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = barTint))
+                            }
                         }
                         AnimatedVisibility(visible = connected && !rail,
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
@@ -729,15 +733,17 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // shrinks while a Back gesture is deciding whether to close it.
             // In the colours of the song's cover, which fade from one song to the next.
             ArtworkTheme(ui.item) {
+            // Captured here, where the cover's scheme is in force, for the mini player's face below.
+            val tinted = MaterialTheme.colorScheme
             PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph,
-                // The mini player as the panel starts: its colour and content, in the library's
-                // colours rather than the cover's, exactly as the mini player draws them. Under glass
-                // the mini player is a tint over the blurred list, so the panel starts as that tint
-                // over the background: the nearest solid colour, without the blur it cannot carry.
-                miniColor = if (frost != null) colors.surfaceVariant.copy(alpha = barTint).compositeOver(colors.background)
-                    else colors.surfaceVariant, face = {
-                    MaterialTheme(colorScheme = colors) {
-                        CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) {
+                // The mini player as the panel starts: its colour and content, in the cover's colours
+                // exactly as the mini player draws them. Under glass the mini player is a tint over the
+                // blurred list, so the panel starts as that tint over the library's background: the
+                // nearest solid colour, without the blur it cannot carry.
+                miniColor = if (frost != null) tinted.surfaceVariant.copy(alpha = barTint).compositeOver(colors.background)
+                    else tinted.surfaceVariant, face = {
+                    MaterialTheme(colorScheme = tinted) {
+                        CompositionLocalProvider(LocalContentColor provides tinted.onSurfaceVariant) {
                             // Its cover shows until the flying one takes over, which needs Now
                             // Playing laid out first: without it, the first frame of a drag
                             // showed an empty space where the cover had been.
