@@ -345,6 +345,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // order keeps both there with shuffle on. With nothing queued, the song simply plays. Undo
         // takes back that same entry, found again if the queue has moved since.
         fun queueSong(track: TauonTrack, next: Boolean) {
+            android.util.Log.d("MuonSwipe", "queueSong ${track.id} next=$next endpoint=${model.endpoint != null} player=${player != null}")
             val endpoint = model.endpoint ?: return
             val p = player ?: return
             val item = track.mediaItem(endpoint)
