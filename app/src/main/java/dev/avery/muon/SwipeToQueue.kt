@@ -3,9 +3,8 @@ package dev.avery.muon
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animate
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -21,17 +20,23 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 /** Queues a song: next after the playing one, or at the end. Provided by the app, null where there is no player. */
 internal val LocalQueueSong = compositionLocalOf<((TauonTrack, next: Boolean) -> Unit)?> { null }
@@ -75,18 +80,56 @@ internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifie
     val ground by animateColorAsState(if (armed) colors.primaryContainer else colors.surfaceContainerHigh,
         motionShort(), label = "swipe action")
     val content2 = if (armed) colors.onPrimaryContainer else colors.onSurfaceVariant
-    val drag = rememberDraggableState { delta ->
-        val was = swipeQueueAction(offset, width) != null
-        offset = swipeQueueOffset(offset, delta, width)
-        val now = swipeQueueAction(offset, width) != null
-        // Compose has no deactivate feedback, so only arming ticks; backing off is silent.
-        if (now && !was) haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
-    }
+    val scope = rememberCoroutineScope()
+    val currentQueue by rememberUpdatedState(queue)
+    val currentTrack by rememberUpdatedState(track)
+    // Read in the Initial pass, before the row sees the touch: on the Pixel (Canary .348) a `draggable`
+    // row moved with the finger but its release never queued the song, and a quick swipe reached the
+    // row's own tap instead and played it. Once the finger has gone past the touch slop sideways,
+    // every event is consumed here, so the row's tap is cancelled and the list does not scroll; a
+    // finger that goes vertical first is left to the list.
     Box(modifier.onSizeChanged { width = it.width.toFloat() }
-        .draggable(drag, Orientation.Horizontal, onDragStopped = {
-            swipeQueueAction(offset, width)?.let { queue(track, it) }
-            animate(offset, 0f, animationSpec = motionSpatial()) { value, _ -> offset = value }
-        })) {
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val slop = viewConfiguration.touchSlop
+                var dx = 0f
+                var dy = 0f
+                var swiping = false
+                while (true) {
+                    val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                        .firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed) {
+                        // Let go: past the threshold, the song is queued.
+                        if (swiping) {
+                            change.consume()
+                            swipeQueueAction(offset, width)?.let { currentQueue?.invoke(currentTrack, it) }
+                        }
+                        break
+                    }
+                    val moved = change.positionChange()
+                    if (!swiping) {
+                        dx += moved.x
+                        dy += moved.y
+                        if (abs(dy) > slop && abs(dy) >= abs(dx)) break
+                        if (abs(dx) <= slop) continue
+                        swiping = true
+                        change.consume()
+                        continue
+                    }
+                    change.consume()
+                    val was = swipeQueueAction(offset, width) != null
+                    offset = swipeQueueOffset(offset, moved.x, width)
+                    // Compose has no deactivate feedback, so only arming ticks; backing off is silent.
+                    if (swipeQueueAction(offset, width) != null && !was)
+                        haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                }
+                // However the swipe ended, lifted or interrupted, the row springs back.
+                if (swiping) scope.launch {
+                    animate(offset, 0f, animationSpec = motionSpatial()) { value, _ -> offset = value }
+                }
+            }
+        }) {
         // Shown only while the row is moved, behind it, on the side it uncovers.
         if (offset != 0f) Row(Modifier.matchParentSize().padding(horizontal = 12.dp).clip(RoundedCornerShape(16.dp))
             .background(ground).padding(horizontal = 20.dp),
