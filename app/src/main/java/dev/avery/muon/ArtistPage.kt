@@ -37,52 +37,58 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
     playAll: (shuffle: Boolean) -> Unit, openAlbum: (LibraryAlbum) -> Unit, play: (TauonTrack) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = artist?.tracks?.any { it.playable } == true && ready
-    LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
-        item(key = "back", contentType = "back") {
-            IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
-                .semantics { contentDescription = backLabel }) { MuonIcon("back") }
-        }
-        item(key = "header", contentType = "header") {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                ArtistAvatar(artist ?: LibraryArtist("", name, emptyList()), side = 96.dp, endpoint = endpoint,
-                    modifier = artist?.let { sharedPicture(artistPictureKey(it.key)) } ?: Modifier)
-                Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                    Text(artistLabel(artist?.name ?: name), style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.semantics { heading() })
-                    if (artist != null) Text(artistSummary(albums.size, artist.tracks.size),
-                        style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp))
+    val toolbarRoom = if (Expressive.motion) PAGE_TOOLBAR_ROOM else 0.dp
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), state = state,
+            contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current + toolbarRoom)) {
+            item(key = "back", contentType = "back") {
+                IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
+                    .semantics { contentDescription = backLabel }) { MuonIcon("back") }
+            }
+            item(key = "header", contentType = "header") {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ArtistAvatar(artist ?: LibraryArtist("", name, emptyList()), side = 96.dp, endpoint = endpoint,
+                        modifier = artist?.let { sharedPicture(artistPictureKey(it.key)) } ?: Modifier)
+                    Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                        Text(artistLabel(artist?.name ?: name), style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.semantics { heading() })
+                        if (artist != null) Text(artistSummary(albums.size, artist.tracks.size),
+                            style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp))
+                    }
                 }
             }
-        }
-        item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll) }
-        if (artist != null) item(key = "download", contentType = "download") { DownloadAll(artist.tracks, endpoint) }
-        if (artist == null) {
-            item(key = "waiting", contentType = "waiting") {
-                Text("Loading artist…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
+            item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll) }
+            if (artist != null) item(key = "download", contentType = "download") { DownloadAll(artist.tracks, endpoint) }
+            if (artist == null) {
+                item(key = "waiting", contentType = "waiting") {
+                    Text("Loading artist…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
+                }
+                return@LazyColumn
             }
-            return@LazyColumn
-        }
-        if (albums.isNotEmpty()) {
-            item(key = "albums-label", contentType = "label") { SectionHeading("Albums") }
-            item(key = "albums", contentType = "albums") {
-                AlbumRow(albums, endpoint, open = openAlbum)
+            if (albums.isNotEmpty()) {
+                item(key = "albums-label", contentType = "label") { SectionHeading("Albums") }
+                item(key = "albums", contentType = "albums") {
+                    AlbumRow(albums, endpoint, open = openAlbum)
+                }
+            }
+            item(key = "songs-label", contentType = "label") { SectionHeading("Songs") }
+            itemsIndexed(artist.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { _, track ->
+                // Every song here is theirs, so the line under it says only where it comes from; a guest
+                // appearance still names the others credited.
+                val credits = displayCredits(track.artist)
+                val subtitle = remember(track, artist.name) {
+                    listOfNotNull(credits.takeIf { !it.equals(displayCredits(artist.name), ignoreCase = true) && it.isNotBlank() },
+                        track.album.trim().ifBlank { null }).joinToString(" · ")
+                }
+                TrackRow(track, endpoint, currentId == "${endpoint?.origin}/${track.id}", playing, ready,
+                    subtitle = if (track.playable) subtitle else trackSubtitle(track.artist, track.album, false),
+                    actions = { actions(track) }) { play(track) }
             }
         }
-        item(key = "songs-label", contentType = "label") { SectionHeading("Songs") }
-        itemsIndexed(artist.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { _, track ->
-            // Every song here is theirs, so the line under it says only where it comes from; a guest
-            // appearance still names the others credited.
-            val credits = displayCredits(track.artist)
-            val subtitle = remember(track, artist.name) {
-                listOfNotNull(credits.takeIf { !it.equals(displayCredits(artist.name), ignoreCase = true) && it.isNotBlank() },
-                    track.album.trim().ifBlank { null }).joinToString(" · ")
-            }
-            TrackRow(track, endpoint, currentId == "${endpoint?.origin}/${track.id}", playing, ready,
-                subtitle = if (track.playable) subtitle else trackSubtitle(track.artist, track.album, false),
-                actions = { actions(track) }) { play(track) }
-        }
+        // Items: Back 0, header 1, then Play and Shuffle at 2.
+        PageToolbar(state, actionsIndex = 2, enabled = playable, backLabel = backLabel, back = back, playAll = playAll)
     }
 }
 
