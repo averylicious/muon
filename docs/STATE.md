@@ -2,12 +2,13 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-28, after #183, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-28-parallel-tracks.md) for exact review/CI evidence._
+_Last updated: 2026-09-29, cache audit, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-29-cache-audit.md) for exact review/CI evidence._
 
 ## Where things are
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
+- **Cache audit:** a [disposable Media3 characterization harness](audits/2026-09-29-cache-characterization.md) tests #179's index-loss sequence and controls. No production lifecycle fix is included; see the PR/issue for verified execution results.
 - **Parallel work:** [the track protocol](parallel-tracks.md) separates sessions/worktrees and defines checked forward-sync PRs. Experimental owners land those PRs; Astra does not move their active branch. Inspect live checks/protection and the checkpoint for deployment status.
 - **`main` features:** the Collection redesign and everything after it through #183. Feature by feature, [features.md](features.md) is the user-facing guide, and [design/current](design/current/README.md) has real screenshots of every screen. Recent work, newest first:
   - matching landscape player background (#183);
@@ -47,7 +48,7 @@ _Last updated: 2026-09-28, after #183, by GPT-6 Astra (Codex). See the [latest c
 ## Open items and known limits
 
 - **#83:** the Baseline Profile ships, but its before-and-after speed measurement hasn't been done.
-- **SD-card lifecycle (#179):** presence is captured at store creation, and deeper review found a possible stale-cache/index purge leading to lost downloads after removal/reinsertion. See [the source evidence and constraints](audits/2026-09-28-storage.md). A disposable reproduction and data-preserving fix are priorities; no device loss has been observed in this audit.
+- **SD-card lifecycle (#179):** presence is captured at store creation, and deeper review found a possible stale-cache/index purge leading to lost downloads after removal/reinsertion. See [the source evidence and constraints](audits/2026-09-28-storage.md). The [disposable JVM harness](audits/2026-09-29-cache-characterization.md) separates the modeled cache behavior from phone/mount behavior. A data-preserving fix remains a priority; no device loss has been observed in this audit.
 - **Fresh-install discovery:** on 2026-09-27, a fresh install (Muon Benchmark) scanned the network and found no Tauon, although Tauon answered and the phone could reach port 7814. Typing the address worked. This is not investigated yet; check Canary on a fresh install before assuming it's fixed.
 - **Queue after process death:** the queue and position are not restored (see [roadmap](roadmap.md) 0.3).
 - **Down the line:** 128 kbps downloads need a Tauon change, and "Recently liked" sorting (#174, not planned) needs Tauon to expose `loved_timestamp`.
