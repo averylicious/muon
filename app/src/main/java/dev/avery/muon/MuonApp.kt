@@ -36,7 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -741,11 +740,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             val tinted = MaterialTheme.colorScheme
             PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph,
                 // The mini player as the panel starts: its colour and content, in the cover's colours
-                // exactly as the mini player draws them. Under glass the mini player is a tint over the
-                // blurred list, so the panel starts as that tint over the library's background: the
-                // nearest solid colour, without the blur it cannot carry.
-                miniColor = if (frost != null) tinted.surfaceVariant.copy(alpha = barTint).compositeOver(colors.background)
-                    else tinted.surfaceVariant, face = {
+                // exactly as the mini player draws them. Under glass that is its translucent tint, over
+                // the same blurred library the mini player shows (frostedPanel), thickening to Now
+                // Playing's colour as the panel grows.
+                miniColor = tinted.surfaceVariant.copy(alpha = barTint), frost = frost, libraryGround = colors.background, face = {
                     MaterialTheme(colorScheme = tinted) {
                         CompositionLocalProvider(LocalContentColor provides tinted.onSurfaceVariant) {
                             // Its cover shows until the flying one takes over, which needs Now
@@ -858,7 +856,7 @@ private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit)
  */
 @Composable
 private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?, morph: PlayerMorph,
-    miniColor: Color, face: @Composable () -> Unit,
+    miniColor: Color, frost: Frost?, libraryGround: Color, face: @Composable () -> Unit,
     preview: @Composable () -> PlayerBackPreview?, content: @Composable () -> Unit) {
     if (!playerSheetPresent(open, sheet.onScreen)) return
     // Two layers, each owning its own properties: the sheet moves the surface, the Back preview
@@ -868,9 +866,11 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?, mor
     val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
     val ground = colors.background
     // The panel paints its own ground: Now Playing's, or, while it grows out of the mini player, the
-    // mini player's [miniColor] turning into it (PlayerMorph). Read in the draw phase.
+    // mini player's [miniColor] turning into it (PlayerMorph), over the mini player's glass when the
+    // bars are frosted ([frost]). Read in the draw phase.
     Surface(Modifier.fillMaxSize()
         .playerSheet(sheet, WindowInsets.safeDrawing, edge, morph).playerBackPreview(preview())
+        .frostedPanel(frost, libraryGround) { morph.growing() }
         .drawBehind { drawRect(morph.panelColor(miniColor, ground)) },
         color = Color.Transparent, contentColor = colors.onBackground) {
         // The cover's glass (CoverBackdrop.kt) fills the whole sheet, status bar included, and arrives

@@ -11,6 +11,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -29,18 +30,22 @@ import androidx.compose.ui.unit.dp
  * list re-records the content and the bars show it without being recorded again.
  */
 @Stable
-internal class Frost(val content: GraphicsLayer, val blurred: GraphicsLayer) {
+internal class Frost(val content: GraphicsLayer, val blurred: GraphicsLayer, val panel: GraphicsLayer) {
     /** Where the content is, so a bar can find its own place over it. Read in the draw phase only. */
     var source: LayoutCoordinates? = null
     /** Where the bars are. Kept here rather than in the modifier, which a recomposition replaces. */
     var bars: LayoutCoordinates? = null
+    /** Where the player's panel is, while it grows out of the mini player ([frostedPanel]). */
+    var panelAt: LayoutCoordinates? = null
 }
 
 @Composable
 internal fun rememberFrost(): Frost {
     val content = rememberGraphicsLayer()
     val blurred = rememberGraphicsLayer()
-    return remember(content, blurred) { Frost(content, blurred) }
+    // Its own layer: one layer recorded twice in a frame would show the second recording in both places.
+    val panel = rememberGraphicsLayer()
+    return remember(content, blurred, panel) { Frost(content, blurred, panel) }
 }
 
 /**
@@ -80,22 +85,42 @@ internal fun Modifier.frostSource(frost: Frost?): Modifier = if (frost == null) 
 internal fun Modifier.frostedBehind(frost: Frost?, backdrop: Color, radius: Dp = GLASS_BLUR): Modifier {
     if (frost == null) return this
     return this.onGloballyPositioned { frost.bars = it }.drawBehind {
-        val source = frost.source ?: return@drawBehind
-        val here = frost.bars ?: return@drawBehind
-        if (!source.isAttached || !here.isAttached) return@drawBehind
-        val at = source.localPositionOf(here, Offset.Zero)
-        val px = radius.toPx()
-        frost.blurred.renderEffect = BlurEffect(px, px, TileMode.Clamp)
-        // A blurred layer's output spreads past its bounds unless clipped: on the Pixel (.327, .328) it
-        // reached about 110 px above the mini player and ended in a hard edge across the list.
-        frost.blurred.clip = true
-        frost.blurred.record {
-            drawRect(backdrop)
-            translate(-at.x, -at.y) { drawLayer(frost.content) }
-        }
-        clipRect { drawLayer(frost.blurred) }
+        drawFrosted(frost, frost.blurred, frost.bars, backdrop, radius)
     }
 }
 
-/** Extra room above the navigation bar's pill, beyond Material's flexible bar's own. */
+/**
+ * The same glass behind the player's panel while it grows out of the mini player ([growing]), so a
+ * drag keeps the mini player's blur rather than swapping it for a solid colour in one frame (the
+ * user's recording on the Pixel, Canary .344). The panel's own colour starts as the mini player's
+ * translucent tint and thickens to Now Playing's as it grows, covering the blur gradually.
+ */
+internal fun Modifier.frostedPanel(frost: Frost?, backdrop: Color, growing: () -> Boolean): Modifier {
+    if (frost == null) return this
+    return this.onGloballyPositioned { frost.panelAt = it }.drawBehind {
+        if (growing()) drawFrosted(frost, frost.panel, frost.panelAt, backdrop, GLASS_BLUR)
+    }
+}
+
+/**
+ * Draws the recorded content into [layer], moved to where [here] sits over it and blurred by
+ * [radius], on the page's [backdrop], then draws that layer here. Nothing is drawn until both have
+ * been placed, so a first frame is simply the caller's own colour.
+ */
+private fun DrawScope.drawFrosted(frost: Frost, layer: GraphicsLayer, here: LayoutCoordinates?, backdrop: Color, radius: Dp) {
+    val source = frost.source ?: return
+    if (here == null || !source.isAttached || !here.isAttached) return
+    val at = source.localPositionOf(here, Offset.Zero)
+    val px = radius.toPx()
+    layer.renderEffect = BlurEffect(px, px, TileMode.Clamp)
+    // A blurred layer's output spreads past its bounds unless clipped: on the Pixel (.327, .328) it
+    // reached about 110 px above the mini player and ended in a hard edge across the list.
+    layer.clip = true
+    layer.record {
+        drawRect(backdrop)
+        translate(-at.x, -at.y) { drawLayer(frost.content) }
+    }
+    clipRect { drawLayer(layer) }
+}
+
 internal val NAV_BAR_TOP_ROOM: Dp = 6.dp

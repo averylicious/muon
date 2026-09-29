@@ -156,6 +156,9 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
         return androidx.compose.ui.graphics.lerp(from, to, morphColorProgress(open))
     }
 
+    /** Whether the panel is growing out of the mini player, rather than resting open or sliding. */
+    fun growing(): Boolean = growth() != null
+
     /** The mini player's own content in the panel: shown only while the panel is growing out of it. */
     fun faceAlpha(): Float = growth()?.let(::morphFaceAlpha) ?: 0f
 
