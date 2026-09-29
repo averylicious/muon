@@ -79,8 +79,8 @@ internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifie
         val was = swipeQueueAction(offset, width) != null
         offset = swipeQueueOffset(offset, delta, width)
         val now = swipeQueueAction(offset, width) != null
-        if (now != was) haptics.performHapticFeedback(
-            if (now) HapticFeedbackType.GestureThresholdActivate else HapticFeedbackType.GestureThresholdDeactivate)
+        // Compose has no deactivate feedback, so only arming ticks; backing off is silent.
+        if (now && !was) haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
     }
     Box(modifier.onSizeChanged { width = it.width.toFloat() }
         .draggable(drag, Orientation.Horizontal, onDragStopped = {
