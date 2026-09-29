@@ -361,6 +361,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 entries.minByOrNull { kotlin.math.abs(it - at) }?.let { p.removeMediaItem(it) }
             }
         }
+        // One lambda for the whole composition, so providing it to the rows never recomposes them.
+        val latestQueueSong by rememberUpdatedState(::queueSong)
+        val queueFromSwipe = remember { { track: TauonTrack, next: Boolean -> latestQueueSong(track, next) } }
         // Go to album and Go to artist open the page over the one on show: an album over an open artist
         // page returns to it, as from the artist's own row; from Search, Back returns to the results.
         fun goToAlbum(album: LibraryAlbum) {
@@ -489,7 +492,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // bars' height to its own end padding instead (LocalUnderBars), so its last row can
                     // still scroll clear of them.
                     val direction = LocalLayoutDirection.current
-                    CompositionLocalProvider(LocalUnderBars provides if (frost != null) padding.calculateBottomPadding() else 0.dp) {
+                    CompositionLocalProvider(LocalUnderBars provides if (frost != null) padding.calculateBottomPadding() else 0.dp,
+                        LocalQueueSong provides queueFromSwipe.takeIf { player != null && connected }) {
                     Column(Modifier.frostSource(frost)
                         .then(if (frost != null) Modifier.padding(start = padding.calculateStartPadding(direction),
                             top = padding.calculateTopPadding(), end = padding.calculateEndPadding(direction))

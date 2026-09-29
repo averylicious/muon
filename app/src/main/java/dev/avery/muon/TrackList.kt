@@ -73,7 +73,13 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
 internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean, ready: Boolean,
     modifier: Modifier = Modifier, subtitle: String = trackSubtitle(t.artist, t.album, t.playable),
     actions: (() -> Unit)? = null, play: () -> Unit) {
-    if (Expressive.motion) { ExpressiveTrackRow(t, endpoint, current, playing, ready, modifier, subtitle, actions, play); return }
+    if (Expressive.motion) {
+        // The item's own modifier (its placement animation) goes on the outermost layout, the swipe's.
+        SwipeToQueue(t, t.playable && ready, modifier) {
+            ExpressiveTrackRow(t, endpoint, current, playing, ready, Modifier, subtitle, actions, play)
+        }
+        return
+    }
     val colors = MaterialTheme.colorScheme
     Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
         .padding(horizontal = 12.dp)
