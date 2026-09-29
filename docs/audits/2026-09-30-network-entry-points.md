@@ -6,7 +6,7 @@ Workstream 2 of the [audit map](README.md), tracked in [#181](https://github.com
 
 - Inspected main: `8d0b24b236f73a2c2b846abffcf229ec8a72ca34`, after #192 ([main run 331](https://github.com/averylicious/muon/actions/runs/36528557232) passed; Canary .331). Open PRs at inspection: only Astra's #202 (CI publication baseline), which touches different files.
 - Experiment compared: `claude/m3-expressive-alpha` at `e1bf045c1fa7139c4966e480f2f06941a703ddfc` (62 ahead of, 2 behind main). The experimental checkout was not modified; only remote-tracking refs were fetched.
-- Author: Claude Sonnet 5.5 (`claude-sonnet-5-5`), Claude Code desktop app; effort not reported. Review: pending user-requested Astra review. This is not an independent review of anything.
+- Author: Claude Sonnet 5.5 (`claude-sonnet-5-5`), Claude Code desktop app; effort not reported. Independent report/source review: GPT-6 Astra (Codex; effort not reported), with the qualifications below. Astra authored the review corrections, not the original report; the report is not a runtime validation.
 - Worktree: `~/.codex/worktrees/muon-network-audit`, branch `claude/audit-network-entry-points` from main.
 - **Not done:** no ADB or phone, no LAN traffic, no local Android build (CI is the first compile), no fuzzing, no dependency-advisory review.
 
@@ -51,19 +51,19 @@ The exposure is concentrated in one component, so N1 and N2 belong in one small 
 ### N2 — external play requests clear the queue, and trusted controllers hold every command
 
 - **Symbols:** `PlaybackService.kt:107-121` (`onAddMediaItems` returns an empty list for any other package); Media3 default `Callback.onSetMediaItems` (`MediaSession.java:2034-2045`, delegates to `onAddMediaItems`), `MediaUtils.setMediaItemsWithStartIndexAndPosition` (`MediaUtils.java:227-246`), `MediaSessionLegacyStub.handleMediaRequest` (`:1117`, used by play-from-media-id/search/URI and prepare-from requests), `ExoPlayerImpl.setMediaSourcesInternal` (`:2618-2631`).
-- **Trigger:** a *trusted* external controller (system component, `MEDIA_CONTENT_CONTROL` holder, or an app with an enabled notification listener) calls `setMediaItem(s)`, or sends a play-from-search/media-id/URI request. Untrusted controllers cannot; they are read-only by default.
+- **Trigger:** a *trusted* external controller (system component, `MEDIA_CONTENT_CONTROL` holder, or an app with an enabled notification listener) calls `setMediaItem(s)`, or sends a play-from-search/media-id/URI request. Muon rejects untrusted external controllers in its own `onConnect`; the upstream read-only default does not apply to that rejected connection.
 - **Actual:** the empty list flows through unchanged. With no start index Media3 calls `player.setMediaItems(emptyList, resetPosition = true)`, which clears the playing queue. With an explicit start index ExoPlayer accepts an empty timeline and also clears it (the range check is guarded by `!timeline.isEmpty()`), so this is not a crash. Separately, the default `AcceptedResultBuilder` gives trusted controllers **all** player commands (`MediaSession.java:2282-2296`), including remove, move, clear, volume and speed. The comment at `PlaybackService.kt:109` promises transport controls only.
 - **Expected:** unsupported content requests are ignored or fail, and the queue stays. External controllers hold an allowlist of transport commands.
 - **Impact:** Low. A voice assistant, companion app or notification-listener app sending "play X" wipes the queue, which is not persisted across process death (see [roadmap](../roadmap.md) 0.3). Which real apps send such requests was not established.
 - **Confidence:** High for the code path; not reproduced.
 - **Proposed fix:** for controllers other than Muon's own, return a failed future from `onSetMediaItems`/`onAddMediaItems` (Media3's own default already returns `UnsupportedOperationException` for items without a URI), and build `onConnect`'s result from `ConnectionResult.AcceptedResultBuilder` with only transport commands for external controllers. Keep the change to the callback.
-- **Verification:** extract the decision into a pure function and unit-test it (the gate lives in an anonymous callback and has no tests today). Robolectric arrived with #192, but constructing an external `ControllerInfo` is not practical there, so the behavior itself needs a device check with a helper controller.
+- **Verification:** extract the decision into a pure function and unit-test it (the gate lives in an anonymous callback and has no tests today). The pinned library provides `ControllerInfo.createTestOnlyControllerInfo(...)`, so Robolectric can exercise the production callback with own-app, trusted external and untrusted identities. This covers callback decisions and failed futures; cross-process Binder/legacy routing still needs separate integration evidence or a helper controller on an authorized device.
 
 ### N3 — no overall deadline, and cancellation stops at the coroutine
 
 - **Symbols:** `Transport.client` (`TauonApi.kt:12-13`: connect 5 s, read 15 s, no `callTimeout`); `TauonApi.json` (`:22-38`), `Artwork.fetchArtwork` (`Artwork.kt:115-142`) and `DownloadArt.fetch` (`DownloadArt.kt:27-44`) call the blocking `execute()` inside `withContext(Dispatchers.IO)`; `LibraryModel.connect`/`disconnect` (`:27-113`); `ConnectScreen.kt:67-80` (the address field and Connect are disabled while `busy`, with no cancel).
 - **Trigger:** a server, or a stalled path, that accepts the connection and then sends bytes slowly enough to reset the 15 s read timeout; or Disconnect, navigation or a rescan while a request is in flight.
-- **Actual:** only per-read timeouts. The body caps (16 MiB JSON, 4 MiB images) bound size, not time, so a dribbling response can hold "Connecting…" for hours. Cancelling the coroutine does not cancel the OkHttp `Call`: the blocking read finishes first, and `disconnect()`'s `job.cancel()` takes effect only when it returns. After that, the next `withContext` throws immediately, so leftover work is bounded to one call per job, plus up to 64 in-flight artwork requests on the IO dispatcher.
+- **Actual:** only per-read timeouts. The body caps (16 MiB JSON, 4 MiB images) bound size, not time, so a dribbling response can hold "Connecting…" for hours. Cancelling the coroutine does not cancel the OkHttp `Call`: the blocking read finishes first, and `disconnect()`'s `job.cancel()` takes effect only when it returns. After that, the next `withContext` throws immediately, so leftover work is bounded to one call per job, plus other independently launched requests. The IO dispatcher's typical parallelism is not an application-level bound on queued requests or aggregate memory.
 - **Expected:** a bounded wall-clock time for control-plane calls, and cancellation that reaches the socket.
 - **Impact:** Low on a trusted LAN: a stuck connect screen that needs a force-stop, and wasted background requests after leaving a screen. The streaming client must keep having no call timeout.
 - **Confidence:** High for the code; not reproduced.
@@ -102,7 +102,7 @@ There is no local build, so the merged manifest (including library components su
 
 **Hypothesis:** the `onConnect` gate (`c.packageName == packageName || c.isTrusted`, `PlaybackService.kt:104`) and `onAddMediaItems` (`:110`) trust a package name that Media3 documents as sometimes unverifiable, so an app could claim Muon's name.
 
-**Result: not exploitable by any route examined.**
+**Result: no exploitable route was established in this pass. This is a withdrawn finding, not proof of absence on the platform paths left unchecked.**
 
 - **Service bind** (the route an external app takes to the exported service): `MediaSessionServiceStub.connect` requires `PACKAGE_VALID` (`MediaSessionService.java:1051`), rejecting `PACKAGE_CANT_CHECK` as well as `PACKAGE_INVALID`. The more permissive check in `MediaSessionStub.connect` (`:727`, rejects only `PACKAGE_INVALID`) applies to a controller that connects directly through a session token's binder.
 - **Direct session connect:** obtaining that binder needs access to platform sessions (notification-listener or `MEDIA_CONTENT_CONTROL`), which is already "trusted". This platform requirement was not verified here. Claiming Muon's name would not make such an app more trusted: Media3's own check (`legacy/MediaSessionManager.java:235-271`) decides listener trust from the claimed package name, and Muon is not a listener, while permission-based trust uses the real pid and UID.
@@ -134,8 +134,20 @@ Every finding applies. At `e1bf045` all audited files are byte-identical to main
 - Q3's checks and Q2's heap measurement, both device/emulator work.
 - A resolved-graph check that the Gradle-resolved Media3 is 1.11.0 and that the tag matches the published artifact.
 - The framework legacy browser-service path and the platform rule that gates access to session binders (W1), each read at Android 16/17 sources.
-- Independent review of this report (pending Astra).
+- Independent Astra source review completed as described below; runtime/device and resolved dependency-graph limitations remain.
 
 ## Recommended next task
 
 **Harden `PlaybackService`'s external entry points (N1, N2 and W1's one-line hardening), as one small main-track PR** on a fresh branch from main. Pure predicates for "own app" and "allowed external command", `exported="false"` (or a recorded decision to keep it), failed futures for external item requests, and unit tests for the predicates. Stop point: PR open with CI green and the QA checklist above, pending the user's device testing. Follow it with Q4 (manifest assertion), then N3, then the Q1 decision. Q3 and Q2 wait for device authorization and a measurement plan.
+
+
+## Astra review addendum — 2026-09-30
+
+Independently checked the published [Media3 session sources JAR](https://dl.google.com/dl/android/maven2/androidx/media3/media3-session/1.11.0/media3-session-1.11.0-sources.jar) matching main's declared pin. Reviewed `MediaSessionService.onStartCommand` and service-bind package validation, `MediaSessionImpl.onMediaButtonEvent`/`applyMediaButtonKeyEvent`, `MediaSession.Callback.onSetMediaItems`, the connection-result defaults, `MediaSessionLegacyStub.handleMediaRequest` and `MediaUtils.setMediaItemsWithStartIndexAndPosition`. Main app code was unchanged by #202.
+
+- **N1 supported with a lifecycle qualification:** the start-intent route reaches the session without Muon's connection gate. With a connected notification controller, supported key actions execute under that controller. Without it, `applyMediaButtonKeyEvent` returns false; cold-start timing and legacy fallback behavior must not be described as unconditional successful playback control. The exposed start path itself remains. `exported=false` is a proposed restriction with a compatibility tradeoff for apps binding by service token, not an already verified platform fix.
+- **N2 supported:** the default set-items callback delegates to Muon's add-items callback; its successful empty result can replace the queue. Rejecting unsupported requests with failed futures and removing external content-mutation commands are independently useful. The callback can be tested directly using the pinned public test-only controller factory, including the real default set-items delegation. A tiny predicate test alone would miss the successful-empty-list failure.
+- **N3 supported in the app source:** blocking execution has no coroutine-to-Call cancellation bridge or total call deadline. No network timing reproduction was performed in this documentation review. A control-plane timeout must not be applied to long-running audio streams.
+- **Priority is audit triage, not a vulnerability score.** N1/N2 affect local playback integrity; the practical controller population and platform reachability remain unmeasured. The auto-connect product decision, unresolved framework paths, and aggregate resource questions remain separate.
+
+The findings are useful and suitable to land with these limits. No original author checkout, experimental checkout, phone or music was accessed. There is no new production fix in this report. Follow-up production patches need their own tests, exact-head CI, model attribution and phone QA where behavior changes. Do not infer runtime coverage or a complete dependency audit from this source review.
