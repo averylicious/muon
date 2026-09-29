@@ -6,6 +6,8 @@ import re
 import subprocess
 import sys
 
+from apk_manifest import verify_manifest
+
 build_tools = Path(sys.argv[1])
 fingerprints = Path('docs/signing-certificates.txt').read_text().splitlines()
 for variant, package, label, suffix in [
@@ -29,4 +31,8 @@ for variant, package, label, suffix in [
     # Neither channel is debuggable: a debuggable Canary misrepresented performance in QA (#125).
     if 'application-debuggable' in badging:
         raise SystemExit(f'{variant}: APK must not be debuggable')
-    print(f'{variant}: package, version, label and signing certificate verified')
+    # Inspect the APK after manifest merging and release shrinking, including library components.
+    analyzer = Path(os.environ['ANDROID_HOME']) / 'cmdline-tools/latest/bin/apkanalyzer'
+    manifest = subprocess.check_output([str(analyzer), 'manifest', 'print', str(apk)], encoding='utf-8')
+    verify_manifest(manifest, package)
+    print(f'{variant}: package, version, label, signing certificate and exported components verified')
