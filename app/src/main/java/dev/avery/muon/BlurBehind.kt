@@ -15,9 +15,19 @@ import androidx.compose.ui.unit.dp
  */
 internal val BLUR_BEHIND_RADIUS: Dp = 28.dp
 
-/** How much of the blur to draw: as much as the player covers, or the song menu's own amount. */
-internal fun blurBehindAmount(sheetPosition: Float, menu: Float): Float =
-    maxOf(1f - sheetPosition.coerceIn(0f, 1f), menu.coerceIn(0f, 1f))
+/**
+ * How much of the blur to draw: the player's share of it, eased, or the song menu's own amount.
+ *
+ * The player's share is the square of how far it has risen. A blur reads far stronger than the dim it
+ * accompanies: at a fifth of the way up, a proportional blur was already about 6 dp, so opening, a
+ * short pull on the mini player, or the last moment of closing jumped to a heavy blur while the panel
+ * was still small (the user's recording on the Pixel). Squared, it starts barely there, builds as the
+ * player settles, and fades out the same way, with no extra drawing.
+ */
+internal fun blurBehindAmount(sheetPosition: Float, menu: Float): Float {
+    val risen = 1f - sheetPosition.coerceIn(0f, 1f)
+    return maxOf(risen * risen, menu.coerceIn(0f, 1f))
+}
 
 /**
  * Blurs what sits under the player in proportion to how far the player has risen, so a drag or a
