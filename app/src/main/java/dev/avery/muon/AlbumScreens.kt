@@ -32,10 +32,11 @@ internal fun albumArt(endpoint: ServerEndpoint?, album: LibraryAlbum): String? =
  * The albums as a grid of covers (mockup 02), as many columns as fit at about 160 dp each, so two on
  * a phone and more on a tablet. [albums] is null while the library is still being grouped. [state] is
  * owned by the caller so the position outlives an open album, as the lists' positions do (#105).
+ * [recent], the albums played lately, leads the grid as Jump back in when there are enough of them.
  */
 @Composable
 internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: ServerEndpoint?,
-    state: LazyGridState, open: (LibraryAlbum) -> Unit) {
+    state: LazyGridState, recent: List<LibraryAlbum> = emptyList(), open: (LibraryAlbum) -> Unit) {
     if (albums.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalUnderBars.current)) {
         item {
             // Full height so the grid can still be pulled down to refresh.
@@ -49,6 +50,7 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
         // Each tile carries 8 dp of its own padding, so a press lights a box with room around the
         // title; the grid's gaps shrink to match, and the covers sit exactly where they did.
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 8.dp + LocalUnderBars.current)) {
+        if (recent.size >= RECENT_ALBUMS_SHOWN_FROM) jumpBackIn(recent, endpoint, open)
         items(albums, key = { it.key }, contentType = { "album" }) { album ->
             Column(springyClick("Open album", RoundedCornerShape(24.dp)) { open(album) }.padding(8.dp)) {
                 // The cover that grows into the album page's (motion pass 2).

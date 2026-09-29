@@ -174,6 +174,17 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val songs = remember(snapshot, library.songOrder) { sortSongs(all, library.songOrder) }
         val sortedArtists = remember(artists, library.artistOrder) { artists?.let { sortArtists(it, library.artistOrder) } }
         val sortedAlbums = remember(albums, library.albumOrder) { albums?.let { sortAlbums(it, library.albumOrder) } }
+        // Jump back in: each album is remembered as a song from it starts, for the server it came from.
+        val playingId = trackIdOf(ui.item?.mediaId, origin)
+        LaunchedEffect(playingId, origin, snapshot) {
+            val server = origin ?: return@LaunchedEffect
+            val track = playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id } } ?: return@LaunchedEffect
+            if (track.album.isNotBlank()) library.played(server, albumKey(track))
+        }
+        val recent = remember(albums, origin, library.recentOrigin, library.recentAlbums) {
+            if (albums != null && origin != null && origin == library.recentOrigin) recentAlbums(library.recentAlbums, albums)
+            else emptyList()
+        }
         // Matched against the query the songs finished with, so all three sections agree; cheap enough
         // for the main thread, since there are far fewer artists and albums than songs.
         val foundArtists = remember(artists, search.completed) { artists?.let { searchArtists(it, search.completed) }.orEmpty() }
@@ -592,7 +603,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     AlbumOrder.entries, library.albumOrder, { it.label }) {
                                                                     library.chooseAlbumOrder(it); albumGrid = LazyGridState()
                                                                 }
-                                                                AlbumGrid(sortedAlbums, model.busy, model.endpoint, albumGrid) {
+                                                                AlbumGrid(sortedAlbums, model.busy, model.endpoint, albumGrid,
+                                                                    recent = if (Expressive.motion) recent else emptyList()) {
                                                                     albumOrigin = origin; albumKey = it.key; albumTitle = it.title
                                                                 }
                                                             }
