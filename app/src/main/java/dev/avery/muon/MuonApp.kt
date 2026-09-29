@@ -426,7 +426,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // bars itself; the bottom one, and the end one where three-button navigation sits.
                     Column((if (rail) Modifier.windowInsetsPadding(
                         WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier)
-                        .frostedBehind(frost)) {
+                        .frostedBehind(frost, backdrop = colors.background)) {
                         // Sideways, the player is a panel beside the list instead (mockup B).
                         // With Expressive motion it stays while the player is open, since the player grows
                         // out of it and shrinks back into it (PlayerMorph); the player covers it meanwhile.

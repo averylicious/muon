@@ -9,6 +9,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -69,10 +70,13 @@ internal fun Modifier.frostSource(frost: Frost?): Modifier = if (frost == null) 
     }
 
 /**
- * Draws the recorded content behind this bar, where the bar sits over it, blurred by [radius]. Nothing
- * is drawn until both have been placed, so a first frame is simply the bar's own colour.
+ * Draws the recorded content behind this bar, where the bar sits over it, blurred by [radius], on the
+ * page's [backdrop]. The recording holds only what the content draws, not the page colour under it, so
+ * without the backdrop the blurred copy is transparent between rows and the sharp list beneath shows
+ * straight through the bar (seen on the Pixel with Canary .327). Nothing is drawn until both have been
+ * placed, so a first frame is simply the bar's own colour.
  */
-internal fun Modifier.frostedBehind(frost: Frost?, radius: Dp = GLASS_BLUR): Modifier {
+internal fun Modifier.frostedBehind(frost: Frost?, backdrop: Color, radius: Dp = GLASS_BLUR): Modifier {
     if (frost == null) return this
     return this.onGloballyPositioned { frost.bars = it }.drawBehind {
         val source = frost.source ?: return@drawBehind
@@ -81,7 +85,10 @@ internal fun Modifier.frostedBehind(frost: Frost?, radius: Dp = GLASS_BLUR): Mod
         val at = source.localPositionOf(here, Offset.Zero)
         val px = radius.toPx()
         frost.blurred.renderEffect = BlurEffect(px, px, TileMode.Clamp)
-        frost.blurred.record { translate(-at.x, -at.y) { drawLayer(frost.content) } }
+        frost.blurred.record {
+            drawRect(backdrop)
+            translate(-at.x, -at.y) { drawLayer(frost.content) }
+        }
         drawLayer(frost.blurred)
     }
 }
