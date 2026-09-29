@@ -11,6 +11,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -85,10 +86,13 @@ internal fun Modifier.frostedBehind(frost: Frost?, backdrop: Color, radius: Dp =
         val at = source.localPositionOf(here, Offset.Zero)
         val px = radius.toPx()
         frost.blurred.renderEffect = BlurEffect(px, px, TileMode.Clamp)
+        // A blurred layer's output spreads past its bounds unless clipped: on the Pixel (.327, .328) it
+        // reached about 110 px above the mini player and ended in a hard edge across the list.
+        frost.blurred.clip = true
         frost.blurred.record {
             drawRect(backdrop)
             translate(-at.x, -at.y) { drawLayer(frost.content) }
         }
-        drawLayer(frost.blurred)
+        clipRect { drawLayer(frost.blurred) }
     }
 }
