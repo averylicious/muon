@@ -85,7 +85,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")
-    // Real Media3 cache/index characterization on the JVM; not packaged in either APK.
+    // Real Media3 cache/index and controller callback tests on the JVM; not packaged in either APK.
     testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
