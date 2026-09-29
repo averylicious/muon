@@ -53,7 +53,7 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 8.dp + LocalUnderBars.current)) {
         if (recent.size >= RECENT_ALBUMS_SHOWN_FROM) jumpBackIn(recent, endpoint, open)
         items(albums, key = { it.key }, contentType = { "album" }) { album ->
-            Column(springyClick("Open album", RoundedCornerShape(24.dp)) { open(album) }.padding(8.dp)) {
+            Column(springyClick("Open album", RoundedCornerShape(24.dp)) { openWhole(state, album, open) }.padding(8.dp)) {
                 // The cover that grows into the album page's (motion pass 2).
                 Artwork(albumArt(endpoint, album), sharedPicture(albumPictureKey(album.key))
                     .fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
@@ -150,6 +150,22 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
         PageToolbar(state, actionsIndex = 2, enabled = playable, backLabel = backLabel, back = back, playAll = playAll)
     }
 }
+
+/**
+ * Opens an album from the grid, first bringing its tile fully into view when part of it is hidden
+ * under the sort bar above the grid. The cover flies from the whole tile, and Back flies it home to
+ * the whole tile; otherwise it flew over the bar and the view buttons to the hidden part, and snapped
+ * under the bar as it landed (the user's recording on the Pixel, Canary .344). Applied at the next
+ * layout, the same one the flight measures from.
+ */
+private fun openWhole(state: LazyGridState, album: LibraryAlbum, open: (LibraryAlbum) -> Unit) {
+    val tile = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == album.key }
+    if (tile != null && tileHiddenAbove(tile.offset.y)) state.requestScrollToItem(tile.index)
+    open(album)
+}
+
+/** Whether a grid tile at [offsetY] from the top of the grid's viewport starts above it, partly hidden. */
+internal fun tileHiddenAbove(offsetY: Int): Boolean = offsetY < 0
 
 /** Play, filled, and Shuffle, tonal: the pair under an album's, an artist's or a playlist's header. */
 @Composable
