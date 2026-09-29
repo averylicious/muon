@@ -29,7 +29,7 @@ class PlaybackSessionCallbackTest {
     private val callback = PlaybackSessionCallback()
 
     @Before fun setUp() {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         player = ExoPlayer.Builder(context).build()
         session = MediaSession.Builder(context, player).setCallback(callback).build()
     }
@@ -48,7 +48,7 @@ class PlaybackSessionCallbackTest {
 
     @Test fun foreignUidWithAppPackageLabelIsRejectedWhenUntrusted() {
         val result = callback.onConnectAsync(session, controller(trusted = false,
-            packageName = RuntimeEnvironment.getApplication<android.app.Application>().packageName)).get()
+            packageName = RuntimeEnvironment.getApplication().packageName)).get()
         assertFalse(result.isAccepted)
     }
 
@@ -72,7 +72,7 @@ class PlaybackSessionCallbackTest {
     }
 
     @Test fun trustedForeignUidWithAppLabelStillCannotSupplyQueueItems() {
-        val foreign = controller(packageName = RuntimeEnvironment.getApplication<android.app.Application>().packageName)
+        val foreign = controller(packageName = RuntimeEnvironment.getApplication().packageName)
         assertFalse(callback.onConnectAsync(session, foreign).get().availablePlayerCommands
             .contains(Player.COMMAND_SET_MEDIA_ITEM))
         assertFailure(callback.onAddMediaItems(session, foreign, mutableListOf(item(3))),
