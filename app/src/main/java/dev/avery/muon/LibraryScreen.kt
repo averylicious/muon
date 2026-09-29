@@ -1,5 +1,11 @@
 package dev.avery.muon
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -34,6 +40,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.time.Duration
+import java.time.LocalTime
+import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.delay
 
 /** Material's large bar asks for this much height when expanded, before any font scaling. */
 internal const val LIBRARY_HEADER = 152f
@@ -100,14 +110,45 @@ private fun Greeting(tracks: Int, offline: Boolean) {
         Text("Library", style = MaterialTheme.typography.barTitle,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     } else Column {
-        Text("Your music,\nnearby.", style = MaterialTheme.typography.displaySmall,
-            fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        val hour by rememberHourOfDay()
+        // A new greeting rises into place over the old one, as the hour turns or the phone goes offline.
+        AnimatedContent(greetingFor(hour, offline), transitionSpec = {
+            (fadeIn(motionMedium()) + slideInVertically(motionSpatial()) { it / 3 })
+                .togetherWith(fadeOut(motionShort()) + slideOutVertically(motionSpatial()) { -it / 3 })
+        }, label = "greeting") { greeting ->
+            Text(greeting, style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
         // Where the music is coming from. The count is left to each view's own bar ("962 songs",
         // "891 albums"), which it only repeated on Songs and contradicted on the others.
         if (tracks > 0) Text(if (offline) "Offline · songs saved on this phone" else "Streaming from Tauon on your desktop",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * The greeting's two lines for the [hour] of the day (0 to 23): morning from 5, afternoon from 12,
+ * evening from 17 and late-night listening from 22. Offline, it says the music came along instead.
+ * Always two lines, so the bar above the list keeps one height all day.
+ */
+internal fun greetingFor(hour: Int, offline: Boolean): String = when {
+    offline -> "Your music,\nwith you."
+    hour in 5..11 -> "Good\nmorning."
+    hour in 12..16 -> "Good\nafternoon."
+    hour in 17..21 -> "Good\nevening."
+    else -> "Late-night\nlistening."
+}
+
+/** The hour of the day on this phone's clock, updated as each hour turns. */
+@Composable
+private fun rememberHourOfDay(): State<Int> = produceState(LocalTime.now().hour) {
+    while (true) {
+        val now = LocalTime.now()
+        // A second past the turn, so the clock has certainly moved on when this wakes.
+        delay(Duration.between(now, now.truncatedTo(ChronoUnit.HOURS).plusHours(1)).toMillis().mod(3_600_000L) + 1_000)
+        value = LocalTime.now().hour
     }
 }
 
