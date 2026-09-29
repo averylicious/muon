@@ -120,7 +120,7 @@ class PlaybackSessionCallbackTest {
 
     @Test fun ownAppStillCannotResolveInvalidStreamUris() {
         val own = controller(uid = Process.myUid())
-        for (uri in listOf("file:///tmp/song.mp3", "http://192.168.1.2:7814/other/3",
+        for (uri in listOf("file://localhost/tmp/song.mp3", "http://192.168.1.2:7814/other/3",
             "http://192.168.1.2:7814/api1/file/3?url=other", "http://192.168.1.2:7814/api1/file/3#fragment")) {
             assertFailure(callback.onSetMediaItems(session, own,
                 mutableListOf(MediaItem.fromUri(uri)), 0, 0), IllegalArgumentException::class.java)
