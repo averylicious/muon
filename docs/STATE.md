@@ -2,11 +2,11 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-30, continued source-audit checkpoint, by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
+_Last updated: 2026-10-01, continued source-audit checkpoint, by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
 
-- **Audit continuation:** latest [scheduler/queue checkpoint](handoffs/2026-09-30-scheduler-queue.md) records merged #236/#238 test characterizations and #222 dependency inventory, plus green but phone-QA-pending #237/#240/#242/#245. Current verified main publication is [Canary .410](https://github.com/averylicious/muon/releases/tag/0.1.0-canary.410), at `8d056b655cdab4c3a82157ca443d7b5ea1532d73`; it excludes parked app fixes and experimental UI. About 70% of the planned source first pass is covered, a planning estimate, not a security score or Stable readiness. Earlier exact heads/gates remain in [progress](audits/2026-09-30-progress.md); historical quota failures remain failures. No artifact deletion or Stable release is authorized.
+- **Audit continuation:** latest [source-audit checkpoint](handoffs/2026-10-01-source-audit.md) records merged #215 retained-identity evidence, new green/phone-QA-pending #248/#250/#252 and refreshed #205, plus prior #237/#240/#242/#245. Verified main publication is [Canary .418](https://github.com/averylicious/muon/releases/tag/0.1.0-canary.418), at `17309b11dd339dd833a8bf135b1b30b2d0f273a7`; it excludes parked app fixes and experimental UI. About 70% of the planned source first pass is covered, a planning estimate, not a security score or Stable readiness. #253 tracks aggregate resources; build-crypto reachability is qualified, incomplete. Earlier heads/gates remain in [progress](audits/2026-09-30-progress.md); historical failures remain failures.
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.

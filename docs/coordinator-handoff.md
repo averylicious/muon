@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Latest main-audit checkpoint: [2026-09-30 scheduler, startup state and queue identity](handoffs/2026-09-30-scheduler-queue.md). It supersedes the older progress snapshot for #222/#236/#238 merges, verified main .410, and open #237/#240/#242/#245 exact-head checks/phone-QA gates. Refresh GitHub and active ownership; these are separate branches, not a combined candidate. Earlier findings and parked PRs remain in [the progress report](audits/2026-09-30-progress.md).
+Latest main-audit checkpoint: [2026-10-01 parser, discovery, offline metadata and service QA](handoffs/2026-10-01-source-audit.md). It supersedes older status for merged #215, verified main .418, and open #248/#250/#252/refreshed #205 checks and phone-QA gates. Earlier #237/#240/#242/#245 evidence remains linked; these are separate branches, not a combined candidate. Refresh GitHub and active ownership. Earlier parked PRs remain in [progress](audits/2026-09-30-progress.md).
 
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The earlier controller-policy checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 
