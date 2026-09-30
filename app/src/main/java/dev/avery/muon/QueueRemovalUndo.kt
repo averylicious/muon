@@ -18,7 +18,8 @@ internal class QueueRemovalUndo private constructor(private val player: Player, 
         attempted = true
         if (!restorable || !player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) ||
             queueOccurrences(player) != remaining) return false
-        player.addMediaItem(index.coerceAtMost(player.mediaItemCount), requireNotNull(restore))
+        // Reinsertion gets a fresh row so saved dismissed-state belongs only to the removed one.
+        player.addMediaItem(index.coerceAtMost(player.mediaItemCount), queueOccurrence(requireNotNull(restore)))
         return true
     }
 

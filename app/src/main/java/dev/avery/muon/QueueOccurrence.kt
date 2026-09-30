@@ -32,3 +32,10 @@ internal fun queueOccurrences(player: Player): List<Pair<String, String>>? {
     }
     return keys
 }
+
+/** Stable normal queue rows; legacy/cloned tags fall back to collision-free IDs without stability claims. */
+internal fun queueRowKeys(items: List<MediaItem>): List<String> {
+    val keys = items.map(::queueOccurrenceKey)
+    return if (keys.all { it != null } && keys.toSet().size == keys.size) keys.map { "occurrence:$it" }
+    else occurrenceKeys(items.map { it.mediaId }).map { "legacy:$it" }
+}

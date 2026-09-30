@@ -55,7 +55,7 @@ private fun queueSnapshot(player: Player): QueueSnapshot {
         if (i >= timeline.windowCount) C.INDEX_UNSET else timeline.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, shuffle)
     }
     val items = order.map { player.getMediaItemAt(it) }
-    val keys = occurrenceKeys(items.map { it.mediaId })
+    val keys = queueRowKeys(items)
     return QueueSnapshot(QueueEntry(current, player.getMediaItemAt(current)),
         order.indices.map { QueueEntry(order[it], items[it], keys[it]) }, shuffle,
         repeatAll = player.repeatMode == Player.REPEAT_MODE_ALL)

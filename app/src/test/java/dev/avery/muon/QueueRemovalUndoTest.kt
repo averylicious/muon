@@ -52,7 +52,8 @@ class QueueRemovalUndoTest {
         assertEquals(listOf(a.mediaId, b.mediaId, c.mediaId), ids(player))
         assertTrue(removal.restorable)
         assertTrue(removal.undo())
-        assertEquals(initial, items(player))
+        assertEquals(initial.map { it.mediaId }, ids(player))
+        assertEquals(initial.map { it.mediaMetadata.title }, items(player).map { it.mediaMetadata.title })
         assertFalse(removal.undo())
     }
 
@@ -93,7 +94,8 @@ class QueueRemovalUndoTest {
         player.seekToDefaultPosition(1)
         player.shuffleModeEnabled = true
         assertTrue(removal.undo())
-        assertEquals(initial, items(player))
+        assertEquals(initial.map { it.mediaId }, ids(player))
+        assertEquals(initial.map { it.mediaMetadata.title }, items(player).map { it.mediaMetadata.title })
         assertTrue(player.shuffleModeEnabled)
     }
 
@@ -145,6 +147,29 @@ class QueueRemovalUndoTest {
         val ambiguous = remove(player, 1)
         assertFalse(ambiguous.restorable)
         assertFalse(ambiguous.undo())
+    }
+
+    @Test fun survivingDuplicateRowsKeepTheirKeysAndUndoCreatesANewRow() {
+        val before = queueRowKeys(items(player))
+        val removal = remove(player, 1)
+        val after = queueRowKeys(items(player))
+        assertEquals(before.filterIndexed { i, _ -> i != 1 }, after)
+        assertTrue(removal.undo())
+        val restored = queueRowKeys(items(player))
+        assertNotEquals(before[1], restored[1])
+        assertEquals(after, restored.filterIndexed { i, _ -> i != 1 })
+        assertArrayEquals(initial[1].mediaMetadata.extras?.getByteArray(SONG_EXTRA),
+            player.getMediaItemAt(1).mediaMetadata.extras?.getByteArray(SONG_EXTRA))
+    }
+
+    @Test fun duplicateReorderPreservesDistinctRowKeysAndLegacyFallbackHasNoCollisions() {
+        val before = queueRowKeys(items(player))
+        player.moveMediaItem(1, 2)
+        assertEquals(before.moved(1, 2), queueRowKeys(items(player)))
+        val raw = MediaItem.Builder().setMediaId(b.mediaId).setUri(restoreUrl(b.mediaId)).build()
+        val legacy = queueRowKeys(listOf(raw, raw, raw))
+        assertEquals(3, legacy.toSet().size)
+        assertEquals(2, queueRowKeys(listOf(b, b)).toSet().size)
     }
 
     private fun remove(p: Player, index: Int) =
