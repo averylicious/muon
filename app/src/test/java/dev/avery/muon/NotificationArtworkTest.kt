@@ -1,6 +1,5 @@
 package dev.avery.muon
 
-import android.graphics.Bitmap
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.datasource.DataSource
@@ -63,18 +62,21 @@ class NotificationArtworkTest {
     }
 
     @Test fun highlyCompressedLargeImageIsSampledToNotificationDimensions() {
-        val bitmap = loader(Source(byteArrayOf(), 0L)).decodeBitmap(png(2048, 1024)).get(10, TimeUnit.SECONDS)
+        val encoded = png(2048, 1024)
+        assertTrue("Fixture must exercise compressed dimensions, not byte-limit rejection", encoded.size < NOTIFICATION_ART_BYTES)
+        val bitmap = loader(Source(byteArrayOf(), 0L)).decodeBitmap(encoded).get(10, TimeUnit.SECONDS)
         assertTrue(bitmap.width in 1..NOTIFICATION_ART_SIDE)
         assertTrue(bitmap.height in 1..NOTIFICATION_ART_SIDE)
         bitmap.recycle()
     }
 
     private fun loader(source: Source) = notificationBitmapLoader(RuntimeEnvironment.getApplication(), DataSource.Factory { source })
-    private fun png(width: Int, height: Int): ByteArray {
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        return try { ByteArrayOutputStream().use { out ->
-            assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)); out.toByteArray()
-        } } finally { bitmap.recycle() }
+    private fun png(width: Int, height: Int): ByteArray = ByteArrayOutputStream().use { out ->
+        // Robolectric maps PNG quality=100 to no compression; Android ignores PNG quality.
+        // Use a real compressed PNG fixture so this tests sampling independently of the byte cap.
+        val image = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        assertTrue(javax.imageio.ImageIO.write(image, "png", out))
+        out.toByteArray()
     }
     private class Source(val bytes: ByteArray, val declared: Long) : DataSource {
         var position = 0
