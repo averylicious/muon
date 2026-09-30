@@ -4,6 +4,8 @@ A one-page snapshot for the next session, local or cloud. Update it whenever wor
 
 _Last updated: 2026-09-30, network audit review, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-30-controller-policy.md) for exact review/CI evidence._
 
+Latest continuation: [played-copy resource bounds](handoffs/2026-09-30-played-copy-budget.md); #205/#206/#209/#210 remain open with phone QA and, except #205, artifact quota gates.
+
 ## Where things are
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
@@ -35,6 +37,8 @@ _Last updated: 2026-09-30, network audit review, by GPT-6 Astra (Codex). See the
 4. **Stable release:** only on the user's explicit request, after reviewing outstanding findings and QA. It also brings the redesign to the Stable app, which is still the pre-redesign 0.1.0.
 
 ## Authorization
+
+- **Phone-QA gate, clarified 2026-09-30:** leave any PR requiring phone QA open while code auditing continues until that QA is supplied or the user changes this instruction.
 
 - **Standing since 2026-09-27:** merge any PR with no blockers without asking. The user's words: "You are authorized to merge PRs without any blockers without asking for permission in future sessions". Merge at the CI-verified head and record it on the PR as a self-review; Astra audits later. **Stable releases, release tags and anything with a blocker still need the user.**
 - **Parallel sessions, since 2026-09-28:** the user requested autonomous audit/experiment work with repository safeguards instead of routine live coordination. The user may allocate a separate audit Claude session; that does not authorize resuming their experimental session. Main-to-experiment syncs are separate PRs landed by the experimental owner at their own boundary.

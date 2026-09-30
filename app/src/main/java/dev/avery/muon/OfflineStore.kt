@@ -215,7 +215,9 @@ internal object OfflineStore {
                 store.cache.applyContentMetadataMutations(key, ContentMetadataMutations().set(SONG_METADATA, song))
                 val source = CacheDataSource.Factory().setCache(store.cache)
                     .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client)).createDataSourceForDownloading()
-                CacheWriter(source, DataSpec.Builder().setUri(Uri.parse(url)).setKey(key).build(), null, null).cache()
+                copyPlayedWithinLimit(source, DataSpec.Builder().setUri(Uri.parse(url)).setKey(key).build()) {
+                    store.prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT)
+                }
             }
         }
     }
