@@ -28,3 +28,9 @@ Primary sources checked include [Apache's security page](https://commons.apache.
 4. Audit the experiment's own resolved graph separately; fetching its ref does not establish identical alpha dependency transitives.
 
 Excluded from this first pass: platform/native/system libraries, Gradle's embedded implementation, action transitives, benchmark/instrumentation graphs and composite builds. No complete SBOM, artifact-integrity or measured performance claim. The ordinary Android run377 passed builds/unit suites/lint/identity stages but failed artifact upload due storage quota; zero APK/report artifacts are available. Inventory success does not waive the required Android check or authorize merging.
+
+## Refreshed main-track tooling after CI recovery
+
+The PR now includes main `a58049bda54820a3f346478aa24c78099ec3bf69`. Earlier inventory/advisory JSON remains historical evidence at its inspected source head, not silently relabelled as today's resolved graph. Selected parent paths and the qualified jose4j JWS/compressed-JWE analysis are now available in [the follow-up](2026-09-30-dependency-follow-up.md); this supersedes the earlier untraced-jose4j checkpoint. No APK/artifact-integrity or absence-of-vulnerability claim follows.
+
+Parser tests passed locally after main integration; refreshed inventory/Android checks must pass on the new head before author self-review merge. The read-only inventory workflow keeps contents:read, pinned actions, no persisted checkout credentials and no signing-secret environment. It resolves public module IDs/edges and validates provenance; it neither installs dependency verification metadata nor upgrades modules. No phone QA is required because runtime behavior/dependencies are unchanged. Experimental owners may use the tool on their branch for a separately evidenced alpha graph.
