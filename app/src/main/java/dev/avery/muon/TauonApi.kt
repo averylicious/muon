@@ -33,7 +33,7 @@ class TauonApi(val endpoint: ServerEndpoint) {
                 output.write(buffer, 0, count)
             }
             val bytes = output.toByteArray()
-            JSONObject(bytes.toString(Charsets.UTF_8))
+            parseTauonJson(bytes.toString(Charsets.UTF_8))
         }
     }
     suspend fun connect() {
