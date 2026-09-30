@@ -42,3 +42,26 @@ class InventoryTest(unittest.TestCase):
             d = self.fixture(); d["configurations"][0]["modules"] = modules
             with self.subTest(modules=modules), self.assertRaises(ValueError):
                 parse(json.dumps(d), self.commit)
+
+    def test_optional_parent_edges_preserve_actual_selected_components_and_constraints(self):
+        d = self.fixture()
+        for scope in d["configurations"]:
+            scope["edges"] = [{"from": "<root>", "to": scope["modules"][0], "constraint": False}]
+        self.assertEqual(d, parse(json.dumps(d), self.commit))
+
+    def test_invalid_parent_edges_and_shapes_are_rejected(self):
+        for edges in [[], None, [None], [{"from": "<root>", "to": "unknown:x:1", "constraint": False}],
+                      [{"from": "<root>", "to": "androidx.media3:media3-common:1.11.0", "constraint": 1}]]:
+            d = self.fixture(); d["configurations"][0]["edges"] = edges
+            with self.subTest(edges=edges), self.assertRaises(ValueError): parse(json.dumps(d), self.commit)
+        d = self.fixture(); d["configurations"][0] = None
+        with self.assertRaises(ValueError): parse(json.dumps(d), self.commit)
+        d = self.fixture(); d["schema"] = True
+        with self.assertRaises(ValueError): parse(json.dumps(d), self.commit)
+
+    def test_duplicate_and_unsorted_edges_fail(self):
+        edge = {"from": "<root>", "to": "androidx.media3:media3-common:1.11.0", "constraint": False}
+        constraint = dict(edge, constraint=True)
+        for edges in [[edge, edge], [constraint, edge]]:
+            d = self.fixture(); d["configurations"][0]["edges"] = edges
+            with self.assertRaises(ValueError): parse(json.dumps(d), self.commit)

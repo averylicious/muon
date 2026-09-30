@@ -21,13 +21,15 @@ def parse(text, commit):
             raise ValueError("Expected one complete inventory record in logs")
         text = records[0]
     data = json.loads(text)
-    if data.get("schema") != 1 or data.get("commit") != commit:
+    if not isinstance(data, dict) or type(data.get("schema")) is not int or data.get("schema") != 1 or data.get("commit") != commit:
         raise ValueError("Inventory schema/commit mismatch")
     scopes = data.get("configurations")
     if not isinstance(scopes, list) or len(scopes) != len(SCOPES):
         raise ValueError("Incomplete inventory scopes")
     seen = set()
     for scope in scopes:
+        if not isinstance(scope, dict):
+            raise ValueError("Invalid inventory scope")
         name = scope.get("scope")
         if name not in SCOPES or name in seen:
             raise ValueError("Unexpected or duplicate scope")
@@ -40,6 +42,22 @@ def parse(text, commit):
             raise ValueError("Invalid Maven component coordinate")
         if modules != sorted(set(modules)):
             raise ValueError("Inventory components must be unique and sorted")
+        if "edges" in scope:
+            edges = scope["edges"]
+            if not isinstance(edges, list) or not edges:
+                raise ValueError("Empty dependency parent edges")
+            records = []
+            for edge in edges:
+                if not isinstance(edge, dict) or set(edge) != {"from", "to", "constraint"}:
+                    raise ValueError("Invalid dependency edge")
+                parent, child = edge["from"], edge["to"]
+                if not isinstance(parent, str) or not isinstance(child, str) or type(edge["constraint"]) is not bool:
+                    raise ValueError("Invalid dependency edge values")
+                if parent != "<root>" and parent not in modules or child not in modules:
+                    raise ValueError("Unknown dependency edge component")
+                records.append((parent, child, edge["constraint"]))
+            if records != sorted(set(records)):
+                raise ValueError("Dependency edges must be unique and sorted")
     return data
 
 

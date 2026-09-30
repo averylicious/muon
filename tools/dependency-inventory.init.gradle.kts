@@ -2,6 +2,7 @@ import groovy.json.JsonOutput
 import org.gradle.api.GradleException
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.result.UnresolvedDependencyResult
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
 
 // Read-only audit task: no signing, compilation, dependency updates or verification bootstrap.
 gradle.projectsEvaluated {
@@ -24,7 +25,19 @@ gradle.projectsEvaluated {
                     (component.id as? ModuleComponentIdentifier)?.let { "${it.group}:${it.module}:${it.version}" }
                 }.distinct().sorted()
                 if (modules.isEmpty()) throw GradleException("Empty dependency inventory for $name")
-                mapOf("scope" to name, "modules" to modules)
+                fun coordinate(id: org.gradle.api.artifacts.component.ComponentIdentifier): String? =
+                    (id as? ModuleComponentIdentifier)?.let { "${it.group}:${it.module}:${it.version}" }
+                val edges = result.allDependencies.filterIsInstance<ResolvedDependencyResult>().mapNotNull { dependency ->
+                    val from = coordinate(dependency.from.id)
+                        ?: if (dependency.from.id == result.root.id) "<root>" else null
+                    val to = coordinate(dependency.selected.id)
+                    if (from == null || to == null) null else
+                        Triple(from, to, dependency.isConstraint)
+                }.distinct().sortedWith(compareBy<Triple<String, String, Boolean>> { it.first }
+                    .thenBy { it.second }.thenBy { it.third }).map {
+                    mapOf("from" to it.first, "to" to it.second, "constraint" to it.third)
+                }
+                mapOf("scope" to name, "modules" to modules, "edges" to edges)
             }
             val json = JsonOutput.toJson(mapOf("schema" to 1, "commit" to commit, "configurations" to configurations))
             val output = app.layout.buildDirectory.file("reports/dependency-inventory.json").get().asFile

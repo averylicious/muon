@@ -13,3 +13,7 @@ Overall Android APKs workflow may still fail only at storage quota. Do not bypas
 ## Verified first pass
 
 Inventory run1 / 36687847589 succeeded at e1a6e46205229ff6e0c3862f9a94cea4f9c0849a. See ../audits/2026-09-30-dependencies.md and committed scoped evidence for 286 selected coordinates, OSV exact-version matching and qualified build/test-only findings. No production-runtime matches returned; not a security guarantee. Next bounded supply-chain slice: dependency parents and tool reachability, then compatible upgrade proposals / separate checksum trust design. Android run377 / 36687847447 passed build/test/lint/identity stages and failed quota uploads. No APK available; don't merge on inventory success alone.
+
+## Parent-edge follow-up
+
+Read-only task now records sorted selected-module parent edges per scope, including a root marker and whether the edge is a constraint. This distinguishes a transitive dependency from a BOM constraint and permits shortest-path triage. Earlier schema1 inventories without optional edges remain valid historical version evidence. Parser validates supplied edge endpoints/types/order, rejects malformed scope records and boolean schema numbers. Seven parser tests pass locally; pinned Gradle ResolvedDependencyResult getFrom/getSelected/isConstraint source API checked. CI must execute the changed init script before claiming actual parent evidence. No version/verification/bootstrap changes.
