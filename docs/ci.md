@@ -1,11 +1,11 @@
 # Builds, installation and signing recovery
 
-Repository: [averylicious/muon](https://github.com/averylicious/muon) (private).
+Repository: [averylicious/muon](https://github.com/averylicious/muon) (visibility is controlled by the repository owner).
 Workflow: [Android APKs](https://github.com/averylicious/muon/actions/workflows/android.yml).
 
 ## What runs
 
-Every push to any branch starts a check; **Actions → Android APKs → Run workflow** also works. A newer push to the same branch cancels an unfinished older run. This builds each pushed branch tip, not every intermediate commit inside a multi-commit push. Successful `main` builds publish private Canary prereleases; pushed `vMAJOR.MINOR.PATCH` tags publish stable releases. Other branches only build artifacts. See [release channels and Obtainium setup](obtainium.md). Nothing is published publicly.
+Every push to any branch starts a check; **Actions → Android APKs → Run workflow** also works. A newer push to the same branch cancels an unfinished older run. This builds each pushed branch tip, not every intermediate commit inside a multi-commit push. Successful `main` builds publish Canary prereleases with the repository's current visibility; pushed `vMAJOR.MINOR.PATCH` tags publish stable releases. Other branches only build artifacts. See [release channels and Obtainium setup](obtainium.md). While the repository is public, source, history, release assets and Actions logs are publicly accessible; do not treat former private releases/logs as confidential. Switching back to private does not erase existing copies or public forks. Signing keys remain GitHub secrets; never upload them or private recovery bundles. See [the scoped public-readiness check](audits/2026-09-30-public-readiness.md).
 
 ### Documentation-only checks
 
