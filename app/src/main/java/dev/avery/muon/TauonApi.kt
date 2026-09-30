@@ -36,7 +36,7 @@ class TauonApi(val endpoint: ServerEndpoint) {
             }
             output.toByteArray()
         }
-        JSONObject(bytes.toString(Charsets.UTF_8))
+        parseTauonJson(bytes.toString(Charsets.UTF_8))
     }
     suspend fun connect() {
         require(json("/api1/version").getInt("version") == 1) { "Unsupported Tauon API version" }
