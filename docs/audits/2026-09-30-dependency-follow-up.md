@@ -24,3 +24,14 @@ Pinned primary sources inspected (read only, not executed): [AGP sources](https:
 Keep #222 open until its required checks pass at the latest head. Qualify jose4j and broader crypto/tool execution next before choosing compatible upgrades; dependency locking/checksum trust needs its own reviewed design. No phone QA is needed for this documentation/tooling, and no device, performance or security-completeness claim follows from the inventory job.
 
 Attribution: GPT-6, Codex desktop; effort not reported (user nickname Sol). Author investigation/self-check only, no independent review.
+
+
+## Resumed jose4j applicability reading after CI recovery
+
+The selected dependency stays jose4j0.9.5 through Bundletool1.18.1; no upgrade is made. Google's Maven source-JAR URL for this Bundletool version returned HTTP404. Instead, read Google's upstream version tag at exact commit [`1de340a763c903e4b6db83227f145b2181beccbd`](https://github.com/google/bundletool/tree/1de340a763c903e4b6db83227f145b2181beccbd). This is pinned upstream source, not a verified source-to-compiled-artifact equivalence claim.
+
+Across that snapshot's `src/main` Java files, the four jose4j import users were AddTransparencyCommand, ApkTransparencyCheckUtils, BundleTransparencyCheckUtils and CodeTransparencyCryptoUtils. They use JWS/code-transparency signatures; no JsonWebEncryption import/use was found there. [CodeTransparencyCryptoUtils](https://github.com/google/bundletool/blob/1de340a763c903e4b6db83227f145b2181beccbd/src/main/java/com/android/tools/build/bundletool/transparency/CodeTransparencyCryptoUtils.java) `parseJws` casts the compact-token factory result to JsonWebSignature, and signature verification whitelists RSA-SHA256.
+
+Also read the [actual pinned jose4j source JAR](https://repo.maven.apache.org/maven2/org/bitbucket/b_c/jose4j/0.9.5/jose4j-0.9.5-sources.jar): JsonWebStructure.fromCompactSerialization chooses a JWE object for five-part input and parses its encrypted fields; JsonWebEncryption.setCompactSerializationParts does not decompress. Decompression occurs later in its decrypt/get-plaintext path. A JWE object in the inspected Bundletool parse path fails the JWS cast before that decrypt path. The matched GHSA-3677-xxcr-wjqv concerns compressed JWE decompression, so no affected decompression route was established in these inspected Bundletool users.
+
+This is a qualified non-applicability observation for that path, not a global clearance, exploit test, compiled Bundletool verification or proof that arbitrary token/file processing is bounded. Current Muon workflow tasks also do not explicitly invoke Bundletool code-transparency commands. Keep the selected-version advisory recorded; broader tool/signing reachability and compatible upgrades/integrity remain open.
