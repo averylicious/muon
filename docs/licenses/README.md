@@ -2,6 +2,7 @@
 
 [MIT](../../LICENSE) applies to Muon's original source code and project-authored documentation. It does not relicense third-party works or imply ownership of content shown in screenshots.
 
+- Muon original code: [MIT](../../LICENSE), also packaged verbatim as `assets/licenses/Muon-MIT.txt` in APKs.
 - Google Sans Flex font: [SIL Open Font License 1.1](GoogleSansFlex-OFL.txt). The notice is also packaged in the APK's `assets/licenses/`; see [font provenance](../fonts.md).
 - Material Symbols icons: [Apache License 2.0](MaterialSymbols-Apache-2.0.txt), also packaged in `assets/licenses/`.
 - Gradle wrapper and library/build dependencies retain their respective upstream licenses. The project license does not replace their notices or license obligations.
