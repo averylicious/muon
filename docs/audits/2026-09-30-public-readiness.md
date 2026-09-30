@@ -33,3 +33,10 @@ Local existing checks: 35 CI tests and six release tests passed; disclosure/lice
 Keep all app PRs needing phone QA open. Resume from [the continuation checkpoint on #231](https://github.com/averylicious/muon/pull/231); source next steps include disposable move/remove (#230) and optional-copy worker (#225) characterizations. Refresh GitHub secret alerts after its background scan; do not equate no alerts with no secrets. Experimental owners integrate useful main documentation/fixes at their own clean boundary.
 
 Attribution: GPT-6, Codex desktop, effort not reported (user nickname Sol); implementation and author self-check, no independent reviewer or audit Claude session used. No phone access.
+
+
+### Supplement after GitHub token-format announcement
+
+The [token-format review](2026-09-30-github-token-format.md) found that the pinned local scanner's old installation-token pattern misses a fabricated stateless-shaped value. A temporary supplemental pattern detected it; redacted rescans of fetched history and the collected public text/blob snapshot found no new credential candidates. The eight public-text locations were unchanged, already verified public-key digest false positives. This improves pattern coverage without widening the original historical-log/artifact/binary scope or claiming exhaustive assurance.
+
+#232 source license/disclosure and #235 packaged MIT notice are merged. Both actual #235 APK archives carry the root LICENSE verbatim. Main [run396](https://github.com/averylicious/muon/actions/runs/36717684718) succeeded and published [Canary .396](https://github.com/averylicious/muon/releases/tag/0.1.0-canary.396) at f9f27f75b568c0d2a29e7358d692751f8636c9d4 with nonempty uploaded APK/BUILD/SHA256 assets. This main build excludes the parked app fixes and experiment. Earlier pending-check paragraphs above describe the original documentation-PR stage.
