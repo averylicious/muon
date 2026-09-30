@@ -24,7 +24,7 @@ import org.robolectric.annotation.SQLiteMode
 
 /** Actual DownloadService creation/helper reuse, without commands, network or Android mount events. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE)
+@Config(sdk = [34])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class CardServiceCharacterizationTest {
