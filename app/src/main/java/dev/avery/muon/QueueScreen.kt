@@ -76,6 +76,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
     val snapshot = remember(player, rev) { player?.let(::queueSnapshot) ?: QueueSnapshot(null, emptyList()) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val currentPlayer by rememberUpdatedState(player)
     val colors = MaterialTheme.colorScheme
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val editable = player?.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) == true
@@ -161,19 +162,20 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
     /** Removes the song if its position still holds it, and says whether it did. */
     fun remove(entry: QueueEntry): Boolean {
         val p = player ?: return false
-        // The list may be a frame behind the player: act only if that position still holds that song.
-        if (entry.index !in 0 until p.mediaItemCount || p.getMediaItemAt(entry.index).mediaId != entry.item.mediaId) return false
-        p.removeMediaItem(entry.index)
-        val restore = restoreUrl(entry.item.mediaId)?.let { entry.item.buildUpon().setUri(it).build() }
+        val removal = QueueRemovalUndo.remove(p, entry.index, entry.item) ?: return false
         scope.launch {
-            snackbar.currentSnackbarData?.dismiss()
-            val result = snackbar.showSnackbar("Removed “${entry.item.mediaMetadata.title ?: "song"}”",
-                actionLabel = if (restore != null) "Undo" else null, duration = SnackbarDuration.Short)
-            // Back where it was in the list. With shuffle on, the player chooses where it falls in
-            // the shuffled order, as it does for any song added to a shuffled queue.
-            if (result == SnackbarResult.ActionPerformed && restore != null)
-                p.addMediaItem(entry.index.coerceAtMost(p.mediaItemCount), restore)
-        }
+            try {
+                snackbar.currentSnackbarData?.dismiss()
+                val result = snackbar.showSnackbar("Removed “${entry.item.mediaMetadata.title ?: "song"}”",
+                    actionLabel = if (removal.restorable) "Undo" else null, duration = SnackbarDuration.Short)
+                // Restore only in this removal's surviving queue/controller. Shuffle still chooses
+                // the restored song's playing order, just as for any ordinary queue insertion.
+                if (result == SnackbarResult.ActionPerformed &&
+                    (currentPlayer !== p || !removal.undo())) {
+                    snackbar.showSnackbar("Queue changed; removal wasn't undone.")
+                }
+            } finally { removal.close() }
+        }.invokeOnCompletion { removal.close() } // Also close if the scope was already cancelled.
         return true
     }
 
