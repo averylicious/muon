@@ -44,7 +44,9 @@ class NetworkRequestTest {
             val result = runCatching {
                 Transport.metadataClient.newCall(server.request()).readCancellable<Unit> { throw failure }
             }
-            assertSame(failure, result.exceptionOrNull())
+            // Coroutine stack-trace recovery may copy the exception; identity is not its contract.
+            assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+            assertEquals(failure.message, result.exceptionOrNull()?.message)
             assertTrue(server.closed.await(3, TimeUnit.SECONDS))
         }
     }
