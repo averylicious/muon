@@ -57,7 +57,7 @@ class TauonApi(val endpoint: ServerEndpoint) {
                 it.optString("album"), it.optLong("duration"),
                 it.optBoolean("can_download", false), it.optBoolean("has_lyrics"),
                 albumArtist = albumArtistTag(it.opt("album_artist"), artist),
-                trackNumber = trackNumberTag(it.opt("track_number")))
+                trackNumber = trackNumberTag(it.opt("track_number"))).also(::requireTrackMetadataBudget)
         } }
     }
     suspend fun lyrics(trackId: Long): String {
