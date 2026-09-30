@@ -35,7 +35,7 @@ internal fun parseTauonJson(text: String): JSONObject {
                 // inside an unquoted name as EOF and skip the containers which follow it.
                 if (token == '\u0000' && !tokens.more()) break
                 tokens.back()
-                tokens.nextTo("{}[]/\\:,=;# \t\f")
+                tokens.nextTo("{}[]/\\:,=;# \t\u000c")
             }
         }
     }
