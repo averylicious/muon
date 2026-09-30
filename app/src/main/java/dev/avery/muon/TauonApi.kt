@@ -41,18 +41,18 @@ class TauonApi(val endpoint: ServerEndpoint) {
     suspend fun connect() {
         require(json("/api1/version").getInt("version") == 1) { "Unsupported Tauon API version" }
     }
-    suspend fun playlists(): List<TauonPlaylist> {
+    suspend fun playlists(): List<TauonPlaylist> = withContext(Dispatchers.IO) {
         val a = json("/api1/playlists").getJSONArray("playlists")
-        return List(a.length()) { i -> a.getJSONObject(i).let {
+        List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getString("id")
             require(id.matches(Regex("[0-9]+"))) { "Invalid playlist identifier" }
             TauonPlaylist(id, it.getString("name"), it.getInt("count"))
         } }
     }
-    suspend fun tracks(playlistId: String): List<TauonTrack> {
+    suspend fun tracks(playlistId: String): List<TauonTrack> = withContext(Dispatchers.IO) {
         require(playlistId.matches(Regex("[0-9]+")))
         val a = json("/api1/tracklist/$playlistId").getJSONArray("tracks")
-        return List(a.length()) { i -> a.getJSONObject(i).let {
+        List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getLong("id"); require(id >= 0)
             val artist = it.optString("artist")
             TauonTrack(id, trackDisplayTitle(it.opt("title") as? String, it.opt("path") as? String), artist,
