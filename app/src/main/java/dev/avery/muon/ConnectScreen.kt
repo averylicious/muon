@@ -39,11 +39,12 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     var typed by rememberSaveable { mutableStateOf(false) }
     // Nothing is looked for until Android 17 allows it; granting access starts the scan.
     LaunchedEffect(discovery, round, allowed) {
-        if (!allowed || !localNetworkGranted(context)) {
+        val granted = localNetworkGranted(context)
+        if (!allowed || !granted) {
             discovery.stop()
             nsd = DiscoverySnapshot(DiscoveryStatus.IDLE)
             probe = null
-            LocalNetworkState.granted = false
+            if (!granted) LocalNetworkState.granted = false
             return@LaunchedEffect
         }
         discovery.start()
