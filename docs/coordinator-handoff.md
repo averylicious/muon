@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Latest main-audit checkpoint: [2026-09-30 progress, parked PRs and release gates](audits/2026-09-30-progress.md). Verify its exact heads/checks/QA and artifact-upload blocker before resuming.
+Latest main-audit checkpoint: [2026-09-30 continued source progress, parked PRs and release gates](audits/2026-09-30-progress.md). Verify its exact heads/checks/QA and artifact-upload blocker before resuming.
 
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The current checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 

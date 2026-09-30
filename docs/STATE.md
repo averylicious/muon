@@ -2,11 +2,11 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-30, audit progress checkpoint, by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
+_Last updated: 2026-09-30, continued source-audit checkpoint, by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
 
-- **Audit continuation:** #204 controller/queue policy is merged; latest verified main publication is Canary .363. #205 service-private QA and #206 finite-request lifetime remain open. New independent main-based fixes #209 library ownership, #210 artwork identity and #212 played-copy budget passed build/test/lint/identity steps; artifact quota blocks their uploads/full checks. All remain open for phone QA. [Exact-head progress report](audits/2026-09-30-progress.md) records verification, parked branches and unresolved #179/#213/dependency/lifecycle work.
+- **Audit continuation:** #204 controller/queue policy is merged; latest verified main publication remains Canary .363. #205/#206/#209/#210/#212 and new #217/#219/#221/#224/#227/#229 app fixes remain open for required checks/user QA. #215 characterizes retained identity without fixing #213; #222 provides resolved dependency/advisory evidence and pending parent-edge tooling. Artifact quota blocks APK/report uploads; no deletion authorized. [Exact-head progress report](audits/2026-09-30-progress.md) lists every head/check/QA gate and unresolved #179/#213/#225/#230 work. No Stable release is authorized.
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
