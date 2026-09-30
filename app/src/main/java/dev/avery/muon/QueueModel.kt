@@ -22,9 +22,18 @@ internal fun upNextOrder(current: Int, count: Int, next: (Int) -> Int): List<Int
 internal data class QueueLength(val millis: Long, val complete: Boolean)
 
 /** Unknown lengths (null, zero or negative, as #62 leaves them) are counted as missing, not as zero. */
-internal fun queueLength(durations: List<Long?>): QueueLength = QueueLength(
-    durations.sumOf { it?.takeIf { d -> d > 0 } ?: 0L },
-    durations.all { it != null && it > 0 })
+internal fun queueLength(durations: List<Long?>): QueueLength {
+    var total = 0L
+    var complete = true
+    for (duration in durations) {
+        if (duration == null || duration <= 0) { complete = false; continue }
+        if (duration > Long.MAX_VALUE - total) {
+            total = Long.MAX_VALUE
+            complete = false // The representable total is only a lower bound.
+        } else total += duration
+    }
+    return QueueLength(total, complete)
+}
 
 /**
  * The line beside *Next up*: "10 songs, 34 minutes". When some lengths are unknown it says "at least",
@@ -33,7 +42,8 @@ internal fun queueLength(durations: List<Long?>): QueueLength = QueueLength(
 internal fun queueSummary(count: Int, length: QueueLength): String {
     val songs = "$count ${if (count == 1) "song" else "songs"}"
     if (count == 0 || length.millis <= 0) return songs
-    val minutes = ((length.millis + 30_000) / 60_000).coerceAtLeast(1)
+    // Divide before rounding: adding 30 seconds can overflow even for one accepted Long tag.
+    val minutes = (length.millis / 60_000 + if (length.millis % 60_000 >= 30_000) 1 else 0).coerceAtLeast(1)
     val time = if (minutes < 60) "$minutes ${if (minutes == 1L) "minute" else "minutes"}"
         else "${minutes / 60} ${if (minutes / 60 == 1L) "hour" else "hours"}" +
             (if (minutes % 60 > 0) " ${minutes % 60} min" else "")
