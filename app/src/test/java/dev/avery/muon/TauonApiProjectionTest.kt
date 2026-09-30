@@ -58,6 +58,31 @@ class TauonApiProjectionTest {
         }
     }
 
+    @Test fun mergedPublicApiRejectsDeepIgnoredFieldsAfterCancellableRead() {
+        val nested = "[".repeat(TAUON_JSON_MAX_DEPTH + 1) + "0" + "]".repeat(TAUON_JSON_MAX_DEPTH + 1)
+        Response("{\"tracks\":[],\"ignored\":$nested}").use { server ->
+            val failure = assertThrows(java.io.IOException::class.java) { runBlocking { server.api.tracks("1") } }
+            assertTrue(failure.message.orEmpty().contains("nesting"))
+            assertEquals("GET /api1/tracklist/1 HTTP/1.1", server.requestLine)
+        }
+    }
+
+    @Test fun actualDiscoveryRequestAcceptsNormalVersionAndRejectsSmallDeepBody() {
+        Response("{\"version\":1}").use { server ->
+            val origin = server.api.endpoint.origin
+            val found = runBlocking { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { LanProbe.answer(origin) } }
+            assertEquals(DiscoveredServer("Tauon", origin), found)
+            assertEquals("GET /api1/version HTTP/1.1", server.requestLine)
+        }
+        val nested = "[".repeat(TAUON_JSON_MAX_DEPTH + 1) + "0" + "]".repeat(TAUON_JSON_MAX_DEPTH + 1)
+        val body = "{\"version\":1,\"ignored\":$nested}"
+        assertTrue(body.toByteArray().size < 4096)
+        Response(body).use { server ->
+            val found = runBlocking { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { LanProbe.answer(server.api.endpoint.origin) } }
+            assertNull(found)
+        }
+    }
+
     private class Response(json: String) : AutoCloseable {
         private val socket = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         private val executor = Executors.newSingleThreadExecutor()

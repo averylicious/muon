@@ -12,7 +12,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.Request
-import org.json.JSONObject
 
 /**
  * The addresses worth asking on this phone's own network: the other hosts of the /24 around its
@@ -73,12 +72,12 @@ internal object LanProbe {
     }
 
     /** Tauon at [host], if its remote API answers there as version 1. */
-    private suspend fun answer(host: String): DiscoveredServer? = try {
+    internal suspend fun answer(host: String): DiscoveredServer? = try {
         val endpoint = ServerEndpoint.parse(host)
         client.newCall(Request.Builder().url(endpoint.url("/api1/version")).build()).readCancellable { response ->
             val source = response.body?.source()
             if (!response.isSuccessful || source == null || source.request(4097)) return@readCancellable null
-            if (JSONObject(source.readUtf8()).optInt("version") != 1) return@readCancellable null
+            if (parseTauonJson(source.readUtf8()).optInt("version") != 1) return@readCancellable null
             DiscoveredServer("Tauon", endpoint.origin)
         }
     } catch (cancelled: CancellationException) { throw cancelled }
