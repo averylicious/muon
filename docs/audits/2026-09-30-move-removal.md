@@ -27,3 +27,7 @@ Pinned Media3 exoplayer/datasource source JARs from Google's Maven were inspecte
 Define operation ownership across queued/running move, explicit add, remove and removeAll; invalidate late add callbacks without erasing concurrent legitimate target data. A failed copy's partial spans need an ownership-aware policy. Preserve the source until destination completion is durable; #179's absent-card index-loss risk and #213 retained numeric identity remain separate blockers. A fix should add preservation and stale-operation rejection tests, not simply delete cache keys or release an absent cache. Device move/removal/notification QA stays pending and requires the user's current authorization.
 
 Attribution: GPT-6, Codex desktop, effort not reported (Sol). Author source check, no independent reviewer or Claude session. CI is the first real compile; no local Android build claimed.
+
+## First compile and fixture repair
+
+Run389 at cb768196ede0a22b983c249c8a9961abe3a53652 compiled the tests but failed all five before their assertions: fixture index names contained hyphens, which DefaultDownloadIndex concatenates into unquoted SQL table names. Changed only fixture names to SQL-safe underscores. Production names remain unchanged; this is not an app fix. Final-head rerun must still verify the actual expectations.

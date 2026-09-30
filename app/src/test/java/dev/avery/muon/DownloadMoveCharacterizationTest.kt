@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Looper
-import androidx.media3.common.C
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.NoOpCacheEvictor
@@ -63,8 +62,8 @@ class DownloadMoveCharacterizationTest {
     @Before fun setUp() {
         app = RuntimeEnvironment.getApplication()
         database = StandaloneDatabaseProvider(app)
-        sourceIndex = DefaultDownloadIndex(database, "move-source")
-        targetIndex = DefaultDownloadIndex(database, "move-target")
+        sourceIndex = DefaultDownloadIndex(database, "move_source")
+        targetIndex = DefaultDownloadIndex(database, "move_target")
         phone = shelf("phone", sourceIndex, MuonDownloadService::class.java)
         card = shelf("card", targetIndex, MuonCardDownloadService::class.java)
         val prefs = app.getSharedPreferences("move-fixture", Context.MODE_PRIVATE)
