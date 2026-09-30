@@ -5,9 +5,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class LibraryModel(app: Application) : AndroidViewModel(app) {
@@ -21,15 +19,15 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     var progress by mutableStateOf(""); private set
     /** Tauon could not be reached, so the library is only what was downloaded from it (#112). */
     var offline by mutableStateOf(false); private set
-    private var job: Job? = null
+    private val loads = LibraryLoads(viewModelScope) { busy = it }
     val allTracks: List<TauonTrack> get() = tracksByPlaylist.values.flatten().distinctBy { it.id }
     init { if (address.isNotBlank()) connect() }
     fun connect() {
         if (busy) return
         // The download store reports to the main thread, so it is made here before anything reads it.
         OfflineStore.get(getApplication<Application>())
-        job = viewModelScope.launch {
-            busy = true; error = null
+        loads.start {
+            error = null
             try {
                 val e = ServerEndpoint.parse(address)
                 // Android 17: without local network access a connection would only time out, so it is
@@ -39,16 +37,20 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 if (!allowed) throw LocalNetworkDenied()
                 val api = TauonApi(e)
                 progress = "Connecting to Tauon…"; api.connect()
+                ensureCurrent()
                 val lists = api.playlists()
+                ensureCurrent()
                 val loaded = linkedMapOf<String, List<TauonTrack>>()
                 var firstFailure: Exception? = null
                 lists.forEachIndexed { i, list ->
+                    ensureCurrent()
                     progress = "Loading playlists ${i + 1} / ${lists.size}"
                     // One playlist failing no longer throws the rest away (#53).
                     try { loaded[list.id] = api.tracks(list.id) }
                     catch (failure: CancellationException) { throw failure }
                     catch (failure: Exception) { if (firstFailure == null) firstFailure = failure }
                 }
+                ensureCurrent()
                 // Only this server's own last library can fill a gap; never another's, nor the offline one.
                 val previous = tracksByPlaylist.takeIf { endpoint?.origin == e.origin && !offline }
                 val load = combineLoad(lists, loaded, previous)
@@ -60,11 +62,13 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 progress = "Connected · ${allTracks.size} tracks"
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
+                ensureCurrent()
                 // With no library from this sitting, what was downloaded from the saved server is
                 // still playable, so it is shown rather than the connect screen. A library already
                 // loaded stays as it was.
                 val saved = if (endpoint == null || offline) runCatching { ServerEndpoint.parse(address) }.getOrNull() else null
                 val kept = saved?.let { withContext(Dispatchers.IO) { OfflineStore.downloadedSongs(getApplication<Application>(), it.origin) } }.orEmpty()
+                ensureCurrent()
                 if (saved != null && kept.isNotEmpty()) {
                     showOffline(saved, kept)
                     if (e is LocalNetworkDenied) error = "Muon needs your permission to reach Tauon. Your downloads still play."
@@ -73,7 +77,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                     error = friendlyError(e)
                     progress = if (endpoint != null) "Showing last loaded library" else "Not connected"
                 }
-            } finally { busy = false }
+            }
         }
     }
     private fun showOffline(server: ServerEndpoint, songs: List<TauonTrack>) {
@@ -91,23 +95,22 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     fun listenOffline() {
         if (busy) return
         OfflineStore.get(getApplication<Application>())
-        job = viewModelScope.launch {
-            busy = true
+        loads.start {
             try {
                 val (origin, songs) = withContext(Dispatchers.IO) {
                     OfflineStore.downloadedLibrary(getApplication<Application>())
-                } ?: return@launch
+                } ?: return@start
+                ensureCurrent()
                 val server = ServerEndpoint.parse(origin)
                 address = server.origin; prefs.edit().putString("origin", server.origin).apply()
                 showOffline(server, songs)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error = friendlyError(e) }
-            finally { busy = false }
+            catch (e: Exception) { ensureCurrent(); error = friendlyError(e) }
         }
     }
 
     fun disconnect() {
-        job?.cancel(); busy = false; endpoint = null; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = false
+        loads.cancel(); endpoint = null; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = false
         OfflineStore.offline = false
         prefs.edit().clear().apply(); address = ""; error = null; progress = ""
     }
