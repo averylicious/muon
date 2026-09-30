@@ -1,0 +1,144 @@
+{
+  "commit": "a41335d75b263101ded2d6cb13bb232a0a926d38",
+  "paths": [
+    {
+      "scope": ":app:debugUnitTestRuntimeClasspath",
+      "coordinate": "org.bouncycastle:bcprov-jdk18on:1.81",
+      "path": [
+        "org.robolectric:robolectric:4.16.1",
+        "org.bouncycastle:bcprov-jdk18on:1.81"
+      ]
+    },
+    {
+      "scope": ":app:releaseUnitTestRuntimeClasspath",
+      "coordinate": "org.bouncycastle:bcprov-jdk18on:1.81",
+      "path": [
+        "org.robolectric:robolectric:4.16.1",
+        "org.bouncycastle:bcprov-jdk18on:1.81"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "io.netty:netty-codec-http2:4.1.110.Final",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "io.grpc:grpc-netty:1.69.1",
+        "io.netty:netty-codec-http2:4.1.110.Final"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "io.netty:netty-codec-http:4.1.110.Final",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "io.grpc:grpc-netty:1.69.1",
+        "io.netty:netty-codec-http2:4.1.110.Final",
+        "io.netty:netty-codec-http:4.1.110.Final"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "io.netty:netty-codec:4.1.110.Final",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "io.grpc:grpc-netty:1.69.1",
+        "io.netty:netty-codec-http2:4.1.110.Final",
+        "io.netty:netty-codec:4.1.110.Final"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "io.netty:netty-common:4.1.110.Final",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "io.grpc:grpc-netty:1.69.1",
+        "io.netty:netty-codec-http2:4.1.110.Final",
+        "io.netty:netty-common:4.1.110.Final"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "io.netty:netty-handler-proxy:4.1.110.Final",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "io.grpc:grpc-netty:1.69.1",
+        "io.netty:netty-handler-proxy:4.1.110.Final"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "io.netty:netty-handler:4.1.110.Final",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "io.grpc:grpc-netty:1.69.1",
+        "io.netty:netty-codec-http2:4.1.110.Final",
+        "io.netty:netty-handler:4.1.110.Final"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "org.apache.commons:commons-compress:1.21",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "com.android.tools:repository:31.13.2",
+        "org.apache.commons:commons-compress:1.21"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "org.bitbucket.b_c:jose4j:0.9.5",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "com.android.tools.build:bundletool:1.18.1",
+        "org.bitbucket.b_c:jose4j:0.9.5"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "org.bouncycastle:bcpkix-jdk18on:1.79",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "org.bouncycastle:bcpkix-jdk18on:1.79"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "org.bouncycastle:bcprov-jdk18on:1.79",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "com.android.tools.build:builder:8.13.2",
+        "org.bouncycastle:bcprov-jdk18on:1.79"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "org.jdom:jdom2:2.0.6",
+      "path": [
+        "com.android.application:com.android.application.gradle.plugin:8.13.2",
+        "com.android.tools.build:gradle:8.13.2",
+        "com.android.tools.build.jetifier:jetifier-processor:1.0.0-beta10",
+        "org.jdom:jdom2:2.0.6"
+      ]
+    },
+    {
+      "scope": ":build:classpath",
+      "coordinate": "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21",
+      "path": [
+        "org.jetbrains.kotlin.android:org.jetbrains.kotlin.android.gradle.plugin:2.2.21",
+        "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21"
+      ]
+    }
+  ],
+  "workflow_run": "https://github.com/averylicious/muon/actions/runs/36693609105",
+  "graph_sha256": "a2ebba1183dbb134ab54e8df8c21d7e849c79408150a9be3f0abfe1730911aab"
+}
