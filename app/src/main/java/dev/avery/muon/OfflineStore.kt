@@ -180,23 +180,13 @@ internal object OfflineStore {
 
     /** Which shelf serves [spec], and the request to make of it. */
     private fun route(context: Context, spec: DataSpec): Pair<Shelf, DataSpec> {
-        val phone = get(context).phone
-        val found = downloadForStream(spec.uri.scheme, spec.uri.encodedAuthority, spec.uri.path) ?: return phone to spec
-        downloadedOn(context, found.first)?.let { return it to spec.buildUpon().setUri(Uri.parse(found.second)).setKey(found.first).build() }
-        // Recent listening plays from the phone only when Tauon cannot be reached; at home the original
-        // stream is always preferred.
-        if (offline && playedCopy(context, found.first))
-            return phone to spec.buildUpon().setUri(Uri.parse(found.second)).setKey(playedKey(found.first)).build()
-        return phone to spec
+        val store = get(context)
+        return routeOfflineRequest(spec, store.phone, store.shelves, offline)
     }
 
     /** Whether a complete played-song copy of [id] is on the phone. */
-    fun playedCopy(context: Context, id: String): Boolean = runCatching {
-        val cache = get(context).cache
-        val key = playedKey(id)
-        val length = ContentMetadata.getContentLength(cache.getContentMetadata(key))
-        length != C.LENGTH_UNSET.toLong() && cache.isCached(key, 0, length)
-    }.getOrDefault(false)
+    fun playedCopy(context: Context, id: String): Boolean =
+        runCatching { hasPlayedCopy(get(context).cache, id) }.getOrDefault(false)
 
     /**
      * Keeps an Opus copy of a song that has started playing, with its details for the offline library,

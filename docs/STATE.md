@@ -2,9 +2,11 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-30, controller fix and private-service QA, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-30-private-service.md) for exact review/CI evidence._
+_Last updated: 2026-09-30, continued source-audit checkpoint, by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
+
+- **Audit continuation:** latest [scheduler/queue checkpoint](handoffs/2026-09-30-scheduler-queue.md) records merged #236/#238 test characterizations and #222 dependency inventory, plus green but phone-QA-pending #237/#240/#242/#245. Current verified main publication is [Canary .410](https://github.com/averylicious/muon/releases/tag/0.1.0-canary.410), at `8d056b655cdab4c3a82157ca443d7b5ea1532d73`; it excludes parked app fixes and experimental UI. About 70% of the planned source first pass is covered, a planning estimate, not a security score or Stable readiness. Earlier exact heads/gates remain in [progress](audits/2026-09-30-progress.md); historical quota failures remain failures. No artifact deletion or Stable release is authorized.
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
@@ -36,6 +38,8 @@ _Last updated: 2026-09-30, controller fix and private-service QA, by GPT-6 Astra
 
 ## Authorization
 
+- **Phone-QA gate, clarified 2026-09-30:** leave any PR requiring phone QA open while broader code auditing continues until the user supplies that QA or changes this instruction. This overrides blocker-free self-merging for those PRs.
+
 - **Standing since 2026-09-27:** merge any PR with no blockers without asking. The user's words: "You are authorized to merge PRs without any blockers without asking for permission in future sessions". Merge at the CI-verified head and record it on the PR as a self-review; Astra audits later. **Stable releases, release tags and anything with a blocker still need the user.**
 - **Parallel sessions, since 2026-09-28:** the user requested autonomous audit/experiment work with repository safeguards instead of routine live coordination. The user may allocate a separate audit Claude session; that does not authorize resuming their experimental session. Main-to-experiment syncs are separate PRs landed by the experimental owner at their own boundary.
 - **Device access over ADB needs the user's go-ahead in each new conversation.** Once given, it has covered:
@@ -48,6 +52,8 @@ _Last updated: 2026-09-30, controller fix and private-service QA, by GPT-6 Astra
   - Poco X3 NFC (Android 16, custom ROM): USB, with a SanDisk SD card.
 
 ## Open items and known limits
+
+- **Private playback service (#205):** main still has the direct exported-service route. The private-service fix and packaged-manifest gate are refreshed on their PR for a current test build, but remain open for notification/lockscreen/headset/reconnect/companion compatibility QA. Source/controller policy #204 alone does not close this route. See [the focused handoff](handoffs/2026-09-30-private-service.md).
 
 - **#83:** the Baseline Profile ships, but its before-and-after speed measurement hasn't been done.
 - **SD-card lifecycle (#179):** presence is captured at store creation, and deeper review found a possible stale-cache/index purge leading to lost downloads after removal/reinsertion. See [the source evidence and constraints](audits/2026-09-28-storage.md). The [disposable JVM harness](audits/2026-09-29-cache-characterization.md) separates the modeled cache behavior from phone/mount behavior. A data-preserving fix remains a priority; no device loss has been observed in this audit.

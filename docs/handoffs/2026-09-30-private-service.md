@@ -44,3 +44,8 @@ N3 request deadlines/cancellation is the next independent code slice. Q1 discove
 - Main `4fd3af9373bfa232e637c06e9705dae49b9b8fe1` is incorporated; only the three latest-checkpoint links conflicted, resolved to this handoff while retaining both implementation histories. The updated combined head needs fresh CI; its result/artifact is recorded on #205 and #181.
 - #202's CI fix is merged and published as main-track Canary .356. #203's report is merged; main run 358 passed the lightweight path with no APK. #204's main publication is a separate run to verify, not implied by its branch result.
 - Astra's checkout is clean when committed/pushed; no Claude or device task is active. This PR stays open for the compatibility gate. A successor starts from current GitHub heads/checks and this checkpoint, not old account quota percentages.
+
+
+## 2026-10-01 compatibility build refresh
+
+Merged current main `17309b11dd339dd833a8bf135b1b30b2d0f273a7` into the isolated owned #205 branch. Only three old checkpoint pointers conflicted; retained current main pointers and added an explicit still-open private-service QA gate. Manifest/export-checker behavior unchanged. Latest-head CI and artifact must be verified on the PR; historical run364 does not validate the refresh. Keep this PR open for user compatibility QA, with no device access or Stable release.

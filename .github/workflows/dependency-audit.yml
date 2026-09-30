@@ -1,0 +1,45 @@
+name: Dependency inventory
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/dependency-audit.yml'
+      - 'tools/dependency-inventory.init.gradle.kts'
+      - 'tools/dependency_inventory.py'
+      - 'tools/test_dependency_inventory.py'
+      - '**/*.gradle.kts'
+      - 'gradle/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-inventory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    name: Resolve dependency inventory without signing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate inventory parser
+        run: python3 -m unittest discover -s tools -p 'test_dependency_inventory.py'
+      - name: Set up Java 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Gradle and validate wrapper
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+      - name: Install Android SDK packages
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
+      - name: Resolve and record selected versions
+        run: ./gradlew --no-daemon --no-configuration-cache --console=plain --init-script tools/dependency-inventory.init.gradle.kts :app:auditDependencyInventory
+      - name: Verify inventory provenance and scopes
+        run: python3 tools/dependency_inventory.py app/build/reports/dependency-inventory.json --commit "$GITHUB_SHA"
