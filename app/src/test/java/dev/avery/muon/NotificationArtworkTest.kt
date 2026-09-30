@@ -11,7 +11,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
@@ -23,7 +22,7 @@ class NotificationArtworkTest {
     private val uri = Uri.parse("http://192.168.1.10:7814/api1/pic/medium/42")
 
     @Test fun normalUriArtDecodesAndClosesSource() {
-        val bytes = png(64, 32)
+        val bytes = png(64)
         val source = Source(bytes, bytes.size.toLong())
         val bitmap = loader(source).loadBitmap(uri).get(10, TimeUnit.SECONDS)
         assertEquals(64, bitmap.width)
@@ -62,7 +61,7 @@ class NotificationArtworkTest {
     }
 
     @Test fun highlyCompressedLargeImageIsSampledToNotificationDimensions() {
-        val encoded = png(2048, 1024)
+        val encoded = png(2048)
         assertTrue("Fixture must exercise compressed dimensions, not byte-limit rejection", encoded.size < NOTIFICATION_ART_BYTES)
         val bitmap = loader(Source(byteArrayOf(), 0L)).decodeBitmap(encoded).get(10, TimeUnit.SECONDS)
         assertTrue(bitmap.width in 1..NOTIFICATION_ART_SIDE)
@@ -71,13 +70,8 @@ class NotificationArtworkTest {
     }
 
     private fun loader(source: Source) = notificationBitmapLoader(RuntimeEnvironment.getApplication(), DataSource.Factory { source })
-    private fun png(width: Int, height: Int): ByteArray = ByteArrayOutputStream().use { out ->
-        // Robolectric maps PNG quality=100 to no compression; Android ignores PNG quality.
-        // Use a real compressed PNG fixture so this tests sampling independently of the byte cap.
-        val image = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
-        assertTrue(javax.imageio.ImageIO.write(image, "png", out))
-        out.toByteArray()
-    }
+    private fun png(width: Int): ByteArray = requireNotNull(javaClass.getResourceAsStream(
+        "/fixtures/notification-art-$width.png")).use { it.readBytes() }
     private class Source(val bytes: ByteArray, val declared: Long) : DataSource {
         var position = 0
         var opened = false
