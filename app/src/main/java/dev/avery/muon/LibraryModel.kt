@@ -119,7 +119,7 @@ internal const val OFFLINE_NOTE = "Tauon isn't reachable. Your downloads still p
 internal class LocalNetworkDenied : Exception("Muon needs your permission to reach Tauon on your local network.")
 
 fun friendlyError(e: Throwable): String = when (e) {
-    is java.net.SocketTimeoutException -> "Tauon did not respond. Check the server, LAN firewall and VPN LAN access, then retry."
+    is java.io.InterruptedIOException -> "Tauon did not respond. Check the server, LAN firewall and VPN LAN access, then retry."
     is java.net.ConnectException -> "Cannot reach Tauon. Enable remote control, restart Tauon, and check the address."
     is java.net.UnknownHostException -> "Server address could not be resolved."
     else -> e.message ?: "Connection failed. Check your LAN connection and retry."
