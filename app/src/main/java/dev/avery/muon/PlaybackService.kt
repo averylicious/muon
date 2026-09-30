@@ -94,7 +94,7 @@ class PlaybackService : MediaSessionService() {
             })
         session = MediaSession.Builder(this, player)
             .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader(
-                DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), OkHttpDataSource.Factory(Transport.client))))
+                DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), OkHttpDataSource.Factory(Transport.metadataClient))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .setCallback(PlaybackSessionCallback()).build()

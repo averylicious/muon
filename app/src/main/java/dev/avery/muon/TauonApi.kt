@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit
 object Transport {
     val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(5, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
+    // Whole-response bound for finite metadata and covers. Audio/download streams use client above.
+    internal val metadataClient = client.newBuilder().callTimeout(30, TimeUnit.SECONDS).build()
 }
 data class TauonPlaylist(val id: String, val name: String, val count: Int)
 data class TauonTrack(
@@ -20,7 +22,7 @@ data class TauonTrack(
 )
 class TauonApi(val endpoint: ServerEndpoint) {
     private suspend fun json(path: String): JSONObject = withContext(Dispatchers.IO) {
-        Transport.client.newCall(Request.Builder().url(endpoint.url(path)).build()).execute().use { response ->
+        val bytes = Transport.metadataClient.newCall(Request.Builder().url(endpoint.url(path)).build()).readCancellable { response ->
             if (!response.isSuccessful) throw IOException("Tauon returned HTTP ${response.code}")
             val body = response.body ?: throw IOException("Empty Tauon response")
             val output = java.io.ByteArrayOutputStream()
@@ -32,9 +34,9 @@ class TauonApi(val endpoint: ServerEndpoint) {
                 if (output.size() + count > 16 * 1024 * 1024) throw IOException("Playlist response exceeds 16 MiB")
                 output.write(buffer, 0, count)
             }
-            val bytes = output.toByteArray()
-            JSONObject(bytes.toString(Charsets.UTF_8))
+            output.toByteArray()
         }
+        JSONObject(bytes.toString(Charsets.UTF_8))
     }
     suspend fun connect() {
         require(json("/api1/version").getInt("version") == 1) { "Unsupported Tauon API version" }
