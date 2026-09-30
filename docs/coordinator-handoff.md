@@ -1,5 +1,7 @@
 # Coordinator handoff
 
+Latest bounded checkpoint: [2026-09-30 library-load ownership](handoffs/2026-09-30-library-load-ownership.md). Read its parked PR, artifact-upload and phone-QA gates before continuing.
+
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The current checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 
 Since 2026-09-27, the user authorizes Astra's main-branch audit alongside Claude/user experimental work off main. Both agents may independently merge blocker-free PRs at their CI-verified heads under STATE.md's standing authorization. The audit can follow findings across the repository. Follow [parallel tracks](parallel-tracks.md): one writer per branch/worktree/session, independent changes on each track, and separate forward-sync PRs. The historical frontend/backend split does not restrict the audit.
