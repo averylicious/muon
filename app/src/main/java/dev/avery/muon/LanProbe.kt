@@ -91,7 +91,9 @@ internal object LanProbe {
  * result stands, as it may reach a server the probe could not. Discovery's names are kept for servers
  * both found.
  */
-internal fun combineDiscovery(nsd: DiscoverySnapshot, probe: List<DiscoveredServer>?): DiscoverySnapshot {
+internal fun combineDiscovery(nsd: DiscoverySnapshot, probe: List<DiscoveredServer>?, allowed: Boolean = true): DiscoverySnapshot {
+    // No running probe and no usable discoveries while local-network permission is missing.
+    if (!allowed) return DiscoverySnapshot(DiscoveryStatus.IDLE)
     val servers = (nsd.servers + probe.orEmpty()).distinctBy { it.origin }
     return when {
         probe == null -> DiscoverySnapshot(DiscoveryStatus.SEARCHING, servers, nsd.unresolvedCount)
