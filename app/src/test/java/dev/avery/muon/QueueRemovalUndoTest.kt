@@ -3,7 +3,6 @@ package dev.avery.muon
 import android.os.Bundle
 import android.os.Looper
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
@@ -34,10 +33,12 @@ class QueueRemovalUndoTest {
     private val a = item(1)
     private val b = item(2)
     private val c = item(3)
+    private lateinit var initial: List<MediaItem>
 
     @Before fun setUp() {
         player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
-        player.setMediaItems(listOf(a, b, b, c), 0, 0L)
+        initial = listOf(1, 2, 2, 3).map(::item)
+        player.setMediaItems(initial, 0, 0L)
     }
     @After fun tearDown() {
         removals.forEach(QueueRemovalUndo::close)
@@ -51,17 +52,18 @@ class QueueRemovalUndoTest {
         assertEquals(listOf(a.mediaId, b.mediaId, c.mediaId), ids(player))
         assertTrue(removal.restorable)
         assertTrue(removal.undo())
-        assertEquals(listOf(a, b, b, c), items(player))
+        assertEquals(initial, items(player))
         assertFalse(removal.undo())
     }
 
     @Test fun replacingWithIdenticalRemainingItemsInvalidatesOwnership() {
         val removal = remove(player, 1)
         val remaining = items(player)
-        player.setMediaItems(remaining, 0, 0L)
-        assertEquals(remaining, items(player))
+        player.setMediaItems(remaining.map(::queueOccurrence), 0, 0L)
+        assertEquals(remaining.map { it.mediaId }, ids(player))
+        val replacement = items(player)
         assertFalse(removal.undo())
-        assertEquals(remaining, items(player))
+        assertEquals(replacement, items(player))
     }
 
     @Test fun replacementAndClearDoNotReceiveAnOldRemovedSong() {
@@ -76,13 +78,14 @@ class QueueRemovalUndoTest {
     }
 
     @Test fun movingIdenticalDuplicatesStillInvalidatesUndo() {
-        player.setMediaItems(listOf(a, b, b, b), 0, 0L)
+        player.setMediaItems(listOf(1, 2, 2, 2).map(::item), 0, 0L)
         val removal = remove(player, 1)
         val before = items(player)
         player.moveMediaItem(1, 2)
-        assertEquals(before, items(player)) // ID/structural-list matching alone cannot detect this.
+        assertEquals(before.map { it.mediaId }, ids(player)) // Song-ID matching misses this reorder.
+        val reordered = items(player)
         assertFalse(removal.undo())
-        assertEquals(before, items(player))
+        assertEquals(reordered, items(player))
     }
 
     @Test fun positionAndShuffleChangesKeepTheSurvivingPlaylistRestorable() {
@@ -90,7 +93,7 @@ class QueueRemovalUndoTest {
         player.seekToDefaultPosition(1)
         player.shuffleModeEnabled = true
         assertTrue(removal.undo())
-        assertEquals(listOf(a, b, b, c), items(player))
+        assertEquals(initial, items(player))
         assertTrue(player.shuffleModeEnabled)
     }
 
@@ -132,6 +135,18 @@ class QueueRemovalUndoTest {
         assertEquals(listOf(c.mediaId, a.mediaId), ids(player))
     }
 
+    @Test fun missingOrClonedOccurrenceKeysCannotOfferUndo() {
+        val raw = MediaItem.Builder().setMediaId(b.mediaId).setUri(restoreUrl(b.mediaId)).build()
+        player.setMediaItems(listOf(a, raw, c), 0, 0L)
+        val missing = remove(player, 1)
+        assertFalse(missing.restorable)
+        assertFalse(missing.undo())
+        player.setMediaItems(listOf(a, b, b, b), 0, 0L)
+        val ambiguous = remove(player, 1)
+        assertFalse(ambiguous.restorable)
+        assertFalse(ambiguous.undo())
+    }
+
     private fun remove(p: Player, index: Int) =
         requireNotNull(QueueRemovalUndo.remove(p, index, p.getMediaItemAt(index))).also(removals::add)
 
@@ -162,7 +177,6 @@ class QueueRemovalUndoTest {
     }
     private fun ids(p: Player) = items(p).map { it.mediaId }
     private fun items(p: Player) = List(p.mediaItemCount, p::getMediaItemAt)
-    private fun item(id: Int) = MediaItem.Builder().setMediaId("http://192.168.1.20:7814/$id")
-        .setUri("http://192.168.1.20:7814/api1/file/$id")
-        .setMediaMetadata(MediaMetadata.Builder().setTitle("Fixture $id").setArtist("Fixture artist").build()).build()
+    private fun item(id: Int) = TauonTrack(id.toLong(), "Fixture $id", "Fixture artist", "Fixture album",
+        3000L, true, false).mediaItem(ServerEndpoint.parse("http://192.168.1.20:7814"))
 }
