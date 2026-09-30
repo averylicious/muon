@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import java.net.Inet4Address
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -72,15 +73,16 @@ internal object LanProbe {
     }
 
     /** Tauon at [host], if its remote API answers there as version 1. */
-    private fun answer(host: String): DiscoveredServer? = runCatching {
+    private suspend fun answer(host: String): DiscoveredServer? = try {
         val endpoint = ServerEndpoint.parse(host)
-        client.newCall(Request.Builder().url(endpoint.url("/api1/version")).build()).execute().use { response ->
+        client.newCall(Request.Builder().url(endpoint.url("/api1/version")).build()).readCancellable { response ->
             val source = response.body?.source()
-            if (!response.isSuccessful || source == null || source.request(4097)) return@use null
-            if (JSONObject(source.readUtf8()).optInt("version") != 1) return@use null
+            if (!response.isSuccessful || source == null || source.request(4097)) return@readCancellable null
+            if (JSONObject(source.readUtf8()).optInt("version") != 1) return@readCancellable null
             DiscoveredServer("Tauon", endpoint.origin)
         }
-    }.getOrNull()
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { null }
 }
 
 /**

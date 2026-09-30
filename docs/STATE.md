@@ -2,7 +2,7 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-09-30, network audit review, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-30-controller-policy.md) for exact review/CI evidence._
+_Last updated: 2026-09-30, request-lifetime audit, by GPT-6 (Codex desktop; effort not reported). See the [latest checkpoint](handoffs/2026-09-30-request-lifetime.md) and #181 for exact review/CI evidence._
 
 ## Where things are
 
@@ -10,7 +10,7 @@ _Last updated: 2026-09-30, network audit review, by GPT-6 Astra (Codex). See the
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
 - **Cache audit:** #192 merged the [disposable Media3 characterization harness](audits/2026-09-29-cache-characterization.md). All five cases passed in both variants, demonstrating the modeled index-loss sequence; main run 331 published Canary .331. #179 remains unfixed.
 - **Publication audit:** the [published-baseline fix](audits/2026-09-29-publication.md) prevents tags without a complete published Canary from hiding app work. #202 merged at `a281073eddb90813d8d4a95078567c57a0b47e4a` after successful exact-head run 354. Check #181 for main publication status.
-- **Network/entry points:** [Sonnet's report with Astra's source review](audits/2026-09-30-network-entry-points.md) identifies playback-controller and request-lifetime follow-ups. No fix or device reproduction is claimed in #203; auto-connect remains the existing approved behavior.
+- **Network/entry points:** [Sonnet's report with Astra's source review](audits/2026-09-30-network-entry-points.md) is merged as #203. #204's external-controller queue/command fix is merged in main `4fd3af9373bfa232e637c06e9705dae49b9b8fe1` and published as Canary .363. #205's private-service/export gate stays open for compatibility QA. N3's finite-request deadline/cancellation work is separate; see the latest checkpoint and #181 for verified heads/results. Auto-connect remains the existing approved behavior.
 - **Parallel work:** [the track protocol](parallel-tracks.md) separates sessions/worktrees and defines checked forward-sync PRs. Experimental owners land those PRs; Astra does not move their active branch. Inspect live checks/protection and the checkpoint for deployment status.
 - **`main` features:** the Collection redesign and everything after it through #183. Feature by feature, [features.md](features.md) is the user-facing guide, and [design/current](design/current/README.md) has real screenshots of every screen. Recent work, newest first:
   - matching landscape player background (#183);
@@ -37,6 +37,7 @@ _Last updated: 2026-09-30, network audit review, by GPT-6 Astra (Codex). See the
 ## Authorization
 
 - **Standing since 2026-09-27:** merge any PR with no blockers without asking. The user's words: "You are authorized to merge PRs without any blockers without asking for permission in future sessions". Merge at the CI-verified head and record it on the PR as a self-review; Astra audits later. **Stable releases, release tags and anything with a blocker still need the user.**
+- **Phone-QA gate, clarified 2026-09-30:** leave any PR requiring phone QA open while code auditing continues. This overrides blocker-free self-merging for those PRs until the user supplies the required QA or changes this instruction.
 - **Parallel sessions, since 2026-09-28:** the user requested autonomous audit/experiment work with repository safeguards instead of routine live coordination. The user may allocate a separate audit Claude session; that does not authorize resuming their experimental session. Main-to-experiment syncs are separate PRs landed by the experimental owner at their own boundary.
 - **Device access over ADB needs the user's go-ahead in each new conversation.** Once given, it has covered:
   - screenshots and UI automation;
