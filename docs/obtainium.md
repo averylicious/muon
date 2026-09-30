@@ -1,6 +1,6 @@
 # Muon updates with Obtainium
 
-Muon publishes two independent apps from the same private repository:
+Muon publishes two independent apps from the same repository:
 
 | Channel | Launcher | Package ID | Release title | APK filename |
 | --- | --- | --- | --- | --- |
@@ -9,9 +9,11 @@ Muon publishes two independent apps from the same private repository:
 
 Canary updates the original debug installation without uninstalling or losing settings. Stable updates previous “Muon Release” installations. Both keep their original certificates. They can coexist, but their server settings and app data are separate. Canary is built from the debug build type but is not debuggable, so it performs like stable (#125); stable is also minified. Canary's launcher label is "Muon β" (#29); release titles and APK names still say Muon Canary, so the filter below is unchanged.
 
-## 1. Give Obtainium read access
+## 1. Give Obtainium read access when private
 
-Edit or create a GitHub **fine-grained personal access token**:
+While Muon is public, its published release assets do not require a token just to access them. Existing channel/package/signing filters below are unchanged. The steps in this section apply when the repository is private again; do not create a broader token because its visibility changed. Actions artifact downloads still require a GitHub login with read access and are not the Obtainium Releases feed.
+
+For a private repository, edit or create a GitHub **fine-grained personal access token**:
 
 1. Resource owner: **averylicious**.
 2. Repository access: **Only select repositories → muon**.
