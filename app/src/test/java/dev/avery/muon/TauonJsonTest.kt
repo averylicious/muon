@@ -50,5 +50,7 @@ class TauonJsonTest {
     @Test fun ordinaryMalformedJsonStillFailsWithoutPretendingItWasValid() {
         assertThrows(Exception::class.java) { parseTauonJson("{\"version\":") }
         assertThrows(IOException::class.java) { parseTauonJson("}") }
+        assertThrows(IOException::class.java) { parseTauonJson("{x:/}") }
+        assertThrows(IOException::class.java) { parseTauonJson("{x:\u000c}") }
     }
 }

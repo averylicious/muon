@@ -29,6 +29,7 @@ internal fun parseTauonJson(text: String): JSONObject {
             }
             '\'', '"' -> tokens.nextString(token)
             ',', ';', ':', '=', '>', '\\' -> Unit
+            '/', '\u000c' -> throw IOException("Invalid Tauon response token")
             else -> {
                 // nextClean returns NUL at EOF as well as for a literal NUL; never treat a NUL
                 // inside an unquoted name as EOF and skip the containers which follow it.
