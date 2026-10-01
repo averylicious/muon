@@ -9,3 +9,5 @@ Read the raw field. String text is preserved exactly; missing/empty/null means n
 Five actual public HTTP/platform JSON cases cover Unicode/newlines/literal string null, missing/empty, JSON null, 64KiB objects/arrays and number/boolean rejection. They characterize platform coercion separately from the production guard. Same disposable loopback fixture pattern as PlaylistIdentityTest; no new dependency, local Android compile, Compose/device claim or user-music writes. CI is first compile/execution. Optional ordinary lyrics/retry smoke QA stays separate; existing compatibility/storage/queue/interaction PR gates stay open.
 
 Author, implementation/source self-review: GPT-6/Codex desktop, effort not reported; Claude idle, no independent review. Experimental checkout/session untouched; future forward sync separate. No Stable release/tag.
+
+Initial run462 failed test compilation because the new fixture omitted its JSONObject import; no test execution or APK artifact is claimed. The import-only repair preserves the production guard and every assertion. Final-head CI must pass after the repair.
