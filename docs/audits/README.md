@@ -4,6 +4,8 @@ This is the continuation index for the independent main audit tracked in [#181](
 
 The user authorized this work on 2026-09-27, alongside Claude and the user's experimental Material 3 work on a separate branch. Either agent may merge a blocker-free PR at its verified head. The audit may follow a finding across any component; the workstreams below organize evidence and handoffs rather than restricting agent ownership. Coordinate actual files before concurrent edits. No Stable release/tag, signing identity change, or phone access is implied.
 
+Earlier evidence: [night-time checkpoint](../handoffs/2026-10-01-audit-close.md), [storage invariants/slices](2026-10-01-storage-preservation-design.md), [card service helper](2026-10-01-card-service.md), [card index](2026-10-01-card-index.md), [metadata payload](2026-10-01-metadata-payload.md), [source continuation](../handoffs/2026-10-01-source-audit.md), [progress/parked PRs](2026-09-30-progress.md), [build-crypto applicability](2026-10-01-build-crypto.md), [public readiness](2026-09-30-public-readiness.md) and [network entry points](2026-09-30-network-entry-points.md). These are dated inspections, not promises that every later revision is covered.
+
 ## Repository map
 
 Production Kotlin paths below are relative to `app/src/main/java/dev/avery/muon/`. Corresponding pure-logic tests are under `app/src/test/java/dev/avery/muon/`. A test's existence is not proof of runtime coverage.
