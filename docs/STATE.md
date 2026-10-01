@@ -2,11 +2,11 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-10-01, user-requested closing checkpoint, by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
+_Last updated: 2026-10-01, morning audit continuation, by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
 
-- **Audit continuation:** latest [closing checkpoint](handoffs/2026-10-01-audit-close.md) records idle ownership at the user's night-time stop, merged test/docs #254–#256/#259/#260 and verified main `e9ecc2ddf8ce590d7cafc1ca720afa1bd853424a` / [Canary .438](https://github.com/averylicious/muon/releases/tag/0.1.0-canary.438). Open green #257 network/reconnect (.431) and #258 incoming-metadata guard (.432) remain phone-QA gated; open #262 arithmetic (.439) is verified and parked at this boundary. These artifacts are separate, not one combined app. Approximately70% of the planned first source pass excluding phone QA is covered, a planning estimate, not security score or Stable readiness. #179/#213/#230/#253 remain unresolved; see the checkpoint for exact heads, tests, gates and next slices.
+- **Audit continuation:** [morning checkpoint](handoffs/2026-10-01-audit-morning.md) records merged #262/main `065d1c0bf691d61a0215e1392820ba62414c99ca`/[Canary .443](https://github.com/averylicious/muon/releases/tag/0.1.0-canary.443). Combined #257/.444 and #264 card containment/.445 are green/open for remaining compatibility/card QA; independent #265 estimate arithmetic is CI-pending. Coordinator active; allocated Claude idle near quota. About70% remains a first-source-pass planning estimate excluding phone QA, not a security score or Stable readiness. #179/#213/#230/#253 remain open. Refresh live PRs/results before takeover.
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
