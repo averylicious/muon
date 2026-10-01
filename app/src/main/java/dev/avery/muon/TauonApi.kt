@@ -64,6 +64,9 @@ class TauonApi(val endpoint: ServerEndpoint) {
     }
     suspend fun lyrics(trackId: Long): String {
         require(trackId >= 0)
-        return json("/api1/lyrics/$trackId").optString("lyrics_text")
+        val text = json("/api1/lyrics/$trackId").opt("lyrics_text")
+        if (text == null || text === JSONObject.NULL) return ""
+        require(text is String) { "Tauon returned invalid lyrics text. Refresh its lyrics and retry." }
+        return text
     }
 }
