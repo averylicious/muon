@@ -1,6 +1,6 @@
 # Main-branch audit
 
-This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [afternoon checkpoint](../handoffs/2026-10-01-audit-afternoon.md): #265/#269/#271/#272 merged; #257/#264/#267/#273 remain open for their device gates and latest-head checks. Production storage/resource findings remain unresolved. Later PR/#181/#40 results supersede pending states; earlier dated reports are historical evidence.
+This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [afternoon checkpoint](../handoffs/2026-10-01-audit-afternoon.md): #265/#269/#271/#272/#274 merged; #257/#264/#267/#273 remain open for their device gates and latest-head checks. Production storage/resource findings remain unresolved. Later PR/#181/#40 results supersede pending states; earlier dated reports are historical evidence.
 
 The user authorized this work on 2026-09-27, alongside Claude and the user's experimental Material 3 work on a separate branch. Either agent may merge a blocker-free PR at its verified head. The audit may follow a finding across any component; the workstreams below organize evidence and handoffs rather than restricting agent ownership. Coordinate actual files before concurrent edits. No Stable release/tag, signing identity change, or phone access is implied.
 
