@@ -31,8 +31,21 @@ internal fun downloadForStream(scheme: String?, authority: String?, path: String
 internal const val OPUS_BYTES_PER_SECOND = 84_000L / 8
 
 /** Roughly how much downloading these songs will take; songs of unknown length count for nothing. */
-internal fun downloadEstimate(tracks: List<TauonTrack>): Long =
-    tracks.sumOf { it.durationMs.coerceAtLeast(0) } * OPUS_BYTES_PER_SECOND / 1000
+internal fun downloadEstimate(tracks: List<TauonTrack>): Long {
+    var millis = 0L
+    for (track in tracks) {
+        val duration = track.durationMs.coerceAtLeast(0)
+        if (duration > Long.MAX_VALUE - millis) return Long.MAX_VALUE
+        millis += duration
+    }
+    // Scale whole seconds before the remainder; multiplying milliseconds first can wrap even
+    // when the final byte estimate fits. Saturate estimates that cannot fit in a Long.
+    val seconds = millis / 1000
+    if (seconds > Long.MAX_VALUE / OPUS_BYTES_PER_SECOND) return Long.MAX_VALUE
+    val whole = seconds * OPUS_BYTES_PER_SECOND
+    val remainder = millis % 1000 * OPUS_BYTES_PER_SECOND / 1000
+    return if (remainder > Long.MAX_VALUE - whole) Long.MAX_VALUE else whole + remainder
+}
 
 /** "340 MB", "1.1 GB", "about 900 kB": a size to read at a glance, in decimal units as Android shows them. */
 internal fun formatBytes(bytes: Long): String = when {

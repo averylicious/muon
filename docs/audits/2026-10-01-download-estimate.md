@@ -1,0 +1,9 @@
+# Download estimate arithmetic — 2026-10-01
+
+Inspected main `065d1c0bf691d61a0215e1392820ba62414c99ca`. `TauonApi.tracks` accepts duration as a Long. `OfflineDownloads.downloadEstimate` sums nonnegative durations, multiplies milliseconds by the 84kbps byte rate, then divides by1000. Either the sum or intermediate product can wrap; `OfflineUi` can consequently show an incorrect/negative download size. This is a source-confirmed arithmetic defect, not a reproduced phone failure or a disk allocation/security boundary.
+
+The bounded fix preserves floor-after-summing for representable results, splits whole seconds/remainder before scaling, and saturates unrepresentable byte estimates at Long.MAX_VALUE. An overflowing duration sum already implies an overflowing byte estimate at the existing byte rate. Unknown/nonpositive lengths still contribute zero. No download bytes, cache policy, duration tags or stored records change. A saturated estimate is approximate, as the existing “about” label already indicates; no new claim of actual disk requirements.
+
+Three additional JVM regression cases use a BigInteger exact-arithmetic oracle: fractional carry across songs, intermediate-product overflow while the result fits, final-result overflow and duration-total overflow. Existing ordinary four-minute estimate remains covered. No dependencies added, no local Android build or device test; latest-head CI evidence belongs on the PR. Pure helper/UI estimate only: phone QA is optional and does not gate this slice, unlike the separate playback/storage compatibility candidates.
+
+Author and source self-review: GPT-6, Codex desktop, effort not reported. No independent review or Claude assignment. Applies to the experimental helper too only if unchanged there; forward integration is separate, not performed by this PR.

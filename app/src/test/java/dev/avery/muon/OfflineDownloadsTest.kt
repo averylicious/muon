@@ -2,6 +2,7 @@ package dev.avery.muon
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.math.BigInteger
 
 class OfflineDownloadsTest {
     @Test fun aDownloadIsKeyedAsThePlayerKeysTheSong() {
@@ -22,6 +23,41 @@ class OfflineDownloadsTest {
         val fourMinutes = TauonTrack(1, "", "", "", 240_000, true, false)
         val unknown = TauonTrack(2, "", "", "", 0, true, false)
         assertEquals(2_520_000L, downloadEstimate(listOf(fourMinutes, unknown)))
+    }
+
+    @Test fun theEstimatePreservesFractionalMillisecondsAcrossSongs() {
+        assertEstimate(0, 0, -1, Long.MIN_VALUE)
+        assertEstimate(1)
+        assertEstimate(1, 1)
+        assertEstimate(999, 1)
+        assertEstimate(240_000, -1)
+    }
+
+    @Test fun largeEstimatesDoNotOverflowTheIntermediateProduct() {
+        assertEstimate(Long.MAX_VALUE / OPUS_BYTES_PER_SECOND + 1)
+        val lastMillisWhoseEstimateFits = Long.MAX_VALUE / 21 * 2
+        assertEstimate(lastMillisWhoseEstimateFits)
+        assertEstimate(lastMillisWhoseEstimateFits + 1)
+        assertEstimate(lastMillisWhoseEstimateFits + 2)
+    }
+
+    @Test fun unrepresentableEstimatesAndDurationTotalsSaturate() {
+        assertEstimate(Long.MAX_VALUE)
+        assertEstimate(Long.MAX_VALUE, Long.MAX_VALUE)
+        assertEstimate(Long.MAX_VALUE - 1, 1, 1)
+    }
+
+    private fun assertEstimate(vararg durations: Long) {
+        // Independent exact-arithmetic oracle, including the old floor-after-summing semantics.
+        val millis = durations.fold(BigInteger.ZERO) { sum, duration ->
+            sum + BigInteger.valueOf(duration.coerceAtLeast(0))
+        }
+        val bytes = millis * BigInteger.valueOf(OPUS_BYTES_PER_SECOND) / BigInteger.valueOf(1000)
+        val expected = bytes.min(BigInteger.valueOf(Long.MAX_VALUE)).toLong()
+        val tracks = durations.mapIndexed { index, duration ->
+            TauonTrack(index.toLong(), "", "", "", duration, true, false)
+        }
+        assertEquals(durations.contentToString(), expected, downloadEstimate(tracks))
     }
 
     @Test fun sizesReadAtAGlance() {
