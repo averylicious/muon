@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Latest main-audit checkpoint: [2026-10-01 morning continuation](handoffs/2026-10-01-audit-morning.md). #262 is merged/main .443 published; combined #257/.444 and card #264/.445 are green but remain open for compatibility/card QA. #265 estimate arithmetic is an independent CI-pending slice. Coordinator active; allocated Claude idle near quota. Refresh live heads/results. The [night-time closing checkpoint](handoffs/2026-10-01-audit-close.md) remains historical.
+Latest main-audit checkpoint: [2026-10-01 morning continuation](handoffs/2026-10-01-audit-morning.md). #262 is merged/main .443 published; combined #257/.444 and card #264/.445 are green but remain open for compatibility/card QA. #265 estimate arithmetic is merged at main6dcb1bf; run446 passed and main449 publication is pending. Coordinator active; allocated Claude idle near quota. Refresh live heads/results. The [night-time closing checkpoint](handoffs/2026-10-01-audit-close.md) remains historical.
 
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The earlier controller-policy checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 

@@ -1,6 +1,6 @@
 # Main-branch audit
 
-This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [2026-10-01 morning checkpoint](../handoffs/2026-10-01-audit-morning.md): #262 merged/main .443 published; combined #257/.444 and card #264/.445 are green/open for remaining QA; #265 estimate arithmetic pending CI. Production storage/resource findings remain unresolved. Earlier dated reports below are historical evidence, not live PR state.
+This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [2026-10-01 morning checkpoint](../handoffs/2026-10-01-audit-morning.md): #262 merged/main .443 published; combined #257/.444 and card #264/.445 are green/open for remaining QA; #265 estimate arithmetic merged at main6dcb1bf; main449 publication pending. Production storage/resource findings remain unresolved. Earlier dated reports below are historical evidence, not live PR state.
 
 The user authorized this work on 2026-09-27, alongside Claude and the user's experimental Material 3 work on a separate branch. Either agent may merge a blocker-free PR at its verified head. The audit may follow a finding across any component; the workstreams below organize evidence and handoffs rather than restricting agent ownership. Coordinate actual files before concurrent edits. No Stable release/tag, signing identity change, or phone access is implied.
 
