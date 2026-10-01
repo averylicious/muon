@@ -27,7 +27,10 @@ class QueueIntegrationTest {
         val track = song(2)
         val item = track.mediaItem(endpoint)
         val insertion = queueInsertion(item)
-        val restored = MediaItem.fromBundle(insertion.item.toBundle())
+        // Controller serialization excludes the local playback configuration. Restore the validated
+        // URI for this ExoPlayer fixture, as the production session does; retain round-tripped extras.
+        val restored = MediaItem.fromBundle(insertion.item.toBundle()).buildUpon()
+            .setUri(insertion.item.localConfiguration!!.uri).build()
         assertNotNull(queueOccurrenceKey(item))
         assertEquals(queueOccurrenceKey(item), queueOccurrenceKey(restored))
         assertArrayEquals(encodeSong(track), restored.mediaMetadata.extras!!.getByteArray(SONG_EXTRA))
