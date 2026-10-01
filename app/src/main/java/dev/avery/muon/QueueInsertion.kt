@@ -19,6 +19,7 @@ internal fun queueInsertion(item: MediaItem): QueueInsertion {
 
 /** Only the exact surviving insertion may be removed; an absent/ambiguous token is a no-op. */
 internal fun undoQueueInsertion(player: Player, insertion: QueueInsertion): Boolean {
+    if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) return false
     var index = -1
     for (i in 0 until player.mediaItemCount) {
         if (player.getMediaItemAt(i).mediaMetadata.extras?.getString(INSERTION_EXTRA) != insertion.token) continue

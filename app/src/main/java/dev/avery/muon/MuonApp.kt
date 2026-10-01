@@ -114,6 +114,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Whether the search bar is expanded over the Search tab; kept here so a page opened from the
         // results comes back to them.
         var searchOpen by rememberSaveable { mutableStateOf(false) }
+        val currentPlayer by rememberUpdatedState(player)
         val playback = rememberPlayback(player)
         val ui = playback.ui
         val position = remember(playback) { { playback.position } }
@@ -335,7 +336,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 val result = snackbar.showSnackbar(queuedMessage(track.title, next), actionLabel = "Undo",
                     duration = SnackbarDuration.Short)
                 if (result != SnackbarResult.ActionPerformed) return@launch
-                undoQueueInsertion(p, insertion)
+                if (currentPlayer === p) undoQueueInsertion(p, insertion)
             }
         }
         // Go to album and Go to artist open the page over the one on show: an album over an open artist
