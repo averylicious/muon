@@ -1,7 +1,9 @@
 """Real Git graph regressions for branch direction and integration freshness."""
 import os
+import re
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -76,6 +78,33 @@ class BranchPolicyTest(unittest.TestCase):
     def test_forward_sync_cannot_omit_new_main_fixes(self):
         with self.assertRaisesRegex(ValueError, 'include current main'):
             policy.check(policy.EXPERIMENT, self.alpha, 'sync/main-into-expressive-123')
+
+    def test_candidate_cannot_replace_the_destination_checker_with_a_false_pass(self):
+        # The trusted destination copy lives outside the candidate worktree, as in the workflow.
+        trusted = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(trusted.cleanup)
+        checker = Path(trusted.name) / 'check_branch_policy.py'
+        source = Path(policy.__file__).read_text()
+        # Bind the real checker to this disposable graph's experiment anchor.
+        source = re.sub(r"EXPERIMENT_START = '[0-9a-f]{40}'",
+                        "EXPERIMENT_START = '" + self.alpha + "'", source)
+        checker.write_text(source)
+        self.git('merge', '--no-edit', 'experiment')
+        Path('tools').mkdir()
+        candidate = Path('tools/check_branch_policy.py')
+        candidate.write_text('print("false pass from candidate")\n')
+        self.git('add', 'tools/check_branch_policy.py')
+        self.git('commit', '-qm', 'replace candidate policy')
+        head = self.git('rev-parse', 'HEAD')
+        arguments = ['--base', 'main', '--head', head, '--source', 'codex/renamed-alpha']
+        forged = subprocess.run([sys.executable, str(candidate), *arguments],
+                                capture_output=True, text=True)
+        self.assertEqual(0, forged.returncode)  # Old workflow would run this instead.
+        checked = subprocess.run([sys.executable, '-I', str(checker), *arguments],
+                                 capture_output=True, text=True)
+        self.assertNotEqual(0, checked.returncode)
+        self.assertIn('contains the alpha experiment', checked.stderr)
+        self.assertNotIn('false pass from candidate', checked.stdout)
 
     def test_unknown_history_fails_instead_of_passing(self):
         with patch.object(policy, 'EXPERIMENT_START', 'f' * 40):

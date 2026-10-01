@@ -41,9 +41,11 @@ class TauonApi(val endpoint: ServerEndpoint) {
     }
     suspend fun playlists(): List<TauonPlaylist> {
         val a = json("/api1/playlists").getJSONArray("playlists")
+        val ids = HashSet<String>()
         return List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getString("id")
             require(id.matches(Regex("[0-9]+"))) { "Invalid playlist identifier" }
+            require(ids.add(id)) { "Tauon returned duplicate playlist identifiers. Refresh its playlists and retry." }
             TauonPlaylist(id, it.getString("name"), it.getInt("count"))
         } }
     }

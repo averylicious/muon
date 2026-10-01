@@ -118,9 +118,17 @@ internal const val OFFLINE_NOTE = "Tauon isn't reachable. Your downloads still p
 /** Connecting was not attempted: Android 17's local network access is missing. */
 internal class LocalNetworkDenied : Exception("Muon needs your permission to reach Tauon on your local network.")
 
+/** Parser diagnostics may contain the entire response; they are not UI copy. */
+private const val INVALID_TAUON_DATA = "Tauon returned unreadable data. Check its library and retry."
+private const val CONNECTION_FAILURE = "Connection failed. Check your LAN connection and retry."
+private const val MAX_CONNECTION_ERROR_LENGTH = 512
+
 fun friendlyError(e: Throwable): String = when (e) {
     is java.net.SocketTimeoutException -> "Tauon did not respond. Check the server, LAN firewall and VPN LAN access, then retry."
     is java.net.ConnectException -> "Cannot reach Tauon. Enable remote control, restart Tauon, and check the address."
     is java.net.UnknownHostException -> "Server address could not be resolved."
-    else -> e.message ?: "Connection failed. Check your LAN connection and retry."
+    is org.json.JSONException -> INVALID_TAUON_DATA
+    // Preserve useful short validation/HTTP errors without rendering arbitrary response-sized text.
+    else -> e.message?.takeIf { it.length <= MAX_CONNECTION_ERROR_LENGTH && it.isNotBlank() }
+        ?: CONNECTION_FAILURE
 }
