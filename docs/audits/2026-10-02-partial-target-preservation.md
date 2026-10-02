@@ -2,6 +2,8 @@
 
 Inspected main `e24fa865d5fdf03ae5661aa4475a3a6ee5a8317a`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected. Source and design only: no production code/test changes or user cache access. GPT-6 (Codex desktop; effort not reported) independently checked the main copy path and pinned API facts, saved the report after Claude's managed checkout was read-only, and added the prerequisite qualifications below. These editorial additions are coordinator self-checks, not independent review of their own wording.
 
+**Follow-up (same day, same author and effort):** this branch now adds two test-only characterization cases to `DownloadMoveCharacterizationTest`. They are described under *Move reuse characterization* below, and they are pending their first CI run. No production code changed.
+
 **Pinned sources:** Media3 1.11.0 datasource/exoplayer jars from Google's Maven, sha256 recorded in the [volume-catalog evidence report](2026-10-02-volume-catalog-evidence.md) (#277). This slice re-read them for `SimpleCache`, `CacheDataSource`, `DownloadManager` and `ProgressiveDownloader`.
 
 **Open PRs, not on main:** #234 (move publication ownership), #237 (played-copy worker) and #240 (download bootstrap ownership). Claude initially used the [Oct 1 handoffs](../handoffs/2026-10-01-source-audit.md); coordinator then fetched/read exact heads: #234 `370f74d2d43684cec7a313db3fb7b1feb79fb901`, #237 `b38e17f250d2c7a133a6ed8ee16bb2e3195a9609`, #240 `0304d629d85e836e3b3ed3a96621d923efc0da9d`. #234 rejects obsolete Add publication before/after a copy but does not abort a running copy or own its spans. #237 operates on optional `PLAYED_PREFIX` copies/maintenance, a separate key namespace; #240 suppresses obsolete UI/index-bootstrap marks. Neither establishes ownership for explicit move target spans.
@@ -24,6 +26,22 @@ Inspected main `e24fa865d5fdf03ae5661aa4475a3a6ee5a8317a`. Author: Claude Opus 5
 3. **Media3 can't clean un-indexed spans.** `DownloadManager.removeDownload` for an id with no index row logs "nonexistent" and returns without touching the cache (`DownloadManager.java:898-902`). `removeAllDownloads` only visits indexed downloads (`908-923`). Only an indexed removal reaches `ProgressiveDownloader.remove` → `removeResource` (`ProgressiveDownloader.java:208-209`).
 4. **The configured size evictors do not budget these spans.** The card uses `NoOpCacheEvictor`, and the phone's `PlayedSongEvictor` evicts only `PLAYED_PREFIX` keys (`PlayedCache.kt:53-59`). Thus failed-copy spans are not reclaimed by those byte budgets. Later indexed removal may remove them; stale-file cleanup, manual filesystem changes and storage lifecycle are separate paths, so indefinite physical persistence is not asserted.
 5. **A later explicit download adopts them (source-supported hypothesis).** By fact 2, an `add` of the same id on that shelf reads the retained partial spans instead of fetching them. Combined with #213 (Tauon renumbering), old bytes could be stitched into a different song. Not reproduced.
+
+## Move reuse characterization (pending CI)
+
+Two cases in `DownloadMoveCharacterizationTest` run the real `OfflineStore.move` on its existing `mover` thread. They use disposable `SimpleCache`s and native-SQLite indexes in temporary folders, and the fixture's existing reflection and FIFO barrier. There is no sleep, network, service, phone or user cache. These are **unsafe-outcome characterizations, not fixes**. CI is their first compile and run, so nothing here has passed yet.
+
+The source fact behind them: `CacheWriter.cache` skips any range the **target** cache already holds for the key, and reads only the holes (`CacheWriter.java:125-137`, pinned 1.11.0 datasource).
+
+1. **`unindexedTargetPrefixIsKeptAndCompletedFromTheSourceThenAdded`**
+   - **Setup:** the target holds an un-indexed 200-byte prefix whose bytes differ at every position. The fully completed source holds 512 new bytes for the same key.
+   - **Expected:** the target ends as the old prefix plus the source's suffix, fully cached with content length 512. The source spans and index row are unchanged, and one Add is posted to the card service.
+   - **What it shows:** the move's own reuse. It does not show `DownloadManager` adopting spans for an explicit download, audio decoding, Tauon renumbering (#213) or user data loss.
+2. **`failedMoveOverAnUnindexedTargetPrefixKeepsItAndTheSourceWithoutAnAdd`**
+   - **Setup:** the missing-later-source-span setup, with an un-indexed 1,000-byte target prefix of distinct bytes.
+   - **Expected:** no Add and no target index row. The target span at position 0 keeps exactly its earlier length and bytes, and the target is not fully cached. The source's first span and index row are retained.
+
+If CI shows different behaviour, record the actual outcome instead of changing these expectations to match an assumption.
 
 ## Policy comparison
 

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Looper
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -149,6 +150,47 @@ class DownloadMoveCharacterizationTest {
         assertTrue("Failed copy retains unindexed target spans", card.cache.getCachedSpans(id).isNotEmpty())
         assertFalse(card.cache.isCached(id, 0, 2L * chunk.size))
         assertArrayEquals(chunk, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
+    }
+
+    // Unsafe characterization, not a fix: the move reuses whatever the target already holds for the
+    // key. Shows the copy's reuse only, not DownloadManager adoption, decoding or a renumbered song.
+    @Test fun unindexedTargetPrefixIsKeptAndCompletedFromTheSourceThenAdded() {
+        val old = ByteArray(200) { (255 - it % 251).toByte() } // Differs from [bytes] at every index.
+        seed(card.cache, 0, old)
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        assertTrue(card.cache.isCached(id, 0, bytes.size.toLong()))
+        assertArrayEquals(old + bytes.copyOfRange(old.size, bytes.size), targetBytes())
+        assertEquals(bytes.size.toLong(), ContentMetadata.getContentLength(card.cache.getContentMetadata(id)))
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+        shadowOf(Looper.getMainLooper()).idle()
+        val add = startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
+        assertEquals(MuonCardDownloadService::class.java.name, add.component?.className)
+        assertEquals(request, addRequest(add))
+    }
+
+    @Test fun failedMoveOverAnUnindexedTargetPrefixKeepsItAndTheSourceWithoutAnAdd() {
+        val old = ByteArray(1000) { (255 - it % 251).toByte() }
+        seed(card.cache, 0, old)
+        val chunk = ByteArray(128 * 1024) { (it % 251).toByte() }
+        seed(phone.cache, 0, chunk)
+        val later = seed(phone.cache, chunk.size.toLong(), chunk)
+        setLength(phone.cache, 2L * chunk.size)
+        putCompleted(2L * chunk.size)
+        assertTrue(later.delete()) // Only a disposable fixture file, before the actual worker reads it.
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertNull(targetIndex.getDownload(id))
+        val earlier = card.cache.getCachedSpans(id).single { it.position == 0L }
+        assertEquals(old.size.toLong(), earlier.length)
+        assertArrayEquals(old, requireNotNull(earlier.file).readBytes())
+        assertFalse(card.cache.isCached(id, 0, 2L * chunk.size))
+        assertArrayEquals(chunk, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
     }
 
     @Test fun unknownSourceLengthRejectsCopyWithoutRemovingSourceOrAddingDestination() {
