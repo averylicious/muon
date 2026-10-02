@@ -6,6 +6,8 @@ The user authorized this work on 2026-09-27, alongside Claude and the user's exp
 
 Earlier evidence: [night-time checkpoint](../handoffs/2026-10-01-audit-close.md), [storage invariants/slices](2026-10-01-storage-preservation-design.md), [card service helper](2026-10-01-card-service.md), [card index](2026-10-01-card-index.md), [metadata payload](2026-10-01-metadata-payload.md), [source continuation](../handoffs/2026-10-01-source-audit.md), [progress/parked PRs](2026-09-30-progress.md), [build-crypto applicability](2026-10-01-build-crypto.md), [public readiness](2026-09-30-public-readiness.md) and [network entry points](2026-09-30-network-entry-points.md). These are dated inspections, not promises that every later revision is covered.
 
+Latest continuation: [October2 checkpoint](../handoffs/2026-10-02-main-audit.md), [resource inventory](2026-10-02-resource-budget-inventory.md), [volume identity evidence](2026-10-02-volume-catalog-evidence.md), and [partial-target preservation](2026-10-02-partial-target-preservation.md). Resource/volume/move characterizations are evidence, not production fixes or measured performance. Open app fixes and manual gates are listed in the checkpoint and live PRs.
+
 ## Repository map
 
 Production Kotlin paths below are relative to `app/src/main/java/dev/avery/muon/`. Corresponding pure-logic tests are under `app/src/test/java/dev/avery/muon/`. A test's existence is not proof of runtime coverage.
