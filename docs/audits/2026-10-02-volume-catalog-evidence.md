@@ -1,6 +1,6 @@
 # #179 S2 volume catalog source evidence — 2026-10-02
 
-Inspected main: `3a47d52debb41ab63c5a87832249094d1d58c89a`, on branch `codex/volume-catalog-evidence`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as assigned (the runtime does not report effort). Author source investigation only: **no independent review**.
+Inspected main: `3a47d52debb41ab63c5a87832249094d1d58c89a`, on branch `codex/volume-catalog-evidence`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as assigned (the runtime does not report effort). Original author source investigation; independent coordinator qualifications appear below.
 
 **Not done:** no production code, fixture, database write, migration, deletion, device access, build, push or PR.
 
@@ -68,9 +68,9 @@ The SDK zips contain framework client code only. The system service and vold wer
 
 | Case | What the evidence supports | What it does not |
 | --- | --- | --- |
-| Same card remounted | Same filesystem → same `fsUuid` → same `/storage/<uuid>` path → same Muon folder → same `<hex>.uid` → same cache tables. The shared `card` index is also unchanged | Device confirmation on the user's ROM; Android 17 vold/service; behaviour after bad removal or a filesystem check that rewrites metadata |
-| Replacement card | Different `fsUuid` and path. Muon's folder is missing, so opening a cache would create a **new UID**. The `card` index still claims the old card's songs (#256, not new) | Nothing beyond that |
-| Reformatted card | Muon's folder and `.uid` are gone, so the cache UID differs even if `fsUuid` were kept | That a reformat always changes `fsUuid`: that's formatter behaviour, not in these sources (hypothesis). Matching UUID alone is therefore not enough |
+| Same card remounted | Conditional on the filesystem, UUID and cache folder remaining intact: same filesystem → same `fsUuid` → same `/storage/<uuid>` path → same Muon folder → same `<hex>.uid` → same cache tables. The shared `card` index is also unchanged | Device confirmation on the user's ROM; Android 17 vold/service; behaviour after bad removal or a filesystem check that rewrites metadata |
+| Replacement card with a different filesystem UUID | Different `fsUuid` and path. Muon's folder is missing, so opening a cache would create a **new UID**. The `card` index still claims the old card's songs (#256, not new) | Nothing beyond that |
+| Reformatted card with Muon's folder erased | The old `.uid` is gone; constructing a new cache would generate a new UID even if `fsUuid` were kept. A missing UID is Unknown before initialization, not proof of a new valid generation | That a reformat always changes `fsUuid`: that's formatter behaviour, not in these sources (hypothesis). Matching UUID alone is therefore not enough |
 | Null/empty `fsUuid` | Path is `/storage/public:<major>,<minor>`. A different UUID-less card in the same slot gets the **same** path and folder name | Any Android-level identity. Only the folder's `.uid` file remains, and it's created on first open |
 | Duplicated `fsUuid` (cloned card, or two cards sharing a 32-bit FAT serial) | Same path and, for a byte copy, the same `.uid`. Android's recent list de-duplicates them | Telling them apart: neither Android nor Media3 identity can. Two attached at once was not inspected (unverified) |
 | Legacy `ExoPlayerDownloadscard` rows | No column ties a row to a volume or cache UID. Only an inference is possible: the key has complete spans in the currently attributed card cache | Assigning any row to a card from the index alone. Older cards' `ExoPlayerCacheIndex<hex>` tables may remain in the phone DB (not inspected on a device) |
@@ -91,7 +91,7 @@ The SDK zips contain framework client code only. The system service and vold wer
   - whose real `getState()` is `MEDIA_MOUNTED`;
   - whose path contains the folder;
   - and whose listed `.uid` matches.
-- **Absent:** no listed volume has the record's `fsUuid`. On API 30+, `getRecentStorageVolumes` may say it was seen recently. It stays unavailable and is preserved, never treated as empty.
+- **Not observed (unavailable):** no listed volume has the record's `fsUuid`; this alone does not prove physical absence. On API 30+, `getRecentStorageVolumes` may say it was seen recently. It stays unavailable and is preserved, never treated as empty.
 - **Unknown:** everything else. This includes a null UUID, `MEDIA_UNKNOWN`/`CHECKING`/`READ_ONLY`/`UNMOUNTED`/`BAD_REMOVAL`, a lookup exception, a folder that is missing (or no `.uid`), several `.uid` files or a mismatch, and a duplicate `fsUuid`.
 
 **Preservation rules:**
@@ -132,3 +132,9 @@ Then a read-only catalog and legacy-row classifier, with no writes, could be spe
 ## Local state
 
 The sources were downloaded to `build/sources/` (git-ignored by `**/build/`) and read with Python's `zipfile`/`base64`. They're left in place, since no deletion is permitted. The user's card bytes, metadata and experiment checkout were untouched.
+
+## Independent coordinator review and remaining design gaps
+
+GPT-6/Codex desktop, effort not reported, reviewed Claude's report against cited SDK37/AOSP16/Media3 sources and actual main call sites. Source hashes checked for session-relevant SDK37, datasource, exoplayer and decoded AOSP16 artifacts. Qualified remount/replacement/reformat assertions as conditional; no real card event or Android17 service/vold behavior confirmed. SDK37 `getStorageVolumes` client Javadoc distinguishes actively attached volumes in any mount state, with visibility to the calling user; lack of observation remains unavailable/unknown for preservation rather than evidence allowing deletion. A matching fsUuid/cache UID can support a catalog association; it is not proof of a physically distinct card, complete bytes or atomic availability. Path comparisons must use canonical component containment, not string-prefix matching, with read errors/races treated as Unknown.
+
+The proposed Available rule plus the no-construction-before-Available rule deliberately cannot adopt a pristine new card (it has no existing UID). Initial creation/adoption therefore needs a separate explicit, reviewed transaction; do not resolve the circularity by constructing SimpleCache during observation or accepting an absent UID as an old volume. Reading complete cache spans for legacy-row classification is also not automatically read-only: current cache APIs may remove stale spans/persist mappings. S3 must identify a non-mutating catalog evidence path before that classifier runs. These are design blockers, not implemented behavior. No policy choice for UUID-less cards is settled by this report; preservation is the default while unsupported identity stays Unknown.
