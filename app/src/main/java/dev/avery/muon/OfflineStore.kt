@@ -348,8 +348,8 @@ internal object OfflineStore {
 
     /**
      * Whether [to] holds exactly [from]'s bytes for [spec], read now from both caches in bounded blocks.
-     * Neither reader has an upstream or a sink: a missing or locked byte fails, and nothing is fetched or
-     * written. A check at this moment only, not a guarantee against later changes.
+     * Neither reader has an upstream or a sink: a missing or locked byte fails, and no replacement audio is fetched or
+     * written. Cache reads may still touch metadata or reconcile stale spans. A check at this moment only, not a guarantee against later changes.
      */
     private fun sameBytes(spec: DataSpec, from: Shelf, to: Shelf): Boolean {
         val source = CacheDataSource.Factory().setCache(from.cache).createDataSource()
@@ -377,7 +377,7 @@ internal object OfflineStore {
         var done = 0
         while (done < count) {
             val read = source.read(buffer, done, count - done)
-            if (read == C.RESULT_END_OF_INPUT) return false
+            if (read <= 0) return false
             done += read
         }
         return true

@@ -10,7 +10,7 @@ Base: main `b1df6cc3d5286f0a685379d51d98e08347899713`, branch `codex/move-byte-v
 
 In `OfflineStore.copy`, after `CacheWriter` finishes, `sameBytes` reads the source and target for the declared source length and compares them.
 - Each side is read through a `CacheDataSource` built with no upstream factory, so it has no write sink and a placeholder upstream (`CacheDataSource.java:306-307,558`, pinned 1.11.0 datasource, sha256 `a54ddd9858ed2de57e07c5461dcebdae7a53d92a60210a2a3f5bf501398a5e4a`).
-- The default flags don't block on the cache. So a missing or locked byte fails the read, and nothing is fetched or written.
+- The default flags don't block on the cache. So a missing or locked byte fails the read, and no replacement audio is fetched/written. Normal Media3 reads can touch cache metadata or reconcile stale spans, so this is not a nonmutating storage probe.
 - Comparison uses two 64 KiB buffers, so memory doesn't grow with file length.
 - Both readers are closed on every path, including failed opens and mismatches.
 
@@ -26,6 +26,7 @@ In `OfflineStore.copy`, after `CacheWriter` finishes, `sameBytes` reads the sour
   - the suffix `CacheWriter` wrote still present;
   - the source and its index row unchanged.
 - **`identicalUnindexedTargetPrefixIsReusedAndAdded`:** a matching prefix gives exact bytes, content length 512 and one Add.
+- Coordinator-added cases cover matching data across multiple64KiB comparison blocks and a differing byte after the first block; they exercise the production loop and preserve fixture source/target bytes. Coordinator also rejects nonpositive read progress instead of risking a loop if a reader violates its usual contract.
 - **Unchanged:** the normal move, remove/removeAll, missing-later-span, failed-prefix and unknown-length cases. Both missing-span cases fail inside `CacheWriter` before the check runs.
 
 ## Limits (not addressed)
@@ -37,8 +38,10 @@ In `OfflineStore.copy`, after `CacheWriter` finishes, `sameBytes` reads the sour
 - **Rejected copies stay un-indexed.** #230 cleanup, accounting and adoption by a later explicit download stay open.
 - **Not addressed here:** absent or replaced card (#179 S1/S2), Tauon renumbering (#213), and #234/#237/#240, which remain separate open dependencies.
 
-## Manual QA (pending, disposable copied audio only)
+## Manual QA (pending, expendable duplicate downloads only)
 
 1. Move to card and back with ordinary downloads: songs play, and nothing stays in both places.
-2. If a move can be interrupted (for example, by closing the app during it), move again. The resumed move completes.
-3. Confirm no new storage loss or wrong song after either direction.
+2. On a separately authorized disposable-card fixture, test interruption and retry with expendable duplicates; preserve independent originals. Do not eject a card holding sole copies or treat closing an Activity as proof its worker stopped.
+3. Confirm retained originals and correct playback after either direction. This Pixel has no removable card, so no real card/move QA was performed in this slice.
+
+GPT-6 / Codex desktop (effort not reported) independently reviewed Claude's production change against pinned CacheDataSource semantics. Multi-block cases, nonpositive-read guard and metadata/QA qualifications are coordinator authorship/self-check. Latest-head CI pending; no local compile/runtime success claimed.

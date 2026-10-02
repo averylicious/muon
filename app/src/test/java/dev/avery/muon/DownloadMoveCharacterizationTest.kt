@@ -188,6 +188,36 @@ class DownloadMoveCharacterizationTest {
         assertEquals(request, addRequest(add))
     }
 
+    @Test fun identicalPrefixAcrossSeveralComparisonBlocksIsAdded() {
+        val payload = ByteArray(2 * 64 * 1024 + 17) { (it % 251).toByte() }
+        seed(card.cache, 0, payload.copyOfRange(0, 90 * 1024))
+        completeSource(payload)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertArrayEquals(payload, targetBytes())
+        assertArrayEquals(payload, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+        assertEquals(request, addRequest(startedCommands().single {
+            it.action == DownloadService.ACTION_ADD_DOWNLOAD }))
+        assertNull(targetIndex.getDownload(id))
+    }
+
+    @Test fun mismatchAfterTheFirstComparisonBlockIsRejectedWithoutDeletingBytes() {
+        val payload = ByteArray(2 * 64 * 1024 + 17) { (it % 251).toByte() }
+        val old = payload.copyOfRange(0, 90 * 1024)
+        old[80 * 1024] = (old[80 * 1024].toInt() xor 1).toByte()
+        seed(card.cache, 0, old)
+        completeSource(payload)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertNull(targetIndex.getDownload(id))
+        assertArrayEquals(old + payload.copyOfRange(old.size, payload.size), targetBytes())
+        assertArrayEquals(payload, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+    }
+
     @Test fun failedMoveOverAnUnindexedTargetPrefixKeepsItAndTheSourceWithoutAnAdd() {
         val old = ByteArray(1000) { (255 - it % 251).toByte() }
         seed(card.cache, 0, old)
