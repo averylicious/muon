@@ -1,6 +1,7 @@
 package dev.avery.muon
 
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -116,6 +117,41 @@ class RemovableCacheCharacterizationTest {
         val reopened = open(folder)
         assertFalse(reopened.isCached(key, 0, payload.size.toLong()))
         assertFalse("Restoring files alone did not restore their content ID mapping", file.exists())
+    }
+
+    @Test fun healthyPublicSpanSnapshotImportsIntactOrphansIntoAFreshCacheWithoutReopeningTheOldDirectory() {
+        val folder = folders.newFolder("card")
+        val original = open(folder)
+        val oldFile = seed(original)
+        val uid = original.uid
+        // These are public immutable span fields. No filename parsing or private table/ID edits.
+        val span = original.getCachedSpans(key).single()
+        val length = ContentMetadata.getContentLength(original.getContentMetadata(key))
+        val parked = disappear(folder)
+        original.release() // Models the same unsafe index purge as the original loss test.
+        restore(parked, folder)
+        assertArrayEquals(payload, oldFile.readBytes())
+
+        // Deliberately never reopen the old cache directory: that would delete these orphaned files.
+        val recovered = open(folders.newFolder("recovered"))
+        assertNotEquals(uid, recovered.uid)
+        val hole = recovered.startReadWrite(span.key, span.position, span.length)
+        assertFalse(hole.isCached)
+        try {
+            val freshFile = recovered.startFile(span.key, span.position, span.length)
+            requireNotNull(span.file).copyTo(freshFile)
+            assertEquals(span.length, freshFile.length())
+            recovered.commitFile(freshFile, span.length)
+        } finally {
+            recovered.releaseHoleSpan(hole)
+        }
+        recovered.applyContentMetadataMutations(span.key, ContentMetadataMutations().apply {
+            ContentMetadataMutations.setContentLength(this, length)
+        })
+        assertReadable(recovered)
+        recovered.release()
+        assertReadable(open(File(folder.parentFile, "recovered")))
+        assertArrayEquals("Original file must remain intact", payload, oldFile.readBytes())
     }
 
     @Test fun losingCardIndexDoesNotErasePhoneCacheInTheSharedDatabase() {
