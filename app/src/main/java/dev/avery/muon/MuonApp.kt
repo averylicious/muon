@@ -289,7 +289,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val askLocalNetwork = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             LocalNetworkState.granted = granted
             LocalNetworkState.denied = !granted
-            if (granted) model.connect()
+            // With no address yet (Connect screen's Allow), the grant starts discovery instead (#278).
+            if (granted && model.address.isNotBlank()) model.connect()
         }
         fun allowLocalNetwork() {
             val rationale = activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, ACCESS_LOCAL_NETWORK) } ?: false
