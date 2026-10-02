@@ -1,6 +1,6 @@
 # #230 partial-target preservation — 2026-10-02
 
-Inspected main `e24fa865d5fdf03ae5661aa4475a3a6ee5a8317a`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected. Source and design only: no production code/test changes or user cache access. GPT-6 (Codex desktop; effort not reported) independently checked the main copy path and pinned API facts, saved the report after Claude's managed checkout was read-only, and added the prerequisite qualifications below. These editorial additions are coordinator self-checks, not independent review of their own wording.
+Inspected main `e24fa865d5fdf03ae5661aa4475a3a6ee5a8317a`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected. Initial source/design part changed no production code/tests and accessed no user cache. The later test-only follow-up is described below. GPT-6 (Codex desktop; effort not reported) independently checked the main copy path and pinned API facts, saved the report after Claude's managed checkout was read-only, and added the prerequisite qualifications below. These editorial additions are coordinator self-checks, not independent review of their own wording.
 
 **Follow-up (same day, same author and effort):** this branch now adds two test-only characterization cases to `DownloadMoveCharacterizationTest`. They are described under *Move reuse characterization* below, and they are pending their first CI run. No production code changed.
 
@@ -80,4 +80,4 @@ Reuse the `DownloadMoveCharacterizationTest` fixture; no new framework.
 
 **Not claimed:** runtime, heap, device or storage-size effects. Facts 1–4 are read from source only; fact 5 is a hypothesis; the cleanup ownership rules are proposals.
 
-Coordinator validation: exact source-only diff/whitespace and main-destination preflight; lightweight docs CI pending. No new Android compile, tests or phone QA required for this report. #230 remains unresolved.
+Coordinator validation: reviewed Claude's test-only fixture diff, added explicit target-index absence assertions, checked whitespace/main destination. Latest-head full signed CI is pending; it is the first compile/execution of the new cases. No app behavior change or phone QA is required for this characterization; production fixes still need their own gates. #230 remains unresolved.

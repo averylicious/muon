@@ -157,6 +157,7 @@ class DownloadMoveCharacterizationTest {
     @Test fun unindexedTargetPrefixIsKeptAndCompletedFromTheSourceThenAdded() {
         val old = ByteArray(200) { (255 - it % 251).toByte() } // Differs from [bytes] at every index.
         seed(card.cache, 0, old)
+        assertNull(targetIndex.getDownload(id))
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
@@ -169,6 +170,7 @@ class DownloadMoveCharacterizationTest {
         val add = startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
         assertEquals(MuonCardDownloadService::class.java.name, add.component?.className)
         assertEquals(request, addRequest(add))
+        assertNull("Captured service intent is not delivered", targetIndex.getDownload(id))
     }
 
     @Test fun failedMoveOverAnUnindexedTargetPrefixKeepsItAndTheSourceWithoutAnAdd() {
