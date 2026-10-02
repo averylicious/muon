@@ -43,9 +43,11 @@ class TauonApi(val endpoint: ServerEndpoint) {
     }
     suspend fun playlists(): List<TauonPlaylist> = withContext(Dispatchers.IO) {
         val a = json("/api1/playlists").getJSONArray("playlists")
+        val ids = HashSet<String>()
         List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getString("id")
             require(id.matches(Regex("[0-9]+"))) { "Invalid playlist identifier" }
+            require(ids.add(id)) { "Tauon returned duplicate playlist identifiers. Refresh its playlists and retry." }
             TauonPlaylist(id, it.getString("name"), it.getInt("count"))
         } }
     }
@@ -64,6 +66,9 @@ class TauonApi(val endpoint: ServerEndpoint) {
     }
     suspend fun lyrics(trackId: Long): String {
         require(trackId >= 0)
-        return json("/api1/lyrics/$trackId").optString("lyrics_text")
+        val text = json("/api1/lyrics/$trackId").opt("lyrics_text")
+        if (text == null || text === JSONObject.NULL) return ""
+        require(text is String) { "Tauon returned invalid lyrics text. Refresh its lyrics and retry." }
+        return text
     }
 }

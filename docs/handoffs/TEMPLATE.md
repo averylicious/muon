@@ -32,4 +32,4 @@ Replace placeholders; unknown is preferable to a guess. Link this file from the 
 - Claude connection hint if useful (no credentials; optional across machines):
 - If interrupted, which commands may have succeeded and must be checked before retry:
 
-Leave PRs open unless the current user requests merge. No device access or Stable release is implied.
+Apply the current user instructions and STATE.md standing merge authorization. Keep QA-blocked and forward-sync PRs open for their owners/gates; do not infer device access or Stable-release permission from a checkpoint.
