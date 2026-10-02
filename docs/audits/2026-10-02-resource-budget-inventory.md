@@ -5,7 +5,7 @@ Branch `codex/resource-budget-inventory`, worktree `~/.codex/worktrees/muon-reso
 Scope: what main retains for one loaded library, and which single-item and aggregate IPC routes carry library metadata. No app code, limits or refactor. The issue body of #253 could not be read (`gh issue view` needed approval). The scope comes from the [source audit](../handoffs/2026-10-01-source-audit.md) and the [Oct 1 afternoon checkpoint](../handoffs/2026-10-01-audit-afternoon.md).
 
 **Evidence levels:**
-- **Verified (fixture):** asserted by `LibraryRetentionCharacterizationTest`. It's pending its first CI run, so treat it as verified only once CI passes.
+- **Fixture assertions (pending):** `LibraryRetentionCharacterizationTest` has not yet run; these are expected outcomes, not established results until CI passes.
 - **Source:** read in main's code or in the pinned Media3 1.11.0 sources jars on Google's Maven ([session](https://dl.google.com/dl/android/maven2/androidx/media3/media3-session/1.11.0/media3-session-1.11.0-sources.jar), [common](https://dl.google.com/dl/android/maven2/androidx/media3/media3-common/1.11.0/media3-common-1.11.0-sources.jar)).
 - **Hypothesis:** not checked in this slice.
 
@@ -13,7 +13,7 @@ Scope: what main retains for one loaded library, and which single-item and aggre
 
 - **Per response:** `TauonApi.json` refuses a body over 16 MiB (`TauonApi.kt:32`).
 - **Error text:** limited to 512 characters (`LibraryModel.kt:124`, #272).
-- **Artwork:** limited to 4 MiB per download, and by the memory and disk caches.
+- **Artwork (separate from this metadata inventory):** the UI/download helpers have their own limits/caches. This is not a bound for every artwork route: notification decode/read bounds remain open in #221.
 
 There is **no** per-field, per-record, per-playlist, per-load or per-queue bound on library text. Grepping main's sources finds no 16 KiB guard. #258's incoming 16 KiB record/display-text guard is **open and not on main**: the afternoon checkpoint lists it under #257. I couldn't recheck it live because `gh pr view` needed approval. This report doesn't duplicate or assume it.
 
@@ -76,11 +76,11 @@ No numbers are proposed here. They should come from measured representation size
 1. **Per record:** #258 (open) is the candidate. Decide it first, because the aggregate budgets build on it. Keep the rule on encoded record bytes, which is what crosses IPC, rather than per field.
 2. **Per load:** the sum of encoded record bytes over **occurrences**, since retention scales with occurrences (R1) and not with unique songs.
    - On exceeding it: keep the previous library and the existing partial-load semantics (`combineLoad`), show a clear message, and never truncate tags or drop or de-duplicate occurrences.
-   - A separate non-limit option for approval: share one `TauonTrack` per id inside a load while keeping every occurrence in its list. That keeps duplicates and cuts R1 toward unique songs. It's a refactor, so it needs its own slice.
+   - A separate non-limit option for approval: share only identical immutable records inside a load while keeping every occurrence in its list. An id alone is insufficient when playlists carry differing metadata for the same id. That keeps duplicates and cuts R1 toward unique songs. It's a refactor, so it needs its own slice.
 3. **Per queue:** the sum of record bytes per `setMediaItems`.
    - Prefer the #255 direction: a compact reference in `SONG_EXTRA` instead of the full record, so R7, R8 and the remote/framework routes scale with ids rather than text.
    - Preserve played-copy metadata and offline listing, and keep Songs/Search playing on through the whole library (`MuonApp.kt:594-599`). Don't shorten the queue silently.
-4. **Derived copies (R4, R6):** count them in the per-load figure. Don't add separate caps; R6 might key on a digest in a later design.
+4. **Derived copies (R4, R6):** account for them separately from encoded record bytes in the per-load figure. Don't add separate caps; R6 might key on a digest in a later design.
 
 Compatibility floor: whatever is chosen must accept large legitimate libraries with ordinary tags. Measure 1k, 10k and 50k songs, and many playlists repeating the same songs, before setting a number.
 
@@ -97,3 +97,9 @@ Measurement only, no limits:
 - **Needed approval, not run:** `gh issue view 253`, `gh pr view 258`, `git branch -r`, `git check-ignore` and `unzip`. Listing `/tmp` was blocked.
 - **Pinned sources:** downloaded the Media3 session and common sources jars to `build/media3-sources/` (git-ignored by `**/build/`), and read them with Python's `zipfile`. Left in place, since no deletion was permitted.
 - **Usage telemetry:** none was available to this session, and OAuth/usage credentials weren't accessed.
+
+## Coordinator source review
+
+GPT-6/Codex desktop independently reviewed Claude's report/fixture and pinned jar paths on 2026-10-02; effort not reported. Reviewed branch base remains main3a47d52. Confirmed open #258 is included only in #257, now refreshed fc9e852, and #253 requests inventory/compatibility/preservation before a production aggregate cap. Neither #253 nor #179 closes through this characterization. Avoid assuming counts or serialized-byte sums equal live heap or Binder usage. A retained-record budget after DTO projection cannot by itself bound peak wire/text/DOM allocations during parsing; an eventual design must address that distinction. Fixture mirrors of the composable/view-model expressions document copies, not runtime Compose/view-model coverage.
+
+Pinned published-source jar SHA256s: Media3 session `9fa36c24ead02c89325d5b89d5322f2781b1b50511d1b432b4b033ab3c38e715`; common `a1fdf302c059a4d75b3005996a85d96619ccff4a4bf53435bf1f9fd053d86e3e`. Independent source inspection confirms the in-process BundleListRetriever shortcut, remote filtered PlayerInfo serialization, and the legacy queue's command gate/conversion. No runtime system-server retention/IPC failure or measured performance established. CI results belong on the PR at its exact latest head.
