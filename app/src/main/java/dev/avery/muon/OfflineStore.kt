@@ -339,7 +339,48 @@ internal object OfflineStore {
         val reader = CacheDataSource.Factory().setCache(from.cache).setCacheWriteDataSinkFactory(null)
         val writer = CacheDataSource.Factory().setCache(to.cache).setUpstreamDataSourceFactory(reader).createDataSourceForDownloading()
         CacheWriter(writer, DataSpec.Builder().setUri(download.request.uri).setKey(id).build(), null, null).cache()
+        // CacheWriter keeps whatever the target already held for this key, so only an exact copy counts (#230).
+        require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id).setLength(length).build(), from, to)) {
+            "Copy differs from its source"
+        }
         to.cache.applyContentMetadataMutations(id, ContentMetadataMutations.setContentLength(ContentMetadataMutations(), length))
+    }
+
+    /**
+     * Whether [to] holds exactly [from]'s bytes for [spec], read now from both caches in bounded blocks.
+     * Neither reader has an upstream or a sink: a missing or locked byte fails, and nothing is fetched or
+     * written. A check at this moment only, not a guarantee against later changes.
+     */
+    private fun sameBytes(spec: DataSpec, from: Shelf, to: Shelf): Boolean {
+        val source = CacheDataSource.Factory().setCache(from.cache).createDataSource()
+        val target = CacheDataSource.Factory().setCache(to.cache).createDataSource()
+        return try {
+            source.open(spec)
+            target.open(spec)
+            val expected = ByteArray(64 * 1024)
+            val actual = ByteArray(expected.size)
+            var left = spec.length
+            while (left > 0) {
+                val count = minOf(left, expected.size.toLong()).toInt()
+                if (!readFully(source, expected, count) || !readFully(target, actual, count)) return false
+                for (i in 0 until count) if (expected[i] != actual[i]) return false
+                left -= count
+            }
+            true
+        } finally {
+            runCatching { source.close() }
+            runCatching { target.close() }
+        }
+    }
+
+    private fun readFully(source: DataSource, buffer: ByteArray, count: Int): Boolean {
+        var done = 0
+        while (done < count) {
+            val read = source.read(buffer, done, count - done)
+            if (read == C.RESULT_END_OF_INPUT) return false
+            done += read
+        }
+        return true
     }
 
     fun removeAll(context: Context) = get(context).shelves.forEach {

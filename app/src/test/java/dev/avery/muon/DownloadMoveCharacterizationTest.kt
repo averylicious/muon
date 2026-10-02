@@ -35,7 +35,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * #230: actual OfflineStore.move/remove calls, real cache copy/indexes, captured service intents.
- * Failure cases assert CURRENT unsafe ordering, not a production fix or Android service delivery.
+ * Remove and missing-span cases assert CURRENT unsafe ordering, not a fix or Android service delivery;
+ * the target-prefix cases assert the copy's byte check.
  * Reflection only installs disposable shelves and waits for the existing mover's FIFO boundary;
  * it does not replace the worker, copy implementation, command sender or main-thread handler.
  */
@@ -152,25 +153,39 @@ class DownloadMoveCharacterizationTest {
         assertArrayEquals(chunk, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
     }
 
-    // Unsafe characterization, not a fix: the move reuses whatever the target already holds for the
-    // key. Shows the copy's reuse only, not DownloadManager adoption, decoding or a renumbered song.
-    @Test fun unindexedTargetPrefixIsKeptAndCompletedFromTheSourceThenAdded() {
+    // CacheWriter still reuses the target's prefix; the byte check now refuses to publish the result.
+    // Nothing is deleted: the old prefix and the suffix written after it both stay, unindexed.
+    @Test fun differentUnindexedTargetPrefixIsRejectedWithoutAnAddAndKept() {
         val old = ByteArray(200) { (255 - it % 251).toByte() } // Differs from [bytes] at every index.
         seed(card.cache, 0, old)
         assertNull(targetIndex.getDownload(id))
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
-        assertTrue(card.cache.isCached(id, 0, bytes.size.toLong()))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertNull(targetIndex.getDownload(id))
+        val earlier = card.cache.getCachedSpans(id).single { it.position == 0L }
+        assertEquals(old.size.toLong(), earlier.length)
+        assertArrayEquals(old, requireNotNull(earlier.file).readBytes())
         assertArrayEquals(old + bytes.copyOfRange(old.size, bytes.size), targetBytes())
-        assertEquals(bytes.size.toLong(), ContentMetadata.getContentLength(card.cache.getContentMetadata(id)))
         assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
         assertNotNull(sourceIndex.getDownload(id))
+    }
+
+    // A legitimate resume: a target prefix that matches the source is kept and the move is published.
+    @Test fun identicalUnindexedTargetPrefixIsReusedAndAdded() {
+        seed(card.cache, 0, bytes.copyOfRange(0, 200))
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        assertArrayEquals(bytes, targetBytes())
+        assertEquals(bytes.size.toLong(), ContentMetadata.getContentLength(card.cache.getContentMetadata(id)))
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
         shadowOf(Looper.getMainLooper()).idle()
         val add = startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
         assertEquals(MuonCardDownloadService::class.java.name, add.component?.className)
         assertEquals(request, addRequest(add))
-        assertNull("Captured service intent is not delivered", targetIndex.getDownload(id))
     }
 
     @Test fun failedMoveOverAnUnindexedTargetPrefixKeepsItAndTheSourceWithoutAnAdd() {
