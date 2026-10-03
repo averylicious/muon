@@ -43,3 +43,7 @@ Read-only validation only; no adversarial fork submitted and no workflow/setting
 ## Continuation receipt
 
 Rechecked after main #314 at `b1067d6d21849a71aa40787e2c4708faf236860e`: permanent creation policies remain COLLABORATORS_ONLY, fork approval remains first_time_contributors, and #302 timeline still shows only the known closure/reopening. Main workflow trigger/secret boundary is unchanged by intervening test/docs changes. Documentation now follows repository visibility rather than calling public Canary outputs private; no setting or credential change was made.
+
+## User configuration update
+
+During continuation the user changed fork approval. Live read-back now returns all_external_contributors, superseding the earlier first_time_contributors snapshot/optional recommendation. This remains separate from permanent collaborators-only creation policies. The audit agent changed no settings or credentials; report any further unexplained closure encountered.
