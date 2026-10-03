@@ -11,7 +11,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.exoplayer.ExoPlayer
@@ -93,8 +92,7 @@ class PlaybackService : MediaSessionService() {
                 }
             })
         session = MediaSession.Builder(this, player)
-            .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader(
-                DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), OkHttpDataSource.Factory(Transport.client))))
+            .setBitmapLoader(CacheBitmapLoader(notificationBitmapLoader(this, OkHttpDataSource.Factory(Transport.client))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .setCallback(PlaybackSessionCallback()).build()
