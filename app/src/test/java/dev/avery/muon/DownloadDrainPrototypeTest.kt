@@ -42,8 +42,8 @@ import kotlin.concurrent.withLock
  * #179 S3 PROTOTYPE, test-only: a test-local admission gate around the real DefaultDownloaderFactory,
  * with the real DownloadManager, ProgressiveDownloader, CacheWriter, SimpleCache and native SQLite in
  * disposable folders. Only the upstream is synthetic (a read that blocks through interrupts until the test
- * lets it return; not Muon's OkHttp source). It shows a proposed downloader-admission contract: close,
- * release, wait for admitted invocations, then capture. It gates downloader writes only, nothing else,
+ * lets it return; not Muon's OkHttp source). It shows a proposed downloader-admission contract: release,
+ * close admission, wait for admitted invocations, then capture. It gates downloader writes only, nothing else,
  * and is not production code or a fix.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -80,11 +80,15 @@ class DownloadDrainPrototypeTest {
     @After fun tearDown() {
         // Unblock and drain every worker before the cache and database go, even after a failed assertion.
         var drained = false
+        var managerStopped = false
         try {
+            gate.close()
             upstream.proceed.countDown()
             // release() waits on the manager's internal thread; only call it once that thread has shown it
             // runs (a read was reached), so a harness failure cannot hang teardown.
-            if (upstream.entered.count == 0L) runCatching { manager.release() }
+            if (upstream.entered.count == 0L) {
+                managerStopped = runCatching { manager.release() }.isSuccess
+            }
             drained = gate.awaitDrained(TimeUnit.SECONDS.toNanos(5))
             if (drained) {
                 executor.shutdown()
@@ -93,7 +97,7 @@ class DownloadDrainPrototypeTest {
             gate.lastThread?.join(TimeUnit.SECONDS.toMillis(5))
         } finally {
             // A failed drain is a fixture failure, never permission to close resources a worker may use.
-            if (drained && executor.isTerminated && gate.lastThread?.isAlive != true) {
+            if (managerStopped && drained && executor.isTerminated && gate.lastThread?.isAlive != true) {
                 try { cache.release() } finally { database.close() }
             }
         }
@@ -104,9 +108,10 @@ class DownloadDrainPrototypeTest {
         manager.addDownload(request)
         assertTrue("The admitted real CacheWriter reached the upstream read", upstream.entered.await(5, TimeUnit.SECONDS))
 
-        // Close admission first, then release the manager, which cancels the admitted task.
-        gate.close()
+        // The fixture submits no further manager commands. Stop the manager before gate refusals
+        // become possible: a live manager treats a refused remove as a finished index removal.
         manager.release()
+        gate.close()
 
         // Not drained: the admitted invocation is still inside the real ProgressiveDownloader.
         assertFalse(gate.drained())
@@ -134,7 +139,7 @@ class DownloadDrainPrototypeTest {
         assertThrows(AdmissionClosed::class.java) { late.remove() }
         assertEquals("Only the admitted download ever reached a real downloader", 1, gate.created.get())
         assertEquals(3, gate.refused.get())
-        assertEquals("Refused late work changed no bytes or metadata", captured, snapshot())
+        assertEquals("Refused late work changed no bytes, spans or content length", captured, snapshot())
     }
 
     private data class Snapshot(val spans: List<Pair<Long, Long>>, val bytes: List<Byte>, val contentLength: Long)
@@ -170,6 +175,7 @@ class DownloadDrainPrototypeTest {
 
         /** True only when every admitted invocation has returned; a timeout returns false and grants nothing. */
         fun awaitDrained(timeoutNanos: Long): Boolean = lock.withLock {
+            check(!open) { "Admission must close before a drain receipt is requested" }
             var left = timeoutNanos
             while (active > 0) {
                 if (left <= 0) return false
@@ -206,7 +212,9 @@ class DownloadDrainPrototypeTest {
                 admit()
                 try {
                     val target = real ?: delegate.createDownloader(request).also { real = it; created.incrementAndGet() }
-                    if (canceled) target.cancel() // A cancel that arrived before the real downloader existed.
+                    // Refuse a cancel that preceded delegate entry instead of invoking an already
+                    // canceled ProgressiveDownloader whose runnable may never have been allocated.
+                    if (canceled) throw AdmissionClosed()
                     work(target)
                 } finally { leave() }
             }

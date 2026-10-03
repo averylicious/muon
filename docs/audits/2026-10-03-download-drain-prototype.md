@@ -1,6 +1,6 @@
 # #179 S3 download drain prototype — 2026-10-03
 
-Baseline main `1f78d6db6a6712666fa216964d35d87f524c9e58`, branch `codex/download-drain-prototype`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not expose effort). Author prototype and self-check, **not independent review**.
+Baseline main `1f78d6db6a6712666fa216964d35d87f524c9e58`, branch `codex/download-drain-prototype`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not expose effort). Claude authored the prototype. GPT-6 / Codex desktop (effort not reported) independently reviewed its source/API contract and control; coordinator stop-order, drain-precondition and failure-cleanup fixes are self-reviewed.
 
 **Test-only prototype, not a production fix.** No production code, dependency or refactor change, and no device, network or user data. #179 remains open. Storage and network/queue/library candidates #289/#290 still await user acceptance.
 
@@ -32,7 +32,7 @@ Read with Python's `zipfile`, without modifying the jars. Line numbers count `\n
   - a refused **download** becomes `STATE_FAILED` (`onDownloadTaskStopped` 1134-1157);
   - a refused **remove** still **deletes the index row** (`onRemoveTaskStopped` 1159-1172), even though no bytes were removed.
 
-  So a downloader-level gate **must not be the only command boundary while a manager is live.** Manager commands must stop first: release or pause, with cancellation. This is source reading only; this prototype doesn't exercise it.
+  So a downloader-level gate **must not be the only command boundary while a manager is live.** Application/service command admission must stop, and the manager must finish release before gate refusals are exposed. Pause alone is not equivalent: remove tasks have their own path and must not be assumed cancelled by a download pause. This is source reading only; this prototype doesn't exercise it.
 - **Muon's wiring:** `OfflineStore.shelf` passes an inline `Executors.newFixedThreadPool(2)` (`OfflineStore.kt` 85) and keeps no handle to it ([upstream ownership report](2026-10-03-download-upstream-ownership.md)).
 
 ## Control (`DownloadDrainPrototypeTest`; CI pending, first compile)
@@ -48,25 +48,26 @@ The upstream is the synthetic interrupt-ignoring read from #294.
 
 **Sequence and expectations:**
 1. **Admit:** a real download is admitted, and its read blocks.
-2. **Close, then release:** close admission, then `manager.release()`, which cancels the admitted task.
+2. **Release, then close:** the fixture submits no further commands. `manager.release()` cancels the admitted task and removes its callback ownership, then the gate closes. The review corrected the original close-first order to avoid refusal under a still-live manager.
 3. **Not drained yet:** the gate isn't drained and the read is still blocked. A 100 ms bounded wait returns false, and **no capture is taken**. That result is fixed because the test holds the read.
-4. **Drain, then capture:** let the read return, wait (bounded) until drained, then capture. The expected capture is span (0, 1000), the exact bytes, and content length 1000, consistent with run 502.
-5. **Late work refused:** a `remove()` on the old admitted downloader, and a `download()` and `remove()` on a new one, are all refused (3 refusals). The real factory was used only once, and a recapture equals the first capture.
+4. **Drain, then capture:** let the read return, wait (bounded) until drained, then capture. Drain receipt requires closed admission. The expected capture is span (0, 1000), the exact bytes, and content length 1000, consistent with run 502.
+5. **Late work refused:** a `remove()` on the old admitted downloader, and a `download()` and `remove()` on a new one, are all refused (3 refusals). The real factory was used only once, and a recapture of bytes, spans and content length equals the first. Full arbitrary metadata enumeration is not part of this control.
 
-**Cleanup order:** let the read go, release the manager (only once its thread has shown it runs), wait for the gate to drain, then shut the executor down and await it, and join the task thread. Only when all of these have succeeded are the cache and database released. A failed drain leaves them open rather than closing resources under a worker. There are no sleeps; waits are latches, joins and lock conditions with deadlines.
+**Cleanup order:** close admission for fixture teardown, let the read go, release the manager (only once its thread has shown it runs), wait for the gate to drain, then shut the executor down and await it, and join the task thread. Only when manager release and all worker drains have succeeded are cache/database released. If startup never reached the read, the manager is not established stopped and resources are retained rather than closed underneath possible initialization. A failed drain leaves them open rather than closing resources under a worker. There are no sleeps; waits are latches, joins and lock conditions with deadlines.
 
 ## Smallest production adoption boundary (proposed, not implemented)
 
 Per shelf generation:
 1. **Own the gate and executor:** an admission gate wrapping that shelf's `DefaultDownloaderFactory`, plus the shelf's download **executor, retained** rather than created inline.
 2. **Stop in this order:**
-   - stop manager commands (release, or pause with cancellation) so refusals aren't recorded as failures or removals;
+   - freeze application/service command submissions, including queued ones, so no new index command bypasses the stop;
+   - release the manager and establish its callback cancellation before exposing gate refusal; pause alone is insufficient for remove tasks;
    - close the gate;
    - wait for it to drain, bounded;
    - only then shut the executor down and await it.
 3. **On timeout:** the generation stays **unavailable**: no capture, release or reuse.
 
-This covers downloader cache writes only.
+This covers downloader cache writes only. The fixture has one producer and does not prove atomic command freeze/release across live services. A production design must establish that boundary separately. Cancellation that precedes delegate entry is refused; broader cancel/create interleavings remain unverified.
 
 ## Not covered or unverified
 
