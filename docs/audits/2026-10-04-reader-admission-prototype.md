@@ -27,7 +27,7 @@ Hashes: datasource `a54ddd9858ed2de57e07c5461dcebdae7a53d92a60210a2a3f5bf501398a
 
 The three existing controls keep their meaning. The only addition to them is a route-call counter in `offlineSource()`.
 
-## Cases (CI pending)
+## Cases (verified Android539)
 
 1. **`closedAdmissionRefusesAPreviouslyMadeSourceBeforeAnyRouteOrCacheWork`:** a source made before closure is refused on open, with no route call and no cache source created.
 2. **`anActiveCachedOpenBlocksDrainUntilItsCloseReturns`:** a real cached read is open. Closed admission alone isn't drained; the gate drains only after the close, once the real file has closed.
@@ -54,3 +54,7 @@ Before production use, a design needs to settle:
 - how every reader entry point acquires it, including `OfflineDataSource`, played-copy reads and any direct `Shelf.source` users;
 - what uncertainty means to the user, and how recovery leaves it;
 - how it composes with the downloader drain prototype and `Loader` release receipts.
+
+## Verification receipt
+
+[#311](https://github.com/averylicious/muon/pull/311) final head `e187f941e03479b6a86a6a968eac9e6f59d87081` passed [Android539](https://github.com/averylicious/muon/actions/runs/37149037473) and Branch direction. Downloaded XML: 461 tests per variant, zero failures/errors/skips, all nine source-close/prototype controls executed in both. Debug artifact11283615652 BUILD.txt matched the exact head, run539 and Canary.539. Coordinator independently reviewed Claude's source and requested waiter notification and an actual held-close timeout control. Merged as `12ab1e44f4e4de9d91eff383bdd8f117f29818e0`; main [Android540](https://github.com/averylicious/muon/actions/runs/37149793941) and [.540 publication](https://github.com/averylicious/muon/releases/tag/0.1.0-canary.540) verified, including downloaded BUILD.txt. No production reader barrier or device assurance follows from these test-only receipts.
