@@ -20,7 +20,7 @@ Read with Python's `zipfile`. Line numbers count `\n`-separated lines.
   - `close` (36-38) clears `active` in a `finally`;
   - `Shelf.source` (`OfflineStore.kt` 37-38) is a shared, mutable `CacheDataSource.Factory`.
 
-## Controls (`SourceCloseControlTest`; CI pending)
+## Controls (`SourceCloseControlTest`; exact-head CI verified)
 
 Every control runs the actual `OfflineDataSource` → `routeOfflineRequest` → `Shelf.source` `CacheDataSource` → **real `FileDataSource`**, over disposable fully cached bytes with a completed native-SQLite index row. The manager is idle with no downloads. The only seams are on the test's own `Shelf.source`:
 - a wrapper around the real `FileDataSource`, adding a synthetic fault or hold;
@@ -82,3 +82,7 @@ The local `exoplayer.jar` (hash above) **confirms** the coordinator's #309 citat
 - **The faults are synthetic.** Real file, cache or OkHttp failure modes, and how long real closes take, aren't characterized.
 - **Single owner only:** the controls cover normal and single-owner lifecycles, not concurrent API calls, playback-thread ownership, or a real blocked read.
 - **No design here:** no production leases, generation binding, card-loss recovery or drain design. #179 remains open.
+
+## Execution receipt
+
+PR #310 head `0e3712b85c9bb99515085f3457de2f31756281be` passed [Android537](https://github.com/averylicious/muon/actions/runs/37148303361). Downloaded XML verifies455 tests per variant, zero failures/errors/skips, all three controls executed. Debug artifact11282554749 BUILD.txt confirms exact SHA/run537/Canary.537. Main merge `ae25fe2149040879f10f95760135a90249db298d`. GPT-6/Codex desktop (effort not reported) independently reviewed Claude's test code, requested the cleanup correction, integrated main and verified CI; its own documentation is self-review. No phone acceptance is claimed.

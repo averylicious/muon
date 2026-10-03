@@ -59,3 +59,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Loader release control](2026-10-04-loader-release-control.md): real pinned Loader, held synthetic invocation and queued cancellation; test-only, #179 still open.
 
 - [Real source-close controls](2026-10-04-source-close-control.md): disposable OfflineDataSource/CacheDataSource/FileDataSource partial-open and close receipts; test-only, production #179 unresolved.
+
+- [Reader admission prototype](2026-10-04-reader-admission-prototype.md): test-local per-open accounting and failed-close quarantine over the real cached source fixture; no production barrier.
