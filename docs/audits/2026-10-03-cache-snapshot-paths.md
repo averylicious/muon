@@ -1,6 +1,6 @@
 # #179 S3 cache snapshot paths — 2026-10-03
 
-Inspected main `fff143b630521268ec6b1f829ae335e0884ad176`, branch `codex/cache-snapshot-paths`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not report effort). Author investigation and tests, **not independent review**. Test-only: no production change, device, user cache or music.
+Inspected main `fff143b630521268ec6b1f829ae335e0884ad176`, branch `codex/cache-snapshot-paths`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not report effort). Claude author investigation/tests; GPT-6 / Codex desktop independent source review of that contribution and separate clock-fix authorship/self-check, effort not reported. Test-only: no production change, device, user cache or music.
 
 Pinned source: Media3 1.11.0 `media3-datasource` sources jar. Its sha256, `a54ddd9858ed2de57e07c5461dcebdae7a53d92a60210a2a3f5bf501398a5e4a`, matches the [volume report](2026-10-02-volume-catalog-evidence.md); it was read with Python's `zipfile`.
 
@@ -33,10 +33,9 @@ Both use disposable temporary folders, native SQLite, the existing `seed` helper
    - the captured path no longer exists;
    - the snapshot, updated by the listener, points at the renamed file, which holds the exact payload.
 
-**Clock gap:** `SimpleCache` stamps touches with `System.currentTimeMillis()`.
-- I couldn't confirm from pinned sources whether Robolectric 4.16.1 instruments Media3 classes to control that clock. Its sources weren't available here, and the download needed approval.
-- So the legacy case doesn't use Robolectric clock control. It waits, without sleeping and with a one-second deadline, until the real wall clock has passed the captured timestamp, so the touch can't land in the same millisecond.
-- A wall clock stepping backwards, or Robolectric unexpectedly controlling Media3's clock, would show up as a failed rename assertion, not as a Media3 behaviour change. The database case doesn't depend on time.
+**Deterministic clock repair:** coordinator GPT-6 independently reviewed the original contribution and replaced its real-clock busy wait. For the legacy case only, `@Config(instrumentedPackages = ["androidx.media3.datasource.cache"])` instruments the real dependency code; its `System.currentTimeMillis` calls are intercepted through `AndroidInterceptors.SystemTimeInterceptor` / `ShadowSystem`. The fixture first checks the captured timestamp equals the shadow clock, then advances `ShadowSystemClock` by one millisecond. No sleep, spin or host-clock adjustment. This is test instrumentation, not production clock behavior.
+
+Pinned Robolectric4.16.1 published sources were checked by the coordinator on Maven Central: `sandbox` (`config/AndroidConfigurer`, `interceptors/AndroidInterceptors`), `annotations` (`Config.instrumentedPackages`), `shadows-framework` (`ShadowSystem`, `ShadowSystemClock.advanceBy`). CI remains the first compile/runtime confirmation of this configuration.
 
 ## Limits
 

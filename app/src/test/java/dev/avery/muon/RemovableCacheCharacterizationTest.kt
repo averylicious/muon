@@ -19,6 +19,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.SQLiteMode
+import org.robolectric.shadows.ShadowSystemClock
+import java.time.Duration
 import java.io.File
 
 /**
@@ -181,6 +183,7 @@ class RemovableCacheCharacterizationTest {
 
     // Control only: main never builds a cache without a database. Without a file index, a touch
     // renames the file, so a captured path goes stale and only a listener can follow it.
+    @Config(instrumentedPackages = ["androidx.media3.datasource.cache"])
     @Test fun legacyIndexTouchRenamesTheFileAndAListenerFollowsIt() {
         val cache = SimpleCache(folders.newFolder("legacy"), PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {},
             null, null, false, false).also { caches += it; it.checkInitialization() }
@@ -188,7 +191,9 @@ class RemovableCacheCharacterizationTest {
         val snapshot = SpanSnapshot(cache.getCachedSpans(key).single())
         cache.addListener(key, snapshot)
         val captured = snapshot.span
-        awaitClockPast(captured.lastTouchTimestamp)
+        // Instrument just this dependency package so System.currentTimeMillis calls use Robolectric.
+        assertEquals(android.os.SystemClock.uptimeMillis(), captured.lastTouchTimestamp)
+        ShadowSystemClock.advanceBy(Duration.ofMillis(1))
 
         val read = requireNotNull(cache.startReadWriteNonBlocking(key, 0, payload.size.toLong()))
         val (old, new) = snapshot.touches.single()
@@ -236,16 +241,6 @@ class RemovableCacheCharacterizationTest {
             touches += oldSpan to newSpan
             if (oldSpan === span) span = newSpan
         }
-    }
-
-    /**
-     * SimpleCache stamps touches with System.currentTimeMillis, which Robolectric does not control for
-     * Media3 classes by default (unverified here). Waits, without sleeping, until the wall clock has
-     * passed [time], so the next touch cannot reuse the captured millisecond.
-     */
-    private fun awaitClockPast(time: Long) {
-        val deadline = System.nanoTime() + 1_000_000_000L
-        while (System.currentTimeMillis() <= time) check(System.nanoTime() < deadline) { "Wall clock did not advance" }
     }
 
     private fun seed(cache: SimpleCache): File {
