@@ -152,6 +152,19 @@ class PlayedCopyCharacterizationTest {
         server.assertCompleted()
     }
 
+    @Test fun actualOptionalCopyRejectsDeclaredOversizeWithoutWaitingForBody() {
+        // Exercise production copyPlayed wiring, not just the byte-policy helper in isolation.
+        OfflineStore.current()!!.prefs.edit().putLong("cacheLimit", 64).commit()
+        server.allowDisconnect = true
+        startGatedCopy()
+        awaitCopier()
+        assertFalse("Byte rejection must finish without the server releasing its body", server.finished)
+        assertFalse(OfflineStore.playedCopy(app, id))
+        assertArrayEquals(seed, resourceBytes(explicit))
+        server.release()
+        server.assertCompleted()
+    }
+
     private fun startGatedCopy() {
         OfflineStore.copyPlayed(app, id, song)
         assertTrue("The actual HTTP request must reach the fixture", server.started.await(5, TimeUnit.SECONDS))
@@ -195,9 +208,9 @@ class PlayedCopyCharacterizationTest {
                 requestLine = reader.readLine()
                 while (!reader.readLine().isNullOrEmpty()) { /* HTTP headers */ }
                 val output = client.getOutputStream()
-                output.write(("HTTP/1.1 200 OK\r\nContent-Type: audio/ogg\r\n" +
-                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
-                output.write(bytes, 0, 32)
+                val headers = ("HTTP/1.1 200 OK\r\nContent-Type: audio/ogg\r\n" +
+                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII)
+                output.write(headers + bytes.copyOfRange(0, 32))
                 output.flush()
                 started.countDown()
                 check(gate.await(10, TimeUnit.SECONDS)) { "Fixture response gate was not released" }

@@ -44,6 +44,26 @@ class PlayedCopyTest {
         assertArrayEquals(payload, cache.getCachedSpans(key).first().file!!.readBytes())
     }
 
+    @Test fun cancellationAtWriterInstallationPreventsOpeningTheSource() {
+        val cache = open(512)
+        seed(cache, "explicit-download", ByteArray(64) { 7 })
+        var opened = 0
+        val raw = ByteArrayDataSource(ByteArray(256))
+        val upstream = object : DataSource by raw {
+            override fun open(dataSpec: DataSpec): Long {
+                opened++
+                return raw.open(dataSpec)
+            }
+        }
+        assertThrows(java.io.InterruptedIOException::class.java) {
+            copyPlayedWithinLimit(source(cache, upstream), spec(key),
+                onWriterCreated = { it.cancel() }) { 512 }
+        }
+        assertEquals(0, opened)
+        assertFalse(cache.isCached(key, 0, 1))
+        assertTrue(cache.isCached("explicit-download", 0, 64))
+    }
+
     @Test fun declaredOversizeIsRejectedWithoutReadingOrDeletingDownloads() {
         val cache = open(128)
         seed(cache, "explicit-download", ByteArray(64) { 7 })
