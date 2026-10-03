@@ -1,6 +1,6 @@
 # Main-branch audit
 
-This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [October3 checkpoint](../handoffs/2026-10-03-main-audit.md): #285–#288 merged; #289 storage and #290 network/queue/library candidates remain open for user acceptance despite green CI and narrow coordinator device observations. Pixel lockscreen deferred; production storage/resource findings remain unresolved. Later PR/#181/#40 results supersede dated states.
+This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [October 3 continuation](../handoffs/2026-10-03-audit-remaining.md) and [remaining-work checklist](2026-10-03-remaining-work.md). About 75% of the first source pass (roughly ±10 points) is a planning estimate, not Stable readiness. #289 storage and #290 network/queue/library remain open for user acceptance; Pixel lockscreen deferred. #179 reopened because production preservation remains unresolved. Later PR/#181/#40 receipts supersede dated states.
 
 The user authorized this work on 2026-09-27, alongside Claude and the user's experimental Material 3 work on a separate branch. Either agent may merge a blocker-free PR at its verified head. The audit may follow a finding across any component; the workstreams below organize evidence and handoffs rather than restricting agent ownership. Coordinate actual files before concurrent edits. No Stable release/tag, signing identity change, or phone access is implied.
 
@@ -8,7 +8,7 @@ Earlier evidence: [night-time checkpoint](../handoffs/2026-10-01-audit-close.md)
 
 Earlier continuation: [October2 checkpoint](../handoffs/2026-10-02-main-audit.md), [resource inventory](2026-10-02-resource-budget-inventory.md), [volume identity evidence](2026-10-02-volume-catalog-evidence.md), and [partial-target preservation](2026-10-02-partial-target-preservation.md). Resource/volume/move characterizations are evidence, not production fixes or measured performance. Open app fixes and manual gates are listed in the checkpoint and live PRs.
 
-Latest source controls: [cache touch paths](2026-10-03-cache-snapshot-paths.md), [metadata sidecar feasibility](2026-10-03-cache-metadata-snapshot.md) and [wrapper trust report](2026-10-03-wrapper-trust.md). These controls/reports do not implement production cache recovery or establish full supply-chain security.
+Latest source controls: [cache touch paths](2026-10-03-cache-snapshot-paths.md), [metadata sidecar feasibility](2026-10-03-cache-metadata-snapshot.md) and [wrapper trust report](2026-10-03-wrapper-trust.md). These controls/reports do not implement production cache recovery or establish full supply-chain security. See also [writer/capture boundaries](2026-10-03-cache-writer-boundaries.md), [download release](2026-10-03-download-release-boundary.md) and [offline resource retention](2026-10-03-offline-resource-retention.md); completed-download manager retention was narrowed, not measured as a heap budget.
 
 ## Repository map
 

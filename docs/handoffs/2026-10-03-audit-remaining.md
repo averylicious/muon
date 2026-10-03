@@ -1,0 +1,31 @@
+# Main audit continuation and remaining work — 2026-10-03
+
+This continues [the earlier October 3 checkpoint](2026-10-03-main-audit.md), whose device evidence and open app candidates remain unchanged. Read [the remaining-work checklist](../audits/2026-10-03-remaining-work.md) for the closest planning estimate: about 75% of the first source pass, roughly ±10 percentage points. This is not a security score, fix-completion percentage or Stable readiness.
+
+## Boundary and ownership
+
+Main inspected baseline `8dea8cabf7089614acfaa6e07e7d4e6336f6b80d`. GPT-6 / Codex desktop, effort not reported, continues the main audit. Allocated audit Claude used Opus 5.5 (`claude-opus-5-5`), High selected; runtime model verified, effort not exposed. Claude finished both bounded test assignments and is idle. User-led experimental checkout/session untouched. No device work in this continuation; previous acceptance gates and deferred Pixel lockscreen remain in force.
+
+## This continuation
+
+- #179 reopened: its production preservation finding remains unresolved despite its closed tracker state. [Tracking correction](https://github.com/averylicious/muon/issues/179#issuecomment-5968152388).
+- [#292](https://github.com/averylicious/muon/pull/292), `codex/cache-writer-boundaries`, head `04a2d67481283ef1fda88e841251bd18aef919e7`, [run 499](https://github.com/averylicious/muon/actions/runs/37116140862) success: downloaded test XML confirms 442 tests per variant, zero failures/errors/skips, both new controls executed. Span listeners do not observe metadata-only changes; captures can miss admitted uncommitted writes. No production capture/recovery fix.
+- [#293](https://github.com/averylicious/muon/pull/293), `codex/download-release-boundary`, combined head `6b93a0381083ea1959a7b4e437b40d32f532cf66`, includes #292 and baseline main. [Run 500](https://github.com/averylicious/muon/actions/runs/37116736229) passed: 443 tests/variant, zero failures/errors/skips, downloaded XML verifies new control. Merged as `1c865dc22d624eaab8e0157c9f56916b3df4cea0`; #292 closed as explicitly incorporated. [Merge review](https://github.com/averylicious/muon/pull/293#issuecomment-5968369256). Real manager/native index with controlled downloader tests that manager release does not join its worker. Real ProgressiveDownloader/cache writes and device loss are not reproduced. GPT-6 independently reviewed Claude’s source contract/test and integrated #292; fixture cleanup/report qualifications authored by GPT-6 are self-reviewed.
+- [Offline resource retention](../audits/2026-10-03-offline-resource-retention.md) narrows #253: cache metadata is materialized in memory; normal DownloadManager current lists exclude completed/failed records. Muon bootstrap/move and framework Remove all still load larger collections. No heap/GC measurement, caps, OOM or leak claim.
+- [Remaining-work checklist](../audits/2026-10-03-remaining-work.md) records source gaps, exact component ancestry in #289/#290, six separate candidates, and acceptance/release gates. Open PR count is not a percentage denominator.
+
+## Active final control and next question
+
+[#294](https://github.com/averylicious/muon/pull/294), `codex/progressive-release-boundary`, head `e6176b2d315313a6062976c034ef3d02c59e0fd9`, includes main `1c865dc22d624eaab8e0157c9f56916b3df4cea0`. [Run 502](https://github.com/averylicious/muon/actions/runs/37117235898) pending at drafting. Claude authored [the real progressive control](../audits/2026-10-03-progressive-release-boundary.md); GPT-6 independently checked source/test, fixed drain/failure cleanup and integrated current main. Opus 5.5 High runtime model verified; Claude idle after its committed assignment. No production/user data touched.
+
+This continues #179 S3 with the actual ProgressiveDownloader/CacheWriter and a disposable in-process blocking upstream, not user media. Pinned source shows ProgressiveDownloader.download waits for its runnable in finally (188–195); manager release does not wait for the outer download thread. CacheWriter checks cancellation before each read (188–189), while completion/commit timing depends on the in-flight data-source call and close. Do not infer late writes from the controlled stand-in alone. A real control must drain all workers before closing the cache/database and remain bounded on assertion failure.
+
+Then settle generation ownership and safe drain/capture/adoption before a production preservation patch. #213 retained-audio identity, #230 partial-target cleanup, #253 compatible aggregate budgets and the wider dependency/lifecycle/measurement questions remain. Do not implement blind caps or delete/rekey ambiguous retained audio.
+
+## Acceptance and recovery
+
+#289 storage/.494 and #290 network/queue/library/.496 remain **open for user acceptance**. Neither this source continuation nor main test builds replace their installed candidate contents. Component PRs are not closed just because combined CI passed. Six separate current heads (#248/#240/#237/#221/#212/#210) still need deliberate integration and recorded gates. Phone QA remains as in the prior checkpoint; no permission to force lockscreen controls or inject failures against existing card downloads.
+
+Only blocker-free final-head test/report PRs may use standing merge authorization; strict live protection and both required checks must pass. No Stable tag/release, auto-merge or experimental forward-sync landing. Private test logs, local backups and sessions are optional conveniences, not handoff dependencies.
+
+Final merge/CI/publication and this checkpoint revision are recorded on its PR and #181/#40. Refresh those receipts before resuming. All active edits are confined to owned persistent audit worktrees.
