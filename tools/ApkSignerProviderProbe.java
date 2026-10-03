@@ -21,7 +21,7 @@ import java.util.List;
  * The jar's bytes are hashed with the JDK first. Only if they equal the reviewed public build-tools 37
  * apksigner.jar does it load those same bytes (from a private temporary copy) through an isolated class
  * loader and call ApkSignerTool's private static addProviders, a pinned inspection hook. That may load
- * Conscrypt's bundled native code on the runner. One structured line is printed; no exception messages,
+ * Conscrypt native loading on the runner. One structured line is printed; no exception messages,
  * stack traces or environment values.
  *
  * Usage: java tools/ApkSignerProviderProbe.java <path to apksigner.jar> <full commit SHA>
@@ -47,7 +47,10 @@ public class ApkSignerProviderProbe {
                 emit(commit, null, "failed", "read", null);
                 System.exit(1);
             }
-            bytes = Files.readAllBytes(jar);
+            try (var input = Files.newInputStream(jar)) {
+                bytes = input.readNBytes((int) MAX_BYTES + 1);
+            }
+            if (bytes.length > MAX_BYTES) throw new IOException("size");
             sha256 = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         } catch (Exception failure) {
             emit(commit, null, "failed", "read", null);
@@ -62,6 +65,7 @@ public class ApkSignerProviderProbe {
 
         // The exit waits for the finally block, so the temporary copy is removed on failure too.
         int exit = 0;
+        String observation = null;
         String stage = "copy";
         Path copy = null;
         try {
@@ -79,7 +83,7 @@ public class ApkSignerProviderProbe {
                 stage = "invoke";
                 addProviders.invoke(null);
                 stage = "observe";
-                emit(commit, sha256, "observed", null, observations(before));
+                observation = observations(before);
             }
         } catch (Throwable failure) {
             emit(commit, sha256, "failed", stage, null);
@@ -89,6 +93,7 @@ public class ApkSignerProviderProbe {
                 try { Files.deleteIfExists(copy); } catch (IOException ignored) { }
             }
         }
+        if (exit == 0) emit(commit, sha256, "observed", null, observation);
         // Conscrypt may leave non-daemon resources; exit explicitly either way.
         System.exit(exit);
     }

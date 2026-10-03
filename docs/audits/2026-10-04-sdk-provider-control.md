@@ -1,13 +1,13 @@
 # SDK apksigner provider bootstrap control — 2026-10-04
 
-Inspected main `27c0f29bf3b76238582a779684e5cd55a17b7c0c`, branch `codex/sdk-provider-control`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not expose effort). Author implementation and self-check, **not independent review**. CI-only: no app, dependency, signing, credential, device or network change. Not compiled or run locally: the unsigned **Dependency inventory** run is the first compile and execution, and it is **pending**. Continues the [apksig source boundary](2026-10-04-apksig-source.md).
+Inspected main `27c0f29bf3b76238582a779684e5cd55a17b7c0c`, branch `codex/sdk-provider-control`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not expose effort). Author implementation and self-check, **not independent review**. CI-only: no app, dependency, signing, credential, device or network change. The coordinator compiled the probe with javac --release17 and ran only an invalid, deliberately unreviewed local fixture. No SDK code was executed locally. The unsigned **Dependency inventory** matching-SDK observation is **pending**. Continues the [apksig source boundary](2026-10-04-apksig-source.md).
 
 **Question:** after apksigner's own provider bootstrap runs, which JCA providers are registered, in what order, and which provider a plain JCA lookup picks first for the algorithms apksigner relies on?
 
 ## What changed
 
 - **`tools/ApkSignerProviderProbe.java`**, run in Java 17 single-file source mode. It takes exactly two arguments: the jar path and a full 40-hex commit SHA. Anything else fails with the `arguments` stage, exit 2.
-- **A final step in the unsigned `dependency-audit.yml`**, labelled as a bootstrap observation that runs reviewed SDK code and may load native code. Its push path filter now includes the probe. The step runs after the static, no-execution SDK inventory and the Gradle inventory, which are unchanged. `permissions: contents: read`, the absence of secrets and the checkout without persisted credentials are unchanged.
+- **A step in the unsigned `dependency-audit.yml`**, labelled as a bootstrap observation that runs reviewed SDK code and may load native code. Its push path filter now includes the probe. The step runs immediately after the static, no-execution SDK inventory, before Gradle resolution; both existing inventories are unchanged. `permissions: contents: read`, the absence of secrets and the checkout without persisted credentials are unchanged.
 - The step runs `java` with `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS` and `JDK_JAVA_OPTIONS` unset for that process. Their values are never printed. The classpath is the in-memory compiled probe; the SDK jar is loaded only by the probe's own isolated loader.
 
 ## Hash before load
@@ -22,7 +22,7 @@ The probe reads the jar into memory and hashes it with the JDK's SHA-256 before 
 
 - A `URLClassLoader` over the copy, with the platform class loader as parent, loads `com.android.apksigner.ApkSignerTool`. The probe reflects and invokes only its private static `addProviders()`. That also runs the class's static initialization.
 - It never calls `main`, sign or verify, and parses no APK, certificate or key bytes. No key is generated, read or initialized.
-- Per the earlier javap reading, `addProviders` constructs Conscrypt's `OpenSSLProvider` and appends it with `Security.addProvider`, catching `UnsatisfiedLinkError`. **Conscrypt may extract and load its bundled native library on the runner**; that's why the step is labelled as running code.
+- Per the earlier javap reading, `addProviders` constructs Conscrypt's `OpenSSLProvider` and appends it with `Security.addProvider`, catching `UnsatisfiedLinkError`. **Conscrypt attempts native library loading on the runner**; that's why the step is labelled as running code.
 
 ## Output
 
@@ -48,8 +48,8 @@ Strings are printable ASCII, capped at 64 characters, with up to 32 providers pe
   - The native library's provenance, Conscrypt version and advisories aren't assessed.
   - Isolating the class loader keeps the probe and application classpath out, but not JDK modules or `java.security` configuration.
   - This is an observation of public SDK bytes on a hosted runner, not a sandbox.
-- **No local execution.** The downloaded jar wasn't run locally; the first execution is CI's.
-- **Not unit-tested.** There is no unit test: the logic is the hash gate plus a JSON line, and a test would only mirror the serialization. The step's exit status and printed line are the evidence.
+- **No local SDK execution.** Coordinator Java17 compilation and a harmless hash-mismatch guard ran locally without SDK classes on the classpath. Matching-SDK execution remains CI's first observation.
+- **Guard checked.** Java17 compilation passed; a deliberately invalid/unreviewed JAR yielded exactly one skipped_unreviewed_hash record and exit3 with no provider fields or SDK classes available. This tests refusal before SDK class loading, not the matching bootstrap/native path. There is no serialization-mirroring unit test; the CI step status and actual structured record establish the matching-path observation.
 - **CI scope.** A `tools/` change is not documentation, so the main **Android APKs** workflow will also select a full build for this branch. The app is unchanged.
 
 **Lightweight checks run:** `git diff --check`, and `python3 -m unittest discover -s tools -p 'test_ci*.py'` (50 tests, OK).
@@ -62,3 +62,9 @@ Once a push to this branch triggers the unsigned **Dependency inventory** run, r
 - Note whether Conscrypt appears after the JDK providers, and which provider each lookup selected.
 
 If the status is `failed` or skipped, report the stage and don't widen the probe. A follow-up that wants actual selection must initialize with a public, ephemeral test key generated in CI, which needs its own review; it must never use the signing material.
+
+## Coordinator review
+
+GPT-6 / Codex desktop, effort not reported independently reviewed Claude's hash-before-load/private-copy/platform-parent loader and pinned bootstrap bytecode. Coordinator changes are self-review: bound the actual stream read (not only a prior file-size check), run the probe before Gradle resolution with a 60-second process deadline, and qualify native loading. The inspected SDK verifier JAR has no .so entry and the public build-tools archive has no conscrypt-named entry; do not call its native payload bundled or authenticated. Only addProviders is invoked, and the inspected class initializer initializes three digest fields to null. No key/parser method is invoked. No whole-JDK/classpath/native/advisory clearance is claimed. Exact-head CI matching-SDK execution remains pending.
+
+The coordinator also delays the observed record until the isolated loader has closed, preventing a close failure from emitting both observed and failed records. Temporary public-JAR cleanup runs on either outcome.
