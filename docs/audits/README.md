@@ -55,3 +55,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Service and reader stop contract](2026-10-04-service-drain-contract.md): helper reset is not shutdown; next disposable controls before production adoption.
 
 - [Playback-reader release acknowledgment](2026-10-04-playback-reader-release.md): player release is not a loading-worker/cache-reader drain receipt; next real Loader control is scoped.
+
+- [Loader release control](2026-10-04-loader-release-control.md): real pinned Loader, held synthetic invocation and queued cancellation; test-only, #179 still open.
