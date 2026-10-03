@@ -1,10 +1,10 @@
 # Gradle wrapper trust in CI — 2026-10-03
 
-Inspected main `8b443ba1cafa9f2ced961c195892027ccafcec93`, branch `codex/wrapper-trust-evidence`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not report effort). Read-only source review, **not independent review**, and not a supply-chain clearance. Nothing was executed: no Gradle, no wrapper JAR, no action code, no signing material.
+Inspected main `8b443ba1cafa9f2ced961c195892027ccafcec93`, branch `codex/wrapper-trust-evidence`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not report effort). Read-only source review, **not independent review**, and not a supply-chain clearance. GPT-6 / Codex desktop independently reviewed the focused action sources and the current JAR checksum; full bundle/platform-cache review remains incomplete. Nothing was executed: no Gradle, no wrapper JAR, no action code, no signing material.
 
 **Question:** does each workflow run the checked-in Gradle wrapper only after checksum validation?
 
-**Answer:** yes, in all three workflows that run Gradle, the validating `setup-gradle` step runs first, and a validation failure stops the job. But the validation trusts a checksum allowlist restored from the GitHub Actions cache before it runs (finding W1).
+**Answer:** yes, in all three workflows that run Gradle, the validating `setup-gradle` step runs first, and a validation failure stops the job. But the validation trusts a checksum allowlist restored from the GitHub Actions cache before it runs (trust-boundary observation W1).
 
 ## Exact artifacts
 
@@ -51,7 +51,7 @@ The local copies under ignored `build/sources/` were fetched by the coordinator 
   - Nothing fails open was found.
 - **Discovery:** `find.ts` walks the workspace with `lstat` and doesn't follow symlinked directories. The tracked wrapper is a regular file, so this only matters to someone who can already commit.
 
-## W1 — the "previously validated" allowlist is restored from cache before validation (low, defense in depth)
+## W1 — cached validation state is a trust boundary (defense-in-depth observation)
 
 - **Mechanism:**
   - `ChecksumCache` reads `$GRADLE_USER_HOME/.setup-gradle/valid-wrappers.json` (`cache.ts`; bundle `I9`, with `oQ=".setup-gradle"`).
@@ -60,6 +60,7 @@ The local copies under ignored `build/sources/` were fetched by the coordinator 
 - **Trigger:**
   1. Code running in a cache-writing job writes extra hashes to that file, and the post step saves a new cache entry. Cache writing is on by default only on the default branch (`cache-read-only` default, `action.yml:17-22`). The code could be a Gradle plugin, build script or dependency.
   2. A later run that restores that entry is given a different wrapper JAR with a listed hash.
+- **Classification:** confirmed source behavior, not a demonstrated vulnerability or compromised artifact. Cache provenance/scoping and a viable attacker route were not established.
 - **Impact:** this only lowers the assurance of validation. Code running in a build already has arbitrary execution, and changing the JAR needs repository write. The checked-in JAR currently matches the official hash.
 - **Mitigation, not implemented:** validate before any cache restore, for example with a separate validation step that doesn't use Gradle User Home. That step's source at the same commit hasn't been inspected, and the choice needs coordinator review.
 
