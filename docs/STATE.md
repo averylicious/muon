@@ -2,11 +2,11 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-10-02, main audit continuation, by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
+_Last updated: 2026-10-03, main audit and authorized device QA, by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
 
-- **Audit continuation:** [October2 checkpoint](handoffs/2026-10-02-main-audit.md) supersedes the Oct1 snapshot. #276 resource fixtures, #277 volume evidence and #280 partial-target fixtures merged; mainc896958/.480 publication verified. #257/.474 passes474 tests/variant and includes #279 grant guard; coordinator empty/saved-address grant regression passed. #279/.473 passes433 tests/variant; both remain open for user gates. #281 non-deleting move byte verification passes438 tests/variant and remains open for storage QA. #282 public-span feasibility passes436 tests/variant and merged at mainc896958; main480 publication/BUILD.txt/assets verified (previous .477 historical). It is not a production recovery fix. #264/#267/#273 remain open for their card/queue/library gates and destination refresh. Phone .474; Stable unchanged. #179/#213/#230/#253 unresolved. Main protection restored/read back at this cycle's preflight; reverify live state. Latest PR/#181/#40 receipt records final CI/idle ownership.
+- **Audit continuation:** [October3 checkpoint](handoffs/2026-10-03-main-audit.md) supersedes Oct2. #285 cache path controls, #286 Stable-tag ancestry guard, #287 metadata sidecar feasibility and #288 wrapper report merged; current main275b647, released Canary .492 targets7bf5bed. Main495 documentation-only success generated no APK. #289 combined storage candidate/.494 passes461 tests/variant, #290 network+queue+library/.496 passes514; both remain open for user acceptance. POCO mounted-card disposable move/removal preserved every original file hash; Pixel duplicate-insertion Undo, sheet Back cancellation and root/nested artist scroll restoration observations passed within their recorded limits. No absent-card/offline, hardware or blanket QA pass; Pixel lockscreen explicitly deferred. Installed POCO.494/Pixel.496; Stable unchanged. Allocated audit Claude idle, user experiment untouched. #179/#213/#230/#253 unresolved. Latest PR/#181/#40 receipt records final checkpoint checks.
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
@@ -49,7 +49,7 @@ _Last updated: 2026-10-02, main audit continuation, by GPT-6 (Codex desktop; eff
   Never uninstall Canary or Stable. Mute media volume before anything plays, and restore every setting you change (dark mode, rotation, font scale, volume).
 - **Devices:**
   - Pixel 8 (Android 17): wireless ADB, and the port changes, so check `adb devices`.
-  - Poco X3 NFC (Android 16, custom ROM): USB, with a SanDisk SD card.
+  - Poco X3 NFC (Android 16, custom ROM): Wireless ADB (may disconnect), with a SanDisk SD card.
 
 ## Open items and known limits
 
