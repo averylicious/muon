@@ -18,7 +18,7 @@ Captured public non-foreground pause/resume intents are manually delivered to th
 
 The probe loads no SDK class until the bounded JDK hash matches reviewed public bytes; uses an owner-only exact-byte copy and isolated platform-parent loader, calls only pinned private addProviders, emits bounded public metadata, and deletes the copy. No sign/verify/main/key/certificate/APK operations. Runtime code/native loading can be attempted in unsigned CI; no SDK code executed locally. Java17 compilation and harmless invalid-JAR refusal passed locally. Existing static SDK inventory remains no-execution. Public HTTPS archive comparison is not publisher-signature authentication. A future unknown hash is visibly skipped/non-success, not silently cleared. Probe is before Gradle, has60-second deadline, and unsets three JVM-option environment variables without printing them. Contents:read/no signing secrets unchanged.
 
-Android552 remains pending at draft time; exact PR/issue final receipts supersede that pending state. Do not merge until both required protected checks and actual unsigned observation pass at the final head. No phone QA is needed for this CI-only change.
+Android55237155106088 passed: actual downloaded XML465 tests/variant, zero failures/errors/skips; debug11286105685 BUILD.txt exact head/run552/Canary.552 and reports11285970902 verified. Fresh Branch direction37155564412 passed. #317 merged `cd184a792a09f46aacf5bb0b477b7d42023e541b` after the contribution review/integration self-review was recorded. Main post-merge build/publication remains pending; final receipts below/PR/issues supersede that pending state. No phone QA is needed for this CI-only change.
 
 ## Public configuration and pending acceptance
 
