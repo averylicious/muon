@@ -1,6 +1,9 @@
 package dev.avery.muon
 
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.cache.Cache
+import androidx.media3.datasource.cache.CacheEvictor
+import androidx.media3.datasource.cache.CacheSpan
 import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.NoOpCacheEvictor
@@ -16,6 +19,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.SQLiteMode
+import org.robolectric.shadows.ShadowSystemClock
+import java.time.Duration
 import java.io.File
 
 /**
@@ -154,6 +159,54 @@ class RemovableCacheCharacterizationTest {
         assertArrayEquals("Original file must remain intact", payload, oldFile.readBytes())
     }
 
+    // Main's phone shelf: database index plus PlayedSongEvictor, which requests touches but never evicts
+    // a non-played key. A read replaces the CacheSpan object but keeps its file.
+    @Test fun databaseBackedTouchReplacesTheSpanButKeepsItsFile() {
+        val cache = open(folders.newFolder("phone"), PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
+        val file = seed(cache)
+        val snapshot = SpanSnapshot(cache.getCachedSpans(key).single())
+        cache.addListener(key, snapshot)
+        val captured = snapshot.span
+
+        val read = requireNotNull(cache.startReadWriteNonBlocking(key, 0, payload.size.toLong()))
+        assertTrue(read.isCached)
+        val (old, new) = snapshot.touches.single()
+        assertSame(captured, old)
+        assertSame(read, new)
+        assertNotSame(old, new)
+        assertEquals(file, old.file)
+        assertEquals("Database-backed touch keeps the path", file, new.file)
+        assertSame(new, snapshot.span)
+        assertSame(new, cache.getCachedSpans(key).single())
+        assertArrayEquals(payload, file.readBytes())
+    }
+
+    // Control only: main never builds a cache without a database. Without a file index, a touch
+    // renames the file, so a captured path goes stale and only a listener can follow it.
+    @Config(instrumentedPackages = ["androidx.media3.datasource.cache"])
+    @Test fun legacyIndexTouchRenamesTheFileAndAListenerFollowsIt() {
+        val cache = SimpleCache(folders.newFolder("legacy"), PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {},
+            null, null, false, false).also { caches += it; it.checkInitialization() }
+        val file = seed(cache)
+        val snapshot = SpanSnapshot(cache.getCachedSpans(key).single())
+        cache.addListener(key, snapshot)
+        val captured = snapshot.span
+        // Instrument just this dependency package so System.currentTimeMillis calls use Robolectric.
+        assertEquals(android.os.SystemClock.uptimeMillis(), captured.lastTouchTimestamp)
+        ShadowSystemClock.advanceBy(Duration.ofMillis(1))
+
+        val read = requireNotNull(cache.startReadWriteNonBlocking(key, 0, payload.size.toLong()))
+        val (old, new) = snapshot.touches.single()
+        assertSame(captured, old)
+        assertSame(read, new)
+        assertEquals(file, old.file)
+        assertTrue(new.lastTouchTimestamp > captured.lastTouchTimestamp)
+        assertNotEquals("Legacy touch moves the bytes to a new name", file, new.file)
+        assertFalse("The captured path no longer names the bytes", file.exists())
+        assertSame(new, snapshot.span)
+        assertArrayEquals(payload, requireNotNull(snapshot.span.file).readBytes())
+    }
+
     @Test fun losingCardIndexDoesNotErasePhoneCacheInTheSharedDatabase() {
         val phoneFolder = folders.newFolder("phone")
         val phone = open(phoneFolder)
@@ -173,11 +226,22 @@ class RemovableCacheCharacterizationTest {
         assertArrayEquals(payload, phoneFile.readBytes())
     }
 
-    private fun open(folder: File): SimpleCache =
-        SimpleCache(folder, NoOpCacheEvictor(), database).also {
+    private fun open(folder: File, evictor: CacheEvictor = NoOpCacheEvictor()): SimpleCache =
+        SimpleCache(folder, evictor, database).also {
             caches += it
             it.checkInitialization()
         }
+
+    /** A snapshot of one span that follows touches through the public listener; test memory only. */
+    private class SpanSnapshot(var span: CacheSpan) : Cache.Listener {
+        val touches = mutableListOf<Pair<CacheSpan, CacheSpan>>()
+        override fun onSpanAdded(cache: Cache, span: CacheSpan) = Unit
+        override fun onSpanRemoved(cache: Cache, span: CacheSpan) = Unit
+        override fun onSpanTouched(cache: Cache, oldSpan: CacheSpan, newSpan: CacheSpan) {
+            touches += oldSpan to newSpan
+            if (oldSpan === span) span = newSpan
+        }
+    }
 
     private fun seed(cache: SimpleCache): File {
         val hole = cache.startReadWrite(key, 0, payload.size.toLong())
