@@ -1,6 +1,6 @@
 # #179 S3 cache metadata snapshot feasibility — 2026-10-03
 
-Base `2aace9f97e7e1bbdf94a5a2348f1c994c3535219` on branch `codex/cache-metadata-snapshot`. It includes the open prerequisite #285 ([span touch controls](2026-10-03-cache-snapshot-paths.md), with the coordinator's deterministic clock fix). Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not report effort). Author investigation and tests, **not independent review**. Test-only: no production change, device, user cache or music.
+Base `2aace9f97e7e1bbdf94a5a2348f1c994c3535219` on branch `codex/cache-metadata-snapshot`. It includes the now-merged prerequisite #285 ([span touch controls](2026-10-03-cache-snapshot-paths.md), with the coordinator's deterministic clock fix). Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not report effort). Author investigation and tests, **not independent review**. GPT-6 / Codex desktop subsequently independently reviewed the source/API use; exact-head CI results are recorded on the PR. Test-only: no production change, device, user cache or music.
 
 **Question:** can a healthy public snapshot carry multiple spans and full current metadata through a durable sidecar round trip and a public fresh-cache import, while the originals are kept?
 
@@ -25,7 +25,7 @@ Base `2aace9f97e7e1bbdf94a5a2348f1c994c3535219` on branch `codex/cache-metadata-
 
 Both use a real `SimpleCache`, native SQLite, disposable folders and the actual `android.util.AtomicFile`. The sidecar sits in a phone-like folder, separate from the cache. There's no reflection, private table, filename parsing or clock dependence.
 
-The **sidecar format is test-only**, not a shipped schema or parser: a version number, the key, each span's position, length and path, then each metadata name with its raw bytes. A trailing byte is rejected.
+The **sidecar format is test-only**, not a shipped schema or parser (its count/size/UTF bounds and trusted absolute paths are deliberately not hardened for arbitrary inputs): a version number, the key, each span's position, length and path, then each metadata name with its raw bytes. A trailing byte is rejected.
 
 1. **`twoSpansAndAllMetadataSurviveASidecarRoundTripIntoAFreshCache`**
    - **Setup:** two contiguous spans (0–99 and 100–255) plus metadata: content length, a redirect URI, and a `custom_raw` value that isn't valid UTF-8.
