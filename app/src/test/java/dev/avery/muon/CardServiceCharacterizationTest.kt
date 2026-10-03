@@ -28,7 +28,7 @@ import org.robolectric.android.controller.ServiceController
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.SQLiteMode
 
-/** Actual DownloadService creation/helper reuse, without commands, network or Android mount events. */
+/** Actual service/helper lifetime and manually delivered pause/resume intents; no tasks, network or mount events. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
@@ -169,7 +169,7 @@ class CardServiceCharacterizationTest {
         assertNull(startedService())
     }
 
-    // Queued commands carry only an action; the service resolves its manager when a command is delivered.
+    // These pause/resume intents carry service/action/foreground state but no shelf generation; the current helper selects the manager.
     // Delivery here is manual (the real onStartCommand), not Android's queue scheduling. No tasks or network.
 
     @Test fun aCommandQueuedForTheOldCardRunsAgainstTheReplacementManager() {
@@ -182,6 +182,8 @@ class CardServiceCharacterizationTest {
         DownloadService.sendResumeDownloads(app, MuonCardDownloadService::class.java, false)
         val queued = requireNotNull(startedService()) { "The resume command is queued" }
         assertEquals(DownloadService.ACTION_RESUME_DOWNLOADS, queued.action)
+        assertEquals(MuonCardDownloadService::class.java.name, queued.component?.className)
+        assertFalse(queued.getBooleanExtra(DownloadService.KEY_FOREGROUND, false))
         assertTrue("Queued only: nothing delivered it to the original", original.manager.downloadsPaused)
 
         first.destroy(); services.remove(first)
@@ -207,6 +209,8 @@ class CardServiceCharacterizationTest {
         DownloadService.sendPauseDownloads(app, MuonCardDownloadService::class.java, false)
         val queued = requireNotNull(startedService()) { "The pause command is queued" }
         assertEquals(DownloadService.ACTION_PAUSE_DOWNLOADS, queued.action)
+        assertEquals(MuonCardDownloadService::class.java.name, queued.component?.className)
+        assertFalse(queued.getBooleanExtra(DownloadService.KEY_FOREGROUND, false))
         assertFalse("Queued only: the card manager is still resumed", card.manager.downloadsPaused)
 
         first.destroy(); services.remove(first)

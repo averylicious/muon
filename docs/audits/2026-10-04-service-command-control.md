@@ -9,7 +9,7 @@ Inspected main `5387988d60d495fac19bf1e2624e7b36d4f43691`, branch `codex/service
 **Media3 1.11.0** `exoplayer.jar` (local `build/sources`, sha256 `2d583de9d39b48e45f9a29f1d94d23032c0642cfc7ca4bbe1967071d26a60ed6`); line numbers count `\n`-separated lines.
 
 **In `DownloadService.java`:**
-- **Commands carry only an action:** the public builders `buildResumeDownloadsIntent`/`buildPauseDownloadsIntent` (362-377) make `new Intent(context, clazz).setAction(action)` (`getIntent` 872-875) plus a foreground flag. No manager, shelf or generation goes with the command.
+- **These pause/resume commands identify the service, action and foreground flag, but no generation:** the public builders `buildResumeDownloadsIntent`/`buildPauseDownloadsIntent` (362-377) make `new Intent(context, clazz).setAction(action)` (`getIntent` 872-875) plus a foreground flag. No manager, shelf or generation goes with the command.
 - **Sending:** `sendResumeDownloads`/`sendPauseDownloads` (492-509) call `context.startService` when not foreground (`startService` 877-883).
 - **The manager is resolved at delivery:** `onStartCommand` (616-696) reads the manager from the service's **current** helper (631), then dispatches `ACTION_RESUME_DOWNLOADS`/`ACTION_PAUSE_DOWNLOADS` to `resumeDownloads()`/`pauseDownloads()` (658-663).
 - **A new service resumes its manager:** `onCreate` calls `downloadManager.resumeDownloads()` when it makes a new helper (604-605).
@@ -41,3 +41,7 @@ Both use the fixture's idle disposable real managers, caches, native SQLite and 
 **Cleanup:** each test drains the started-service queue before capturing and asserts it's empty at the end. The fixture's teardown destroys every service, restores the Store, releases managers before caches, clears helpers and closes the database.
 
 **Next stop-contract prerequisite:** application-side checks can't stop commands already queued. The service owner (S4) needs either to attach and check a generation on each delivered command, or to refuse or stop delivery for an old generation, before any rebind is treated as safe.
+
+## Coordinator source review
+
+GPT-6 / Codex desktop, effort not reported independently checked the public senders, current-helper dispatch, automatic onCreate resume and synchronous downloadsPaused setter in the same pinned published source. The controls distinguish queued non-delivery from explicit delivery, original manager state from replacement/phone state, and assert service class/action/non-foreground shape. Own source qualification/test assertions are self-review. No claim is made about other intent kinds carrying only an action; add/remove commands carry request/ID data but still lack generation admission. Existing fixture teardown restores the injected Store, destroys services and releases each disposable manager before cache/database. Exact-head Actions execution remains pending.
