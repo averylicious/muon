@@ -38,10 +38,14 @@ Both reuse the fixture's idle disposable real managers, caches, native SQLite an
 ## Limitations
 
 - **The callbacks are synthetic.** The test calls the real retained helper's `onDownloadChanged` directly with a constructed `Download`. No task, download, network, mounted card or real manager event runs. It doesn't claim the OS ran a foreground service, or what the restarted service would do.
-- **Unverified until the first CI run:** that Robolectric 4.16.1 records `Context.startForegroundService` intents in the application's started-service queue (`ShadowApplication.getNextStartedService`). Its sources weren't available locally.
+- **Coordinator pinned-source check:** published [shadows-framework4.16.1 sources](https://repo.maven.apache.org/maven2/org/robolectric/shadows-framework/4.16.1/shadows-framework-4.16.1-sources.jar), SHA256 `977c225559953d772cff539dff0ccf4bb757f297e6a18620cd609ba077108409`. ShadowContextImpl335–342 maps startForegroundService to startService; ShadowContextWrapper95–96 consumes the instrumentation started-service queue. This resolves the source-level API uncertainty, but actual execution remains pending first CI. No downloaded software/JAR was executed locally.
 
 **What this shows:** a retained callback, plus a restart request after detach and map clearing. Destroying the service and clearing the map is **not** listener removal, manager release, or a drain of workers, callbacks or readers.
 
 **Not claimed:** a production barrier, generation, catalog, card safety, or any performance property.
 
 **Cleanup:** the fixture's teardown destroys every service, restores the Store, releases managers before caches, clears helpers and closes the database. Each test drains the started-service queue before its controls and asserts it's empty afterwards.
+
+## Coordinator review
+
+GPT-6 / Codex desktop, effort not reported independently reviewed the actual helper/listener registration, synthetic terminal negative control, active-state restart intent and replacement-service binding against the pinned public sources. Fixture reflection reads the listener set; no task is admitted or private collection mutated. Manager release removes pending application-handler callbacks in the pinned source but is not a worker/cache drain; these controls do not exercise that release boundary. Own report addition is self-reviewed. Exact-head CI and merge receipt follow on the PR.
