@@ -13,7 +13,7 @@ Both fixtures release their gates even after assertion failures and require call
 
 Claude Opus 5.5 / Claude Code, High requested: independent read-only test-structure review found no blockers and suggested waiting for worker termination even when the callback wait fails; that cleanup improvement is included. Claude could not access the external pinned source JAR during that review, so the coordinator retains responsibility for the direct pinned-source comparison. No runtime effort setting was exposed.
 
-Validation is pending the first real compile and execution in GitHub Actions. No local Android build is claimed. This file and the PR/checkpoint will record exact-head results after CI.
+Validation: PR #309 head ce08eeb4d05547650155f3278972f9e582217fb6 passed [Android535](https://github.com/averylicious/muon/actions/runs/37147692034). Downloaded test XML verifies452 tests per variant, zero failures/errors/skips and both new controls executed. Debug BUILD.txt verifies that head/run535/Canary.535. This was the first real compile; no local Android build. Main merged it as19313fcb7fde291c32e7463c1891e22e77178118. Claude later confirmed the pinned source citations from local public JARs; the earlier access limitation no longer applies to that follow-up.
 
 ## Limits and next boundary
 

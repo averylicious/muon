@@ -57,3 +57,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Playback-reader release acknowledgment](2026-10-04-playback-reader-release.md): player release is not a loading-worker/cache-reader drain receipt; next real Loader control is scoped.
 
 - [Loader release control](2026-10-04-loader-release-control.md): real pinned Loader, held synthetic invocation and queued cancellation; test-only, #179 still open.
+
+- [Real source-close controls](2026-10-04-source-close-control.md): disposable OfflineDataSource/CacheDataSource/FileDataSource partial-open and close receipts; test-only, production #179 unresolved.
