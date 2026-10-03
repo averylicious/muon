@@ -26,6 +26,10 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.atomic.AtomicReference
+import okhttp3.Call
+import okhttp3.Request
 
 /**
  * Where downloads are kept: the phone's own storage, or a removable SD card (#112, mockup 01). Each has
@@ -78,6 +82,8 @@ internal object OfflineStore {
 
     /** Copies played songs one at a time, behind playback. */
     private val copier = Executors.newSingleThreadExecutor()
+    private val copyDeadlines = ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy = true }
+    private val playedWork = PlayedCopyWork(copier, copyDeadlines)
 
     @Volatile private var store: Store? = null
 
@@ -232,19 +238,32 @@ internal object OfflineStore {
     fun copyPlayed(context: Context, id: String, song: ByteArray?) {
         if (song == null) return
         val store = get(context)
-        copier.execute {
+        playedWork.copy(id) { owner ->
             runCatching {
-                if (downloaded(context, id) || playedCopy(context, id)) return@runCatching
+                if (owner.isCancelled || downloaded(context, id) || playedCopy(context, id)) return@runCatching
+                val call = AtomicReference<Call?>()
+                val writer = AtomicReference<CacheWriter?>()
+                owner.onCancel { writer.get()?.cancel(); call.get()?.cancel() }
                 val origin = id.substringBeforeLast('/')
                 val number = id.substringAfterLast('/')
                 val url = ServerEndpoint.parse(origin).url("/api1/fileopus/$number")
                 val key = playedKey(id)
                 store.cache.applyContentMetadataMutations(key, ContentMetadataMutations().set(SONG_METADATA, song))
+                val upstream = OkHttpDataSource.Factory(object : Call.Factory {
+                    override fun newCall(request: Request): Call {
+                        val made = Transport.client.newCall(request)
+                        call.set(made)
+                        if (owner.isCancelled) made.cancel()
+                        return made
+                    }
+                })
                 val source = CacheDataSource.Factory().setCache(store.cache)
-                    .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client)).createDataSourceForDownloading()
-                copyPlayedWithinLimit(source, DataSpec.Builder().setUri(Uri.parse(url)).setKey(key).build()) {
-                    store.prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT)
-                }
+                    .setUpstreamDataSourceFactory(upstream).createDataSourceForDownloading()
+                copyPlayedWithinLimit(source, DataSpec.Builder().setUri(Uri.parse(url)).setKey(key).build(),
+                    onWriterCreated = { copy ->
+                        writer.set(copy)
+                        if (owner.isCancelled) copy.cancel()
+                    }) { store.prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT) }
             }
         }
     }
@@ -254,13 +273,13 @@ internal object OfflineStore {
         val store = get(context)
         store.prefs.edit().putLong("cacheLimit", limit).apply()
         PlayedCacheState.limit = limit
-        copier.execute { store.played.resize(limit) }
+        playedWork.resize { store.played.resize(limit) }
     }
 
     /** Empties the played-song cache; downloads stay. */
     fun clearPlayed(context: Context) {
         val cache = get(context).cache
-        copier.execute { runCatching { cache.keys.filter { it.startsWith(PLAYED_PREFIX) }.forEach(cache::removeResource) } }
+        playedWork.clear { runCatching { cache.keys.filter { it.startsWith(PLAYED_PREFIX) }.forEach(cache::removeResource) } }
     }
 
     /**
