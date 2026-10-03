@@ -99,7 +99,7 @@ internal object OfflineStore {
         val art = DownloadArt(File(context.filesDir, "downloads-art"))
         // Covers are fetched one at a time, beside the downloads rather than in their way.
         val artwork = Executors.newSingleThreadExecutor()
-        val sizes = HashMap<String, Long>()
+        val sizes = DownloadByteTotals()
         fun record(download: Download) {
             val id = download.request.id
             val mark = when (download.state) {
@@ -112,10 +112,10 @@ internal object OfflineStore {
             // other holds it complete: it stays downloaded throughout.
             if (mark != DownloadMark.Done && listOfNotNull(phone, store?.card).any { it.completed(id) }) return
             if (mark == null) DownloadMarks.marks.remove(id) else DownloadMarks.marks[id] = mark
-            if (mark == DownloadMark.Done) sizes[id] = download.bytesDownloaded else sizes.remove(id)
+            if (mark == DownloadMark.Done) sizes.put(id, download.bytesDownloaded) else sizes.remove(id)
             // Also fills in the cover of a download made before covers were kept, when Tauon answers.
             if (mark != null && !art.has(id)) artwork.execute { art.fetch(id) }
-            DownloadMarks.bytes = sizes.values.sum()
+            DownloadMarks.bytes = sizes.total
         }
         fun removed(download: Download) {
             // Moved rather than removed: the song is still kept, on the other shelf.
@@ -123,7 +123,7 @@ internal object OfflineStore {
             artwork.execute { art.remove(download.request.id) }
             DownloadMarks.marks.remove(download.request.id)
             sizes.remove(download.request.id)
-            DownloadMarks.bytes = sizes.values.sum()
+            DownloadMarks.bytes = sizes.total
         }
         val made = Store(phone, art, played, prefs, database, ::record, ::removed)
         watch(context, phone, made, main)
