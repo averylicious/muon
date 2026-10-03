@@ -4,8 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,8 +48,14 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
+    var choosing by remember { mutableStateOf(false) }
     fun choose(action: () -> Unit) {
-        scope.launch { sheet.hide() }.invokeOnCompletion { dismiss(); action() }
+        if (choosing) return
+        choosing = true
+        scope.launch {
+            try { completeSheetAction({ sheet.hide() }, { !sheet.isVisible }, dismiss, action) }
+            finally { choosing = false }
+        }
     }
     ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet) {
         Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -99,21 +99,26 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var playlistList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
         // The open artist's page keeps its place while one of its albums is open; another artist starts at the top.
         val artistPageList = rememberSaveable(artistKey, saver = LazyListState.Saver) { LazyListState() }
-        // The library switching between what is on the phone and Tauon's whole collection is a new
-        // list, not the old one grown or shrunk: every list starts again from its top (#16 QA).
-        LaunchedEffect(model.offline) {
-            if (songList.firstVisibleItemIndex == 0 && songList.firstVisibleItemScrollOffset == 0) return@LaunchedEffect
-            songList = LazyListState(); artistList = LazyListState(); playlistList = LazyListState()
-        }
         var albumGrid by rememberSaveable(stateSaver = LazyGridState.Saver) { mutableStateOf(LazyGridState()) }
         var libraryBar by rememberSaveable(stateSaver = TopAppBarState.Saver) { mutableStateOf(TopAppBarState(
             initialHeightOffsetLimit = -Float.MAX_VALUE, initialHeightOffset = 0f, initialContentOffset = 0f)) }
+        // Ignore the initial effect after recreation: the saveable lists already hold their places.
+        // Only a real online/offline boundary starts all top-level views and their header afresh.
+        var browsingOffline by remember(model) { mutableStateOf(model.offline) }
+        LaunchedEffect(model, model.offline) {
+            if (browsingOffline == model.offline) return@LaunchedEffect
+            browsingOffline = model.offline
+            songList = LazyListState(); artistList = LazyListState(); playlistList = LazyListState()
+            albumGrid = LazyGridState()
+            libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
+        }
         var query by rememberSaveable { mutableStateOf("") }
         // Whether the open library page was opened from Search, which Back then returns to.
         var fromSearch by rememberSaveable { mutableStateOf(false) }
         // Whether the search bar is expanded over the Search tab; kept here so a page opened from the
         // results comes back to them.
         var searchOpen by rememberSaveable { mutableStateOf(false) }
+        val currentPlayer by rememberUpdatedState(player)
         val playback = rememberPlayback(player)
         val ui = playback.ui
         val position = remember(playback) { { playback.position } }
@@ -289,7 +294,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val askLocalNetwork = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             LocalNetworkState.granted = granted
             LocalNetworkState.denied = !granted
-            if (granted) model.connect()
+            // With no address yet (Connect screen's Allow), the grant starts discovery instead (#278).
+            if (granted && model.address.isNotBlank()) model.connect()
         }
         fun allowLocalNetwork() {
             val rationale = activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, ACCESS_LOCAL_NETWORK) } ?: false
@@ -321,21 +327,21 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         // Play next goes straight after the playing song and Add to queue at the end; the shuffle
         // order keeps both there with shuffle on. With nothing queued, the song simply plays. Undo
-        // takes back that same entry, found again if the queue has moved since.
+        // takes back that same insertion, even among duplicates after a queue move.
         fun queueSong(track: TauonTrack, next: Boolean) {
             val endpoint = model.endpoint ?: return
             val p = player ?: return
             val item = track.mediaItem(endpoint)
             if (p.mediaItemCount == 0) { p.setMediaItems(listOf(item)); p.prepare(); p.play(); return }
             val at = if (next) p.currentMediaItemIndex + 1 else p.mediaItemCount
-            p.addMediaItem(at, item)
+            val insertion = queueInsertion(item)
+            p.addMediaItem(at, insertion.item)
             snackbar.currentSnackbarData?.dismiss()
             scope.launch {
                 val result = snackbar.showSnackbar(queuedMessage(track.title, next), actionLabel = "Undo",
                     duration = SnackbarDuration.Short)
                 if (result != SnackbarResult.ActionPerformed) return@launch
-                val entries = (0 until p.mediaItemCount).filter { p.getMediaItemAt(it).mediaId == item.mediaId }
-                entries.minByOrNull { kotlin.math.abs(it - at) }?.let { p.removeMediaItem(it) }
+                if (currentPlayer === p) undoQueueInsertion(p, insertion)
             }
         }
         // Go to album and Go to artist open the page over the one on show: an album over an open artist
