@@ -11,6 +11,8 @@ Two controls distinguish acknowledgments:
 
 Both fixtures release their gates even after assertion failures and require callback completion and executor termination with bounded waits. No dependent resource is released early. The worker blockers intentionally have no autonomous timeout: test assertions/cleanup own the release, so a slow CI scheduler cannot silently unblock the premise.
 
+Claude Opus 5.5 / Claude Code, High requested: independent read-only test-structure review found no blockers and suggested waiting for worker termination even when the callback wait fails; that cleanup improvement is included. Claude could not access the external pinned source JAR during that review, so the coordinator retains responsibility for the direct pinned-source comparison. No runtime effort setting was exposed.
+
 Validation is pending the first real compile and execution in GitHub Actions. No local Android build is claimed. This file and the PR/checkpoint will record exact-head results after CI.
 
 ## Limits and next boundary

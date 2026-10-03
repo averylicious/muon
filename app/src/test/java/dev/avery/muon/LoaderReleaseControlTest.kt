@@ -42,8 +42,10 @@ class LoaderReleaseControlTest {
         loadable.proceed.countDown()
         unblockExecutor.countDown()
         if (!releaseRequested) requestRelease()
-        assertTrue("The release callback must complete during cleanup", released.await(5, TimeUnit.SECONDS))
-        assertTrue("No loading worker may outlive the test", executor.awaitTermination(5, TimeUnit.SECONDS))
+        val acknowledged = released.await(5, TimeUnit.SECONDS)
+        val terminated = executor.awaitTermination(5, TimeUnit.SECONDS)
+        assertTrue("The release callback must complete during cleanup", acknowledged)
+        assertTrue("No loading worker may outlive the test", terminated)
     }
 
     @Test fun releaseReturnsAndCancelsBeforeHeldLoadExitsButReleaseCallbackWaits() {
