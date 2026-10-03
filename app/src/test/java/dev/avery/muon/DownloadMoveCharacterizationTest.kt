@@ -35,8 +35,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * #230: actual OfflineStore.move/remove calls, real cache copy/indexes, captured service intents.
- * Remove and missing-span cases assert CURRENT unsafe ordering, not a fix or Android service delivery;
- * the target-prefix cases assert the copy's byte check.
+ * Removal cases reject stale publication (#234); missing-span cases still characterize an unfixed risk;
+ * the target-prefix cases assert the copy's byte check (#281). Not Android service delivery.
  * Reflection only installs disposable shelves and waits for the existing mover's FIFO boundary;
  * it does not replace the worker, copy implementation, command sender or main-thread handler.
  */
@@ -107,7 +107,7 @@ class DownloadMoveCharacterizationTest {
         assertNull("Captured intents are not end-to-end service delivery", targetIndex.getDownload(id))
     }
 
-    @Test fun removingTheSongBeforeQueuedAddStillEmitsTheLaterAdd() {
+    @Test fun removingTheSongBeforeQueuedAddRejectsTheLaterAdd() {
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
@@ -117,12 +117,12 @@ class DownloadMoveCharacterizationTest {
         assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD &&
             it.getStringExtra(DownloadService.KEY_CONTENT_ID) == id })
         shadowOf(Looper.getMainLooper()).idle()
-        val add = startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
-        assertEquals(id, addRequest(add).id)
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        // Do not blindly remove target spans: ownership-aware partial cleanup is still separate.
         assertArrayEquals(bytes, targetBytes())
     }
 
-    @Test fun removingAllBeforeQueuedAddStillEmitsTheLaterAdd() {
+    @Test fun removingAllBeforeQueuedAddRejectsTheLaterAdd() {
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
@@ -131,8 +131,7 @@ class DownloadMoveCharacterizationTest {
         assertEquals(2, removals.size)
         assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_ALL_DOWNLOADS })
         shadowOf(Looper.getMainLooper()).idle()
-        assertEquals(id, addRequest(startedCommands().single {
-            it.action == DownloadService.ACTION_ADD_DOWNLOAD }).id)
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
     }
 
     @Test fun missingLaterSpanLeavesPartialDestinationBytesWithoutAnAddOrDownloadRecord() {

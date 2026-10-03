@@ -327,6 +327,8 @@ internal object OfflineStore {
      * does nothing. No remove is sent to an unavailable card, and the refusal is said (#179 S1).
      */
     fun remove(context: Context, ids: List<String>) {
+        // Every id, even one withheld on an unavailable card: a move in flight must not bring it back (#234).
+        moveOwnership.remove(ids)
         val plan = removalPlan(get(context).shelves, ids)
         plan.commands.forEach { (shelf, shelfIds) ->
             shelfIds.forEach { DownloadService.sendRemoveDownload(context, shelf.service, it, false) }
@@ -347,6 +349,7 @@ internal object OfflineStore {
 
     /** Moves one download at a time, behind everything else. */
     private val mover = Executors.newSingleThreadExecutor()
+    private val moveOwnership = DownloadMoveOwnership()
 
     /**
      * How many finished downloads are on the card ([card]) or the phone. Reads the index. Null for a
@@ -378,20 +381,34 @@ internal object OfflineStore {
             return
         }
         val main = Handler(Looper.getMainLooper())
+        val batch = moveOwnership.begin()
         mover.execute {
-            val downloads = ArrayList<Download>()
-            runCatching { from.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { while (it.moveToNext()) downloads += it.download } }
-            main.post { DownloadMarks.moving = 0 to downloads.size }
-            for ((index, download) in downloads.withIndex()) {
-                if (!canMove(from, to)) {
-                    notice(context, "The SD card isn't available any more, so the rest weren't moved.")
-                    break
+            try {
+                val downloads = ArrayList<Download>()
+                runCatching { from.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { while (it.moveToNext()) downloads += it.download } }
+                main.post { DownloadMarks.moving = 0 to downloads.size }
+                for ((index, download) in downloads.withIndex()) {
+                    if (!canMove(from, to)) {
+                        notice(context, "The SD card isn't available any more, so the rest weren't moved.")
+                        break
+                    }
+                    if (moveOwnership.permits(batch, download.request.id) &&
+                        runCatching { copy(download, from, to) }.isSuccess)
+                        // Hand-over needs both shelves still available (#179 S1) and the move still owning
+                        // this song: removed or Remove all since means no Add (#234).
+                        main.post {
+                            deliverMovedCopy(from, to) {
+                                moveOwnership.publish(batch, download.request.id) {
+                                    DownloadService.sendAddDownload(context, to.service, download.request, false)
+                                }
+                            }
+                        }
+                    main.post { DownloadMarks.moving = index + 1 to downloads.size }
                 }
-                if (runCatching { copy(download, from, to) }.isSuccess)
-                    main.post { deliverMovedCopy(from, to) { DownloadService.sendAddDownload(context, to.service, download.request, false) } }
-                main.post { DownloadMarks.moving = index + 1 to downloads.size }
+            } finally {
+                // Posted after every completion: callbacks still carry ownership until they drain.
+                main.post { moveOwnership.finish(batch); DownloadMarks.moving = null }
             }
-            main.post { DownloadMarks.moving = null }
         }
     }
 
@@ -450,6 +467,8 @@ internal object OfflineStore {
 
     /** Removes every download from the available shelves; an unavailable card keeps its own (#179 S1). */
     fun removeAll(context: Context) {
+        // Every move in flight loses its publication, whichever shelves receive the command (#234).
+        moveOwnership.removeAll()
         val shelves = get(context).shelves
         availableShelves(shelves).forEach { DownloadService.sendRemoveAllDownloads(context, it.service, false) }
         if (shelves.any { !it.available() })
