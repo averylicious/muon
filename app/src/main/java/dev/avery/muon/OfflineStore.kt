@@ -181,14 +181,18 @@ internal object OfflineStore {
                 store.removed(download)
             }
         })
-        Executors.newSingleThreadExecutor().execute {
-            val known = ArrayList<Download>()
-            runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
-            main.post {
-                try { known.filterNot { it.request.id in changed.orEmpty() }.forEach(store.record) }
-                finally { changed = null } // No lifetime-long tombstones for removed/changed songs.
+        // One-shot: shut down once the scan is submitted. An orderly shutdown still lets it run and post.
+        val bootstrap = Executors.newSingleThreadExecutor()
+        try {
+            bootstrap.execute {
+                val known = ArrayList<Download>()
+                runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
+                main.post {
+                    try { known.filterNot { it.request.id in changed.orEmpty() }.forEach(store.record) }
+                    finally { changed = null } // No lifetime-long tombstones for removed/changed songs.
+                }
             }
-        }
+        } finally { bootstrap.shutdown() }
     }
 
     /** Where new downloads go: the card when chosen and available, the phone when the card isn't chosen. */
