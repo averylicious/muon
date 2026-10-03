@@ -30,7 +30,7 @@ internal class DownloadArt(private val dir: File) {
         val origin = id.substringBeforeLast('/')
         val url = runCatching { ServerEndpoint.parse(origin).url("/api1/pic/medium/$number") }.getOrNull() ?: return
         runCatching {
-            Transport.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            Transport.metadataClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 val source = response.body?.source()
                 if (!response.isSuccessful || source == null || source.request(4 * 1024 * 1024 + 1L)) return
                 val bytes = source.readByteArray()
