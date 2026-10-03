@@ -83,6 +83,39 @@ class CardServiceCharacterizationTest {
         assertNotSame(store.phone.manager, selected(restarted.get()))
     }
 
+    @Test fun clearingHelpersDoesNotRebindALiveService() {
+        val original = shelf("live_original", "live_original_fixture")
+        store.card = original
+        val live = service()
+        assertSame(original.manager, selected(live.get()))
+        val replacement = shelf("live_replacement", "live_replacement_fixture")
+        store.card = replacement
+
+        // Deliberately characterize the unsafe shortcut with idle disposable managers only.
+        // Map clearing is not revocation of the helper already held by the live service.
+        DownloadService.clearDownloadManagerHelpers()
+        assertSame(original.manager, selected(live.get()))
+        assertNotSame(replacement.manager, selected(live.get()))
+    }
+
+    @Test fun destroyedServiceWithClearedHelpersSelectsReplacementManager() {
+        val original = shelf("reset_original", "reset_original_fixture")
+        store.card = original
+        val first = service()
+        assertSame(original.manager, selected(first.get()))
+        first.destroy(); services.remove(first)
+        val replacement = shelf("reset_replacement", "reset_replacement_fixture")
+        store.card = replacement
+
+        // Positive lookup-reset control for the existing no-reset/reuse test. No tasks are admitted;
+        // this does not establish manager release, worker/read drain or card-generation safety.
+        DownloadService.clearDownloadManagerHelpers()
+        val restarted = service()
+        assertSame(replacement.manager, selected(restarted.get()))
+        assertNotSame(original.manager, selected(restarted.get()))
+        assertNotSame(store.phone.manager, selected(restarted.get()))
+    }
+
     private fun service(): ServiceController<MuonCardDownloadService> =
         Robolectric.buildService(MuonCardDownloadService::class.java).create().also(services::add)
 
