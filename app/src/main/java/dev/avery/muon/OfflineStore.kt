@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
@@ -28,17 +29,24 @@ import java.util.concurrent.Executors
 
 /**
  * Where downloads are kept: the phone's own storage, or a removable SD card (#112, mockup 01). Each has
- * its own cache, its own download index and its own service, so a card taken out simply takes its
- * downloads with it until it is back.
+ * its own cache, its own download index and its own service. A card that is unavailable is skipped by
+ * new decisions (#179 S1, [ShelfState]); whether its downloads survive removal is not established.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val service: Class<out DownloadService>) {
+internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val service: Class<out DownloadService>,
+    private val present: () -> Boolean = { true }) : ShelfState {
     /** Reads this shelf's copies; anything not on it streams, and nothing streamed is written. */
     val source: CacheDataSource.Factory = CacheDataSource.Factory().setCache(cache)
         .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client)).setCacheWriteDataSinkFactory(null)
 
-    fun completed(id: String): Boolean =
+    /** Checked at each decision (#179 S1); see [cardPresent] for the card. */
+    override fun available(): Boolean = runCatching(present).getOrDefault(false)
+
+    override fun completed(id: String): Boolean =
         runCatching { manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED }.getOrDefault(false)
+
+    override fun holds(id: String): Boolean =
+        runCatching { manager.downloadIndex.getDownload(id) != null }.getOrDefault(false)
 }
 
 /** A mounted removable SD card's folder for Muon, if there is one. Muon needs no permission for it. */
@@ -60,6 +68,8 @@ internal object OfflineStore {
         /** The phone's cache, which also holds the played-song copies. */
         val cache: SimpleCache get() = phone.cache
         @Volatile var card: Shelf? = null
+        /** The app's folder on [card], for its name and free space; null without a card. */
+        @Volatile var cardFolder: File? = null
         val shelves: List<Shelf> get() = listOfNotNull(phone, card)
     }
 
@@ -78,13 +88,14 @@ internal object OfflineStore {
     fun get(context: Context): Store = store ?: create(context.applicationContext).also { store = it }
 
     private fun shelf(context: Context, folder: File, evictor: androidx.media3.datasource.cache.CacheEvictor,
-        database: StandaloneDatabaseProvider, index: String, service: Class<out DownloadService>): Shelf {
+        database: StandaloneDatabaseProvider, index: String, service: Class<out DownloadService>,
+        present: () -> Boolean = { true }): Shelf {
         val cache = SimpleCache(folder, evictor, database)
         val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client))
         val manager = DownloadManager(context, DefaultDownloadIndex(database, index),
             DefaultDownloaderFactory(factory, Executors.newFixedThreadPool(2)))
         manager.maxParallelDownloads = 2
-        return Shelf(cache, manager, service)
+        return Shelf(cache, manager, service, present)
     }
 
     private fun create(context: Context): Store {
@@ -128,8 +139,15 @@ internal object OfflineStore {
         val made = Store(phone, art, played, prefs, database, ::record, ::removed)
         watch(context, phone, made, main)
         cardFolder(context)?.let { folder ->
-            runCatching { shelf(context, File(folder, "downloads"), NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java) }
-                .getOrNull()?.let { card -> made.card = card; watch(context, card, made, main) }
+            // The card found now; later its availability is only ever this folder's, never another card's.
+            val downloads = File(folder, "downloads")
+            runCatching {
+                // The app's own folder on the card, made by getExternalFilesDirs above. Not the cache
+                // folder, which the cache creates on its own thread a moment later.
+                shelf(context, downloads, NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java) {
+                    cardPresent(folder)
+                }
+            }.getOrNull()?.let { card -> made.card = card; made.cardFolder = folder; watch(context, card, made, main) }
         }
         return made
     }
@@ -144,7 +162,8 @@ internal object OfflineStore {
                 store.record(download)
                 if (download.state != Download.STATE_COMPLETED) return
                 val id = download.request.id
-                store.shelves.filter { it !== shelf && it.completed(id) }
+                // An unavailable card keeps its copy (#179 S1): removing it would act on missing files.
+                leftoverCopies(shelf, store.shelves, id)
                     .forEach { DownloadService.sendRemoveDownload(context, it.service, id, false) }
             }
             override fun onDownloadRemoved(m: DownloadManager, download: Download) = store.removed(download)
@@ -156,8 +175,16 @@ internal object OfflineStore {
         }
     }
 
-    /** Where new downloads go: the card when chosen and in, otherwise the phone. */
-    private fun target(store: Store): Shelf = store.card?.takeIf { store.prefs.getBoolean("onCard", false) } ?: store.phone
+    /** Where new downloads go: the card when chosen and available, the phone when the card isn't chosen. */
+    private fun target(store: Store): DownloadTarget = downloadTarget(store.card, store.prefs.getBoolean("onCard", false))
+
+    /** Whether the card Muon opened with is there now; false with none (#179 S1). */
+    fun cardAvailable(context: Context): Boolean = get(context).card?.available() == true
+
+    /** Says why a request was refused, rather than leaving it to look as if nothing happened. */
+    private fun notice(context: Context, text: String) {
+        Handler(Looper.getMainLooper()).post { Toast.makeText(context.applicationContext, text, Toast.LENGTH_LONG).show() }
+    }
 
     /** Whether new downloads go to the SD card; only offered while one is in. */
     fun storeOnCard(context: Context): Boolean = get(context).prefs.getBoolean("onCard", false)
@@ -165,7 +192,7 @@ internal object OfflineStore {
     fun setStoreOnCard(context: Context, onCard: Boolean) { get(context).prefs.edit().putBoolean("onCard", onCard).apply() }
 
     /** The shelf holding a finished download of [id], if any. Called from the player's loading thread. */
-    fun downloadedOn(context: Context, id: String): Shelf? = get(context).shelves.firstOrNull { it.completed(id) }
+    fun downloadedOn(context: Context, id: String): Shelf? = servingShelf(get(context).shelves, id)
 
     /** Whether a finished download of [id] is on the phone or its card. */
     fun downloaded(context: Context, id: String): Boolean = downloadedOn(context, id) != null
@@ -224,14 +251,27 @@ internal object OfflineStore {
         copier.execute { runCatching { cache.keys.filter { it.startsWith(PLAYED_PREFIX) }.forEach(cache::removeResource) } }
     }
 
-    /** Asks for these songs to be downloaded, skipping any already on the phone or on their way. */
+    /**
+     * Asks for these songs to be downloaded, skipping any already on the phone or on their way. With the
+     * card chosen but unavailable, nothing is queued anywhere, and the refusal is said (#179 S1).
+     */
     fun add(context: Context, endpoint: ServerEndpoint, tracks: List<TauonTrack>) {
+        val store = get(context)
+        val shelf = when (target(store)) {
+            DownloadTarget.Phone -> store.phone
+            DownloadTarget.Card -> store.card ?: return
+            DownloadTarget.CardUnavailable -> {
+                notice(context, "The SD card isn't available, so nothing was downloaded. Try again when it's back, " +
+                    "or turn off Store on SD card in Settings to download to the phone.")
+                return
+            }
+        }
         tracks.filter { it.playable }.forEach { track ->
             val id = downloadId(endpoint.origin, track.id)
             if (DownloadMarks.marks[id] != null) return@forEach
             val request = DownloadRequest.Builder(id, Uri.parse(endpoint.url("/api1/fileopus/${track.id}")))
                 .setCustomCacheKey(id).setData(encodeSong(track)).build()
-            DownloadService.sendAddDownload(context, target(get(context)).service, request, false)
+            DownloadService.sendAddDownload(context, shelf.service, request, false)
         }
     }
 
@@ -241,7 +281,8 @@ internal object OfflineStore {
      */
     fun downloadedSongs(context: Context, origin: String): List<TauonTrack> {
         val songs = ArrayList<TauonTrack>()
-        get(context).shelves.forEach { shelf -> runCatching {
+        // An unavailable card's songs are not listed: they could not play from it (#179 S1).
+        availableShelves(get(context).shelves).forEach { shelf -> runCatching {
             shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
                 while (cursor.moveToNext()) {
                     val download = cursor.download
@@ -269,7 +310,7 @@ internal object OfflineStore {
      */
     fun downloadedLibrary(context: Context): Pair<String, List<TauonTrack>>? {
         val origins = HashMap<String, Int>()
-        get(context).shelves.forEach { shelf -> runCatching {
+        availableShelves(get(context).shelves).forEach { shelf -> runCatching {
             shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
                 while (cursor.moveToNext()) {
                     val origin = cursor.download.request.id.substringBeforeLast('/', "")
@@ -281,10 +322,17 @@ internal object OfflineStore {
         return downloadedSongs(context, origin).takeIf { it.isNotEmpty() }?.let { origin to it }
     }
 
-    /** Removes these downloads, finished or not. */
-    fun remove(context: Context, ids: List<String>) = get(context).shelves.forEach { shelf ->
-        // A download is on one shelf; asking the other to remove it does nothing.
-        ids.forEach { DownloadService.sendRemoveDownload(context, shelf.service, it, false) }
+    /**
+     * Removes these downloads, finished or not. A download is on one shelf; asking another to remove it
+     * does nothing. No remove is sent to an unavailable card, and the refusal is said (#179 S1).
+     */
+    fun remove(context: Context, ids: List<String>) {
+        val plan = removalPlan(get(context).shelves, ids)
+        plan.commands.forEach { (shelf, shelfIds) ->
+            shelfIds.forEach { DownloadService.sendRemoveDownload(context, shelf.service, it, false) }
+        }
+        if (plan.withheld.isNotEmpty())
+            notice(context, "Some downloads are on the SD card, which isn't available, so they weren't removed.")
     }
 
     /**
@@ -292,16 +340,22 @@ internal object OfflineStore {
      * once there is nothing to do.
      */
     fun resume(context: Context) {
-        get(context).shelves.forEach { runCatching { DownloadService.start(context, it.service) } }
+        // An unavailable card's service is not started here, so its queued downloads are not resumed onto
+        // missing storage. A card service already running, or restarted by the system, is not covered.
+        availableShelves(get(context).shelves).forEach { runCatching { DownloadService.start(context, it.service) } }
     }
 
     /** Moves one download at a time, behind everything else. */
     private val mover = Executors.newSingleThreadExecutor()
 
-    /** How many finished downloads are on the card ([card]) or the phone. Reads the index. */
-    fun downloadsOn(context: Context, card: Boolean): Int {
+    /**
+     * How many finished downloads are on the card ([card]) or the phone. Reads the index. Null for a
+     * card that is missing or unavailable, which is not the same as one with nothing on it (#179 S1).
+     */
+    fun downloadsOn(context: Context, card: Boolean): Int? {
         val store = get(context)
-        val shelf = (if (card) store.card else store.phone) ?: return 0
+        val shelf = (if (card) store.card else store.phone) ?: return null
+        if (!shelf.available()) return null
         return runCatching { shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { it.count } }.getOrDefault(0)
     }
 
@@ -313,17 +367,28 @@ internal object OfflineStore {
      */
     fun move(context: Context, toCard: Boolean) {
         val store = get(context)
-        val card = store.card ?: return
+        val card = store.card
         val from = if (toCard) store.phone else card
         val to = if (toCard) card else store.phone
+        // #179 S1: not started without an available card, stopped before the next song if either shelf
+        // goes, and a copy is not handed over if either went before the hand-over ran. These are
+        // snapshots: a card that goes during one song's copy is not covered.
+        if (from == null || to == null || !canMove(from, to)) {
+            notice(context, "The SD card isn't available, so nothing was moved.")
+            return
+        }
         val main = Handler(Looper.getMainLooper())
         mover.execute {
             val downloads = ArrayList<Download>()
             runCatching { from.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { while (it.moveToNext()) downloads += it.download } }
             main.post { DownloadMarks.moving = 0 to downloads.size }
-            downloads.forEachIndexed { index, download ->
+            for ((index, download) in downloads.withIndex()) {
+                if (!canMove(from, to)) {
+                    notice(context, "The SD card isn't available any more, so the rest weren't moved.")
+                    break
+                }
                 if (runCatching { copy(download, from, to) }.isSuccess)
-                    main.post { DownloadService.sendAddDownload(context, to.service, download.request, false) }
+                    main.post { deliverMovedCopy(from, to) { DownloadService.sendAddDownload(context, to.service, download.request, false) } }
                 main.post { DownloadMarks.moving = index + 1 to downloads.size }
             }
             main.post { DownloadMarks.moving = null }
@@ -342,8 +407,12 @@ internal object OfflineStore {
         to.cache.applyContentMetadataMutations(id, ContentMetadataMutations.setContentLength(ContentMetadataMutations(), length))
     }
 
-    fun removeAll(context: Context) = get(context).shelves.forEach {
-        DownloadService.sendRemoveAllDownloads(context, it.service, false)
+    /** Removes every download from the available shelves; an unavailable card keeps its own (#179 S1). */
+    fun removeAll(context: Context) {
+        val shelves = get(context).shelves
+        availableShelves(shelves).forEach { DownloadService.sendRemoveAllDownloads(context, it.service, false) }
+        if (shelves.any { !it.available() })
+            notice(context, "The SD card isn't available, so its downloads weren't removed.")
     }
 }
 
