@@ -61,3 +61,7 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Real source-close controls](2026-10-04-source-close-control.md): disposable OfflineDataSource/CacheDataSource/FileDataSource partial-open and close receipts; test-only, production #179 unresolved.
 
 - [Reader admission prototype](2026-10-04-reader-admission-prototype.md): test-local per-open accounting and failed-close quarantine over the real cached source fixture; no production barrier.
+
+- [Generation owner map](2026-10-04-generation-ownership-map.md): all current shelf/cache/index owners and proposed stop contracts; playback's fixed-shelf test gate does not cover cross-shelf routing, and phone-side copying also reads the card index. Production recovery remains unimplemented.
+
+- [Public repository workflow boundary](2026-10-04-public-workflow-boundary.md): permanent collaborators-only creation restrictions are intact; no existing outside-PR signed-build route established, optional stricter fork approval and experimental policy forward integration identified.
