@@ -28,7 +28,7 @@ import org.robolectric.android.controller.ServiceController
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.SQLiteMode
 
-/** Actual DownloadService creation/helper reuse, without commands, network or Android mount events. */
+/** Actual service/helper lifetime and manually delivered pause/resume intents; no tasks, network or mount events. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
@@ -166,6 +166,63 @@ class CardServiceCharacterizationTest {
         val restart = requireNotNull(startedService()) { "The old callback still requests a restart" }
         assertEquals(MuonCardDownloadService::class.java.name, restart.component?.className)
         assertEquals(RESTART, restart.action)
+        assertNull(startedService())
+    }
+
+    // These pause/resume intents carry service/action/foreground state but no shelf generation; the current helper selects the manager.
+    // Delivery here is manual (the real onStartCommand), not Android's queue scheduling. No tasks or network.
+
+    @Test fun aCommandQueuedForTheOldCardRunsAgainstTheReplacementManager() {
+        val app = RuntimeEnvironment.getApplication()
+        val original = shelf("queued_original", "queued_original_fixture")
+        store.card = original
+        val first = service() // onCreate resumes the original manager
+        drainStartedServices()
+        original.manager.pauseDownloads()
+        DownloadService.sendResumeDownloads(app, MuonCardDownloadService::class.java, false)
+        val queued = requireNotNull(startedService()) { "The resume command is queued" }
+        assertEquals(DownloadService.ACTION_RESUME_DOWNLOADS, queued.action)
+        assertEquals(MuonCardDownloadService::class.java.name, queued.component?.className)
+        assertFalse(queued.getBooleanExtra(DownloadService.KEY_FOREGROUND, false))
+        assertTrue("Queued only: nothing delivered it to the original", original.manager.downloadsPaused)
+
+        first.destroy(); services.remove(first)
+        DownloadService.clearDownloadManagerHelpers()
+        val replacement = shelf("queued_replacement", "queued_replacement_fixture")
+        store.card = replacement
+        val fresh = service() // onCreate resumes the replacement, so pause it to see the command
+        assertSame(replacement.manager, selected(fresh.get()))
+        replacement.manager.pauseDownloads()
+
+        fresh.get().onStartCommand(queued, 0, 1)
+        assertFalse("The old card's command resumed the replacement manager", replacement.manager.downloadsPaused)
+        assertTrue("The original manager is untouched", original.manager.downloadsPaused)
+        assertNull(startedService())
+    }
+
+    @Test fun aCardCommandDeliveredWithNoCardSelectedRunsAgainstThePhoneManager() {
+        val app = RuntimeEnvironment.getApplication()
+        val card = shelf("fallback_card", "fallback_card_fixture")
+        store.card = card
+        val first = service()
+        drainStartedServices()
+        DownloadService.sendPauseDownloads(app, MuonCardDownloadService::class.java, false)
+        val queued = requireNotNull(startedService()) { "The pause command is queued" }
+        assertEquals(DownloadService.ACTION_PAUSE_DOWNLOADS, queued.action)
+        assertEquals(MuonCardDownloadService::class.java.name, queued.component?.className)
+        assertFalse(queued.getBooleanExtra(DownloadService.KEY_FOREGROUND, false))
+        assertFalse("Queued only: the card manager is still resumed", card.manager.downloadsPaused)
+
+        first.destroy(); services.remove(first)
+        DownloadService.clearDownloadManagerHelpers()
+        store.card = null
+        val fresh = service() // The card service's existing fallback selects the phone manager
+        assertSame(store.phone.manager, selected(fresh.get()))
+        assertFalse(store.phone.manager.downloadsPaused)
+
+        fresh.get().onStartCommand(queued, 0, 1)
+        assertTrue("The card-class command paused the phone manager", store.phone.manager.downloadsPaused)
+        assertFalse("The card manager is untouched", card.manager.downloadsPaused)
         assertNull(startedService())
     }
 
