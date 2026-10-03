@@ -114,6 +114,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Whether the search bar is expanded over the Search tab; kept here so a page opened from the
         // results comes back to them.
         var searchOpen by rememberSaveable { mutableStateOf(false) }
+        val currentPlayer by rememberUpdatedState(player)
         val playback = rememberPlayback(player)
         val ui = playback.ui
         val position = remember(playback) { { playback.position } }
@@ -321,21 +322,21 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         // Play next goes straight after the playing song and Add to queue at the end; the shuffle
         // order keeps both there with shuffle on. With nothing queued, the song simply plays. Undo
-        // takes back that same entry, found again if the queue has moved since.
+        // takes back that same insertion, even among duplicates after a queue move.
         fun queueSong(track: TauonTrack, next: Boolean) {
             val endpoint = model.endpoint ?: return
             val p = player ?: return
             val item = track.mediaItem(endpoint)
             if (p.mediaItemCount == 0) { p.setMediaItems(listOf(item)); p.prepare(); p.play(); return }
             val at = if (next) p.currentMediaItemIndex + 1 else p.mediaItemCount
-            p.addMediaItem(at, item)
+            val insertion = queueInsertion(item)
+            p.addMediaItem(at, insertion.item)
             snackbar.currentSnackbarData?.dismiss()
             scope.launch {
                 val result = snackbar.showSnackbar(queuedMessage(track.title, next), actionLabel = "Undo",
                     duration = SnackbarDuration.Short)
                 if (result != SnackbarResult.ActionPerformed) return@launch
-                val entries = (0 until p.mediaItemCount).filter { p.getMediaItemAt(it).mediaId == item.mediaId }
-                entries.minByOrNull { kotlin.math.abs(it - at) }?.let { p.removeMediaItem(it) }
+                if (currentPlayer === p) undoQueueInsertion(p, insertion)
             }
         }
         // Go to album and Go to artist open the page over the one on show: an album over an open artist
