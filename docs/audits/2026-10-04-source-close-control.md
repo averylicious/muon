@@ -42,7 +42,23 @@ Every control runs the actual `OfflineDataSource` → `routeOfflineRequest` → 
    - **Expected:** `OfflineDataSource` propagates the failure but clears `active`, and a later close doesn't retry that source.
    - **Caveat:** this injected throw comes after a successful cleanup. It doesn't show that real close failures are safe or drained.
 
-**Cleanup:** teardown opens every gate, shuts the worker down and waits for it (5-second bound), and only then releases the manager, cache and database. If the worker didn't drain, they are left open rather than closed under it. All waits happen before any teardown assertion. No timeout releases a test's premise.
+**Cleanup** (revised after coordinator review of `03f9e52`):
+1. **Gates and worker:** teardown opens every test gate, shuts the worker down and waits for it, bounded to 5 seconds.
+2. **Close every source:** only after the worker has drained, so no source is called from two threads, teardown closes every `OfflineDataSource` a test created. It tracks them in a thread-safe list, so this covers a source left open by a failed main-thread assertion.
+   - The worker's own lifecycle closes its source in a `finally`, whether or not open or read succeeded.
+   - **Expected failure:** only the deliberately injected `InjectedAfterClose`, thrown after a successful real close, is tolerated.
+   - **Any other close failure** fails the fixture.
+3. **Release the dependencies:** the manager, cache and database are released only if:
+   - the worker drained;
+   - no unexpected cleanup failure occurred;
+   - every real `FileDataSource` that opened recorded a completed close.
+
+   Otherwise they're kept and the fixture fails.
+4. **Order:** all cleanup steps run before any teardown assertion.
+
+**Other bounds:**
+- `readAll` is bounded to the 4-byte payload: a source that returns zero, or more bytes than the fixture holds, fails instead of hanging.
+- The held close waits only on a test-owned gate. No timeout or interrupt releases it.
 
 ## #309 pinned-source check (separate, narrow)
 

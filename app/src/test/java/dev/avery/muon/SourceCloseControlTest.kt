@@ -61,6 +61,7 @@ class SourceCloseControlTest {
     private enum class Fault { None, OpenAfterDelegate, HoldClose, CloseAfterDelegate }
     @Volatile private var fault = Fault.None
     private val wrappers = CopyOnWriteArrayList<Wrapper>()
+    private val sources = CopyOnWriteArrayList<OfflineDataSource>()
     private val upstreamOpens = AtomicInteger()
     private val closeGate = CountDownLatch(1)
     private val worker = Executors.newSingleThreadExecutor()
@@ -83,14 +84,28 @@ class SourceCloseControlTest {
     }
 
     @After fun tearDown() {
-        // Open every gate, then attempt every wait, before any assertion or resource release.
+        // Open every gate and drain the worker first, so no source is ever called from two threads.
         closeGate.countDown()
         worker.shutdown()
         val drained = worker.awaitTermination(5, TimeUnit.SECONDS)
+        // Then close every source a test made, even after a failed assertion. Only the deliberately
+        // injected failure thrown after a successful real close is expected; anything else fails the fixture.
+        val cleanupFailures = ArrayList<Throwable>()
         if (drained) {
+            for (source in sources) {
+                try { source.close() }
+                catch (expected: InjectedAfterClose) { }
+                catch (failure: Throwable) { cleanupFailures += failure }
+            }
+        }
+        val openedDelegatesClosed = wrappers.all { it.delegateOpens.get() == 0 || it.delegateCloses.get() >= 1 }
+        // Dependencies are released only when every real file was closed; otherwise they are retained.
+        if (drained && cleanupFailures.isEmpty() && openedDelegatesClosed) {
             try { manager.release(); cache.release() } finally { database.close() }
         }
-        assertTrue("The test worker must finish before the cache and database close", drained)
+        assertTrue("The test worker must finish before any source is closed or the cache released", drained)
+        assertEquals("Unexpected source cleanup failures", emptyList<Throwable>(), cleanupFailures)
+        assertTrue("Every real FileDataSource that opened must have closed", openedDelegatesClosed)
         assertEquals("The upstream must never be reached", 0, upstreamOpens.get())
     }
 
@@ -119,14 +134,19 @@ class SourceCloseControlTest {
         // One worker owns the whole lifecycle; the test thread only watches latches, counters and the future.
         val lifecycle: Future<ByteArray> = worker.submit<ByteArray> {
             val source = offlineSource().also(owner::set)
-            source.open(stream())
-            val read = readAll(source)
-            holdHook = {
-                uriDuringClose.set(owner.get().uri) // Same worker, inside close: no concurrent source call.
-                closeEntered.countDown()
+            var read: ByteArray? = null
+            try {
+                source.open(stream())
+                read = readAll(source)
+            } finally {
+                // Closed by this worker whether or not open/read succeeded.
+                holdHook = {
+                    uriDuringClose.set(owner.get().uri) // Same worker, inside close: no concurrent source call.
+                    closeEntered.countDown()
+                }
+                try { source.close() } finally { closeReturned.countDown() }
             }
-            try { source.close() } finally { closeReturned.countDown() }
-            read
+            requireNotNull(read)
         }
 
         assertTrue("The worker reached the held close", closeEntered.await(5, TimeUnit.SECONDS))
@@ -157,19 +177,25 @@ class SourceCloseControlTest {
 
     @Volatile private var holdHook: () -> Unit = {}
 
+    /** Every source a test makes is tracked, so teardown can close it after a failure. */
     private fun offlineSource() = OfflineDataSource { request -> routeOfflineRequest(request, shelf, listOf(shelf), false) }
+        .also { sources.add(it) }
 
     private fun stream(): DataSpec =
         DataSpec.Builder().setUri(requireNotNull(track.mediaItem(endpoint).localConfiguration).uri).build()
 
+    /** Bounded to the tiny payload: a source that returns zero forever or too many bytes fails, not hangs. */
     private fun readAll(source: DataSource): ByteArray {
         var bytes = byteArrayOf()
-        val buffer = ByteArray(64)
-        while (true) {
+        val buffer = ByteArray(payload.size + 1)
+        repeat(payload.size + 2) {
             val count = source.read(buffer, 0, buffer.size)
             if (count == C.RESULT_END_OF_INPUT) return bytes
+            check(count > 0) { "read returned $count" }
             bytes += buffer.copyOf(count)
+            check(bytes.size <= payload.size) { "More bytes than the fixture holds" }
         }
+        error("No end of input within the expected payload")
     }
 
     private fun seedCompletedDownload() {
@@ -215,9 +241,12 @@ class SourceCloseControlTest {
             }
             delegate.close()
             delegateCloses.incrementAndGet()
-            if (fault == Fault.CloseAfterDelegate) throw IOException("Injected after FileDataSource.close")
+            if (fault == Fault.CloseAfterDelegate) throw InjectedAfterClose()
         }
     }
+
+    /** Thrown only after the real FileDataSource closed successfully. */
+    private class InjectedAfterClose : IOException("Injected after FileDataSource.close")
 
     private inner class FailingUpstream : DataSource {
         override fun addTransferListener(transferListener: TransferListener) = Unit
