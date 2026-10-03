@@ -85,3 +85,7 @@ Create these **repository Actions secrets** in the new private repository:
 The current repository has all three configured. GitHub secrets cannot be retrieved as a recovery backup; keep the local/1Password originals. Restored key files exist only under runner temporary storage, are removed in an always-run cleanup step, and are excluded from caches and uploaded artifacts. Missing secrets fail the build rather than silently generating new identities. Only grant repository push access to people trusted with signing; a modified workflow on a pushed branch can access repository secrets. Fork PR workflows are not enabled.
 
 For workstream names versus APK versions, see [workstream names and release versions](release-naming.md).
+
+## Packaged component access
+
+The APK verifier checks both variants after manifest merging and release shrinking. It requires the Muon playback/download services to be private and rejects unreviewed exported components. The launcher and explicitly permission-protected Media3 Bluetooth/profile-installer components are the only allowed exports. `tools/apk_manifest.py` records the policy; `tools/test_ci_manifest.py` exercises failures. It decodes APK manifests with the SDK command-line tools, so a missing analyzer or unexpected manifest fails CI. This is a static package check; notification/headset compatibility still needs user QA.
