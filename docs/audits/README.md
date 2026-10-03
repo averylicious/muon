@@ -53,3 +53,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 
 - [APK-signing crypto source boundary](2026-10-04-apksig-source.md): constrained JCA callers, separate SDK verifier still uninspected.
 - [Service and reader stop contract](2026-10-04-service-drain-contract.md): helper reset is not shutdown; next disposable controls before production adoption.
+
+- [Playback-reader release acknowledgment](2026-10-04-playback-reader-release.md): player release is not a loading-worker/cache-reader drain receipt; next real Loader control is scoped.
