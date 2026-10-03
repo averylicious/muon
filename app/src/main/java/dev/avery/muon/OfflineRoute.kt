@@ -11,7 +11,8 @@ import androidx.media3.datasource.cache.ContentMetadata
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun routeOfflineRequest(spec: DataSpec, phone: Shelf, shelves: List<Shelf>, offline: Boolean): Pair<Shelf, DataSpec> {
     val found = downloadForStream(spec.uri.scheme, spec.uri.encodedAuthority, spec.uri.path) ?: return phone to spec
-    shelves.firstOrNull { it.completed(found.first) }?.let {
+    // An unavailable card is not read (#179 S1): its song streams instead, or is unavailable offline.
+    servingShelf(shelves, found.first)?.let {
         return it to spec.buildUpon().setUri(Uri.parse(found.second)).setKey(found.first).build()
     }
     // Recent listening uses the phone only offline; reachable Tauon still serves the original.
