@@ -8,6 +8,8 @@ on:
       - 'tools/dependency-inventory.init.gradle.kts'
       - 'tools/dependency_inventory.py'
       - 'tools/test_dependency_inventory.py'
+      - 'tools/verify_gradle_wrapper.py'
+      - 'tools/test_ci_wrapper.py'
       - '**/*.gradle.kts'
       - 'gradle/**'
 
@@ -35,6 +37,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Verify wrapper before Gradle cache restore
+        run: python3 tools/verify_gradle_wrapper.py
+
       - name: Set up Gradle and validate wrapper
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
       - name: Install Android SDK packages
