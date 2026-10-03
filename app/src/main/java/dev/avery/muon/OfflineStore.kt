@@ -282,9 +282,12 @@ internal object OfflineStore {
     }
 
     /** Removes these downloads, finished or not. */
-    fun remove(context: Context, ids: List<String>) = get(context).shelves.forEach { shelf ->
-        // A download is on one shelf; asking the other to remove it does nothing.
-        ids.forEach { DownloadService.sendRemoveDownload(context, shelf.service, it, false) }
+    fun remove(context: Context, ids: List<String>) {
+        moveOwnership.remove(ids)
+        get(context).shelves.forEach { shelf ->
+            // A download is on one shelf; asking the other to remove it does nothing.
+            ids.forEach { DownloadService.sendRemoveDownload(context, shelf.service, it, false) }
+        }
     }
 
     /**
@@ -297,6 +300,7 @@ internal object OfflineStore {
 
     /** Moves one download at a time, behind everything else. */
     private val mover = Executors.newSingleThreadExecutor()
+    private val moveOwnership = DownloadMoveOwnership()
 
     /** How many finished downloads are on the card ([card]) or the phone. Reads the index. */
     fun downloadsOn(context: Context, card: Boolean): Int {
@@ -317,16 +321,26 @@ internal object OfflineStore {
         val from = if (toCard) store.phone else card
         val to = if (toCard) card else store.phone
         val main = Handler(Looper.getMainLooper())
+        val batch = moveOwnership.begin()
         mover.execute {
-            val downloads = ArrayList<Download>()
-            runCatching { from.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { while (it.moveToNext()) downloads += it.download } }
-            main.post { DownloadMarks.moving = 0 to downloads.size }
-            downloads.forEachIndexed { index, download ->
-                if (runCatching { copy(download, from, to) }.isSuccess)
-                    main.post { DownloadService.sendAddDownload(context, to.service, download.request, false) }
-                main.post { DownloadMarks.moving = index + 1 to downloads.size }
+            try {
+                val downloads = ArrayList<Download>()
+                runCatching { from.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { while (it.moveToNext()) downloads += it.download } }
+                main.post { DownloadMarks.moving = 0 to downloads.size }
+                downloads.forEachIndexed { index, download ->
+                    if (moveOwnership.permits(batch, download.request.id) &&
+                        runCatching { copy(download, from, to) }.isSuccess)
+                        main.post {
+                            moveOwnership.publish(batch, download.request.id) {
+                                DownloadService.sendAddDownload(context, to.service, download.request, false)
+                            }
+                        }
+                    main.post { DownloadMarks.moving = index + 1 to downloads.size }
+                }
+            } finally {
+                // Posted after every completion: callbacks still carry ownership until they drain.
+                main.post { moveOwnership.finish(batch); DownloadMarks.moving = null }
             }
-            main.post { DownloadMarks.moving = null }
         }
     }
 
@@ -342,8 +356,11 @@ internal object OfflineStore {
         to.cache.applyContentMetadataMutations(id, ContentMetadataMutations.setContentLength(ContentMetadataMutations(), length))
     }
 
-    fun removeAll(context: Context) = get(context).shelves.forEach {
-        DownloadService.sendRemoveAllDownloads(context, it.service, false)
+    fun removeAll(context: Context) {
+        moveOwnership.removeAll()
+        get(context).shelves.forEach {
+            DownloadService.sendRemoveAllDownloads(context, it.service, false)
+        }
     }
 }
 
