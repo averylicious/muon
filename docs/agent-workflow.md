@@ -7,7 +7,7 @@ The repository's [AGENTS.md](../AGENTS.md) is the shared instruction file. Agent
 1. **Implementation agent:** make a scoped change on a branch, open a PR, and wait for GitHub's checks. Add the actual model/role, latest tested commit, signed Canary test artifact, and focused manual checks to the PR.
 2. **You:** download the artifact ZIP from the linked Actions run, extract it, and install `app-debug.apk` over Muon Canary. Try the manual checks and report observations on the PR or in the review task. Testing another PR replaces that Canary installation; Stable remains separate.
 3. **Astra, when you request it:** review the code, tests, CI evidence, and your feedback. An explicit review-only/leave-open request is respected. Otherwise STATE.md's standing authorization lets the assigned track owner merge blocker-free PRs at their verified heads; independent review is attributed separately from author self-review. Behavior changes during review may need another manual test.
-4. **GitHub Actions:** the successful `main` build publishes the next private Canary prerelease. Astra verifies it and gives you the release link. Obtainium can then fetch that Canary update. Stable promotion is a separate explicit request.
+4. **GitHub Actions:** a successful APK-producing `main` build publishes the next Canary prerelease with the repository's current visibility. Astra verifies it and gives you the release link. Obtainium can then fetch that Canary update. Stable promotion is a separate explicit request.
 
 There is no automatic delegation or approval loop. You choose when to bring a PR back for Astra review. For multiple simultaneous implementation tasks, give each its own branch and checkout/worktree so they do not edit the same files in the same working tree.
 

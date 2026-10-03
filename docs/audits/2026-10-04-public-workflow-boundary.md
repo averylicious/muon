@@ -10,7 +10,7 @@ Inspected main `12ab1e44f4e4de9d91eff383bdd8f117f29818e0` and freshly fetched ex
 - Actions default token read-only, workflow PR review approval disabled; public fork workflow approval **first_time_contributors**. Optional tightening is **all_external_contributors** so a previously accepted external contributor still needs workflow approval. No setting changed in this check.
 - Actions allowed_actions=all and sha_pinning_required=false globally. Current workflow uses are pinned to full SHAs. Optional global pin enforcement/allowlisting is separate from proof that the current workflow is unsafe; compatible changes need their own review.
 - No repository self-hosted runners. Main strict required Build, test and sign + Branch direction (GitHub Actions app15368), admin enforcement enabled, force-push/deletion disabled.
-- Secret scanning and push protection enabled; non-provider patterns and validity checks disabled. These settings do not prove absence of every secret in history, artifacts or installed-app access. This is not a new whole-history secret scan.
+- Secret scanning and push protection enabled; non-provider patterns and validity checks disabled. These settings do not prove absence of every secret in history, artifacts or installed-app access. Secret-scanning API metadata returned zero open alerts without reading secret values; this is not a new whole-history secret scan.
 
 ## Source execution and secret boundary
 
@@ -39,3 +39,7 @@ Have the experimental owner land a separate reviewed current-main forward integr
 ## Acceptance and limits
 
 Read-only validation only; no adversarial fork submitted and no workflow/setting changed. The latest [#302 combined build](https://github.com/averylicious/muon/pull/302) remains open for user phone acceptance. No Stable release/tag, device testing or experimental update is authorized by this report. GitHub's [permanent PR access controls](https://github.blog/changelog/2026-02-13-new-repository-settings-for-configuring-pull-request-access/) are distinct from [temporary interaction limits](https://docs.github.com/en/rest/interactions/repos).
+
+## Continuation receipt
+
+Rechecked after main #314 at `b1067d6d21849a71aa40787e2c4708faf236860e`: permanent creation policies remain COLLABORATORS_ONLY, fork approval remains first_time_contributors, and #302 timeline still shows only the known closure/reopening. Main workflow trigger/secret boundary is unchanged by intervening test/docs changes. Documentation now follows repository visibility rather than calling public Canary outputs private; no setting or credential change was made.

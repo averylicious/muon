@@ -19,7 +19,7 @@ Media3 1.11.0 `exoplayer.jar` from local `build/sources`, sha256 `2d583de9d39b48
 - **Restart method:** `restartService` (1121-1144) uses `Util.startForegroundService` with the private `ACTION_RESTART` (71-72) when foreground is allowed. For `MuonCardDownloadService` it is, because its notification ID is 3 (`MuonDownloadService.kt`).
 - **Not removed elsewhere:** nothing in the inspected service path calls `removeListener` (`DownloadManager.java` 327) on that helper. The manager keeps listeners in a private `CopyOnWriteArraySet` (187).
 
-## Controls (added to `CardServiceCharacterizationTest`; CI pending)
+## Controls (added to `CardServiceCharacterizationTest`; executed in CI)
 
 Both reuse the fixture's idle disposable real managers, caches, native SQLite and services, plus its existing field reflection. New reflection reads only the manager's private `listeners` set. Nothing modifies private state beyond the supported `clearDownloadManagerHelpers`.
 
@@ -38,7 +38,7 @@ Both reuse the fixture's idle disposable real managers, caches, native SQLite an
 ## Limitations
 
 - **The callbacks are synthetic.** The test calls the real retained helper's `onDownloadChanged` directly with a constructed `Download`. No task, download, network, mounted card or real manager event runs. It doesn't claim the OS ran a foreground service, or what the restarted service would do.
-- **Coordinator pinned-source check:** published [shadows-framework4.16.1 sources](https://repo.maven.apache.org/maven2/org/robolectric/shadows-framework/4.16.1/shadows-framework-4.16.1-sources.jar), SHA256 `977c225559953d772cff539dff0ccf4bb757f297e6a18620cd609ba077108409`. ShadowContextImpl335–342 maps startForegroundService to startService; ShadowContextWrapper95–96 consumes the instrumentation started-service queue. This resolves the source-level API uncertainty, but actual execution remains pending first CI. No downloaded software/JAR was executed locally.
+- **Coordinator pinned-source check:** published [shadows-framework4.16.1 sources](https://repo.maven.apache.org/maven2/org/robolectric/shadows-framework/4.16.1/shadows-framework-4.16.1-sources.jar), SHA256 `977c225559953d772cff539dff0ccf4bb757f297e6a18620cd609ba077108409`. ShadowContextImpl335–342 maps startForegroundService to startService; ShadowContextWrapper95–96 consumes the instrumentation started-service queue. This resolves the source-level API uncertainty, and the exact-head CI controls subsequently executed. No downloaded software/JAR was executed locally.
 
 **What this shows:** a retained callback, plus a restart request after detach and map clearing. Destroying the service and clearing the map is **not** listener removal, manager release, or a drain of workers, callbacks or readers.
 
@@ -48,4 +48,8 @@ Both reuse the fixture's idle disposable real managers, caches, native SQLite an
 
 ## Coordinator review
 
-GPT-6 / Codex desktop, effort not reported independently reviewed the actual helper/listener registration, synthetic terminal negative control, active-state restart intent and replacement-service binding against the pinned public sources. Fixture reflection reads the listener set; no task is admitted or private collection mutated. Manager release removes pending application-handler callbacks in the pinned source but is not a worker/cache drain; these controls do not exercise that release boundary. Own report addition is self-reviewed. Exact-head CI and merge receipt follow on the PR.
+GPT-6 / Codex desktop, effort not reported independently reviewed the actual helper/listener registration, synthetic terminal negative control, active-state restart intent and replacement-service binding against the pinned public sources. Fixture reflection reads the listener set; no task is admitted or private collection mutated. Manager release removes pending application-handler callbacks in the pinned source but is not a worker/cache drain; these controls do not exercise that release boundary. Own report addition is self-reviewed. Exact-head CI and merge receipts are recorded below and on the PR.
+
+## Final verification receipt
+
+[#314](https://github.com/averylicious/muon/pull/314) final head `d839d0b08040c97c161db2855cfbd5d5a179f71b`, merged `b1067d6d21849a71aa40787e2c4708faf236860e`. [Android545](https://github.com/averylicious/muon/actions/runs/37152380591) passed; downloaded XML shows 463 tests per variant, zero failures/errors/skips, all six card-service cases executed. Downloaded [debug artifact11284831115](https://github.com/averylicious/muon/actions/runs/37152380591/artifacts/11284831115) BUILD.txt confirms exact head/run545/Canary.545. Fresh Branch direction37153094905 passed. [Independent contribution review and integration self-review](https://github.com/averylicious/muon/pull/314#issuecomment-5973380833) recorded before exact-head merge; strict main checks/admin protection were verified. No manual device QA needed for this test-only change. App candidates remain open, production #179 unresolved.
