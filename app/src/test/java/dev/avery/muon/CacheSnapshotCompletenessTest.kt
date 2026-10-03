@@ -95,14 +95,14 @@ class CacheSnapshotCompletenessTest {
             pending.writeBytes(payload.copyOfRange(half, payload.size))
             // The only public sign of it is a lock on a range the caller already knows to ask about.
             assertNull(cache.startReadWriteNonBlocking(key, half.toLong(), (payload.size - half).toLong()))
-    
+
             // The capture, taken with no new writer admitted after this point.
             val capture = cache.getCachedSpans(key).map { it.position to it.length }
             val capturedBytes = cache.getCachedBytes(key, 0, payload.size.toLong())
             assertEquals(listOf(0L to half.toLong()), capture)
             assertEquals(half.toLong(), capturedBytes)
             assertEquals(emptyList<String>(), events.seen)
-    
+
             // The admitted writer finishes after the capture.
             cache.commitFile(pending, (payload.size - half).toLong())
         } finally {
