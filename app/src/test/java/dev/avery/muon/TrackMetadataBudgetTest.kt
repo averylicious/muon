@@ -58,6 +58,21 @@ class TrackMetadataBudgetTest {
         assertTrue(error.message.orEmpty().contains("Check its tags"))
     }
 
+    @Test fun nulSafeCodecExpansionCannotBypassTheIncomingRecordBudget() {
+        val accepted = song("Title\u0000part").copy(artist = "宇多田\u0000Guest", album = "Album\u0000edition")
+        requireTrackMetadataBudget(accepted)
+        val item = accepted.mediaItem(endpoint)
+        assertEquals(accepted, decodeSong(requireNotNull(item.mediaMetadata.extras?.getByteArray(SONG_EXTRA))))
+        val ordinaryLimit = song("A".repeat(TRACK_METADATA_MAX_BYTES - encodeSong(song("")).size))
+        assertEquals(TRACK_METADATA_MAX_BYTES, encodeSong(ordinaryLimit).size)
+        // Same character count, but #248's safe encoding expands this record beyond #279's byte cap.
+        val expanded = ordinaryLimit.copy(title = "\u0000" + ordinaryLimit.title.drop(1))
+        assertEquals(ordinaryLimit.title.length, expanded.title.length)
+        assertTrue(encodeSong(expanded).size > TRACK_METADATA_MAX_BYTES)
+        assertEquals(expanded, decodeSong(encodeSong(expanded)))
+        assertThrows(IOException::class.java) { requireTrackMetadataBudget(expanded) }
+    }
+
     @Test fun byteBudgetIncludesUnicodeAndAllFieldsWithoutTruncatingThem() {
         val unicode = song("é".repeat(TRACK_METADATA_MAX_BYTES / 2))
         assertTrue(unicode.title.length < TRACK_METADATA_MAX_BYTES)
