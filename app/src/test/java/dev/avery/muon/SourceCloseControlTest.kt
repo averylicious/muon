@@ -238,6 +238,8 @@ class SourceCloseControlTest {
         assertTrue("The worker reached the held close", closeEntered.await(5, TimeUnit.SECONDS))
         gate.close()
         assertFalse("A close in progress is not drained", gate.drained())
+        // A purposeful bounded wait while the close is still held: the timeout grants no drain.
+        assertFalse(gate.awaitDrained(TimeUnit.MILLISECONDS.toNanos(50)))
         closeGate.countDown()
         assertArrayEquals(payload, lifecycle.get(5, TimeUnit.SECONDS))
         assertTrue("Drained once the close returned", gate.awaitDrained(TimeUnit.SECONDS.toNanos(5)))
@@ -297,7 +299,8 @@ class SourceCloseControlTest {
         private var leases = 0
         private var uncertain = false
 
-        fun close() = lock.withLock { admitting = false }
+        // Wakes a waiter that already had no leases, so closure itself can complete a drain.
+        fun close() = lock.withLock { admitting = false; idle.signalAll() }
         fun acquire(): Boolean = lock.withLock { if (!admitting || uncertain) false else { leases++; true } }
         fun release() = lock.withLock {
             check(leases > 0) { "Released more leases than acquired" }

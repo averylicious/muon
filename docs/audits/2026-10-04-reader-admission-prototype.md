@@ -23,7 +23,7 @@ Hashes: datasource `a54ddd9858ed2de57e07c5461dcebdae7a53d92a60210a2a3f5bf501398a
 - **Failed open:** the lease stays held through a failed open until the caller's `close`.
 - **Close:** a successful close releases the lease only **after** the delegate's `close` returns. A failed close quarantines the generation as **uncertain**: no release, and drain is never granted afterwards. A later no-op close doesn't clear it.
 - **Reuse:** each reopen of the same instance acquires a new lease; a reopen after closure or uncertainty is refused.
-- **Drained** means admission closed, no lease held, and no uncertainty. A timed-out `awaitDrained` returns false and grants nothing.
+- **Drained** means admission closed, no lease held, and no uncertainty. A timed-out `awaitDrained` returns false and grants nothing. Closing admission wakes waiters, so a waiter with no leases left doesn't sleep until its timeout.
 
 The three existing controls keep their meaning. The only addition to them is a route-call counter in `offlineSource()`.
 
@@ -32,7 +32,7 @@ The three existing controls keep their meaning. The only addition to them is a r
 1. **`closedAdmissionRefusesAPreviouslyMadeSourceBeforeAnyRouteOrCacheWork`:** a source made before closure is refused on open, with no route call and no cache source created.
 2. **`anActiveCachedOpenBlocksDrainUntilItsCloseReturns`:** a real cached read is open. Closed admission alone isn't drained; the gate drains only after the close, once the real file has closed.
 3. **`aFailedOpenAfterTheFileOpenedStaysCountedUntilTheCallerCloses`:** the injected open failure keeps one lease until the caller's close, which closes the real file.
-4. **`aHeldCloseKeepsDrainFalseUntilTheCloseReturns`:** one worker owns open, read and close. The test thread closes admission while the close is held: not drained. It drains once the close returns, with a bounded wait.
+4. **`aHeldCloseKeepsDrainFalseUntilTheCloseReturns`:** one worker owns open, read and close. The test thread closes admission while the close is held: not drained. A purposeful 50 ms `awaitDrained` while the close is still held returns false, so a timeout grants no drain. Once the close returns, it drains, with a bounded wait.
 5. **`aCloseFailureLeavesTheGenerationUncertainEvenAfterALaterNoOpClose`:**
    - the close failure is injected after a successful real close, and makes the generation uncertain;
    - a reopen is refused even before admission closes, with no extra route;
