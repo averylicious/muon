@@ -1,6 +1,6 @@
 # #179 S3 progressive download release boundary — 2026-10-03
 
-Baseline `6b93a0381083ea1959a7b4e437b40d32f532cf66` on branch `codex/progressive-release-boundary`. It includes main `8dea8cab` and pending PR #293 ([download release boundary](2026-10-03-download-release-boundary.md)). Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not expose effort). Author investigation and test, **not independent review**. Test-only: **no production fix**. No device, network, user data, build, push or merge. #179 remains open.
+Baseline `6b93a0381083ea1959a7b4e437b40d32f532cf66` on branch `codex/progressive-release-boundary`. It includes main `8dea8cab` and merged PR #293 ([download release boundary](2026-10-03-download-release-boundary.md)). Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not expose effort). Claude authored the investigation/control. GPT-6 / Codex desktop (effort not reported) independently checked the pinned source path and test, and fixed fixture drain ordering and failure cleanup. Those coordinator-authored edits are self-reviewed. Test-only: **no production fix**. No device, network or user data. GitHub Actions is the first compile/run. #179 remains open.
 
 **Question:** with Muon's real download path (`DownloadManager` → `DefaultDownloaderFactory` → `ProgressiveDownloader` → `CacheWriter` → `CacheDataSource` → `TeeDataSource`/`CacheDataSink` → `SimpleCache`), can bytes reach the cache after `DownloadManager.release()` has returned?
 
@@ -53,14 +53,14 @@ Content length and the final span list are printed (`MUON_RELEASE_BOUNDARY`) as 
 
 ## Cleanup and CI risks
 
-- **Teardown order:** `@After` always lets the read go, calls `release()` (only once the read was reached, which proves the manager's thread runs), then drains: executor `shutdown` plus `awaitTermination`, and the task thread `join`, each bounded to 5 seconds. Only then are the cache and database released, even after a failed assertion.
+- **Teardown order:** `@After` always lets the read go, calls `release()` (only once the read was reached, which proves the manager's thread runs), then drains: executor `shutdown` plus `awaitTermination`, and the task thread `join`, each bounded to 5 seconds. Both drains are attempted before asserting. The cache/database are released only if the executor has terminated and the task thread is no longer alive.
 - **Assumption, same as #293:** Robolectric's paused looper mode runs the manager's `HandlerThread` on a real thread. If it doesn't, the test fails at the 5-second wait, and teardown skips `release()` to avoid hanging.
 - **Bounded waits:** they use `nanoTime` and latch or join timeouts; there are no sleeps.
-- **If a drain timed out,** teardown would still release the cache while a worker might be inside it. That's bounded, but noted.
+- **If a drain timed out,** this is a fixture failure; teardown refuses to release a cache/database still used by a worker. The disposable harness can retain resources on that exceptional path rather than close them unsafely. No production resources are involved.
 
 ## What this does and doesn't show
 
-- **Would show (once CI confirms):** with Muon's real Media3 download path, a write can commit to the cache after `DownloadManager.release()` has returned. So a release-only stop is not a quiescence barrier; the download executor and task threads must be drained first.
+- **Would show (once CI confirms):** with the real Media3 progressive download components, a write can commit to the cache after `DownloadManager.release()` has returned. So a release-only stop is not a quiescence barrier; the download executor and task threads must be drained first.
 - **Not shown:**
   - that Muon's OkHttp upstream ignores interrupts, or how long a real read stays blocked;
   - any card removal, file loss or data loss;

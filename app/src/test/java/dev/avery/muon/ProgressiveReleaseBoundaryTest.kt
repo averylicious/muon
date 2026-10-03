@@ -80,7 +80,11 @@ class ProgressiveReleaseBoundaryTest {
             if (upstream.entered.count == 0L) runCatching { manager.release() }
             drain()
         } finally {
-            try { cache.release() } finally { database.close() }
+            // Never tear down a cache beneath a worker if the bounded drain itself failed.
+            // That is a fixture failure, not permission to close a resource still in use.
+            if (executor.isTerminated && tracked?.thread?.isAlive != true) {
+                try { cache.release() } finally { database.close() }
+            }
         }
     }
 
@@ -120,8 +124,10 @@ class ProgressiveReleaseBoundaryTest {
     /** Waits, bounded, for the download runnable's executor and the manager's task thread to end. */
     private fun drain() {
         executor.shutdown()
-        assertTrue("Download runnable drained", executor.awaitTermination(5, TimeUnit.SECONDS))
+        val runnableDrained = executor.awaitTermination(5, TimeUnit.SECONDS)
+        // Attempt both drains before asserting: a failed executor await must not skip the task join.
         tracked?.thread?.join(TimeUnit.SECONDS.toMillis(5))
+        assertTrue("Download runnable drained", runnableDrained)
         assertFalse("Manager task thread drained", tracked?.thread?.isAlive == true)
     }
 
