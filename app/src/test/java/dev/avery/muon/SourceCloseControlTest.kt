@@ -34,6 +34,8 @@ import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * #179 characterization, not a production gate: the actual OfflineDataSource -> Shelf.source
@@ -175,11 +177,184 @@ class SourceCloseControlTest {
         assertEquals("A later close does not retry that source", 1, wrapper.closeCalls.get())
     }
 
+    // ---- #179 reader-admission PROTOTYPE (test-local, not production code or a production gate) ----
+    // A per-open lease around the actual OfflineDataSource, for this fixture's one fixed shelf. Teardown
+    // never relies on the prototype: it disposes the cache only from the wrappers' independently observed
+    // real FileDataSource closes.
+
+    @Test fun closedAdmissionRefusesAPreviouslyMadeSourceBeforeAnyRouteOrCacheWork() {
+        val gate = ReaderAdmission()
+        val source = admitted(gate) // Made while admission was open; constructing it does no work.
+        gate.close()
+        assertThrows(ReaderAdmissionClosed::class.java) { source.open(stream()) }
+        source.close() // The DataSource contract still asks for close after a failed open.
+        assertEquals("No routing ran", 0, routeCalls.get())
+        assertTrue("No cache source was made", wrappers.isEmpty())
+        assertTrue(gate.drained())
+    }
+
+    @Test fun anActiveCachedOpenBlocksDrainUntilItsCloseReturns() {
+        val gate = ReaderAdmission()
+        val source = admitted(gate)
+        source.open(stream())
+        assertArrayEquals(payload, readAll(source))
+        gate.close()
+        assertFalse("Closed admission alone is not drained", gate.drained())
+        source.close()
+        assertEquals(1, wrappers.single().delegateCloses.get())
+        assertTrue(gate.drained())
+    }
+
+    @Test fun aFailedOpenAfterTheFileOpenedStaysCountedUntilTheCallerCloses() {
+        fault = Fault.OpenAfterDelegate
+        val gate = ReaderAdmission()
+        val source = admitted(gate)
+        assertThrows(IOException::class.java) { source.open(stream()) }
+        gate.close()
+        assertEquals("The failed open still holds its lease", 1, gate.active())
+        assertFalse(gate.drained())
+        source.close()
+        assertEquals(1, wrappers.single().delegateCloses.get())
+        assertTrue(gate.drained())
+    }
+
+    @Test fun aHeldCloseKeepsDrainFalseUntilTheCloseReturns() {
+        fault = Fault.HoldClose
+        val gate = ReaderAdmission()
+        val closeEntered = CountDownLatch(1)
+        // One worker owns the source; the test thread only operates the gate and watches latches.
+        val lifecycle: Future<ByteArray> = worker.submit<ByteArray> {
+            val source = admitted(gate)
+            var read: ByteArray? = null
+            try {
+                source.open(stream())
+                read = readAll(source)
+            } finally {
+                holdHook = { closeEntered.countDown() }
+                source.close()
+            }
+            requireNotNull(read)
+        }
+        assertTrue("The worker reached the held close", closeEntered.await(5, TimeUnit.SECONDS))
+        gate.close()
+        assertFalse("A close in progress is not drained", gate.drained())
+        closeGate.countDown()
+        assertArrayEquals(payload, lifecycle.get(5, TimeUnit.SECONDS))
+        assertTrue("Drained once the close returned", gate.awaitDrained(TimeUnit.SECONDS.toNanos(5)))
+    }
+
+    @Test fun aCloseFailureLeavesTheGenerationUncertainEvenAfterALaterNoOpClose() {
+        fault = Fault.CloseAfterDelegate
+        val gate = ReaderAdmission()
+        val source = admitted(gate)
+        source.open(stream())
+        assertArrayEquals(payload, readAll(source))
+        assertThrows(InjectedAfterClose::class.java) { source.close() }
+        assertTrue(gate.uncertain())
+        // Uncertainty refuses new opens even before admission closes, and does no routing.
+        assertThrows(ReaderAdmissionClosed::class.java) { source.open(stream()) }
+        assertEquals(1, routeCalls.get())
+        source.close() // A no-op close must not clear the uncertainty.
+        gate.close()
+        assertFalse("No drain while uncertain", gate.drained())
+        assertFalse(gate.awaitDrained(0))
+        // Test cleanup proof only, not a permission from the prototype: the real file did close.
+        assertEquals(1, wrappers.single().delegateCloses.get())
+    }
+
+    @Test fun aReusedSourceReleasesEachLeaseAndCannotReopenAfterAdmissionCloses() {
+        val gate = ReaderAdmission()
+        val source = admitted(gate)
+        source.open(stream())
+        assertArrayEquals(payload, readAll(source))
+        source.close()
+        assertEquals(0, gate.active())
+        source.open(stream()) // The same instance, reopened: a new lease and a new underlying source.
+        assertEquals(1, gate.active())
+        assertEquals(2, wrappers.size)
+        assertArrayEquals(payload, readAll(source))
+        gate.close()
+        assertFalse(gate.drained())
+        source.close()
+        assertTrue(gate.drained())
+        assertThrows(ReaderAdmissionClosed::class.java) { source.open(stream()) }
+        source.close()
+        assertEquals("The refused reopen made no new source", 2, wrappers.size)
+        assertEquals(2, routeCalls.get())
+        assertTrue(gate.drained())
+    }
+
+    private class ReaderAdmissionClosed : IOException("Reader admission closed or uncertain")
+
+    /**
+     * Per-open admission for one fixed shelf generation. Drained only when admission is closed, no
+     * lease is held and no close has failed. A failed close quarantines the generation as uncertain.
+     */
+    private class ReaderAdmission {
+        private val lock = ReentrantLock()
+        private val idle = lock.newCondition()
+        private var admitting = true
+        private var leases = 0
+        private var uncertain = false
+
+        fun close() = lock.withLock { admitting = false }
+        fun acquire(): Boolean = lock.withLock { if (!admitting || uncertain) false else { leases++; true } }
+        fun release() = lock.withLock {
+            check(leases > 0) { "Released more leases than acquired" }
+            if (--leases == 0) idle.signalAll()
+        }
+        fun quarantine() = lock.withLock { uncertain = true; idle.signalAll() }
+        fun active(): Int = lock.withLock { leases }
+        fun uncertain(): Boolean = lock.withLock { uncertain }
+        fun drained(): Boolean = lock.withLock { !admitting && leases == 0 && !uncertain }
+        /** False on timeout or uncertainty; neither grants any permission. */
+        fun awaitDrained(timeoutNanos: Long): Boolean = lock.withLock {
+            var left = timeoutNanos
+            while (!(!admitting && leases == 0 && !uncertain)) {
+                if (uncertain || left <= 0) return false
+                left = idle.awaitNanos(left)
+            }
+            true
+        }
+    }
+
+    /** Acquires on every open, before OfflineDataSource routes; releases only after its close returns. */
+    private class AdmittedSource(private val gate: ReaderAdmission, private val delegate: OfflineDataSource) : DataSource {
+        private var leased = false
+
+        override fun addTransferListener(transferListener: TransferListener) = delegate.addTransferListener(transferListener)
+
+        override fun open(dataSpec: DataSpec): Long {
+            check(!leased) { "Open without closing the previous open" }
+            if (!gate.acquire()) throw ReaderAdmissionClosed()
+            leased = true // Held through a failed open, until the caller's close.
+            return delegate.open(dataSpec)
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int = delegate.read(buffer, offset, length)
+
+        override fun getUri(): Uri? = delegate.uri
+
+        override fun close() {
+            if (!leased) { delegate.close(); return }
+            leased = false
+            try { delegate.close() }
+            catch (failure: Throwable) { gate.quarantine(); throw failure } // Never released: uncertain.
+            gate.release()
+        }
+    }
+
+    private fun admitted(gate: ReaderAdmission) = AdmittedSource(gate, offlineSource())
+
+    private val routeCalls = AtomicInteger()
+
     @Volatile private var holdHook: () -> Unit = {}
 
     /** Every source a test makes is tracked, so teardown can close it after a failure. */
-    private fun offlineSource() = OfflineDataSource { request -> routeOfflineRequest(request, shelf, listOf(shelf), false) }
-        .also { sources.add(it) }
+    private fun offlineSource() = OfflineDataSource { request ->
+        routeCalls.incrementAndGet()
+        routeOfflineRequest(request, shelf, listOf(shelf), false)
+    }.also { sources.add(it) }
 
     private fun stream(): DataSpec =
         DataSpec.Builder().setUri(requireNotNull(track.mediaItem(endpoint).localConfiguration).uri).build()
