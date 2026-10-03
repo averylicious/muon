@@ -13,7 +13,7 @@ A healthy public snapshot plus still-intact named files can recreate this one ex
 ## Unresolved before production recovery
 
 - Snapshot lives only in test memory; no durable catalog, complete-key capture, atomic publication/crash recovery or mutation veto is implemented.
-- A path may change on span touch/rename, a file can disappear or change after capture, and abrupt loss can precede enrollment. Missing snapshot/file means unknown, not empty or permission to delete.
+- A captured path can go stale if Media3 renames the span file. Corrected 2026-10-03: a touch renames only in a cache with no file index. Main's database-backed shelves keep the path and replace the `CacheSpan` object instead; see [cache snapshot paths](2026-10-03-cache-snapshot-paths.md). A file can still disappear or change after capture, and abrupt loss can precede enrollment. Missing snapshot/file means unknown, not empty or permission to delete.
 - The fixture imports one known contiguous span and known metadata field. Multiple/overlapping/missing spans, redirects/custom metadata, corrupted or hostile records, downloads/index attribution and complete audio validity remain untested.
 - UUID/cache UID/generation/containment and ambiguous old shared `card` rows still require S2 ownership rules. No assignment of all legacy rows to the attached volume.
 - Copying into a new namespace needs additional storage, a quiescent original owner, generation-bound services/callbacks, interrupted-import handling and validated source files. None is provided here.
