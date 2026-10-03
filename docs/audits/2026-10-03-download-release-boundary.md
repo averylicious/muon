@@ -1,6 +1,6 @@
 # #179 S3 download release boundary — 2026-10-03
 
-Inspected main `8dea8cabf7089614acfaa6e07e7d4e6336f6b80d`, branch `codex/download-release-boundary`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not expose effort). Author investigation and test, **not independent review**. Test-only: **no production fix**. No device, network, user data, build, push or merge. #179 remains open, and the existing app candidates are still awaiting user QA.
+Inspected main `8dea8cabf7089614acfaa6e07e7d4e6336f6b80d`, branch `codex/download-release-boundary`. Author: Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, effort High as selected (the runtime does not expose effort). Claude authored the investigation and test. GPT-6 / Codex desktop (effort not reported) independently checked the test and pinned source contract, then integrated #292 for combined CI. This source review does not establish runtime behavior. Test-only: **no production fix**. No device, network or user data; GitHub Actions is the first compile. #179 remains open, and the existing app candidates are still awaiting user QA.
 
 Follows the [writer-boundaries report](2026-10-03-cache-writer-boundaries.md) (PR #292), whose limit 2 said `DownloadManager.release` doesn't join running downloads.
 
@@ -46,7 +46,7 @@ The **downloader is test-controlled**. It signals when `download()` is entered, 
 
 ## What this does and doesn't show
 
-- **Shown (modelled):** with a downloader whose cancellation is asynchronous or blocked in I/O, `release()` can return while the download thread is still inside `download()`. So a quiescence step that only calls `release()` doesn't prove that thread has stopped writing.
+- **Source-backed; runtime control pending CI:** with a downloader whose cancellation is asynchronous or blocked in I/O, `release()` can return while the download thread is still inside `download()`. So a quiescence step that only calls `release()` doesn't prove that thread has stopped writing.
 - **Not shown:**
   - that Muon's real `ProgressiveDownloader`/`CacheWriter` keeps writing after release, or for how long;
   - any cache or file change after release, or any data loss;
