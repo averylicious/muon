@@ -4,7 +4,7 @@ This continues [the earlier October 3 checkpoint](2026-10-03-main-audit.md), who
 
 ## Boundary and ownership
 
-Main inspected baseline `8dea8cabf7089614acfaa6e07e7d4e6336f6b80d`. GPT-6 / Codex desktop, effort not reported, continues the main audit. Allocated audit Claude used Opus 5.5 (`claude-opus-5-5`), High selected; runtime model verified, effort not exposed. Claude finished both bounded test assignments and is idle. User-led experimental checkout/session untouched. No device work in this continuation; previous acceptance gates and deferred Pixel lockscreen remain in force.
+Main inspected baseline `8dea8cabf7089614acfaa6e07e7d4e6336f6b80d`. GPT-6 / Codex desktop, effort not reported, continues the main audit. Allocated audit Claude used Opus 5.5 (`claude-opus-5-5`), High selected; runtime model verified, effort not exposed. Claude finished all three bounded test assignments and is idle. User-led experimental checkout/session untouched. No device work in this continuation; previous acceptance gates and deferred Pixel lockscreen remain in force.
 
 ## This continuation
 
@@ -15,9 +15,9 @@ Main inspected baseline `8dea8cabf7089614acfaa6e07e7d4e6336f6b80d`. GPT-6 / Code
 - [Offline resource retention](../audits/2026-10-03-offline-resource-retention.md) narrows #253: cache metadata is materialized in memory; normal DownloadManager current lists exclude completed/failed records. Muon bootstrap/move and framework Remove all still load larger collections. No heap/GC measurement, caps, OOM or leak claim.
 - [Remaining-work checklist](../audits/2026-10-03-remaining-work.md) records source gaps, exact component ancestry in #289/#290, six separate candidates, and acceptance/release gates. Open PR count is not a percentage denominator.
 
-## Active final control and next question
+## Final control and next question
 
-[#294](https://github.com/averylicious/muon/pull/294), `codex/progressive-release-boundary`, head `e6176b2d315313a6062976c034ef3d02c59e0fd9`, includes main `1c865dc22d624eaab8e0157c9f56916b3df4cea0`. [Run 502](https://github.com/averylicious/muon/actions/runs/37117235898) pending at drafting. Claude authored [the real progressive control](../audits/2026-10-03-progressive-release-boundary.md); GPT-6 independently checked source/test, fixed drain/failure cleanup and integrated current main. Opus 5.5 High runtime model verified; Claude idle after its committed assignment. No production/user data touched.
+[#294](https://github.com/averylicious/muon/pull/294), `codex/progressive-release-boundary`, head `e6176b2d315313a6062976c034ef3d02c59e0fd9`, includes main `1c865dc22d624eaab8e0157c9f56916b3df4cea0`. [Run 502](https://github.com/averylicious/muon/actions/runs/37117235898) passed: 444 tests per variant, zero failures/errors/skips, new control executed in both. Observed after drain: span (0,1000), content length1000, index QUEUED. Merged as `ef8aba57770b9fd5286f8c024d85caf2c1ee4ec0`; [final review](https://github.com/averylicious/muon/pull/294#issuecomment-5968439994). Claude authored [the real progressive control](../audits/2026-10-03-progressive-release-boundary.md); GPT-6 independently checked source/test, fixed drain/failure cleanup and integrated current main. Opus 5.5 High runtime model verified; Claude idle after its committed assignment. No production/user data touched.
 
 This continues #179 S3 with the actual ProgressiveDownloader/CacheWriter and a disposable in-process blocking upstream, not user media. Pinned source shows ProgressiveDownloader.download waits for its runnable in finally (188–195); manager release does not wait for the outer download thread. CacheWriter checks cancellation before each read (188–189), while completion/commit timing depends on the in-flight data-source call and close. Do not infer late writes from the controlled stand-in alone. A real control must drain all workers before closing the cache/database and remain bounded on assertion failure.
 
@@ -28,5 +28,7 @@ Then settle generation ownership and safe drain/capture/adoption before a produc
 #289 storage/.494 and #290 network/queue/library/.496 remain **open for user acceptance**. Neither this source continuation nor main test builds replace their installed candidate contents. Component PRs are not closed just because combined CI passed. Six separate current heads (#248/#240/#237/#221/#212/#210) still need deliberate integration and recorded gates. Phone QA remains as in the prior checkpoint; no permission to force lockscreen controls or inject failures against existing card downloads.
 
 Only blocker-free final-head test/report PRs may use standing merge authorization; strict live protection and both required checks must pass. No Stable tag/release, auto-merge or experimental forward-sync landing. Private test logs, local backups and sessions are optional conveniences, not handoff dependencies.
+
+Current source boundary after #294 is main `ef8aba57770b9fd5286f8c024d85caf2c1ee4ec0`. Main #293 [run501](https://github.com/averylicious/muon/actions/runs/37117145049) succeeded and [.501](https://github.com/averylicious/muon/releases/tag/0.1.0-canary.501) published at `1c865dc22d624eaab8e0157c9f56916b3df4cea0`, prerelease/target/assets verified. New main #294 publication is pending at drafting; do not claim it is available until checked. These main APKs contain test/report changes only and exclude #289/#290 candidates.
 
 Final merge/CI/publication and this checkpoint revision are recorded on its PR and #181/#40. Refresh those receipts before resuming. All active edits are confined to owned persistent audit worktrees.

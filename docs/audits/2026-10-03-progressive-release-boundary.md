@@ -67,3 +67,7 @@ Content length and the final span list are printed (`MUON_RELEASE_BOUNDARY`) as 
   - the service-owned managers (S4), the `mover`/`copier` executors, or playback.
 
   The interrupt-ignoring read is synthetic. #179's drain and quiescence design remains unimplemented.
+
+## Final-head CI observations
+
+[#294](https://github.com/averylicious/muon/pull/294) head `e6176b2d315313a6062976c034ef3d02c59e0fd9` passed [run502](https://github.com/averylicious/muon/actions/runs/37117235898): 444 tests per variant, zero failures/errors/skips. Downloaded XML confirms this control executed in both, with after-drain span (0,1000), content length1000 and index QUEUED. Both byte-exact assertions passed. Thus the stated expectation was observed for the synthetic blocked upstream. It does not establish real OkHttp interruption behavior or device/data loss. Merged at `ef8aba57770b9fd5286f8c024d85caf2c1ee4ec0`.

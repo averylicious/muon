@@ -58,3 +58,7 @@ The **downloader is test-controlled**. It signals when `download()` is entered, 
 ## Next step (not started)
 
 Characterize the real `DefaultDownloaderFactory`/`ProgressiveDownloader` with a deterministic in-process blocking upstream `DataSource`, not HTTP. It would show whether a cache write can follow `release()`. #179's drain and quiescence design remains unimplemented.
+
+## Final-head CI receipt
+
+[#293](https://github.com/averylicious/muon/pull/293) head `6b93a0381083ea1959a7b4e437b40d32f532cf66` passed [run500](https://github.com/averylicious/muon/actions/runs/37116736229): 443 tests per variant, zero failures/errors/skips. Downloaded XML confirms this control executed in both variants. Harness assumption was exercised successfully; production/downloader limits above remain. Merged at `1c865dc22d624eaab8e0157c9f56916b3df4cea0`.

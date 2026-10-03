@@ -40,7 +40,7 @@ Do not close component PRs merely because a combined candidate compiles. After u
 
 ## Resume order
 
-1. Finish [#294](https://github.com/averylicious/muon/pull/294)’s real-progressive-downloader control at its verified head. #293 already landed #292’s cache controls and the manager contract; none implement production recovery.
+1. #293/#294 have landed their verified cache/manager/progressive controls (443/444 tests per variant, zero failures/errors/skips). Continue #179’s owned writer drain and generation design; no production recovery is implemented.
 2. Continue #179 ownership design or #213 preservation policy in bounded steps; #253 compatibility/source evidence can progress independently.
 3. After user acceptance, land refreshed combined candidates and reconcile component trackers, then integrate the six separate candidate heads deliberately. Never mix the experiment into main.
 4. Complete remaining dependency/lifecycle/measurement questions; consolidate a release gate list rather than advancing a percentage from PR count or test totals.
