@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Latest main-audit checkpoint: [Drain/CI/storage continuation](handoffs/2026-10-04-source-boundaries.md). Verified test/report and wrapper CI fixes landed; #300/.514 combines storage/metadata/bootstrap/copy/accounting safeguards and remains open for acceptance. #290 and artwork #210/#221 remain separate. Production #179/catalog/generation recovery is unresolved, Pixel lockscreen deferred, user experiment untouched. No new device work; live PR/#181/#40 receipts supersede this snapshot.
+Latest main-audit checkpoint: [Drain/CI/storage continuation](handoffs/2026-10-04-source-boundaries.md). Main19313fcb includes test-only Loader control #309, verified at Android535. #302/.531 combines the app-fix acceptance stack and remains open for user QA; production #179/catalog/generation recovery is unresolved. Current real source-close test-only slice is on codex/source-close-control. No device work this turn; Pixel lockscreen deferred, experiment untouched. Exact-head PR/#181/#40 receipts supersede drafting states.
 
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The earlier controller-policy checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 
