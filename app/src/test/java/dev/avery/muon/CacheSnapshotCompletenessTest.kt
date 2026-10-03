@@ -90,26 +90,27 @@ class CacheSnapshotCompletenessTest {
         // A writer admitted before the capture: it holds the second half's lock and has written its file.
         val hole = cache.startReadWrite(key, half.toLong(), (payload.size - half).toLong())
         assertFalse(hole.isCached)
-        val pending = cache.startFile(key, half.toLong(), (payload.size - half).toLong())
-        pending.writeBytes(payload.copyOfRange(half, payload.size))
-        // The only public sign of it is a lock on a range the caller already knows to ask about.
-        assertNull(cache.startReadWriteNonBlocking(key, half.toLong(), (payload.size - half).toLong()))
-
-        // The capture, taken with no new writer admitted after this point.
-        val capture = cache.getCachedSpans(key).map { it.position to it.length }
-        val capturedBytes = cache.getCachedBytes(key, 0, payload.size.toLong())
-        assertEquals(listOf(0L to half.toLong()), capture)
-        assertEquals(half.toLong(), capturedBytes)
-        assertEquals(emptyList<String>(), events.seen)
-
-        // The admitted writer finishes after the capture.
-        cache.commitFile(pending, (payload.size - half).toLong())
-        cache.releaseHoleSpan(hole)
+        try {
+            val pending = cache.startFile(key, half.toLong(), (payload.size - half).toLong())
+            pending.writeBytes(payload.copyOfRange(half, payload.size))
+            // The only public sign of it is a lock on a range the caller already knows to ask about.
+            assertNull(cache.startReadWriteNonBlocking(key, half.toLong(), (payload.size - half).toLong()))
+    
+            // The capture, taken with no new writer admitted after this point.
+            val capture = cache.getCachedSpans(key).map { it.position to it.length }
+            val capturedBytes = cache.getCachedBytes(key, 0, payload.size.toLong())
+            assertEquals(listOf(0L to half.toLong()), capture)
+            assertEquals(half.toLong(), capturedBytes)
+            assertEquals(emptyList<String>(), events.seen)
+    
+            // The admitted writer finishes after the capture.
+            cache.commitFile(pending, (payload.size - half).toLong())
+        } finally {
+            cache.releaseHoleSpan(hole)
+        }
 
         assertEquals("Commit is what announces the span", listOf("added:$half:${payload.size - half}"), events.seen)
         assertTrue(cache.isCached(key, 0, payload.size.toLong()))
-        assertEquals("The earlier capture missed bytes that are now committed",
-            payload.size.toLong() - capturedBytes, (payload.size - half).toLong())
         // A fresh recapture sees both spans and the exact bytes.
         val recapture = cache.getCachedSpans(key).sortedBy { it.position }
         assertEquals(listOf(0L to half.toLong(), half.toLong() to (payload.size - half).toLong()),

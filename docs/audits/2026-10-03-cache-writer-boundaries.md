@@ -92,3 +92,9 @@ A source-only characterization of `DownloadManager.release` and pause: a disposa
 ## Unresolved
 
 #179 (loss during I/O, identity, service swap, recovery and migration), #213, #230 and #253 remain open. These controls are evidence for a design, not a barrier implementation. CI is the first compile and run of `CacheSnapshotCompletenessTest`.
+
+## Independent coordinator review
+
+GPT-6 / Codex desktop, effort not reported, independently checked the controls, actual main call sites and pinned datasource/exoplayer source hashes. Verified metadata mutation has no listener notification and retained metadata is replaced immutably; unfinished hole writes appear only at commit. DownloadManager's own Task.cancel comment explicitly permits ongoing cancellation after manager release; this is not proof of a live Muon downloader still writing after release. Public release waits for its internal handler and clears its own application messages, so the report's queued-callback concern is about independent OfflineStore handlers/workers, not claiming DownloadManager leaves every own callback intact.
+
+Coordinator added finally-based hole-lock cleanup to the second fixture and removed a redundant arithmetic assertion; those own edits are self-checks. The fixture remains single-threaded interleaving evidence, not a real concurrent worker shutdown, absent-card, process-death or power-loss test. CI is the first compile/execution; final-head results belong on the PR. No production barrier, recovery design or fix was implemented.
