@@ -157,21 +157,31 @@ internal object OfflineStore {
      * one shelf only, so once it finishes on this one, a copy left on the other (a move) is removed.
      */
     private fun watch(context: Context, shelf: Shelf, store: Store, main: Handler) {
+        // Live callbacks and publication run on the application/main looper. An index snapshot can
+        // already be obsolete when posted; retain newer events until that one bootstrap finishes.
+        var changed: MutableSet<String>? = HashSet()
         shelf.manager.addListener(object : DownloadManager.Listener {
             override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) {
+                val id = download.request.id
+                changed?.add(id)
                 store.record(download)
                 if (download.state != Download.STATE_COMPLETED) return
-                val id = download.request.id
                 // An unavailable card keeps its copy (#179 S1): removing it would act on missing files.
                 leftoverCopies(shelf, store.shelves, id)
                     .forEach { DownloadService.sendRemoveDownload(context, it.service, id, false) }
             }
-            override fun onDownloadRemoved(m: DownloadManager, download: Download) = store.removed(download)
+            override fun onDownloadRemoved(m: DownloadManager, download: Download) {
+                changed?.add(download.request.id)
+                store.removed(download)
+            }
         })
         Executors.newSingleThreadExecutor().execute {
             val known = ArrayList<Download>()
             runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
-            main.post { known.forEach(store.record) }
+            main.post {
+                try { known.filterNot { it.request.id in changed.orEmpty() }.forEach(store.record) }
+                finally { changed = null } // No lifetime-long tombstones for removed/changed songs.
+            }
         }
     }
 
