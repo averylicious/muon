@@ -26,7 +26,7 @@ The component Gradle selected is `guava:33.4.8-jre`, but the hashed file is `gua
 - **Resolution:** under Android consumer attributes, Gradle chooses an Android runtime variant of the `-jre` component and downloads that file from the sibling `33.4.8-android` directory.
 - **What metadata can't check:** these `files` entries carry only a name and URL, with no size or hash. The module file therefore can't vouch for the jar's bytes; the comparison above uses the jar itself.
 
-The coordinate version and the file-name version legitimately differ here. That is variant selection, not a sign of tampering.
+The coordinate version and the file-name version legitimately differ here. This agrees with published variant metadata; the differing names alone are not evidence of tampering.
 
 ## What agreement means
 
