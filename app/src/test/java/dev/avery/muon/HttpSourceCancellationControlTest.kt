@@ -133,12 +133,14 @@ class HttpSourceCancellationControlTest {
     }
 
     @Test fun aRealCacheWriterClosesItsSinkAndRetainsOnlyThePartialSpanAfterBodyTimeout() {
-        val peer = Peer(sendPartialBody = true).also { servers += it }
-        val client = client(readTimeoutMillis = 1000)
         val database = StandaloneDatabaseProvider(RuntimeEnvironment.getApplication())
-        val cache = SimpleCache(folders.newFolder("partial-cache"), NoOpCacheEvictor(), database)
+        val cache = try { SimpleCache(folders.newFolder("partial-cache"), NoOpCacheEvictor(), database) }
+            catch (error: Throwable) { database.close(); throw error }
         caches += cache to database
         cache.checkInitialization()
+        // Native database/cache setup must not consume the peer's bounded accept window.
+        val peer = Peer(sendPartialBody = true).also { servers += it }
+        val client = client(readTimeoutMillis = 1000)
         val sinkClosed = AtomicBoolean()
         val source = CacheDataSource.Factory().setCache(cache)
             .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(client))
