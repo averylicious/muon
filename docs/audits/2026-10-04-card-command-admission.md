@@ -54,7 +54,7 @@ They use the existing disposable fixture: real services and helpers, native SQLi
 - **`anOlderInstanceKeepsItsOwnBindingAfterATestOnlyClear`:** this is artificial. Robolectric allows two live instances, Android doesn't, and production never clears the map. An old instance still bound to the original card refuses PAUSE once the store has a replacement card, and the new instance admits it. A shared receipt without the per-instance copy would have paused the original card.
 - **`aRefusedForegroundCommandStillShowsTheForegroundNotification`:** a refused `KEY_FOREGROUND` command still produces the card service's foreground notification (ID 3), and the delivered intent is unchanged.
 
-**Not checked locally:** Robolectric 4.16.1's `ShadowService.lastForegroundNotification`/`lastForegroundNotificationId` were not checked against its published sources, because they weren't available locally. The CI compile is the check.
+**Coordinator API check:** read the pinned Robolectric 4.16.1 `shadows-framework` sources from Maven Central; SHA256 `977c225559953d772cff539dff0ccf4bb757f297e6a18620cd609ba077108409`. `ShadowService.java`115-121 exposes `getLastForegroundNotificationId()` and `getLastForegroundNotification()`, supporting the Kotlin properties used by the fixture. Source reading is not a compile/runtime result; CI remains the first compile.
 
 ## Limits
 

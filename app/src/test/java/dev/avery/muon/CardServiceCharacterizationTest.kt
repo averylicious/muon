@@ -319,6 +319,16 @@ class CardServiceCharacterizationTest {
         assertTrue(replacement.manager.downloadsPaused)
     }
 
+    @Test fun commandAdmissionDoesNotCreateAnAbsentStore() {
+        val app = RuntimeEnvironment.getApplication()
+        val fallback = service()
+        storeField.set(null, null) // Test-only disappearance, not a production retirement mechanism.
+        val command = DownloadService.buildPauseDownloadsIntent(app, MuonCardDownloadService::class.java, false)
+        fallback.get().onStartCommand(command, 0, 1)
+        assertNull("Admission must not initialize another store", OfflineStore.current())
+        assertFalse("The retained phone manager remains unchanged", store.phone.manager.downloadsPaused)
+    }
+
     @Test fun aRefusedForegroundCommandStillShowsTheForegroundNotification() {
         val app = RuntimeEnvironment.getApplication()
         val fallback = service() // No card: bound to the phone manager
