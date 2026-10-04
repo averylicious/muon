@@ -42,7 +42,8 @@ gradle.projectsEvaluated {
                 if (failures.isNotEmpty()) throw GradleException("Unresolved dependencies in $name", failures.first().failure)
                 val modules = result.allComponents.mapNotNull { coordinate(it.id) }.distinct().sorted()
                 if (modules.isEmpty()) throw GradleException("Empty dependency inventory for $name")
-                // The configuration's own selected artifacts (jars, AARs): no other variants, sources or transforms.
+                // The configuration's selected artifacts: no extra variant/view requested.
+                // Resolving them may download files or run already-configured artifact transforms.
                 val artifacts = configuration.incoming.artifacts.artifacts.mapNotNull { artifact ->
                     val module = coordinate(artifact.id.componentIdentifier) ?: return@mapNotNull null
                     val file = artifact.file

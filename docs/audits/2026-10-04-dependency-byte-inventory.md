@@ -15,7 +15,7 @@ Inspected main `21d704bc871f883ce3973339452af9a4398c0126`, branch `codex/depende
 **What it doesn't touch:**
 - No artifact view, attribute change or transform is requested.
 - No sources, javadoc or other variants are resolved.
-- No extra code runs: it only reads files Gradle already selected.
+- The task hashes files without loading/executing their classes. Accessing the configuration's artifacts can trigger downloads and already-configured transforms; build configuration/plugins have already executed. It is not a no-execution boundary.
 - A file seen in several scopes is hashed once.
 - Non-module artifacts (project or file dependencies) are skipped.
 
@@ -39,7 +39,7 @@ Entries must be unique and sorted by module and file. Records without `artifacts
 
 ## What this is, and what it isn't
 
-- **What it is:** an **observation** of which files the Gradle run actually selected, made after build configuration. It gives later audits exact bytes to compare against published checksums or signatures.
+- **What it is:** an **observation** of which files the Gradle run actually selected, made after build configuration. It gives later audits byte observations to compare against separately authenticated artifacts/checksums/signatures. It is not immutable evidence against already-running build logic or concurrent file mutation.
 - **What it isn't:**
   - publisher authentication;
   - verified dependency admission;
@@ -51,8 +51,8 @@ Entries must be unique and sorted by module and file. Records without `artifacts
 
 ## Limits
 
-- **Gradle API not checked locally:** `ResolvableDependencies.getArtifacts()`, `ArtifactCollection.getArtifacts()`, `ResolvedArtifactResult.getFile()/getId()` and `ComponentArtifactIdentifier.getComponentIdentifier()` were written from long-standing public Gradle API knowledge. They were not checked against Gradle 8.13 sources (the wrapper pins `gradle-8.13-bin.zip`). The unsigned workflow's compile and run are the first check.
-- **Android scopes:** resolving artifacts this way is expected to give the selected AAR and JAR files without transforms, but that is unverified until CI shows the actual record. The record should be inspected, not just the green job.
+- **Gradle API:** coordinator read public [Gradle v8.13.0 core API sources](https://github.com/gradle/gradle/tree/v8.13.0/subprojects/core-api/src/main/java/org/gradle/api/artifacts) for `ResolvableDependencies.getArtifacts()`, `ArtifactCollection.getArtifacts()`, `ResolvedArtifactResult.getFile()`, inherited `ArtifactResult.getId()` and `ComponentArtifactIdentifier.getComponentIdentifier()`. This verifies the declared API; the unsigned workflow is the first actual Kotlin-script compile/resolution/hash run.
+- **Android scopes:** selected files/variants must be inspected in CI; no additional view is requested, but existing configuration attributes/transforms still apply. The record should be inspected, not just the green job.
 - **Size and sorting:** the log line grows with hundreds of artifact records. Sorting is lexicographic in both Kotlin and Python, which matches for the enforced ASCII names. A real artifact name outside `[A-Za-z0-9._+-]` would fail the parser visibly rather than pass silently. If that happens, widen the pattern deliberately.
 - **No published-checksum comparison yet:** that is the next bounded task, once a CI record exists.
 
@@ -62,3 +62,7 @@ Entries must be unique and sorted by module and file. Records without `artifacts
 - `git diff --check` and the CI prose check.
 
 No Gradle or Android build was run, and no phone QA is needed.
+
+## Coordinator review and source receipts
+
+GPT-6 / Codex desktop, effort not reported independently reviewed Claude authorab88fb63: existing five-scope/edges compatibility, streaming size/hash, optional strict parser, legacy reporting and malformed/duplicate controls. Qualified resolution versus execution claims; own comments/report corrections and main integration self-reviewed. No workflow permissions/signing/artifact-upload changes. Public v8.13.0 Java source SHA256 receipts: ResolvableDependencies `4daf5e1a9a27cae87bcbb700dc3a3eeb2eb1bd2f480b5181431f9d86910616b5`; ArtifactCollection `dc980f1fc1c6000539a2ca51527853e252f6de6284587789a062606a443f96b0`; ResolvedArtifactResult `40ca0a1a68e9883a138384a13ebc783c9057b932cf9f00e0e84379d07bc984ae`; ComponentArtifactIdentifier `0a711e3e92aaf5518dd1f4fce07aee5cab624b2b5d224e41f9799292b763bddc`. ArtifactResult receipt follows in PR. No local Gradle/Android run or checksum authenticity claim.
