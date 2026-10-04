@@ -44,7 +44,14 @@ The three queue variants come from subdirectories of `core/java/android/os/`. Th
      - `Message.compareMessages` (656-668) orders first by `when`, then by sequence.
    - `STOP_SERVICE`, sent with an uptime `when > 0`, therefore sorts after it in every inspected variant. That holds whether the stop message was queued before or during `onCreate`.
 
-**Source-supported conclusion:** on this inspected path, the attach callback runs before `onDestroy`. A stop arrives as a separate, later ordinary message, and a front-of-queue post made during `onCreate` is ahead of it in all three variants. #322's ordering (destroy before the queued callback drains) is **not** reproduced by ordinary create/stop dispatch. It should stay a **callback-retirement design constraint**, not a demonstrated device behaviour.
+**Source-supported expected ordering:** the inspected insertion and dispatch route puts Media3's front-of-queue callback ahead of the normal stop. A stop is a separate ordinary message with `when > 0`. A front-of-queue post made during `onCreate` sorts ahead of it in each variant's inspected insertion code (and, for the concurrent variants, by the comparator they use). No ordinary counter-route was established in these sources.
+
+This is **not** proof for every queue or platform route. It assumes:
+- the concurrent variants' `next()` honours that comparator, including under barriers (not audited);
+- Media3's handler is an ordinary main-looper handler (`Util` not checked);
+- the build selects one of these variants.
+
+#322's destroy-first ordering therefore stays a **callback-retirement design constraint**. It is not a demonstrated device behaviour. Its fixture passed in Android run 569 at `0c299a033229d422fd772e903ad7707741f17e03` ([#322](https://github.com/averylicious/muon/pull/322) CI), which shows JVM behaviour under that artificial order. It is no device observation.
 
 ## What remains open
 
@@ -57,11 +64,11 @@ The three queue variants come from subdirectories of `core/java/android/os/`. Th
   - vendor patches;
   - the phones' actual builds.
 - **Process death:** it skips `onDestroy` entirely. Nothing here says whether delayed service intents survive process death.
-- **Muon on main:** `MuonDownloadService` and `MuonCardDownloadService` override neither `onCreate` nor `onDestroy`, and no Muon main source calls `stopService` or `stopSelf`. Media3's `stopSelf`/`stopSelfResult` (`onIdle` 853-857, `onTimeout` 705-706) are requests: the stop comes back as a later `STOP_SERVICE` message, so they can't destroy the service within the current message. The pending #321 overrides (not on main) only add work after `super.onCreate()` and don't stop the service.
+- **Muon on main:** `MuonDownloadService` and `MuonCardDownloadService` override neither `onCreate` nor `onDestroy`, and no Muon main source calls `stopService` or `stopSelf`. Media3's `stopSelf`/`stopSelfResult` (`onIdle` 853-857, `onTimeout` 705-706) are requests. On the inspected app-side route, the stop comes back as a later `STOP_SERVICE` message rather than destroying the service within the current message. The system-server side wasn't inspected. The pending #321 overrides (not on main) only add work after `super.onCreate()` and don't stop the service.
 
 ## Constraints for future barriers and manager release
 
-- **What ordering doesn't retire:** queue order removes the specific *destroy before attach callback* case on the ordinary path. It doesn't retire:
+- **What ordering doesn't retire:** the expected queue order makes the *destroy before attach callback* case unexpected on the inspected ordinary route. It doesn't rule that case out for unverified queue implementations, handlers or platform routes. Even where the order holds, it doesn't retire:
   - the helper's listener;
   - its restart path;
   - the periodic updater of a **live** service;
