@@ -29,11 +29,11 @@ Inspected main `8ed4e4ca9932fbb01115ec136a9c5643bf9749c2`, branch `codex/service
 **Tests:**
 1. **Live control: `aLiveServiceRunsTheAttachCallbackAndStopsUpdatingWhenDestroyed`.**
    - `create()` drains the queue, so the callback runs while the instance lives. The foreground notification appears (ID 2, title "Downloading", built from the manager's current downloads).
-   - Advancing past the 1 s interval replaces the notification.
+   - Advancing past the 1 s interval advances the public active notification postTime.
    - After `destroy()`, advancing 2.2 s leaves it unchanged: updates stopped.
 2. **Destroy first: `anAttachCallbackQueuedBeforeDestroyStillStartsUpdatesOnTheDestroyedInstance`.**
    - `onCreate()` and `onDestroy()` are called directly, before the main looper is drained. Nothing has been shown yet, because the callback is still queued.
-   - After draining, the callback starts the foreground on the **destroyed** instance, with the same manager-derived title. Advancing past the interval replaces the notification again, so periodic updates resumed and no public API stops them.
+   - After draining, the callback starts the foreground on the **destroyed** instance, with the same manager-derived title. Advancing past the interval advances its public postTime again, so periodic updates resumed and no public API stops them.
 
 **Teardown:** restores the store, releases the manager (which cancels the held task), joins the actual DownloadManager task thread up to 10 s and checks it exited, then releases the cache, clears the test-only helper map and closes the database. The main looper is never drained after the release, so no queued update reads a released manager. Robolectric discards the remaining messages when the test ends.
 
@@ -61,3 +61,10 @@ Inspected main `8ed4e4ca9932fbb01115ec136a9c5643bf9749c2`, branch `codex/service
 ## Coordinator contribution review
 
 GPT-6 / Codex desktop, effort not reported independently reviewed Claude author `4ddfeaf63eecb82c425846e153ad7b18ce37eed5`, real posted-callback versus injected-listener distinction, fixture lifecycle ordering and pinned helper/updater paths. Own corrections are self-reviewed: join the captured actual task thread instead of equating a downloader-method finally latch with worker termination; a held download times out by failing after30 seconds rather than silently completing after10. Teardown still releases the manager before joining and never drains queued manager-reading callbacks afterwards. Qualified the alternatives list so it does not claim an unsupported exclusive architecture choice. CI first compile/runtime result remains pending.
+
+
+## First CI failure and revised observation
+
+Android565 at `11333dcc90852d5e481ac62fe111832563d5cb1c` compiled but failed both debug fixture cases at the object-identity assertions. Both initial foreground/title assertions passed. Notification object reuse is not a reliable posting receipt, so no periodic-update evidence was accepted from that failed run. The revision observes public active notification `postTime`: pinned Robolectric `ShadowNotificationManager`91-95 replaces a posted record with its current shadow time for each notify;133-152 exposes that timestamp, and `ShadowSystem.currentTimeMillis`28-33 uses uptime in paused mode. Live posting must advance after clock progress, post-destroy stopped posting must remain fixed, and artificial destroy-first posting must advance. No private handler/updater read or manual callback injection.
+
+The fixture now explicitly sets `minRetryCount=0` before adding work. This removes Media3's default IOException retry loop from the held-downloader timeout, so the30-second timeout actually fails that task once. Claude Opus5.5/High independently reviewed the coordinator's11333dc thread-join correction and caught the earlier timeout wording; own timestamp/minimum-retry revision is self-reviewed. Fresh-head CI is required.

@@ -61,6 +61,7 @@ class ServiceAttachLifetimeTest {
         cache = SimpleCache(folders.newFolder("attach_lifetime"), NoOpCacheEvictor(), database)
         cache.checkInitialization()
         manager = DownloadManager(app, DefaultDownloadIndex(database, "attach_lifetime"), DownloaderFactory { held })
+        manager.minRetryCount = 0 // A fixture timeout must fail once, never retry or silently complete.
         manager.requirements = Requirements(0) // No network requirement to meet in the fixture
         manager.addDownload(DownloadRequest.Builder(ID, Uri.parse("http://192.168.1.20:7814/api1/fileopus/7")).build())
         manager.resumeDownloads()
@@ -94,15 +95,14 @@ class ServiceAttachLifetimeTest {
         assertEquals(PHONE_NOTIFICATION_ID, shadowOf(service).lastForegroundNotificationId)
         assertEquals("Built from the manager's current downloads", downloadingTitle(), title(shown))
 
-        val first = notifications().getNotification(PHONE_NOTIFICATION_ID)
+        val first = postedTime()
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(UPDATE_STEP_MS))
-        val updated = notifications().getNotification(PHONE_NOTIFICATION_ID)
-        assertNotSame("Periodic updates rebuild it while the service lives", first, updated)
+        val updated = postedTime()
+        assertTrue("Periodic notification posting advances while the service lives", updated > first)
 
         controller.destroy() // onDestroy stops the updater's own handler
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2 * UPDATE_STEP_MS))
-        assertSame("No update after a destroy that followed the attach callback", updated,
-            notifications().getNotification(PHONE_NOTIFICATION_ID))
+        assertEquals("No posting after a destroy that followed the attach callback", updated, postedTime())
     }
 
     @Test fun anAttachCallbackQueuedBeforeDestroyStillStartsUpdatesOnTheDestroyedInstance() {
@@ -120,10 +120,9 @@ class ServiceAttachLifetimeTest {
         assertEquals(PHONE_NOTIFICATION_ID, shadowOf(service).lastForegroundNotificationId)
         assertEquals("Built from the manager's current downloads", downloadingTitle(), title(shown))
 
-        val first = notifications().getNotification(PHONE_NOTIFICATION_ID)
+        val first = postedTime()
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(UPDATE_STEP_MS))
-        assertNotSame("Periodic updates resumed after destroy, and nothing public stops them", first,
-            notifications().getNotification(PHONE_NOTIFICATION_ID))
+        assertTrue("Periodic notification posting resumes in the artificial destroy-first order", postedTime() > first)
     }
 
     private fun awaitDownloading() {
@@ -137,8 +136,9 @@ class ServiceAttachLifetimeTest {
         }
     }
 
-    private fun notifications() =
-        shadowOf(RuntimeEnvironment.getApplication().getSystemService(NotificationManager::class.java))
+    private fun postedTime(): Long = RuntimeEnvironment.getApplication()
+        .getSystemService(NotificationManager::class.java).activeNotifications
+        .single { it.id == PHONE_NOTIFICATION_ID }.postTime
 
     private fun downloadingTitle(): String =
         RuntimeEnvironment.getApplication().getString(androidx.media3.exoplayer.R.string.exo_download_downloading)
