@@ -76,3 +76,6 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Loudness/volume source](2026-10-04-loudness-volume-source.md) and [settings controls](2026-10-04-loudness-settings-controls.md): attenuating scalar and preferences correctness, not audio/heap/platform verification.
 - [Attach-lifetime controls](2026-10-04-service-attach-lifetime.md): real posted callback with artificial destroy-first ordering; no ordinary-device scheduling claim.
 - [Pending #321 card-command guard](https://github.com/averylicious/muon/pull/321): application change awaiting user QA; not full #179 recovery.
+
+- [Framework create/stop ordering](2026-10-04-framework-service-order.md): expected front callback ordering is route-qualified; artificial JVM ordering is not a demonstrated device bug.
+- [Metadata IPC source](2026-10-04-metadata-ipc-budget.md): lists split, individual items remain whole; existing pending metadata budget and source-only sizing caveats retained.
