@@ -1,6 +1,14 @@
 package dev.avery.muon
 
 import android.net.Uri
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSink
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheDataSink
+import androidx.media3.datasource.cache.CacheWriter
+import androidx.media3.datasource.cache.NoOpCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource.HttpDataSourceException
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -11,9 +19,13 @@ import okhttp3.Protocol
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.SQLiteMode
 import java.io.InterruptedIOException
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -22,31 +34,40 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /**
  * Actual pinned HTTP/1 bridge over disposable JVM loopback sockets. This is not an Android socket,
- * downloader/cache drain or card-loss fixture. Each source has one owner; cleanup closes the peer
+ * downloader/manager drain or card-loss fixture. The last case also uses the real CacheWriter/sink. Each source has one owner; cleanup closes the peer
  * and drains all owned threads before returning, including after a failed assertion.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
+@SQLiteMode(SQLiteMode.Mode.NATIVE)
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class HttpSourceCancellationControlTest {
+    @get:Rule val folders = TemporaryFolder()
+    private val caches = mutableListOf<Pair<SimpleCache, StandaloneDatabaseProvider>>()
     private val servers = mutableListOf<Peer>()
     private val clients = mutableListOf<OkHttpClient>()
     private val readers = mutableListOf<Reader>()
 
     @After fun tearDown() {
         // Do not infer completion from Call.cancel or source.close alone. Release the controlled
-        // peer first, then require actual owner and dispatcher termination. There is no cache here.
+        // peer first, then require actual owner and dispatcher termination. Only the partial-span case owns a disposable cache; its writer must terminate first.
         servers.forEach { it.stop() }
         clients.forEach { it.dispatcher.cancelAll(); it.connectionPool.evictAll() }
         readers.forEach { it.owner.interrupt(); it.owner.join(5000) }
         clients.forEach { it.dispatcher.executorService.shutdown() }
         val dispatchersDone = clients.map { it.dispatcher.executorService.awaitTermination(5, TimeUnit.SECONDS) }
         servers.forEach { it.owner.join(5000) }
-        assertTrue("Every HTTP source owner terminated", readers.all { !it.owner.isAlive && it.done.count == 0L })
+        val ownersDone = readers.all { !it.owner.isAlive && it.done.count == 0L }
+        // Never dispose a cache below an unjoined writer, even on failure.
+        if (ownersDone && readers.all { it.closeReturned }) {
+            caches.forEach { (cache, database) -> try { cache.release() } finally { database.close() } }
+        }
+        assertTrue("Every HTTP source owner terminated", ownersDone)
         assertTrue("Every source close returned", readers.all { it.closeReturned })
         assertTrue("Every dispatcher terminated", dispatchersDone.all { it })
         assertTrue("Every loopback peer terminated", servers.all { !it.owner.isAlive })
@@ -111,6 +132,44 @@ class HttpSourceCancellationControlTest {
         assertFalse(reader.owner.isAlive)
     }
 
+    @Test fun aRealCacheWriterClosesItsSinkAndRetainsOnlyThePartialSpanAfterBodyTimeout() {
+        val peer = Peer(sendPartialBody = true).also { servers += it }
+        val client = client(readTimeoutMillis = 1000)
+        val database = StandaloneDatabaseProvider(RuntimeEnvironment.getApplication())
+        val cache = SimpleCache(folders.newFolder("partial-cache"), NoOpCacheEvictor(), database)
+        caches += cache to database
+        cache.checkInitialization()
+        val sinkClosed = AtomicBoolean()
+        val source = CacheDataSource.Factory().setCache(cache)
+            .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(client))
+            .setCacheWriteDataSinkFactory {
+                val actual = CacheDataSink.Factory().setCache(cache).createDataSink()
+                object : DataSink {
+                    override fun open(spec: DataSpec) = actual.open(spec)
+                    override fun write(buffer: ByteArray, offset: Int, length: Int) = actual.write(buffer, offset, length)
+                    override fun close() { actual.close(); sinkClosed.set(true) }
+                }
+            }.createDataSource()
+        val key = "disposable-partial-http"
+        val spec = DataSpec.Builder().setUri(peer.url).setKey(key).setLength(2).build()
+        val reader = Reader(source) { CacheWriter(source, spec, ByteArray(1), null).cache() }
+            .also { readers += it }
+        assertTrue("The real peer sent a partial fixed-length body", peer.responseSent.await(5, TimeUnit.SECONDS))
+        assertTrue("The writer failed and closed after the controlled body timeout", reader.done.await(5, TimeUnit.SECONDS))
+        reader.owner.join(5000)
+        val error = requireNotNull(reader.failure.get()) { "The incomplete response must not complete the cache writer" }
+        assertTrue(causes(error).any { it is SocketTimeoutException })
+        assertTrue("The actual cache sink close returned", sinkClosed.get())
+        assertTrue(reader.closeReturned)
+        assertFalse(reader.owner.isAlive)
+        assertEquals("Peer cleanup did not end the body", 1L, peer.release.count)
+        assertEquals("Only the received byte was committed", 1L, cache.getCachedBytes(key, 0, 2))
+        assertFalse("A partial span is not a complete two-byte resource", cache.isCached(key, 0, 2))
+        val span = cache.getCachedSpans(key).single()
+        assertEquals(0L, span.position)
+        assertArrayEquals(byteArrayOf(42), requireNotNull(span.file).readBytes())
+    }
+
     private fun client(readTimeoutMillis: Long, listener: EventListener = EventListener.NONE): OkHttpClient =
         OkHttpClient.Builder().protocols(listOf(Protocol.HTTP_1_1))
             .connectTimeout(2, TimeUnit.SECONDS).readTimeout(readTimeoutMillis, TimeUnit.MILLISECONDS)
@@ -118,7 +177,7 @@ class HttpSourceCancellationControlTest {
 
     private fun causes(error: Throwable): Sequence<Throwable> = generateSequence(error) { it.cause }
 
-    private class Reader(source: OkHttpDataSource, work: () -> Unit) {
+    private class Reader(source: DataSource, work: () -> Unit) {
         val failure = AtomicReference<Throwable?>()
         val done = CountDownLatch(1)
         @Volatile var closeReturned = false
