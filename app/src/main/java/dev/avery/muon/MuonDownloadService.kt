@@ -35,7 +35,8 @@ private const val CARD_NOTIFICATION = 3
 /**
  * Downloads to the SD card (#112): the same as [MuonDownloadService], for the card's own manager. Only
  * started while a card is in; created with none, it is given the phone's manager for the rest of the
- * process, and then refuses card commands rather than carry them out on the phone's downloads (#179).
+ * process, and then refuses card commands rather than carry them out on the phone's downloads (#179). It
+ * also refuses them while its card is unavailable.
  * That fallback is still resumed when the service is created, and Media3's own restarts still run.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -67,7 +68,10 @@ class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadServi
 
     private fun isCardManager(manager: DownloadManager?): Boolean {
         val store = OfflineStore.current() ?: return false
-        return manager != null && manager === store.card?.manager && manager !== store.phone.manager
+        val card = store.card ?: return false
+        // Also refused while the card is unavailable (#179 S1), as the senders already do. A snapshot: the
+        // card can go right after this check.
+        return manager != null && manager === card.manager && manager !== store.phone.manager && card.available()
     }
 
     private companion object {

@@ -341,6 +341,78 @@ class CardServiceCharacterizationTest {
         assertTrue(command.getBooleanExtra(DownloadService.KEY_FOREGROUND, false))
     }
 
+    // #179 S1 at delivery: the bound card's availability is probed per command. The probe is a stand-in
+    // lambda; no volume is mounted or removed, and no card generation is adopted on recovery.
+
+    @Test fun everyChangingCommandIsRefusedWhileTheBoundCardIsUnavailable() {
+        val app = RuntimeEnvironment.getApplication()
+        DefaultDownloadIndex(database, "unavailable_card").putDownload(Download(request(KEPT), Download.STATE_STOPPED,
+            0L, 0L, C.LENGTH_UNSET.toLong(), KEPT_REASON, Download.FAILURE_REASON_NONE))
+        var available = true
+        val card = shelf("unavailable_card", "unavailable_card", downloaders = inert, present = { available })
+        store.card = card
+        val bound = service() // Bound while available; Media3 resumes the card manager
+        assertSame(card.manager, selected(bound.get()))
+        awaitSettled(card.manager)
+        assertFalse(card.manager.downloadsPaused)
+
+        available = false
+        val clazz = MuonCardDownloadService::class.java
+        listOf(
+            DownloadService.buildAddDownloadIntent(app, clazz, request("added"), false),
+            DownloadService.buildRemoveDownloadIntent(app, clazz, KEPT, false),
+            DownloadService.buildSetStopReasonIntent(app, clazz, KEPT, Download.STOP_REASON_NONE, false),
+            DownloadService.buildRemoveAllDownloadsIntent(app, clazz, false),
+            DownloadService.buildSetRequirementsIntent(app, clazz, Requirements(Requirements.NETWORK_UNMETERED), false),
+            DownloadService.buildPauseDownloadsIntent(app, clazz, false),
+        ).forEachIndexed { startId, command -> bound.get().onStartCommand(command, 0, startId + 1) }
+        assertFalse("Pause refused", card.manager.downloadsPaused)
+        card.manager.pauseDownloads() // Directly, so that a delivered resume would show
+        bound.get().onStartCommand(DownloadService.buildResumeDownloadsIntent(app, clazz, false), 0, 7)
+        assertTrue("Resume refused", card.manager.downloadsPaused)
+
+        awaitSettled(card.manager)
+        assertEquals(DownloadManager.DEFAULT_REQUIREMENTS, card.manager.requirements)
+        assertNull("Add refused", card.manager.downloadIndex.getDownload("added"))
+        val kept = requireNotNull(card.manager.downloadIndex.getDownload(KEPT)) { "Remove and remove-all refused" }
+        assertEquals(Download.STATE_STOPPED, kept.state)
+        assertEquals("Stop reason unchanged", KEPT_REASON, kept.stopReason)
+        assertEquals(listOf(KEPT), card.manager.currentDownloads.map { it.request.id })
+        assertTrue("The phone manager, never resumed here, is untouched", store.phone.manager.downloadsPaused)
+        assertNull(store.phone.manager.downloadIndex.getDownload("added"))
+
+        // The probe answering yes again admits the same binding's next command; nothing is re-created or adopted.
+        available = true
+        bound.get().onStartCommand(DownloadService.buildResumeDownloadsIntent(app, clazz, false), 0, 8)
+        assertFalse(card.manager.downloadsPaused)
+    }
+
+    @Test fun aFailingAvailabilityProbeRefusesWithoutCrashing() {
+        val app = RuntimeEnvironment.getApplication()
+        val card = shelf("probe_card", "probe_card_fixture", present = { error("Fixture probe failure") })
+        store.card = card
+        val bound = service()
+        assertSame(card.manager, selected(bound.get()))
+        bound.get().onStartCommand(DownloadService.buildPauseDownloadsIntent(app, MuonCardDownloadService::class.java, false), 0, 1)
+        assertFalse("A probe that throws counts as unavailable", card.manager.downloadsPaused)
+    }
+
+    @Test fun aRefusedForegroundCommandForAnUnavailableCardStillShowsItsNotification() {
+        val app = RuntimeEnvironment.getApplication()
+        var available = true
+        val card = shelf("foreground_card", "foreground_card_fixture", present = { available })
+        store.card = card
+        val bound = service()
+        available = false
+        val command = DownloadService.buildPauseDownloadsIntent(app, MuonCardDownloadService::class.java, true)
+        bound.get().onStartCommand(command, 0, 1)
+        assertFalse(card.manager.downloadsPaused)
+        assertNotNull("The foreground start's notification is shown", shadowOf(bound.get()).lastForegroundNotification)
+        assertEquals(CARD_NOTIFICATION_ID, shadowOf(bound.get()).lastForegroundNotificationId)
+        assertEquals(DownloadService.ACTION_PAUSE_DOWNLOADS, command.action)
+        assertTrue(command.getBooleanExtra(DownloadService.KEY_FOREGROUND, false))
+    }
+
     /** Replaces the fixture's phone with one whose index already holds a stopped download, and inert downloaders. */
     private fun seededPhone(): Shelf {
         DefaultDownloadIndex(database, "seeded_phone").putDownload(Download(request(KEPT), Download.STATE_STOPPED,
@@ -403,11 +475,12 @@ class CardServiceCharacterizationTest {
 
     private fun shelf(folder: String, index: String,
         service: Class<out DownloadService> = MuonCardDownloadService::class.java,
-        downloaders: DownloaderFactory = DownloaderFactory { error("Fixture must not start downloader/network") }): Shelf {
+        downloaders: DownloaderFactory = DownloaderFactory { error("Fixture must not start downloader/network") },
+        present: () -> Boolean = { true }): Shelf {
         val cache = SimpleCache(folders.newFolder(folder), NoOpCacheEvictor(), database)
         cache.checkInitialization()
         val manager = DownloadManager(RuntimeEnvironment.getApplication(), DefaultDownloadIndex(database, index), downloaders)
-        return Shelf(cache, manager, service).also(shelves::add)
+        return Shelf(cache, manager, service, present).also(shelves::add)
     }
 
     private companion object {
