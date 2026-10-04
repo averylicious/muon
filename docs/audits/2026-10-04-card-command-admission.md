@@ -81,3 +81,8 @@ They use the existing disposable fixture: real services and helpers, native SQLi
 - **Not allowed:** failure injection on existing card downloads or user originals.
 
 **Checks run locally:** `git diff --check` and the CI prose check. `test_ci*.py` doesn't cover app code. No Gradle, Kotlin compile or Robolectric run was done locally.
+
+
+## Coordinator source review
+
+GPT-6 / Codex desktop independently reviewed author commit `ad457ab50befd0a4f84ee478c92ac2c3f0351042`, the retained-helper/create/start ordering in pinned Media3 and all new fixtures. Own admission lookup correction uses `OfflineStore.current()` and refuses if absent, instead of initializing storage from a delivered command. This correction is coordinator-authored and self-reviewed. Card binding capture/getter during creation is unchanged. App/manual acceptance remains pending.

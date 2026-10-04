@@ -71,7 +71,7 @@ class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadServi
     }
 
     private fun isCardManager(manager: DownloadManager?): Boolean {
-        val store = OfflineStore.get(this)
+        val store = OfflineStore.current() ?: return false
         return manager != null && manager === store.card?.manager && manager !== store.phone.manager
     }
 
