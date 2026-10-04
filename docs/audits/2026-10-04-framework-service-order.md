@@ -20,7 +20,7 @@ Inspected main `f270cce8c646bc2e0d0f926adcbef38a89de6365`, branch `codex/framewo
 
 The three queue variants come from subdirectories of `core/java/android/os/`. The root `MessageQueue.java` path returns 404, and **which variant a build selects at runtime was not verified**.
 
-**Pinned Media3:** 1.11.0 `exoplayer.jar` sources, SHA256 `2d583de9d39b48e45f9a29f1d94d23032c0642cfc7ca4bbe1967071d26a60ed6`. Coordinator additionally read Google Maven `media3-common-1.11.0-sources.jar`, SHA256 `a1fdf302c059a4d75b3005996a85d96619ccff4a4bf53435bf1f9fd053d86e3e`: `Util.createHandlerForCurrentOrMainLooper`807-829 delegates to ordinary `createHandler` on the current/main looper; no asynchronous handler request.
+**Pinned Media3:** 1.11.0 `exoplayer.jar` sources, SHA256 `2d583de9d39b48e45f9a29f1d94d23032c0642cfc7ca4bbe1967071d26a60ed6`. Coordinator additionally read Google Maven `media3-common-1.11.0-sources.jar`, SHA256 `a1fdf302c059a4d75b3005996a85d96619ccff4a4bf53435bf1f9fd053d86e3e`: `Util.createHandlerForCurrentOrMainLooper`807-829 and `createHandler`845-847 delegate to ordinary `createHandler` on the current/main looper; no asynchronous handler request.
 
 **Not matched to the user's phones:** this commit is not verified as the Pixel QPR1 or POCO build.
 
