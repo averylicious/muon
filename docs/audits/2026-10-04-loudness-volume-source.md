@@ -24,3 +24,7 @@ Downloaded Android561 report XML at `5d5b69451f797b70ddcf71092f9d0c607eee094e` c
 ## Next bounded verification
 
 Use disposable preferences to check settings/remembered-gain/fallback behavior across recreation and toggling, and ordinary 1k/10k remembered histories for representation counts. Timing/heap measurements need a controlled workload and should remain separate from correctness assertions. Keep the no-amplification contract and user metadata; do not turn this source pass into an arbitrary resource limit or an unrequested loudness redesign.
+
+## Later verification receipt
+
+[#323](https://github.com/averylicious/muon/pull/323) added four disposable settings persistence/toggle/median/reload controls after this first source note. Actual Android566 XML469 tests/variant, zero failures/errors/skips; all four cases executed each. Main mergef270cce8c646bc2e0d0f926adcbef38a89de6365 and actual Canary.568 publication verified. These controls do not establish crash-to-disk durability, service callbacks, audio or resource timing. Remembered-history capacity remains a separately scoped #253 question.
