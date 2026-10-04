@@ -1,6 +1,6 @@
 # Main-branch audit
 
-This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [Command admission, lifecycle and loudness](../handoffs/2026-10-04-command-and-loudness.md) and [remaining-work checklist](2026-10-03-remaining-work.md). About 75% of the first source pass (roughly ±10 points) is a planning estimate, not Stable readiness. #289 storage and #290 network/queue/library remain open for user acceptance; Pixel lockscreen deferred. #179 reopened because production preservation remains unresolved. Later PR/#181/#40 receipts supersede dated states.
+This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [Gradle distribution and combined QA checkpoint](../handoffs/2026-10-05-gradle-and-qa.md) and [remaining-work checklist](2026-10-03-remaining-work.md). About 75% of the first source pass (roughly ±10 points) is a planning estimate, not Stable readiness. #289 storage and #290 network/queue/library remain open for user acceptance; Pixel lockscreen deferred. #179 reopened because production preservation remains unresolved. Later PR/#181/#40 receipts supersede dated states.
 
 The user authorized this work on 2026-09-27, alongside Claude and the user's experimental Material 3 work on a separate branch. Either agent may merge a blocker-free PR at its verified head. The audit may follow a finding across any component; the workstreams below organize evidence and handoffs rather than restricting agent ownership. Coordinate actual files before concurrent edits. No Stable release/tag, signing identity change, or phone access is implied.
 
@@ -87,3 +87,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Cache writer boundary](2026-10-04-cache-writer-boundary.md): actual branch read-only/main saving and documented scope; executable-cache authentication remains separate.
 
 - [Cache restore selection](2026-10-04-cache-restore-selection.md): fallback permits other jobs and exclusion failures warn; no fail-closed integrity claim or workflow change.
+
+- [Fresh Gradle distribution boundary](2026-10-05-gradle-distribution-refresh.md): #329 preserves cached wrapper homes before fresh ZIP-checksum installation; remaining executable-cache and action-bundle limits are separate.
