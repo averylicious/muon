@@ -6,6 +6,8 @@ Inspected main `6759b01288973a1c046bb52aab69dd786bf13809`, branch `codex/metadat
 
 ## Sources
 
+Published source endpoints: [Media3 Google Maven](https://dl.google.com/dl/android/maven2/androidx/media3/) and immutable [AOSP framework commit](https://android.googlesource.com/platform/frameworks/base/+/94b4c163b7dfe5ce3607f7bb8456f9573f7de57d/).
+
 Media3 1.11.0 (`app/build.gradle.kts` 82-84), read with Python's `zipfile` and never executed:
 
 | Source | SHA256 |
@@ -26,10 +28,10 @@ Neither is verified as the phones' builds.
 
 - **`encodeSong`** (`OfflineDownloads.kt` 91-92): the version tag and seven fields joined by NUL, converted with `toByteArray()`. Android's default charset is UTF-8.
 - **Two consumers:**
-  - `TauonTrack.mediaItem` (`PlaybackService.kt` 110-120) puts title, artist, album and album artist into `MediaMetadata` (artist and album artist via `displayCredits`), **and** the whole `encodeSong` record into the metadata extras (`SONG_EXTRA`, 119). Each media item therefore carries every text field **twice**.
+  - `TauonTrack.mediaItem` (`PlaybackService.kt` 110-120) puts title, artist, album and album artist into `MediaMetadata` (artist and album artist via `displayCredits`), **and** the whole `encodeSong` record into the metadata extras (`SONG_EXTRA`, 119). The four display text fields are duplicated as formatted metadata and raw record fields; track number remains only in the record. Formatting and serialization overhead make the sizes different.
   - `OfflineStore.add` (233) puts the same record into `DownloadRequest.data`, which `sendAddDownload` (234) sends in an Intent.
 - **Bound on main:** none per song. The only cap is the 16 MiB whole-playlist response (`TauonApi.kt` 32). A single field can therefore reach the megabyte range.
-- **Pending #302:** adds `requireTrackMetadataBudget` (16 KiB for the encoded record, and separately for the displayed UTF-8 fields) at JSON decode (#302 `TauonApi.kt` 64). With it, each media item stays at about **2 × 16 KiB plus overhead**. #302 is open pending user QA, so main is unbounded.
+- **Pending #302:** adds `requireTrackMetadataBudget` (16 KiB for the encoded record, and separately for the displayed UTF-8 fields) at JSON decode (#302 `TauonApi.kt` 64). For the budgeted record and display-field components, this is approximately **2 × 16 KiB plus serializer overhead**; this is not a measured or guaranteed total transaction bound. #302 is open pending user QA, so main is unbounded.
 
 ## Media3 transport (pinned sources)
 
@@ -62,7 +64,7 @@ Neither is verified as the phones' builds.
 - **Verified in source:**
   - Lists are split, but no item size is checked, on the inspected session paths.
   - `PlayerInfo` carries current-item copies in a single bundle.
-  - Muon duplicates each field (metadata text plus extras record).
+  - Muon duplicates the four display text fields (formatted metadata text plus raw extras record), not every record field.
   - Main has no per-song bound.
 - **Hypotheses, not shown:**
   - A specific song size causes `TransactionTooLargeException`, a dropped update or a crash.
@@ -70,13 +72,17 @@ Neither is verified as the phones' builds.
 
 ## Why there is no Parcel test
 
-A Robolectric Parcel byte count would **not** measure Android's representation. `ShadowParcel` sizes every string as UTF-16 (`writeString` 748-754), and maps `nativeWriteString8` to that same path (1153-1155). Real `TextUtils` writes UTF-8. A JVM test would therefore misstate text-field growth, especially multibyte against ASCII, so no test was added.
+A Robolectric Parcel byte count would **not** measure Android's representation. `ShadowParcel` sizes every string as UTF-16 (`writeString` 748-754), and maps `nativeWriteString8` to that same path (1153-1155). Real `TextUtils` writes UTF-8. A JVM test is valid only as a pinned-shadow serializer characterization; it cannot establish real Android text byte counts or Binder safety. Existing #255/#258 disposable SDK34 serializer controls retain that limited meaning. No new byte-count test was added here.
 
 ## Smallest next change, and QA
 
 - **The per-song bound already exists as #302's metadata budget:** it refuses oversized tags at decode, doesn't truncate, and leaves retained records alone. That slice should land through #302's user QA rather than as a new cap here.
-- **After #302:** an emulator or instrumented Parcel measurement (not Robolectric) of one bounded `MediaItem` and `PlayerInfo` could confirm the roughly 4 × 32 KiB worst case. The test should cover ASCII and CJK, and must not induce failures.
+- **After #302:** an emulator or instrumented Parcel measurement (not Robolectric) of one bounded `MediaItem` and `PlayerInfo` could measure the actual duplication/overhead. Four components at approximately32 KiB each is an illustrative representation estimate, not a guaranteed maximum or Binder safety proof. The test should cover ASCII and CJK, and must not induce failures.
 - **Compatibility:** records already stored in download requests and played-copy metadata are read by `decodeSong` and must stay readable. No migration, rewriting or deletion.
 - **User QA:** the #302 metadata and artwork identity checks already listed. No phone work was done here.
 
 **Checks run locally:** `git diff --check` and the CI prose check. No Gradle build.
+
+## Coordinator review
+
+GPT-6 / Codex desktop, effort not reported independently reviewed Claude author91f50344: actual encodeSong and mediaItem fields, pinned BundleListRetriever before-write size check and in-process shortcut, Player.PositionInfo media item bundle, PlayerInfo remote versus in-process paths, and current #258/#302 metadata budget. Qualified all-fields duplication and byte estimates; these own report corrections are self-reviewed. Existing refusal/retention tests and user acceptance are not replaced by this source report. No new defect, policy cap, runtime transaction failure or measured performance is claimed.
