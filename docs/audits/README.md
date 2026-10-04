@@ -1,6 +1,6 @@
 # Main-branch audit
 
-This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [Source and acceptance checkpoint](../handoffs/2026-10-05-source-and-qa.md) and [remaining-work checklist](2026-10-03-remaining-work.md). About 75% of the first source pass (roughly ±10 points) is a planning estimate, not Stable readiness. #289 storage and #290 network/queue/library remain open for user acceptance; Pixel lockscreen deferred. #179 reopened because production preservation remains unresolved. Later PR/#181/#40 receipts supersede dated states.
+This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [HTTP controls and acceptance checkpoint](../handoffs/2026-10-05-http-controls-and-acceptance.md) and [remaining-work checklist](2026-10-03-remaining-work.md). About 75% of the first source pass (roughly ±10 points) is a planning estimate, not Stable readiness. #289 storage and #290 network/queue/library remain open for user acceptance; Pixel lockscreen deferred. #179 reopened because production preservation remains unresolved. Later PR/#181/#40 receipts supersede dated states.
 
 The user authorized this work on 2026-09-27, alongside Claude and the user's experimental Material 3 work on a separate branch. Either agent may merge a blocker-free PR at its verified head. The audit may follow a finding across any component; the workstreams below organize evidence and handoffs rather than restricting agent ownership. Coordinate actual files before concurrent edits. No Stable release/tag, signing identity change, or phone access is implied.
 
@@ -93,3 +93,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [HTTP body-drain source](2026-10-05-http-body-drain-source.md): pinned socket interruption/timeout and worker-completion limits; no native-runtime timing or production teardown permission.
 - [UI focus boundary](2026-10-05-ui-focus-boundary.md): pinned exit composition/new-action admission, accessible gesture alternatives and unverified native focus questions; application fix#335 awaits QA.
 - [Reader routing composition](2026-10-05-reader-route-composition.md): actual two-index routing under a test-local lease bundle, not production generation safety.
+
+- [Actual HTTP source controls](2026-10-05-http-source-controls.md): test-only interrupted header wait, held partial-body timeout and real sink/partial-span evidence; no full downloader/generation retirement.
