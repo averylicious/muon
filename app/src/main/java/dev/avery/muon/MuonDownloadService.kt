@@ -32,11 +32,6 @@ class MuonDownloadService : DownloadService(DOWNLOAD_NOTIFICATION, DownloadServi
 
 private const val CARD_NOTIFICATION = 3
 
-/** The commands that change a manager's downloads, pause state, stop reasons or requirements. */
-private val CHANGING_ACTIONS = setOf(DownloadService.ACTION_ADD_DOWNLOAD, DownloadService.ACTION_REMOVE_DOWNLOAD,
-    DownloadService.ACTION_REMOVE_ALL_DOWNLOADS, DownloadService.ACTION_RESUME_DOWNLOADS, DownloadService.ACTION_PAUSE_DOWNLOADS,
-    DownloadService.ACTION_SET_STOP_REASON, DownloadService.ACTION_SET_REQUIREMENTS)
-
 /**
  * Downloads to the SD card (#112): the same as [MuonDownloadService], for the card's own manager. Only
  * started while a card is in; created with none, it is given the phone's manager for the rest of the
@@ -76,6 +71,11 @@ class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadServi
     }
 
     private companion object {
+        /** The commands that change a manager's downloads, pause state, stop reasons or requirements. */
+        val CHANGING_ACTIONS = setOf(DownloadService.ACTION_ADD_DOWNLOAD, DownloadService.ACTION_REMOVE_DOWNLOAD,
+            DownloadService.ACTION_REMOVE_ALL_DOWNLOADS, DownloadService.ACTION_RESUME_DOWNLOADS, DownloadService.ACTION_PAUSE_DOWNLOADS,
+            DownloadService.ACTION_SET_STOP_REASON, DownloadService.ACTION_SET_REQUIREMENTS)
+
         /** The manager Media3 built this class's helper with; kept as long as its helper map, the process. */
         @Volatile var helperManager: DownloadManager? = null
     }
