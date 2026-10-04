@@ -25,9 +25,13 @@ jobs:
 
       - name: Set up Java 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        # A warm runner tool-cache entry bypasses the action's archive signature verification.
+        env:
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/muon-verified-jdk
         with:
           distribution: temurin
           java-version: '17'
+          verify-signature: true
 
       - name: Verify wrapper before Gradle cache restore
         run: python3 tools/verify_gradle_wrapper.py

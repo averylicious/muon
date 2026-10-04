@@ -53,6 +53,22 @@ class WrapperVerificationTest(unittest.TestCase):
                 if 'Restore signing' in workflow:
                     self.assertLess(index, workflow.index('Restore signing'))
 
+    def test_all_gradle_workflows_verify_fresh_temurin_archives(self):
+        for name in ('android.yml', 'baseline-profile.yml', 'dependency-audit.yml'):
+            with self.subTest(workflow=name):
+                workflow = (ROOT / '.github/workflows' / name).read_text()
+                setup = next(block for block in workflow.split('      - name: ')
+                             if block.startswith('Set up Java 17'))
+                self.assertIn('uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961', setup)
+                self.assertIn('distribution: temurin', setup)
+                self.assertIn('verify-signature: true', setup)
+                self.assertIn('RUNNER_TOOL_CACHE: ${{ runner.temp }}/muon-verified-jdk', setup)
+                for bypass in ('continue-on-error', 'verify-signature-public-key:', 'jdk-file:', 'jdkFile:', 'cache:'):
+                    self.assertNotIn(bypass, setup)
+                # Keep one reviewed Java setup step; do not silently add a second runtime selection.
+                self.assertEqual(workflow.count('uses: actions/setup-java@'), 1)
+                self.assertLess(workflow.index('uses: actions/setup-java@'), workflow.index('./gradlew'))
+
     def test_auxiliary_push_filters_include_guard_changes(self):
         for name in ('baseline-profile.yml', 'dependency-audit.yml'):
             workflow = (ROOT / '.github/workflows' / name).read_text()
