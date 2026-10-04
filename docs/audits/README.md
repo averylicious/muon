@@ -79,3 +79,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 
 - [Framework create/stop ordering](2026-10-04-framework-service-order.md): expected front callback ordering is route-qualified; artificial JVM ordering is not a demonstrated device bug.
 - [Metadata IPC source](2026-10-04-metadata-ipc-budget.md): lists split, individual items remain whole; existing pending metadata budget and source-only sizing caveats retained.
+
+- [Three artifact comparisons](2026-10-04-artifact-byte-comparison.md): independent byte observations agree with Maven Central; publisher trust and other artifacts remain separate.
