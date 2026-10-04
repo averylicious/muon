@@ -2,11 +2,11 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-10-04, main source-audit continuation (no new device work), by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
+_Last updated: 2026-10-05, main source-audit continuation (no new device work), by GPT-6 (Codex desktop; effort not reported). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
 
-- **Audit continuation:** [Command admission, lifecycle and loudness checkpoint](handoffs/2026-10-04-command-and-loudness.md). Java package signature checks now exercise download/verify on all three workflows (#319); service-owner source contract (#320), normalization settings (#323) and posted callback controls (#322) merged at exact green heads. #321 application command guard remains open pending acceptance, #302 combined candidate unchanged. Main Canary.580 actual publication/BUILD.txt verified at224fd29; #324/#325 source reports and #326 byte inventory merged. See checkpoint/PR for exact receipts. No device/experiment work. Production #179 preservation/generation/catalog, resource/identity findings and manual gates remain; qualitative source estimate~75%±10 is not Stable readiness.
+- **Audit continuation:** [Gradle distribution and combined QA checkpoint](handoffs/2026-10-05-gradle-and-qa.md). #329 merged e0c63069c394a60a0d3b6c1a9495bb8bdf7feae2 after exact-head Android586/Dependency37/Baseline15; coordinator self-review and Claude independent implementation review. Main publication and #302 QA refresh are pending in the initial snapshot; verify their live receipts. All app PRs remain open for acceptance, no phone/experiment work. Full #179 storage preservation and resource/identity findings remain; source estimate~75%±10 is not Stable readiness.
 
 - **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
 - **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
