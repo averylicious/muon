@@ -51,7 +51,9 @@ gradle.projectsEvaluated {
                     val (size, sha256) = observe(file)
                     // File name only: no runner or cache paths.
                     mapOf("module" to module, "file" to file.name, "size" to size, "sha256" to sha256)
-                }.sortedWith(compareBy<Map<String, Any>>({ it["module"] as String }, { it["file"] as String }))
+                }
+                    // Whole-record distinct: identical observations coalesce; differing bytes stay for the parser to refuse.
+                    .distinct().sortedWith(compareBy<Map<String, Any>>({ it["module"] as String }, { it["file"] as String }))
                 if (artifacts.isEmpty()) throw GradleException("No resolved module artifacts for $name")
                 val edges = result.allDependencies.filterIsInstance<ResolvedDependencyResult>().mapNotNull { dependency ->
                     val from = coordinate(dependency.from.id)

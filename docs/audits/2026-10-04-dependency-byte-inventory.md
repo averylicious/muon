@@ -56,6 +56,16 @@ Entries must be unique and sorted by module and file. Records without `artifacts
 - **Size and sorting:** the log line grows with hundreds of artifact records. Sorting is lexicographic in both Kotlin and Python, which matches for the enforced ASCII names. A real artifact name outside `[A-Za-z0-9._+-]` would fail the parser visibly rather than pass silently. If that happens, widen the pattern deliberately.
 - **No published-checksum comparison yet:** that is the next bounded task, once a CI record exists.
 
+## First CI run and the identical-observation correction
+
+**Unsigned Dependency run 33 compiled the script and hashed artifacts, then the parser refused the record.** The refusal was "Artifacts must be unique and sorted". The captured public metadata shows why:
+- **The duplicate:** an identical record, `androidx.core:core:1.15.0`, `core-1.15.0.aar`, 1336135 bytes, SHA-256 `432b85a1974076e14b487ece4a28c59a84f1b9efc3fc8be72cd7f05d32055e51`. It appears twice in each of the four app scopes.
+- **No conflict:** no differing bytes were observed for any module and file.
+
+**Correction:** the init script now applies a **whole-record** `distinct()` before sorting. Records identical in module, file, size and hash coalesce. Records for the same module and file with a different size or hash are kept, so the parser's existing duplicate check still refuses them rather than hiding a conflict. The parser, its controls, workflows and artifacts are unchanged.
+
+**Local rehearsal:** the same normalization, applied to the captured run 33 record, takes the scope counts from 77/77/109/109/145 to 76/76/108/108/145. The unchanged parser then accepts all five scopes as observed. This rehearses the parser on real public metadata. It is not a Gradle run: a fresh unsigned workflow must confirm the script's actual output.
+
 **Checks run locally:**
 - `python3 -m unittest discover -s tools -p 'test_dependency_inventory.py'` (10 OK);
 - the CI policy tests (54 OK);
