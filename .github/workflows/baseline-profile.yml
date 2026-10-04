@@ -7,7 +7,7 @@ name: Baseline Profile tools
 on:
   workflow_dispatch:
   push:
-    paths: ['baselineprofile/**', '.github/workflows/baseline-profile.yml', 'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py']
+    paths: ['baselineprofile/**', '.github/workflows/baseline-profile.yml', 'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py', 'tools/isolate_java_toolcache.py']
 
 permissions:
   contents: read
@@ -23,11 +23,19 @@ jobs:
         with:
           persist-credentials: false
 
+      # The action verifies archives only when it downloads, not when the runner cache wins.
+      - name: Isolate preinstalled Temurin cache before verification
+        env:
+          MUON_TOOL_CACHE_ROOT: ${{ runner.tool_cache }}
+          MUON_JDK_QUARANTINE: ${{ runner.temp }}/muon-preinstalled-temurin
+        run: python3 -I tools/isolate_java_toolcache.py "$MUON_TOOL_CACHE_ROOT" "$MUON_JDK_QUARANTINE"
+
       - name: Set up Java 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '17'
+          verify-signature: true
 
       - name: Verify wrapper before Gradle cache restore
         run: python3 tools/verify_gradle_wrapper.py

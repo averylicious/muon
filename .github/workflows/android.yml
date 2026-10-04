@@ -64,12 +64,21 @@ jobs:
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      # The action verifies archives only when it downloads, not when the runner cache wins.
+      - name: Isolate preinstalled Temurin cache before verification
+        if: steps.scope.outputs.build_apks == 'true'
+        env:
+          MUON_TOOL_CACHE_ROOT: ${{ runner.tool_cache }}
+          MUON_JDK_QUARANTINE: ${{ runner.temp }}/muon-preinstalled-temurin
+        run: python3 -I tools/isolate_java_toolcache.py "$MUON_TOOL_CACHE_ROOT" "$MUON_JDK_QUARANTINE"
+
       - name: Set up Java 17
         if: steps.scope.outputs.build_apks == 'true'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '17'
+          verify-signature: true
 
       - name: Verify wrapper before Gradle cache restore
         if: steps.scope.outputs.build_apks == 'true'
