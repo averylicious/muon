@@ -20,7 +20,7 @@ Previously retrieved executed main bundle still hashes `15bdf4c803b9f5c11dba1de7
 
 `generateCacheKey` (cache-key.ts:45–67) constructs an exact OS/architecture, job, workflow/matrix hash and commit key. Without strict matching, restore prefixes progressively omit commit, workflow/matrix and finally job. The broadest prefix retains cache kind/protocol and OS/architecture. Muon's three Gradle workflows set neither strict matching nor key overrides.
 
-Thus a commit suffix is not proof of exclusive same-commit reuse; the normal fallback permits another eligible job's Gradle-home entry. It does not override GitHub's platform branch scope. No actual cross-job fallback selection, raw cache API permissions or untrusted-writer exploit was tested. Existing source/log writer receipts remain separate from runtime selection.
+Thus a commit suffix is not proof of exclusive same-commit reuse; the normal fallback permits another eligible job's Gradle-home entry. It does not override GitHub's platform branch scope. No actual cross-job fallback selection, raw cache API permissions or untrusted-writer exploit was tested. Unsigned34/35 public logs do record restoration of extracted dependencies, transforms, generated Gradle API JAR and unpacked wrapper home. The generic restoration message prints the requested key (`cache-utils.ts:50`), not returned entry.key; do not infer an exact same-commit hit from that message. Main35 subsequently saved a new home key, whereas save102–104 skips an exact-key hit: this is consistent with a non-exact home restore, without identifying its originating job. Existing source/log writer receipts remain separate from runtime selection.
 
 ## Exclusions are cleanup, not an integrity gate
 
