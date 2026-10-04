@@ -159,7 +159,7 @@ This follows #296 and keeps manager release **before** downloader refusal. Other
 - **Intent queue and manager ownership:** an intent carries only the class, action and extras. The manager is resolved at delivery from the class's mapped helper (631). Under the current binding, a class's manager is fixed until process death or a clear.
 - **Phone fallback:** the card class falls back to the **phone** manager when `card` is null at its first creation. The resume at 605 then applies to the phone manager **before** any gate can run.
 - **Restarts and pending starts:**
-  - `START_STICKY` (695) is not a redelivery mode: the delivered intent isn't kept for redelivery. Per the source comment (627-630), a restart may arrive with a null intent, which becomes INIT and carries no mutator.
+  - `START_STICKY` (695) is not a redelivery mode: the delivered intent isn't kept for redelivery. The [Android Service reference](https://developer.android.com/reference/android/app/Service#START_STICKY) confirms the delivered intent is not retained; a sticky restart without pending starts receives null. Media3627-630 maps null to INIT, with no command-specific mutator. This documents API semantics, not measured platform scheduling.
   - Whether an **undelivered** pending start can reach a later process is not verified here.
   - Any card-command misroute to the phone after process death is therefore source-inferred and conditional on that, not established.
 - **Process death** ends every in-process owner. On the next start, `OfflineStore.get` runs before either service binds. That ordering doesn't make the cache construction it triggers non-destructive.
@@ -185,7 +185,7 @@ This follows #296 and keeps manager release **before** downloader refusal. Other
    - **Clears:** if the map is cleared while this instance lives, the instance keeps its old helper and snapshot. The new receipt only applies to the next instance.
    - **Limit:** the snapshot is inferred from pinned source. It doesn't observe the helper. A Media3 upgrade must re-verify 604-609, and Muon must never call `getDownloadManager` itself.
 3. Override `onStartCommand`.
-   - **Admit** the six mutating public actions only when the snapshot **is** `OfflineStore.current()?.card?.manager`, and, with #302, `card.available()`.
+   - **Admit** the seven mutating public actions only when the snapshot **is** `OfflineStore.current()?.card?.manager`, and, with #302, `card.available()`.
    - **Otherwise** pass `super` a copy of the intent with action `ACTION_INIT` (extras kept) and log a warning.
    - **All other actions** pass through unchanged.
 4. **Process death:** it resets the receipt, the map and the store together.
@@ -247,4 +247,6 @@ This follows #296 and keeps manager release **before** downloader refusal. Other
 8. **INIT path:** neutralized INIT still reads the manager and doesn't waive the foreground deadline. The fallback resume happens before the gate.
 9. **Usage:** recorded from the coordinator's runtime. The unrelated connector note is dropped.
 
-**Next step:** the coordinator reviews this revision. If it is accepted, implement the delivery-admission PR: identity-only on main while #302 is pending, with the availability clause after #302 merges. Phone QA stays the user's.
+**Coordinator revision review:** GPT-6 independently rechecked the distinct attach/updater handlers, creation-before-command ordering, captured receipt across helper reuse, manager-release-before-refusal order and Android sticky-vs-redelivery reference. There are **seven** public mutating actions: ADD, REMOVE, REMOVE_ALL, RESUME, PAUSE, SET_STOP_REASON and SET_REQUIREMENTS. Own count/source-link corrections are self-reviewed. The proposed receipt remains tied to the pinned helper creation flow; tests must cover new and recreated instances, phone fallback, late card assignment and a clear with a live old instance. No coordinator source reading proves a stop or actual phone preservation.
+
+**Next step:** implement the narrow production candidate only in a separate PR with CI and pending user QA. If it is accepted, implement the delivery-admission PR: identity-only on main while #302 is pending, with the availability clause after #302 merges. Phone QA stays the user's.
