@@ -49,7 +49,7 @@ def publish():
         + f'Commit: `{sha}`\nBuild and checks: https://github.com/{repo}/actions/runs/{os.environ["GITHUB_RUN_ID"]}\n\n'
         + 'Download the APK directly or follow the [Obtainium setup guide]'
         + f'(https://github.com/{repo}/blob/{sha}/docs/obtainium.md). '
-        + 'This is a private repository; an authorized GitHub token is needed for Obtainium.\n\n'
+        + 'Repository access follows its current GitHub visibility; see the guide for token requirements.\n\n'
         + 'Tauon remains trusted-LAN-only. No server exposure or Internet streaming is configured.\n'
     )
     # A failed listing must fail publication rather than being mistaken for "not found".
