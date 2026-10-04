@@ -73,3 +73,7 @@ The gates' own drain is never used as permission to dispose.
 The faults are synthetic. Real file, cache and network failures, Loader timing and multiple owners aren't shown.
 
 **Checks run locally:** `git diff --check` and the CI prose check. No Gradle, Kotlin or Robolectric run.
+
+## Coordinator contribution review
+
+GPT-6 / Codex desktop, effort not reported independently reviewed Claude author d185347d8b16e3a1fbbdde2ec7d8c5e57b18eb2a: production routing/index delegation, before-route acquisition/rollback, retained failed-open leases, close uncertainty, real-file cleanup and no-network seams. No blocking source finding; corrected the teardown comment (coordinator self-reviewed) because DownloadManager.release waits for an internal flag, not a worker-thread join. This fixture never admits downloader tasks; its source worker has a separate bounded termination receipt. The conservative all-generation bundle is intentionally test-local; no decision to taint both production stores is implied. Exact-head Android compile/executed cases remain pending on the PR.

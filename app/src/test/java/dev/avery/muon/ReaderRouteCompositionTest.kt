@@ -107,7 +107,7 @@ class ReaderRouteCompositionTest {
         val openedDelegatesClosed = wrappers.all { it.delegateOpens.get() == 0 || it.delegateCloses.get() >= 1 }
         if (drained && cleanupFailures.isEmpty() && openedDelegatesClosed) {
             try {
-                managers.forEach { it.release() } // No download was ever added; this joins only the manager thread.
+                managers.forEach { it.release() } // No downloader tasks; release waits for the internal release flag, not worker joins.
                 caches.forEach { it.release() }
             } finally { database.close() }
         }
