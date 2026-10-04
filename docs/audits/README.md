@@ -85,3 +85,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Dependency byte observations](2026-10-04-dependency-byte-inventory.md): optional resolved-file identities, exact duplicate coalescing, strict conflicting-byte refusal; observation after configuration is not publisher authentication.
 
 - [Cache writer boundary](2026-10-04-cache-writer-boundary.md): actual branch read-only/main saving and documented scope; executable-cache authentication remains separate.
+
+- [Cache restore selection](2026-10-04-cache-restore-selection.md): fallback permits other jobs and exclusion failures warn; no fail-closed integrity claim or workflow change.
