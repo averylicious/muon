@@ -732,8 +732,13 @@ private fun PlayerScrim() {
 /**
  * A surface that covers the tabs and insets itself, because the scaffold below cannot reach it.
  * Material's own `Surface` already blocks touches from reaching what it covers, so nothing here
- * adds a click target that a screen reader would announce. Lyrics uses this; the player has
- * [PlayerHost], because its position is driven by gestures as well as by being opened.
+ * adds a click target that a screen reader would announce. Lyrics and Queue use this; the player
+ * has [PlayerHost], because its position is driven by gestures as well as by being opened.
+ *
+ * Like [PlayerHost], once it is no longer [visible] and only sliding away, its content leaves the
+ * accessibility tree and a non-semantic cover takes new touches, so the outgoing screen cannot be
+ * tapped or read while what replaces it is already in use. A touch already in progress keeps its
+ * own stream, and hardware keyboard focus is not changed by this.
  */
 @Composable
 private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
@@ -741,7 +746,10 @@ private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit)
         enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
         exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Box(Modifier.safeDrawingPadding()) { content() }
+            Box(Modifier.safeDrawingPadding()) {
+                Box(if (visible) Modifier else Modifier.clearAndSetSemantics {}) { content() }
+                if (!visible) Box(Modifier.matchParentSize().pointerInput(Unit) {})
+            }
         }
     }
 }
