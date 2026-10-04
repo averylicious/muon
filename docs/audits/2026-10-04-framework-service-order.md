@@ -20,7 +20,7 @@ Inspected main `f270cce8c646bc2e0d0f926adcbef38a89de6365`, branch `codex/framewo
 
 The three queue variants come from subdirectories of `core/java/android/os/`. The root `MessageQueue.java` path returns 404, and **which variant a build selects at runtime was not verified**.
 
-**Pinned Media3:** 1.11.0 `exoplayer.jar` sources, SHA256 `2d583de9…a60ed6`.
+**Pinned Media3:** 1.11.0 `exoplayer.jar` sources, SHA256 `2d583de9d39b48e45f9a29f1d94d23032c0642cfc7ca4bbe1967071d26a60ed6`. Coordinator additionally read Google Maven `media3-common-1.11.0-sources.jar`, SHA256 `a1fdf302c059a4d75b3005996a85d96619ccff4a4bf53435bf1f9fd053d86e3e`: `Util.createHandlerForCurrentOrMainLooper`807-829 delegates to ordinary `createHandler` on the current/main looper; no asynchronous handler request.
 
 **Not matched to the user's phones:** this commit is not verified as the Pixel QPR1 or POCO build.
 
@@ -48,14 +48,14 @@ The three queue variants come from subdirectories of `core/java/android/os/`. Th
 
 This is **not** proof for every queue or platform route. It assumes:
 - the concurrent variants' `next()` honours that comparator, including under barriers (not audited);
-- Media3's handler is an ordinary main-looper handler (`Util` not checked);
+- the service lifecycle runs on the ordinary main looper, as the inspected ActivityThread route does;
 - the build selects one of these variants.
 
 #322's destroy-first ordering therefore stays a **callback-retirement design constraint**. It is not a demonstrated device behaviour. Its fixture passed in Android run 569 at `0c299a033229d422fd772e903ad7707741f17e03` ([#322](https://github.com/averylicious/muon/pull/322) CI), which shows JVM behaviour under that artificial order. It is no device observation.
 
 ## What remains open
 
-- **Variant selection:** the runtime queue variant, its feature flags, and whether the concurrent paths' `next()` honours the comparator under barriers (C781, D654) were not audited for correctness. A sync barrier blocks both messages alike, since `STOP_SERVICE` isn't asynchronous. Whether Media3's handler is asynchronous wasn't checked, because `Util` lives in media3-common, which isn't local.
+- **Variant selection:** the runtime queue variant, its feature flags, and whether the concurrent paths' `next()` honours the comparator under barriers (C781, D654) were not audited for correctness. Pinned `Util` creates an ordinary handler; both its post and the ordinary stop message are synchronous. Queue/barrier implementation correctness remains outside this source pass.
 - **System server:** `ActiveServices` was not inspected. Nothing here shows when the system server sends a stop, or that create and stop for one service always arrive in this order.
 - **Other routes, all unknown:**
   - instrumentation or tests calling lifecycle methods directly (as #322 does);
@@ -78,3 +78,7 @@ This is **not** proof for every queue or platform route. It assumes:
 - **No release permitted:** any in-process manager release still needs the full ordered stop from the [service-owner contract](2026-10-04-service-owner-contract.md). Nothing here permits a cache release, rebind or adoption, or rules out other architectures.
 
 **Checks run locally:** `git diff --check` and the CI prose check. No device QA is needed for this report.
+
+## Coordinator review
+
+GPT-6 / Codex desktop, effort not reported independently reviewed Claude authors08dfb146/76a064c7 against immutable AOSP insertion/dispatch/comparator bytes and pinned Media3 paths. Requested qualification of universal ordering claims; no ordinary counter-route was established, but concurrent next()/vendor correctness is not proved. Own common-handler source follow-up and main integration are self-reviewed. JVM fixture passage is separate from platform ordering. No phone QA needed.
