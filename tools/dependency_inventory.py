@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import sys
 
 SCOPES = {":app:debugRuntimeClasspath", ":app:releaseRuntimeClasspath",
           ":app:debugUnitTestRuntimeClasspath", ":app:releaseUnitTestRuntimeClasspath",
@@ -58,7 +59,39 @@ def parse(text, commit):
                 records.append((parent, child, edge["constraint"]))
             if records != sorted(set(records)):
                 raise ValueError("Dependency edges must be unique and sorted")
+        if "artifacts" in scope:
+            validate_artifacts(scope["artifacts"], modules)
     return data
+
+
+def validate_artifacts(artifacts, modules):
+    """Resolved module files observed after configuration: names, sizes and hashes, not authentication."""
+    if not isinstance(artifacts, list) or not artifacts:
+        raise ValueError("Empty resolved artifact observations")
+    keys = []
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or set(artifact) != {"module", "file", "size", "sha256"}:
+            raise ValueError("Invalid resolved artifact")
+        module, name, size, digest = artifact["module"], artifact["file"], artifact["size"], artifact["sha256"]
+        if module not in modules:
+            raise ValueError("Artifact of an unselected component")
+        # A bare file name: no directories, runner paths, whitespace or control characters.
+        if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._+-]{1,255}", name)
+                or name in {".", ".."}):
+            raise ValueError("Invalid artifact file name")
+        if type(size) is not int or size < 0:
+            raise ValueError("Invalid artifact size")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("Invalid artifact SHA-256")
+        keys.append((module, name))
+    if keys != sorted(set(keys)):
+        raise ValueError("Artifacts must be unique and sorted")
+
+
+def artifact_scopes(data):
+    """Scopes with byte observations, and older records' scopes without them."""
+    scopes = data["configurations"]
+    return ([s["scope"] for s in scopes if "artifacts" in s], [s["scope"] for s in scopes if "artifacts" not in s])
 
 
 if __name__ == "__main__":
@@ -68,3 +101,6 @@ if __name__ == "__main__":
     options = args.parse_args()
     inventory = parse(options.file.read_text(encoding="utf-8-sig"), options.commit)
     print(json.dumps(inventory, sort_keys=True))
+    observed, missing = artifact_scopes(inventory)
+    print(f"Artifact byte observations: {len(observed)} scopes observed, {len(missing)} without (older record)",
+          file=sys.stderr)

@@ -25,6 +25,8 @@ Stable `vMAJOR.MINOR.PATCH` tag runs check their Git ancestry before restoring s
 
 Full builds still produce the artifacts described below; documentation-only runs produce none. Workflow run numbers continue increasing on docs-only runs, so version codes may have gaps. Only compare APK versions for runs that actually built them.
 
+All three Java/Gradle workflows verify the downloaded Temurin archive's detached signature using the public key bundled in the pinned Java setup action. Before Java setup, a hosted-Linux-only helper preserves the preinstalled Temurin namespace in the job temp directory, outside tool-cache lookup. The action otherwise accepts those entries without archive verification, even with `verify-signature` enabled. Other runner tools stay in place, and failures in this preparation stop the job. Invalid or missing signatures stop setup before Gradle or signing-key restoration. This adds a JDK download per job and keeps the existing Java major-version selection; the exact patch still follows the upstream release. It does not authenticate the runner, action bundle, SDK or Gradle dependency/cache contents. See the [source review and verification limits](audits/2026-10-04-java-action-trust.md).
+
 The Ubuntu 24.04 runner installs JDK 17 and Android SDK 37.0 / Build Tools 37.0.0, validates the Gradle wrapper, and runs:
 
 ```sh

@@ -46,7 +46,7 @@ When the user requests review, inspect the PR diff and relevant surrounding code
 
 Review alone does not authorize merging. When the user requests review **and merge**, resolve blocking findings, ensure required checks pass on the final head, and merge that reviewed commit. If fixes change behavior after manual QA, identify what needs retesting. Update the PR's attribution and validation evidence.
 
-A successful `main` build automatically publishes a private Canary prerelease. Verify that publication and provide its link; report build/publication failures without claiming an update is ready. Stable `vMAJOR.MINOR.PATCH` tags require an explicit stable-release request. Do not create per-PR prereleases under the existing Canary feed.
+A successful APK-producing `main` build automatically publishes a Canary prerelease with the repository's current visibility. Verify that publication and provide its link; report build/publication failures without claiming an update is ready. Stable `vMAJOR.MINOR.PATCH` tags require an explicit stable-release request. Do not create per-PR prereleases under the existing Canary feed. While the repository is public, releases and Actions history/logs are public; a prerelease label does not provide access control. Do not upload signing material, credentials or private recovery data.
 
 See `docs/agent-workflow.md` for starter prompts and the human handoff sequence.
 

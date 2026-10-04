@@ -1,7 +1,7 @@
 import copy
 import json
 import unittest
-from dependency_inventory import MARKER, SCOPES, parse
+from dependency_inventory import MARKER, SCOPES, artifact_scopes, parse
 
 
 class InventoryTest(unittest.TestCase):
@@ -58,6 +58,40 @@ class InventoryTest(unittest.TestCase):
         with self.assertRaises(ValueError): parse(json.dumps(d), self.commit)
         d = self.fixture(); d["schema"] = True
         with self.assertRaises(ValueError): parse(json.dumps(d), self.commit)
+
+    def artifact(self, **changes):
+        return dict({"module": "androidx.media3:media3-common:1.11.0", "file": "media3-common-1.11.0.aar",
+                     "size": 1024, "sha256": "0" * 64}, **changes)
+
+    def test_byte_observations_are_optional_and_legacy_records_say_they_have_none(self):
+        legacy = self.fixture()
+        self.assertEqual(legacy, parse(json.dumps(legacy), self.commit))
+        self.assertEqual(([], sorted(SCOPES)), artifact_scopes(legacy))
+        observed = self.fixture()
+        observed["configurations"][0]["artifacts"] = [self.artifact(), self.artifact(file="media3-common-1.11.0.jar", size=0)]
+        self.assertEqual(observed, parse(json.dumps(observed), self.commit))
+        self.assertEqual([observed["configurations"][0]["scope"]], artifact_scopes(observed)[0])
+
+    def test_malformed_byte_observations_fail(self):
+        for artifacts in [[], None, [None], [dict(self.artifact(), extra=1)],
+                          [self.artifact(module="unselected:module:1")],
+                          [self.artifact(file="/home/runner/.gradle/caches/x.jar")], [self.artifact(file="..")],
+                          [self.artifact(file="a b.jar")], [self.artifact(file="")],
+                          [self.artifact(size=True)], [self.artifact(size=-1)], [self.artifact(size=1.0)],
+                          [self.artifact(size="1")], [self.artifact(sha256="A" * 64)], [self.artifact(sha256="0" * 63)]]:
+            d = self.fixture(); d["configurations"][0]["artifacts"] = artifacts
+            with self.subTest(artifacts=artifacts), self.assertRaises(ValueError): parse(json.dumps(d), self.commit)
+        for size in ["NaN", "Infinity", "1e3"]:
+            raw = json.dumps(dict(self.fixture())).replace('"modules"', '"artifacts": [' + json.dumps(
+                self.artifact()).replace("1024", size) + '], "modules"', 1)
+            with self.subTest(size=size), self.assertRaises(ValueError): parse(raw, self.commit)
+
+    def test_duplicate_and_unsorted_byte_observations_fail(self):
+        later = self.artifact(file="media3-common-1.11.0.jar")
+        for artifacts in [[self.artifact(), self.artifact()], [later, self.artifact()],
+                          [self.artifact(), self.artifact(sha256="1" * 64)]]:
+            d = self.fixture(); d["configurations"][0]["artifacts"] = artifacts
+            with self.assertRaises(ValueError): parse(json.dumps(d), self.commit)
 
     def test_duplicate_and_unsorted_edges_fail(self):
         edge = {"from": "<root>", "to": "androidx.media3:media3-common:1.11.0", "constraint": False}
