@@ -16,6 +16,7 @@ import androidx.media3.exoplayer.offline.DownloadService
 import androidx.media3.exoplayer.offline.Downloader
 import androidx.media3.exoplayer.offline.DownloaderFactory
 import androidx.media3.exoplayer.scheduler.Requirements
+import java.io.IOException
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -77,7 +78,9 @@ class ServiceAttachLifetimeTest {
             // Nothing drains the main looper after this, so no queued update can read the released manager;
             // Robolectric discards the looper's remaining messages when the test ends.
             manager.release() // Cancels the held task, which lets its worker return
-            check(held.finished.await(10, TimeUnit.SECONDS)) { "The download worker did not exit" }
+            val worker = requireNotNull(held.worker) { "The held download never started" }
+            worker.join(TimeUnit.SECONDS.toMillis(10))
+            check(!worker.isAlive) { "The actual download task thread did not exit" }
             cache.release()
             DownloadService.clearDownloadManagerHelpers()
         } finally { database.close() }
@@ -146,14 +149,14 @@ class ServiceAttachLifetimeTest {
     /** Stays in download() until cancelled, so the manager keeps one active task without any I/O. */
     private class HeldDownloader : Downloader {
         val started = CountDownLatch(1)
-        val finished = CountDownLatch(1)
+        @Volatile var worker: Thread? = null
+            private set
         private val cancelled = CountDownLatch(1)
 
         override fun download(progressListener: Downloader.ProgressListener?) {
-            try {
-                started.countDown()
-                cancelled.await(10, TimeUnit.SECONDS)
-            } finally { finished.countDown() }
+            worker = Thread.currentThread()
+            started.countDown()
+            if (!cancelled.await(30, TimeUnit.SECONDS)) throw IOException("Held fixture download was not cancelled")
         }
 
         override fun cancel() = cancelled.countDown()

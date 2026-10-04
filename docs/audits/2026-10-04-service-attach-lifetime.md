@@ -35,7 +35,7 @@ Inspected main `8ed4e4ca9932fbb01115ec136a9c5643bf9749c2`, branch `codex/service
    - `onCreate()` and `onDestroy()` are called directly, before the main looper is drained. Nothing has been shown yet, because the callback is still queued.
    - After draining, the callback starts the foreground on the **destroyed** instance, with the same manager-derived title. Advancing past the interval replaces the notification again, so periodic updates resumed and no public API stops them.
 
-**Teardown:** restores the store, releases the manager (which cancels the held task), waits up to 10 s for the worker to exit, then releases the cache, clears the test-only helper map and closes the database. The main looper is never drained after the release, so no queued update reads a released manager. Robolectric discards the remaining messages when the test ends.
+**Teardown:** restores the store, releases the manager (which cancels the held task), joins the actual DownloadManager task thread up to 10 s and checks it exited, then releases the cache, clears the test-only helper map and closes the database. The main looper is never drained after the release, so no queued update reads a released manager. Robolectric discards the remaining messages when the test ends.
 
 ## What this shows, and what it doesn't
 
@@ -47,11 +47,17 @@ Inspected main `8ed4e4ca9932fbb01115ec136a9c5643bf9749c2`, branch `codex/service
 
 - **A destroy receipt isn't a retirement receipt.** Before any manager release, a stop coordinator must have evidence that no attach callback is still queued, or that one already ran and its updates were stopped.
 - **A barrier only orders.** A main-thread barrier after detach orders an earlier front-of-queue callback ahead of itself. But if the callback ran after destroy, the barrier can't undo the restarted updates. Any later update would then read a released manager.
-- **The only boundaries that remove the risk:**
+- **Boundaries currently justified by this scoped evidence:**
   - not releasing the manager in-process, as on main today;
   - or an architecture that owns the notification and lifecycle itself, rather than `DownloadService`'s private updater.
+  - This is not proof that those are the only possible designs. A supported ordering/retirement receipt remains a separate prerequisite to establish; no general API-impossibility claim is made.
 - **No permission granted:** nothing here permits a cache release, rebind or adoption.
 
 **Next bounded step:** source-read Android's `ActivityThread` service-message handling, or run disposable device instrumentation, to learn whether a destroy can precede the queued attach callback. That is only needed if a future design proposes an in-process release; otherwise record this as a constraint on such designs.
 
 **Checks run locally:** `git diff --check` and the CI prose check. No Gradle, Kotlin or Robolectric run.
+
+
+## Coordinator contribution review
+
+GPT-6 / Codex desktop, effort not reported independently reviewed Claude author `4ddfeaf63eecb82c425846e153ad7b18ce37eed5`, real posted-callback versus injected-listener distinction, fixture lifecycle ordering and pinned helper/updater paths. Own corrections are self-reviewed: join the captured actual task thread instead of equating a downloader-method finally latch with worker termination; a held download times out by failing after30 seconds rather than silently completing after10. Teardown still releases the manager before joining and never drains queued manager-reading callbacks afterwards. Qualified the alternatives list so it does not claim an unsupported exclusive architecture choice. CI first compile/runtime result remains pending.
