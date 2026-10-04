@@ -83,3 +83,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Three artifact comparisons](2026-10-04-artifact-byte-comparison.md): independent byte observations agree with Maven Central; publisher trust and other artifacts remain separate.
 
 - [Dependency byte observations](2026-10-04-dependency-byte-inventory.md): optional resolved-file identities, exact duplicate coalescing, strict conflicting-byte refusal; observation after configuration is not publisher authentication.
+
+- [Cache writer boundary](2026-10-04-cache-writer-boundary.md): actual branch read-only/main saving and documented scope; executable-cache authentication remains separate.

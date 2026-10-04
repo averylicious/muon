@@ -4,7 +4,7 @@ Inspected main `7d7d16ff3051ceab147cc2893f3615dff51a615d`, branch `codex/artifac
 
 ## Observed record
 
-These are the public artifact observations captured from unsigned **Dependency inventory** run 33, at commit `667a68283336c0e5edc0d9ef686dabfba8192e74`. Run 33 compiled the init script and hashed resolved artifacts, but **failed end to end**: the parser refused identical duplicate records for `androidx.core:core:1.15.0`. This record is therefore an observation of what that run resolved and hashed, **not a green provenance receipt**. The narrow fix (coalescing identical records) is pending separately as #326, which needs its own fresh CI run.
+These are the public artifact observations captured from unsigned **Dependency inventory** run 33, at commit `667a68283336c0e5edc0d9ef686dabfba8192e74`. Run 33 compiled the init script and hashed resolved artifacts, but **failed end to end**: the parser refused identical duplicate records for `androidx.core:core:1.15.0`. This record is therefore an observation of what that run resolved and hashed, **not a green provenance receipt**. The narrow fix (coalescing identical records) subsequently passed fresh Dependency34 and merged as #326; the coordinator receipt below supersedes this initial pending state.
 
 ## Samples, checked 2026-10-04 at 12:00 UTC
 
@@ -41,7 +41,7 @@ The coordinate version and the file-name version legitimately differ here. This 
 
 ## Next
 
-After #326 produces a green record, a broader comparison could cover more components, or check publisher signatures where a key trust policy has been explicitly reviewed. Neither is started here.
+With Dependency34 green, a broader comparison could cover more components, or check publisher signatures where a key trust policy has been explicitly reviewed. Neither is started here.
 
 **Checks run locally:** `git diff --check` and the CI prose check. No Gradle build, no phone.
 
