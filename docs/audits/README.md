@@ -1,6 +1,6 @@
 # Main-branch audit
 
-This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [Service commands and SDK providers](../handoffs/2026-10-04-service-and-provider.md) and [remaining-work checklist](2026-10-03-remaining-work.md). About 75% of the first source pass (roughly ±10 points) is a planning estimate, not Stable readiness. #289 storage and #290 network/queue/library remain open for user acceptance; Pixel lockscreen deferred. #179 reopened because production preservation remains unresolved. Later PR/#181/#40 receipts supersede dated states.
+This is the continuation index for the independent main audit tracked in [#181](https://github.com/averylicious/muon/issues/181). Start with the [Command admission, lifecycle and loudness](../handoffs/2026-10-04-command-and-loudness.md) and [remaining-work checklist](2026-10-03-remaining-work.md). About 75% of the first source pass (roughly ±10 points) is a planning estimate, not Stable readiness. #289 storage and #290 network/queue/library remain open for user acceptance; Pixel lockscreen deferred. #179 reopened because production preservation remains unresolved. Later PR/#181/#40 receipts supersede dated states.
 
 The user authorized this work on 2026-09-27, alongside Claude and the user's experimental Material 3 work on a separate branch. Either agent may merge a blocker-free PR at its verified head. The audit may follow a finding across any component; the workstreams below organize evidence and handoffs rather than restricting agent ownership. Coordinate actual files before concurrent edits. No Stable release/tag, signing identity change, or phone access is implied.
 
@@ -70,3 +70,9 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 
 - [Queued service command controls](2026-10-04-service-command-control.md): actual service pause/resume dispatch after replacement/no-card fallback; test-only #316, CI465 tests/variant verified.
 - [SDK provider observation](https://github.com/averylicious/muon/pull/317): unsigned isolated bootstrap metadata, candidate provider rather than actual signing selection; exact results and remaining checks in latest checkpoint.
+
+- [Service-owner contract](2026-10-04-service-owner-contract.md): construction resumes before command guards; reset/release are not owner retirement.
+- [Java action trust](2026-10-04-java-action-trust.md): all workflows now exercise package-signature verification; warm-cache success alone was not accepted.
+- [Loudness/volume source](2026-10-04-loudness-volume-source.md) and [settings controls](2026-10-04-loudness-settings-controls.md): attenuating scalar and preferences correctness, not audio/heap/platform verification.
+- [Attach-lifetime controls](2026-10-04-service-attach-lifetime.md): real posted callback with artificial destroy-first ordering; no ordinary-device scheduling claim.
+- [Pending #321 card-command guard](https://github.com/averylicious/muon/pull/321): application change awaiting user QA; not full #179 recovery.
