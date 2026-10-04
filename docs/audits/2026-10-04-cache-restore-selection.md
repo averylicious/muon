@@ -1,6 +1,6 @@
 # Gradle restore selection and exclusion failure — 2026-10-04
 
-Inspected Muon main `224fd29becbdf4b30f6b2cf2de38332745d975de`. GPT-6 / Codex desktop, effort not reported: author source/self-review. Bounded continuation of W2 in [cached distribution trust](2026-10-03-cached-distribution-trust.md). No cache/workflow/dependency change, phone access, signing material or action execution.
+Inspected Muon main `224fd29becbdf4b30f6b2cf2de38332745d975de`. GPT-6 / Codex desktop, effort not reported: author source/self-review. Bounded continuation of the [cache-writer report](2026-10-04-cache-writer-boundary.md) and W2 in [cached distribution trust](2026-10-03-cached-distribution-trust.md). No cache/workflow/dependency change, phone access, signing material or action execution.
 
 ## Immutable source receipts
 
@@ -24,9 +24,9 @@ Thus a commit suffix is not proof of exclusive same-commit reuse; the normal fal
 
 ## Exclusions are cleanup, not an integrity gate
 
-`GradleUserHomeCache.restore`52–75 restores the home, then `afterRestore`82–87 restores extracted entries and deletes excluded paths. The restore method catches afterRestore errors and emits a warning rather than failing the job. `deleteExcludedPaths`146–160 uses configured glob paths plus cc-keystore cleanup; `tryDelete`105–130 retries five times, then throws. That thrown cleanup failure is therefore absorbed by the restore catch on this route.
+`GradleUserHomeCache.restore`52–77 restores the home, then `afterRestore`82–87 restores extracted entries and deletes excluded paths. The restore method catches afterRestore errors and emits a warning rather than failing the job. `deleteExcludedPaths`146–160 uses configured glob paths plus cc-keystore cleanup; `tryDelete`105–130 retries five times, then throws. That thrown cleanup failure is therefore absorbed by the restore catch on this route.
 
-Before saving, exclusions are deleted before extraction (beforeSave131–139). Its error catch skips saving rather than certifying cleanup. Extractor definitions355–365 separately cache wrapper homes, toolchains, dependencies and transformed/generated executable state. No failure was injected into a runner.
+Before saving, exclusions are deleted before extraction (beforeSave131–139). Its error catch skips saving rather than certifying cleanup. Extractor definitions354–361 separately cache wrapper homes, toolchains, dependencies and transformed/generated executable state. No failure was injected into a runner.
 
 Adding wrapper/dists to exclusions could normally remove a restored unpacked home, but an input alone does not guarantee removal before Gradle runs. Strict-match input could narrow cross-job home fallback; it is marked experimental by the pinned metadata and would neither authenticate cached bytes nor isolate all extracted entries. These are scoped mitigation candidates, not completed fixes or universal cache-security guarantees.
 
