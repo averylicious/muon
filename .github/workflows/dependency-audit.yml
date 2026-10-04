@@ -14,6 +14,8 @@ on:
       - 'tools/verify_gradle_wrapper.py'
       - 'tools/test_ci_wrapper.py'
       - 'tools/isolate_java_toolcache.py'
+      - 'tools/isolate_gradle_distribution.py'
+      - 'tools/test_ci_distribution.py'
       - '**/*.gradle.kts'
       - 'gradle/**'
 
@@ -56,6 +58,12 @@ jobs:
 
       - name: Set up Gradle and validate wrapper
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+        with:
+          # Avoid a post-action fallback Gradle execution if our guard fails.
+          cache-cleanup: never
+
+      - name: Isolate restored Gradle distributions before execution
+        run: python3 -I tools/isolate_gradle_distribution.py "$GRADLE_USER_HOME" "$HOME" "$RUNNER_TEMP"
       - name: Install Android SDK packages
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
       - name: Record public SDK verifier identity without execution
