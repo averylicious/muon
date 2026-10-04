@@ -81,3 +81,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Metadata IPC source](2026-10-04-metadata-ipc-budget.md): lists split, individual items remain whole; existing pending metadata budget and source-only sizing caveats retained.
 
 - [Three artifact comparisons](2026-10-04-artifact-byte-comparison.md): independent byte observations agree with Maven Central; publisher trust and other artifacts remain separate.
+
+- [Dependency byte observations](2026-10-04-dependency-byte-inventory.md): optional resolved-file identities, exact duplicate coalescing, strict conflicting-byte refusal; observation after configuration is not publisher authentication.

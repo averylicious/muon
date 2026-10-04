@@ -14,7 +14,7 @@ Inspected main `8ed4e4ca9932fbb01115ec136a9c5643bf9749c2`. GPT-6 / Codex desktop
 ## Remaining questions, not new confirmed defects
 
 - **Aggregate remembered-gain work (#253):** for an unknown track after invalidation, `typicalGain()`106-108 synchronously obtains all preference entries, filters floats and sorts them through `typicalGainDb`64-69. Entries have no explicit cardinality/byte budget or retirement policy. The work scales with retained history, but no heap size, jank, leak or OOM was measured. Do not choose a destructive cap, delete gains or assume encrypted storage would bound resources.
-- **Stored-value contract:** the normal caller writes finite nonpositive applied gains. `remember` itself accepts arbitrary floats, and `gainFor` only rejects NaN; malformed local preference types/values are outside that checked normal path. No untrusted app/API writer to these preferences was found in this scoped inspection. A recovery/validation change should have focused persistence tests and preserve compatible stored values; do not label this a remote vulnerability without a reachable writer.
+- **Stored-value contract:** the normal caller writes finite nonpositive applied gains. `remember` itself accepts arbitrary floats, and `gainFor` only rejects NaN; malformed local preference types/values are outside that checked normal path. Malformed negative infinity or extreme negative local values can mute a track; positive values cannot raise the scalar above unity. No untrusted app/API writer to these preferences was found in this scoped inspection. A recovery/validation change should have focused persistence tests and preserve compatible stored values; do not label this a remote vulnerability without a reachable writer.
 - **Audio/platform QA:** tag arrival timing, missing/incorrect tags, output routes, fixed-volume devices, settings toggling and interrupted playback still need authorized device/manual checks. No new phone access or settings changes occurred. Existing playback QA gates remain open.
 
 ## Existing test evidence
@@ -28,3 +28,7 @@ Use disposable preferences to check settings/remembered-gain/fallback behavior a
 ## Later verification receipt
 
 [#323](https://github.com/averylicious/muon/pull/323) added four disposable settings persistence/toggle/median/reload controls after this first source note. Actual Android566 XML469 tests/variant, zero failures/errors/skips; all four cases executed each. Main mergef270cce8c646bc2e0d0f926adcbef38a89de6365 and actual Canary.568 publication verified. These controls do not establish crash-to-disk durability, service callbacks, audio or resource timing. Remembered-history capacity remains a separately scoped #253 question.
+
+## Independent contribution review
+
+Claude Opus5.5 / Claude Code / High selected independently reviewed coordinator-authored24eb06722d676cad60d2acf5ef55e051a0321633 source report against ReplayGain, MediaVolume, listener cleanup and tests. No blocking source finding; line references/no-amplification/median/poll claims hold. Suggested malformed-stored-gain muting qualification added by coordinator (self-reviewed). The reviewer did not inspect CI/XML/releases or recount artifact inventories; coordinator owns those receipts. Its checks of its own linked reports were self-review, not independent. This does not establish device audio/lifecycle/performance.
