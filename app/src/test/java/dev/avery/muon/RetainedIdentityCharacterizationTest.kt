@@ -117,6 +117,30 @@ class RetainedIdentityCharacterizationTest {
     @Test fun identicalTagsDoNotEstablishThatOfflinePlayedBytesAreTheLiveAudio() =
         identicalTagsStillSelectSavedBytes(explicit = false)
 
+    @Test fun bundleRoundTripsPreserveMetadataButDoNotAlwaysPreserveLocalRoutingFields() {
+        // Test-local marker, not an implemented or trusted production saved-entry schema.
+        val markerKey = "test.saved-entry"
+        val savedKey = "test-retained-key"
+        val plain = old.mediaItem(endpoint)
+        val metadata = plain.mediaMetadata.buildUpon().setExtras(android.os.Bundle(plain.mediaMetadata.extras).apply {
+            putString(markerKey, "test-unverified-entry")
+        }).build()
+        val item = plain.buildUpon().setCustomCacheKey(savedKey).setTag(Any()).setMediaMetadata(metadata).build()
+        val withLocal = androidx.media3.common.MediaItem.fromBundle(item.toBundleIncludeLocalConfiguration())
+        assertEquals(savedKey, requireNotNull(withLocal.localConfiguration).customCacheKey)
+        assertNull("LocalConfiguration tag is deliberately omitted even when URI/key are included",
+            withLocal.localConfiguration?.tag)
+        val timelineForm = androidx.media3.common.MediaItem.fromBundle(item.toBundle())
+        assertNull("Ordinary MediaItem bundles omit local URI, cache key and tag", timelineForm.localConfiguration)
+        for (restored in listOf(withLocal, timelineForm)) {
+            assertEquals(item.mediaId, restored.mediaId)
+            assertEquals("test-unverified-entry", restored.mediaMetadata.extras?.getString(markerKey))
+            assertArrayEquals(encodeSong(old), requireNotNull(restored.mediaMetadata.extras?.getByteArray(SONG_EXTRA)))
+        }
+        // The current Undo helper still reconstructs a live stream URL from this shared numeric ID.
+        assertEquals(endpoint.url("/api1/file/${old.id}"), restoreUrl(timelineForm.mediaId))
+    }
+
     /** A byte fixture, not playable encoded audio or a live Tauon rebuild. No user/network data. */
     private fun identicalTagsStillSelectSavedBytes(explicit: Boolean) {
         val liveBytes = byteArrayOf(9, 8, 7, 6)
