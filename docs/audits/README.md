@@ -103,3 +103,5 @@ Latest boundaries: [sink-close receipt](2026-10-05-close-receipt-source.md), [re
 - [Dependency advisory refresh](2026-10-05-dependency-advisory-refresh.md): actual main inventory still selects 286 coordinates; October 5 OSV returns the same 13 matched coordinates/47 IDs, confined to build/test scopes. Database result, not security clearance.
 
 - [Actual APK algorithms/provider coverage](2026-10-05-apk-algorithm-observation.md): .623 v2 debug RSA-2048/SHA-256 versus release RSA-4096/SHA-512; unsigned probe adds the release combination using disposable keys, not actual signature verification.
+
+- [Retained audio selected policy and implementation map](2026-10-05-retained-identity-policy-map.md): user chose live streaming plus separately accessible Unverified saved copies; source paths and bounded scopes, no implementation/migration.
