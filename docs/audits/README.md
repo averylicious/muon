@@ -97,3 +97,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 - [Actual HTTP source controls](2026-10-05-http-source-controls.md): test-only interrupted header wait, held partial-body timeout and real sink/partial-span evidence; no full downloader/generation retirement.
 
 Latest boundaries: [sink-close receipt](2026-10-05-close-receipt-source.md), [real HTTP downloader](2026-10-05-http-downloader-boundary.md), [initialized SDK providers](2026-10-05-sdk-initialized-providers.md), [native-loading/source launch](2026-10-05-sdk-native-loading-source.md) and [Tauon retained identity](2026-10-05-tauon-retained-identity-source.md). These qualified controls/reports do not implement full production preservation or certify build security.
+
+- [Framework queue retention](2026-10-05-framework-queue-retention.md): immutable framework source confirms complete queue retention despite batch transport; installed-device equivalence, heap and Binder limits remain unmeasured.
