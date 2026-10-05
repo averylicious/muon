@@ -5,18 +5,25 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.security.KeyFactory;
+import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.Provider;
+import java.security.PublicKey;
 import java.security.Security;
 import java.security.Signature;
 import java.security.cert.CertificateFactory;
+import java.security.spec.ECGenParameterSpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 
 /**
  * CI-only observation of the SDK apksigner provider bootstrap. Not a production API and not a test of
- * signing: it never calls sign, verify or main, and touches no APK, key or certificate bytes.
+ * signing: it never calls sign, verify or main, and touches no APK, certificate or real key bytes. Its
+ * only keys are disposable test pairs made in memory to initialize Signature objects for verification.
  *
  * The jar's bytes are hashed with the JDK first. Only if they equal the reviewed public build-tools 37
  * apksigner.jar does it load those same bytes (from a private temporary copy) through an isolated class
@@ -108,7 +115,61 @@ public class ApkSignerProviderProbe {
             // An uninitialized candidate only: not signing, key initialization or verifier algorithm choice.
             + ",\"sha256withrsa_uninitialized_candidate\":" + quote(Signature.getInstance("SHA256withRSA").getProvider().getName())
             + ",\"sha256withrsa_supporting_providers\":" + names(signatureCandidates)
-            + ",\"x509_certificate_factory\":" + quote(CertificateFactory.getInstance("X.509").getProvider().getName());
+            + ",\"x509_certificate_factory\":" + quote(CertificateFactory.getInstance("X.509").getProvider().getName())
+            + ",\"initialized_verification\":" + initializedVerification();
+    }
+
+    /**
+     * For a few JCA names found in the reviewed jar's apksig SignatureAlgorithm class: which provider a
+     * FRESH Signature settles on once initialized for verification. The key is a disposable test pair made
+     * in memory here, rebuilt through KeyFactory from its X.509 encoding as apksig's verifiers do; no key,
+     * signature or certificate bytes are kept or printed. Delayed provider selection can differ by key, so
+     * this is the choice for these test keys only: not APK verification, signing, or Muon's signing keys.
+     */
+    private static String initializedVerification() {
+        String[][] cases = {
+            {"SHA256withRSA", "RSA"}, {"SHA256withRSA/PSS", "RSA"}, {"SHA256withECDSA", "EC"},
+        };
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; i < cases.length; i++) {
+            String algorithm = cases[i][0];
+            String keyType = cases[i][1];
+            String status;
+            String failure = null;
+            String provider = null;
+            String candidate = null;
+            try {
+                // A separate instance: asking an uninitialized Signature for its provider fixes that choice.
+                candidate = Signature.getInstance(algorithm).getProvider().getName();
+                PublicKey key = testPublicKey(keyType);
+                Signature fresh = Signature.getInstance(algorithm);
+                fresh.initVerify(key);
+                provider = fresh.getProvider().getName();
+                status = "initialized";
+            } catch (NoSuchAlgorithmException e) {
+                status = "unsupported";
+                failure = e.getClass().getSimpleName();
+            } catch (Exception e) {
+                status = "failed";
+                failure = e.getClass().getSimpleName();
+            }
+            out.append(i == 0 ? "" : ",").append("{\"algorithm\":").append(quote(algorithm))
+                .append(",\"test_key\":").append(quote("RSA".equals(keyType) ? "RSA-2048" : "EC-P256"))
+                .append(",\"status\":").append(quote(status))
+                .append(",\"uninitialized_candidate\":").append(quote(candidate))
+                .append(",\"initialized_provider\":").append(quote(provider))
+                .append(",\"failure_class\":").append(quote(failure)).append('}');
+        }
+        return out.append(']').toString();
+    }
+
+    /** A disposable public key made in memory, then rebuilt from its X.509 encoding through KeyFactory. */
+    private static PublicKey testPublicKey(String keyType) throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance(keyType);
+        if ("RSA".equals(keyType)) generator.initialize(2048);
+        else generator.initialize(new ECGenParameterSpec("secp256r1"));
+        byte[] encoded = generator.generateKeyPair().getPublic().getEncoded();
+        return KeyFactory.getInstance(keyType).generatePublic(new X509EncodedKeySpec(encoded));
     }
 
     private static List<String> providerNames() {
