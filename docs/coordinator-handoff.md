@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Latest main-audit checkpoint: [HTTP controls and acceptance boundary](handoffs/2026-10-05-http-controls-and-acceptance.md). Test-only#337 merged at exact green head;#302 Canary.604 delivered with actual622 tests/variant, remains OPEN for user QA. Actual main608 publication/BUILD.txt verified; final#302 QA refresh is pending in this snapshot, and live receipts supersede. Allocated audit Claude idle near its quota boundary, no device or experiment work. Refresh live owners/quotas before assigning another slice.
+Latest main-audit checkpoint: [Downloader and SDK boundaries](handoffs/2026-10-05-downloader-and-sdk-boundaries.md). #339–#343 verified/merged; main .617 publication confirmed. #302 remains OPEN for user acceptance, refreshed .623 verified with 630 tests/variant and matching BUILD.txt/checksum; live receipts supersede earlier snapshots. Allocated audit Claude idle/clean after focused source reports. No device or experiment work. Refresh live ownership/quotas before assigning another slice.
 
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The earlier controller-policy checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 
