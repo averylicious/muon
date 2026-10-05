@@ -52,3 +52,9 @@ Each entry records the algorithm, the test key label, `status` (`initialized`, `
 - `git diff --check` and the CI prose check passed.
 
 **Not done:** the probe was **not** run against the reviewed jar locally. The unsigned **Dependency inventory** workflow is the first real run, and its record should be read for each entry's status and providers. No Gradle or Android build, and no phone QA is needed.
+
+## Independent coordinator source review
+
+GPT-6 / Codex desktop, effort not reported reviewed the three-file author head `bbdac26c06e8f40069916ccf58349da3d707d6a8` and independently hashed the downloaded verifier JAR, matching the reviewed hash above. `javap -c -p` inspected the public bytes without executing SDK classes. The inspected `SignatureAlgorithm` initializer binds `RSA_PSS_WITH_SHA256` to `SHA256withRSA/PSS`, SHA-256/MGF1-SHA256, salt32/trailer1 (bytecode0–44). The v2 verifier reconstructs a public key through KeyFactory/X509EncodedKeySpec (offsets324–336), obtains Signature365, calls initVerify374, then applies non-null algorithm parameters386. This narrows the constant-pool uncertainty for this v2 route, not every verifier or CLI choice.
+
+The probe observes the post-init provider with disposable rebuilt public keys; its PSS case still omits parameter application and payload verification. Therefore successful initialization is not a successful PSS/APK verification or crypto/native advisory clearance. Separate candidate instances do not freeze the fresh observed instance. Reviewed-JAR hash refusal, same-byte private copy, isolated bootstrap, timeout/JVM-option wrapper and bounded metadata output remain intact. Coordinator additions to this report are self-review, separate from review of Claude's implementation. CI execution and selected statuses/providers remain pending.
