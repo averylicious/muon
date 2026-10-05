@@ -48,7 +48,7 @@ Inspected main `aca170516b84bb2198d7ad5a94a55193be8eff74`, branch `codex/sdk-nat
 7. **Nothing bundled:**
    - **The jar's only non-class entries** are `META-INF/MANIFEST.MF` and five `com/android/apksigner/help*.txt` files. There is no `META-INF/native/` resource.
    - **The archive's `lib64/`** holds `libLLVM_android.so`, `libbcc.so`, `libbcinfo.so`, `libc++.so`, `libc++.so.1` and `libclang_android.so`. None has a Conscrypt name.
-   - **So the only remaining route is** `System.loadLibrary` against the JVM's library path.
+   - **No bundled resource was found in the inspected payload.** Without a matching inherited class-loader resource, the fallback uses `System.loadLibrary` against the JVM's library path. Other parent/JDK resources were not inventoried.
 
 ## The wrapper differs from the probe's launch
 
@@ -82,3 +82,9 @@ Inspected main `aca170516b84bb2198d7ad5a94a55193be8eff74`, branch `codex/sdk-nat
 If apksigner's own provider set during CI verification matters, the meaningful next observation is in the unsigned workflow. It would use the **wrapper's actual launch shape** (`-jar`, the empty library path the wrapper's shell code implies, no `-J` options) behind the existing hash gate, and record which providers are registered. That would replace the current inference with a recorded observation for that launch. Nothing here makes it mandatory, and no attack is assumed.
 
 **Checks run locally:** `git diff --check` and the CI prose check. CI for this document is pending. No Gradle or Android build, and no device.
+
+## Independent coordinator qualification
+
+GPT-6 / Codex desktop, effort not reported reviewed author head `2bf15f3c752c25450b8c0e78024c474182e010bf`, the reviewed wrapper/JAR hashes and focused native/provider bytecode. Platform.getDefaultProviderName returns literal Conscrypt; NativeLibraryLoader uses ClassLoader.getResource and then its system-library helper. Absence of a resource in this JAR/archive does not inventory inherited JDK/parent resources. A separate harmless shell expression check reproduced the unquoted-empty-value condition; no SDK executable was invoked. Actual dependency40 at#341 beda41 also recorded unchanged providers/no Conscrypt with initialized RSA=SunRsaSign, EC=SunEC and the RSA/PSS name unsupported. That is a second probe launch, not the wrapper's launch or a diagnosis of a specific host library failure.
+
+Coordinator edits above are self-review, distinct from review of Claude's source report. No environment, native library or wrapper configuration changed. A bootstrap can attempt native loads before failing; absence of a registered provider does not prove no native code ran. Future observations must preserve that distinction.
