@@ -22,8 +22,8 @@ Inspected main `aca170516b84bb2198d7ad5a94a55193be8eff74`, branch `codex/tauon-r
   - `has_lyrics` and `can_download`.
 
   Nothing else.
-- **What `track.index` is:** an allocation from the in-process `master_count` (`t_main.py` 8473-8478, 8718-8742, 18073-18100), which is reset to 0 on library clear (5594). It is a library slot, not a content identity, and it can be reused.
-- **Fields held but not exposed:** `TrackClass` (`t_main.py` 2127 onwards) has `size`, `modified_time`, `subtrack`, `start_time`, cue flags, and **tag-derived** `musicbrainz_recordingid`/`musicbrainz_trackid` and others. `get_track` serializes none of them, and no API1 route carries a content hash or stable UUID.
+- **What `track.index` is:** an allocation from the in-process `master_count` (`t_main.py` 8473-8478, 8718-8742, 18073-18100), initialized to0 in Chunker.__init__ (5594). The startup settings bag also defaults master_count to0 (53701), while restored saved state can supply save[1] (53847). This is not evidence that an ordinary clear/rescan resets the counter. It is an allocation slot, not a content-derived identity; the precise live reset/reuse route remains unverified.
+- **Fields held but not exposed:** `TrackClass` (`t_main.py` 2127 onwards) has `size`, `modified_time`, `subtrack`, `start_time`, cue flags, and **tag-derived** `musicbrainz_recordingid`/`musicbrainz_trackid` and others. `get_track` serializes none of them, and no stronger content hash/stable track UUID was found in these inspected API1 track records. Other server versions/routes are not thereby cleared.
 - **Other identifiers:**
   - The web client's `get_track_id` (356-357) is `md5(index + title + artist)`, which is still index-based.
   - `/api1/playlists` exposes `uuid_int` for **playlists**, not tracks (824-834).
@@ -45,7 +45,7 @@ None of this permits treating a match as equivalence, or a mismatch as permissio
 ## Current client behaviour (Muon main)
 
 - **Projection:** `TauonApi` (46-62) projects `id`, tags, duration and the flags into `TauonTrack`. It reads `path` only for the display-title fallback and **doesn't keep it**.
-- **Keying:** `downloadId(origin, id)` keys downloads, played copies, marks, covers and gain.
+- **Keying:** `downloadId(origin, id)` keys explicit downloads and related played-copy identifiers; stored artwork/marks and loudness are also keyed by the corresponding origin/ID.
 - **The saved record:** `encodeSong` stores `id`, title, artist, album, album artist, duration and track number.
 - **Earlier evidence:** `RetainedIdentityCharacterizationTest` showed a reused origin/ID serving a retained copy of different audio. Its controls aren't repeated here.
 
@@ -57,7 +57,7 @@ None of this permits treating a match as equivalence, or a mismatch as permissio
   - **What it does:** don't route the live item to the retained bytes, and don't mark it downloaded; stream it instead. **Keep** the retained copy, and keep it reachable offline under its own saved record.
   - **Legacy records** (no path) keep today's behaviour until a policy says otherwise.
   - **What it doesn't do:** no deletion, rekeying or migration.
-  - **Use case:** after a Tauon library clear or rescan reuses indexes, the wrong song stops playing from downloads.
+  - **Use case:** when a disposable server profile/library state reuses an index for different audio, the guard can avoid serving a clearly mismatching retained copy. It does not establish every reuse is detected or that normal rescanning resets IDs.
   - **QA:** use a **disposable** Tauon library or profile to force index reuse, never the user's library. Check that:
     - the downloaded song still plays offline;
     - the live mismatched song streams;
@@ -71,3 +71,9 @@ None of this permits treating a match as equivalence, or a mismatch as permissio
 - **#179:** removable-storage preservation remains separate.
 
 **Checks run locally:** `git diff --check` and the CI prose check. CI for this document is pending. No Android build.
+
+## Independent coordinator review
+
+GPT-6 / Codex desktop, effort not reported independently read the actual installed package metadata, both cited installed-source hashes, get_track serializer, TrackClass fields, allocation sites, default/restored counter paths and current Muon projection. Corrected the author's clear-library claim: line5594 is Chunker initialization, not a clear operation. No live server/rebuild/reuse route was tested. This report's evidence is installed source, not authenticated upstream equivalence or a confirmed currently running server version.
+
+A conservative mismatch mitigation is possible with existing metadata hints; reliable content equivalence is the backend-capability question, so absence of a strong identifier does not mean no useful client mitigation is possible. A path digest avoids raw path text but is not anonymization or encryption. Legacy records must remain distinguishable as unknown, not silently described as confirmed matching. The unapproved recommendation to preserve today's legacy routing needs a deliberate policy; it does not resolve the known ambiguity. Old records/bytes stay reachable, with no deletion/rekey/migration here. Whole-file identity also needs care for subtrack/cue semantics; this inspected API marks cue/network tracks unavailable for direct download. No new user acceptance or source-only equivalence guarantee. Coordinator qualifications are self-review, separate from review of Claude's report.
