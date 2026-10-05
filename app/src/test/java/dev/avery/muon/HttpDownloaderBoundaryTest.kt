@@ -165,9 +165,10 @@ class HttpDownloaderBoundaryTest {
     @Test fun cancelAndInterruptAfterTheFirstByteStillReturnOnlyAfterSourceAndSinkClose() {
         newCache()
         val peer = Peer(sendPartialBody = true).also { peers += it }
-        // Long enough that the cancel lands well before it; short enough to bound the case if the read
-        // turns out to be blocked where an interrupt cannot reach it.
-        val client = client(readTimeoutMillis = 3000)
+        // Generous so that ordinary scheduling delay is unlikely to let the timeout win before the cancel,
+        // though nothing here guarantees that ordering; finite, so the case still ends if the read is
+        // blocked where an interrupt cannot reach it. A timeout that won first fails the case visibly.
+        val client = client(readTimeoutMillis = 5000)
         val (downloader, source, sink) = downloader(peer, client)
         val caller = Caller(downloader).also { callers += it }
         assertTrue("The first body byte reached the source", source.firstByte.await(5, TimeUnit.SECONDS))
@@ -178,7 +179,7 @@ class HttpDownloaderBoundaryTest {
         downloader.cancel()
         caller.thread.interrupt()
 
-        assertTrue("download() returned", caller.done.await(10, TimeUnit.SECONDS))
+        assertTrue("download() returned", caller.done.await(15, TimeUnit.SECONDS))
         caller.thread.join(5000)
         val failure = caller.failure.get()
         assertTrue("The caller saw cancellation or its own interrupt",
@@ -203,8 +204,9 @@ class HttpDownloaderBoundaryTest {
 
     private fun newCache() {
         val provider = StandaloneDatabaseProvider(RuntimeEnvironment.getApplication()).also { database = it }
-        cache = SimpleCache(folders.newFolder("download-cache"), NoOpCacheEvictor(), provider)
-            .also { it.checkInitialization() }
+        // Kept before initialization, so a failed initialization still leaves the cache for teardown to release.
+        val created = SimpleCache(folders.newFolder("download-cache"), NoOpCacheEvictor(), provider).also { cache = it }
+        created.checkInitialization()
     }
 
     private fun client(readTimeoutMillis: Long, listener: EventListener = EventListener.NONE): OkHttpClient =

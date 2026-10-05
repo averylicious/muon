@@ -40,7 +40,7 @@ The extracted `.java` copies were read. Symbols relied on:
 - **Wrappers:** the upstream and sink are wrapped **only to record calls**. They delegate every operation, so the socket behaviour is the real JVM's.
 - **Caller:** a test-owned thread stands in for `DownloadManager`'s task thread. No manager, generation or card is involved.
 
-**Setup:** the native cache is initialized before the peer starts its 5 s accept window.
+**Setup:** the native cache is initialized before the peer starts its 5 s accept window. The `SimpleCache` reference is kept before `checkInitialization`, so a failed initialization still leaves it for teardown to release.
 
 **Teardown:**
 1. Stop the peer, so any read it holds ends.
@@ -60,7 +60,8 @@ The extracted `.java` copies were read. Symbols relied on:
    - **Failure:** `download()` throws `TYPE_READ` caused by `SocketTimeoutException`.
    - **Close order:** the source and sink closes both returned before `download()` did, and the executor terminates.
    - **Peer and cache:** the peer still holds the last byte. Exactly one byte (`42`) is committed in a single span at position 0, and `isCached(0, 2)` is false.
-3. **`cancelAndInterruptAfterTheFirstByteStillReturnOnlyAfterSourceAndSinkClose`:** the first byte has been received, and the wrapper's next read has been entered. The test calls `downloader.cancel()` and then interrupts the caller, as `DownloadManager`'s task cancel does. The read timeout is 3 s.
+3. **`cancelAndInterruptAfterTheFirstByteStillReturnOnlyAfterSourceAndSinkClose`:** the first byte has been received, and the wrapper's next read has been entered. The test calls `downloader.cancel()` and then interrupts the caller, as `DownloadManager`'s task cancel does.
+   - **Read timeout:** a generous 5 s, waiting up to 15 s for the caller. That makes it unlikely that scheduling delay lets the timeout win before the cancel, but the latches don't bound scheduling, so the ordering isn't guaranteed. If the timeout did win first, the caller would report the read error and the case would fail visibly rather than pass on a false premise.
    - **Caller:** it sees `CancellationException` or its own `InterruptedException`.
    - **How the read ended:** by interruption or by the configured timeout, never by the peer. The test **prints which**, and doesn't assert it.
    - **Close order:** the source and sink closes return before `download()` does, and the executor terminates. The peer still holds its byte, and nothing is cached as complete.
