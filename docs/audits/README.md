@@ -99,3 +99,5 @@ Latest source narrowing: [notification identity controls](2026-10-03-notificatio
 Latest boundaries: [sink-close receipt](2026-10-05-close-receipt-source.md), [real HTTP downloader](2026-10-05-http-downloader-boundary.md), [initialized SDK providers](2026-10-05-sdk-initialized-providers.md), [native-loading/source launch](2026-10-05-sdk-native-loading-source.md) and [Tauon retained identity](2026-10-05-tauon-retained-identity-source.md). These qualified controls/reports do not implement full production preservation or certify build security.
 
 - [Framework queue retention](2026-10-05-framework-queue-retention.md): immutable framework source confirms complete queue retention despite batch transport; installed-device equivalence, heap and Binder limits remain unmeasured.
+
+- [Dependency advisory refresh](2026-10-05-dependency-advisory-refresh.md): actual main inventory still selects 286 coordinates; October 5 OSV returns the same 13 matched coordinates/47 IDs, confined to build/test scopes. Database result, not security clearance.
