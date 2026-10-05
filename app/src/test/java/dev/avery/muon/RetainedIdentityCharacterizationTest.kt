@@ -122,7 +122,7 @@ class RetainedIdentityCharacterizationTest {
         val markerKey = "test.saved-entry"
         val savedKey = "test-retained-key"
         val plain = old.mediaItem(endpoint)
-        val metadata = plain.mediaMetadata.buildUpon().setExtras(android.os.Bundle(plain.mediaMetadata.extras).apply {
+        val metadata = plain.mediaMetadata.buildUpon().setExtras(android.os.Bundle(requireNotNull(plain.mediaMetadata.extras)).apply {
             putString(markerKey, "test-unverified-entry")
         }).build()
         val item = plain.buildUpon().setCustomCacheKey(savedKey).setTag(Any()).setMediaMetadata(metadata).build()
