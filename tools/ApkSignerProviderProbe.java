@@ -128,12 +128,14 @@ public class ApkSignerProviderProbe {
      */
     private static String initializedVerification() {
         String[][] cases = {
-            {"SHA256withRSA", "RSA"}, {"SHA256withRSA/PSS", "RSA"}, {"SHA256withECDSA", "EC"},
+            {"SHA256withRSA", "RSA", "2048"}, {"SHA256withRSA/PSS", "RSA", "2048"},
+            {"SHA256withECDSA", "EC", "256"}, {"SHA512withRSA", "RSA", "4096"},
         };
         StringBuilder out = new StringBuilder("[");
         for (int i = 0; i < cases.length; i++) {
             String algorithm = cases[i][0];
             String keyType = cases[i][1];
+            int keyBits = Integer.parseInt(cases[i][2]);
             String status;
             String failure = null;
             String provider = null;
@@ -141,7 +143,7 @@ public class ApkSignerProviderProbe {
             try {
                 // A separate instance: asking an uninitialized Signature for its provider fixes that choice.
                 candidate = Signature.getInstance(algorithm).getProvider().getName();
-                PublicKey key = testPublicKey(keyType);
+                PublicKey key = testPublicKey(keyType, keyBits);
                 Signature fresh = Signature.getInstance(algorithm);
                 fresh.initVerify(key);
                 provider = fresh.getProvider().getName();
@@ -154,7 +156,7 @@ public class ApkSignerProviderProbe {
                 failure = e.getClass().getSimpleName();
             }
             out.append(i == 0 ? "" : ",").append("{\"algorithm\":").append(quote(algorithm))
-                .append(",\"test_key\":").append(quote("RSA".equals(keyType) ? "RSA-2048" : "EC-P256"))
+                .append(",\"test_key\":").append(quote("RSA".equals(keyType) ? "RSA-" + keyBits : "EC-P256"))
                 .append(",\"status\":").append(quote(status))
                 .append(",\"uninitialized_candidate\":").append(quote(candidate))
                 .append(",\"initialized_provider\":").append(quote(provider))
@@ -164,9 +166,9 @@ public class ApkSignerProviderProbe {
     }
 
     /** A disposable public key made in memory, then rebuilt from its X.509 encoding through KeyFactory. */
-    private static PublicKey testPublicKey(String keyType) throws Exception {
+    private static PublicKey testPublicKey(String keyType, int keyBits) throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance(keyType);
-        if ("RSA".equals(keyType)) generator.initialize(2048);
+        if ("RSA".equals(keyType)) generator.initialize(keyBits);
         else generator.initialize(new ECGenParameterSpec("secp256r1"));
         byte[] encoded = generator.generateKeyPair().getPublic().getEncoded();
         return KeyFactory.getInstance(keyType).generatePublic(new X509EncodedKeySpec(encoded));
