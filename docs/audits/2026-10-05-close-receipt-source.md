@@ -1,0 +1,24 @@
+# Cache writer completion and close receipts — 2026-10-05
+
+Inspected main46f13c8fce6b428085b85436938326f46033bbd2. GPT-6 / Codex desktop, effort not reported, author/source self-review. Test/report only, no app/build/dependency change, phone, network, existing downloads or signing material. The separate allocated Claude owns the real HTTP-downloader fixture; this report does not claim that implementation is reviewed or executed yet.
+
+## Published pinned source observations
+
+Read the Google Maven media3 1.11.0 published sources: [datasource](https://dl.google.com/dl/android/maven2/androidx/media3/media3-datasource/1.11.0/media3-datasource-1.11.0-sources.jar), SHA256 a54ddd9858ed2de57e07c5461dcebdae7a53d92a60210a2a3f5bf501398a5e4a; [common](https://dl.google.com/dl/android/maven2/androidx/media3/media3-common/1.11.0/media3-common-1.11.0-sources.jar), a1fdf302c059a4d75b3005996a85d96619ccff4a4bf53435bf1f9fd053d86e3e; [exoplayer](https://dl.google.com/dl/android/maven2/androidx/media3/media3-exoplayer/1.11.0/media3-exoplayer-1.11.0-sources.jar), 2d583de9d39b48e45f9a29f1d94d23032c0642cfc7ca4bbe1967071d26a60ed6. Read-only source inspection, not source-to-binary equivalence or Android native I/O proof.
+
+- CacheWriter.readBlockToCache catches an exception from its read/progress loop, calls DataSourceUtil.closeQuietly and rethrows the original exception. DataSourceUtil.closeQuietly84–91 suppresses IOException from source.close; it does not attach that cleanup error to the original read error. On the healthy path CacheWriter calls close directly and propagates its failure. Do not conflate those paths.
+- TeeDataSource.close96–104 attempts upstream.close and in finally attempts the sink's close; a thrown sink-close error can supersede the upstream error. CacheDataSource.closeCurrentSource849–864 clears its current source/spec and releases its hole in finally even if source.close throws. A later outer close can return without reattempting that failed source's close.
+- CacheDataSink.closeCurrentOutputStream260–283 sets success after outputStream.flush, calls Util.closeQuietly on the stream, then commits the file when flush succeeded. Util.closeQuietly1023–1030 suppresses IOException. Thus an outer sink-close return does not separately attest an underlying stream-close success or fsync/parent-directory durability. That is a source-qualified limitation, not an injected native close or power-loss result.
+- ProgressiveDownloader.download finally waits on its RunnableFutureTask's finished condition after the cache work ends. This is a worker-work completion boundary; it does not turn a swallowed cleanup error into a successful close/publication receipt. DownloadManager.release and whole-generation ownership remain separate.
+
+## Two composed controls, CI pending at drafting
+
+CacheWriterCloseReceiptTest uses actual CacheWriter/CacheDataSource/TeeDataSource/CacheDataSink/SimpleCache with native SQLite and a retained disposable sentinel. The upstream intentionally supplies one byte then throws a named read IOException. A Cache interface decorator either delegates commitFile unchanged or refuses that operation with a named CacheException before committing. These failures are deliberately synthetic; no physical storage failure or HTTP read is represented.
+
+Healthy-close control expects the writer to throw the original read error, actual sink close to return, the one-byte partial span/file to be committed but incomplete, and unrelated sentinel bytes unchanged. Negative control expects actual sink-close failure at the refused commit, the writer to still report only the original read error, no committed partial span and the sentinel unchanged. A later actual outer close must not manufacture a prior successful sink-close receipt. This tests the error composition rather than merely calling closeQuietly on a dummy source.
+
+Single-thread test cleanup releases only disposable state. The test does not model descriptor uncertainty, assert uncommitted-file deletion/adoption, establish process/power-loss durability, or authorize release/reopen of a production generation. Android Actions is the first Kotlin/Robolectric compile/run; final head and actual executed cases/results belong on the PR. Phone QA is not needed for this test-only slice.
+
+## Recovery implication
+
+Keep cancellation, admitted-worker completion, source/sink close, committed cache/catalog readback and durability as distinct evidence. Existing healthy HTTP controls#337 prove their stated JVM path, not every failure path. Failure of any required stop/close/catalog check must retain uncertainty rather than permit destructive adoption. Whole#179 identity/preservation/all-owner recovery, #213 retained identity and#230 partial-target policy remain unresolved; no new production data-loss route or general security/performance assurance is established here.
