@@ -69,7 +69,8 @@ jobs:
       - name: Record public SDK verifier identity without execution
         run: python3 tools/sdk_tool_inventory.py "$ANDROID_HOME/build-tools/37.0.0" --commit "$GITHUB_SHA"
       # Unlike the static inventory above, this runs code: after a hash match it calls apksigner's
-      # provider bootstrap, which may load Conscrypt's native library. No signing, keys or APKs.
+      # provider bootstrap, which may load Conscrypt's native library. No signing, APKs or real keys:
+      # only disposable in-memory test keys, to see which provider a verifying Signature settles on.
       - name: Observe apksigner provider bootstrap (runs reviewed SDK code; native code may load)
         run: timeout 60s env -u JAVA_TOOL_OPTIONS -u _JAVA_OPTIONS -u JDK_JAVA_OPTIONS java tools/ApkSignerProviderProbe.java "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" "$GITHUB_SHA"
       - name: Resolve and record selected versions
