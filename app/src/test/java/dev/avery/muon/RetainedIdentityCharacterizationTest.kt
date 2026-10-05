@@ -22,6 +22,15 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.SQLiteMode
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.SocketException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 
 /** #213 characterization: the mismatch assertions describe the existing bug, NOT an identity fix. */
 @RunWith(RobolectricTestRunner::class)
@@ -100,6 +109,89 @@ class RetainedIdentityCharacterizationTest {
         downloadOldSong()
         val other = DataSpec.Builder().setUri("http://192.168.1.11:7814/api1/file/42").build()
         assertSame(other, routeOfflineRequest(other, shelf, listOf(shelf), offline = true).second)
+    }
+
+    @Test fun identicalTagsDoNotEstablishThatExplicitSavedBytesAreTheLiveAudio() =
+        identicalTagsStillSelectSavedBytes(explicit = true)
+
+    @Test fun identicalTagsDoNotEstablishThatOfflinePlayedBytesAreTheLiveAudio() =
+        identicalTagsStillSelectSavedBytes(explicit = false)
+
+    /** A byte fixture, not playable encoded audio or a live Tauon rebuild. No user/network data. */
+    private fun identicalTagsStillSelectSavedBytes(explicit: Boolean) {
+        val liveBytes = byteArrayOf(9, 8, 7, 6)
+        val requests = AtomicInteger()
+        val peerFailure = AtomicReference<Throwable?>()
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { peer ->
+            peer.soTimeout = 10_000
+            val local = ServerEndpoint.parse("http://127.0.0.1:${peer.localPort}")
+            val localId = downloadId(local.origin, old.id)
+            val savedKey = if (explicit) localId else playedKey(localId)
+            val item = old.mediaItem(local) // Same complete tags/ID; the peer serves different bytes.
+            assertArrayEquals(encodeSong(old), requireNotNull(item.mediaMetadata.extras?.getByteArray(SONG_EXTRA)))
+            seed(savedKey, encodeSong(old))
+            if (explicit) {
+                val request = DownloadRequest.Builder(localId, Uri.parse(local.url("/api1/fileopus/${old.id}")))
+                    .setCustomCacheKey(localId).setData(encodeSong(old)).build()
+                index.putDownload(Download(request, Download.STATE_COMPLETED, 0L, 0L, payloadA.size.toLong(),
+                    Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+                assertEquals(old, decodeSong(requireNotNull(index.getDownload(localId)).request.data))
+            } else {
+                assertEquals(old, decodeSong(requireNotNull(cache.getContentMetadata(savedKey)
+                    .get(SONG_METADATA, null as ByteArray?))))
+            }
+            val client = OkHttpClient.Builder().connectTimeout(3, TimeUnit.SECONDS)
+                .readTimeout(3, TimeUnit.SECONDS).callTimeout(3, TimeUnit.SECONDS).build()
+            val owner = thread(name = "muon-retained-identity-peer", isDaemon = true) {
+                try {
+                    while (!peer.isClosed) peer.accept().use { socket ->
+                        socket.soTimeout = 3000
+                        val reader = socket.getInputStream().bufferedReader(Charsets.US_ASCII)
+                        check(reader.readLine() == "GET /api1/file/${old.id} HTTP/1.1")
+                        while (true) {
+                            val header = reader.readLine() ?: error("Incomplete request headers")
+                            if (header.isEmpty()) break
+                        }
+                        requests.incrementAndGet()
+                        socket.getOutputStream().apply {
+                            write(("HTTP/1.1 200 OK\r\nContent-Length: ${liveBytes.size}\r\n" +
+                                "Connection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
+                            write(liveBytes); flush()
+                        }
+                    }
+                } catch (failure: Throwable) {
+                    if (!(failure is SocketException && peer.isClosed)) peerFailure.set(failure)
+                }
+            }
+            try {
+                // Independent real HTTP control establishes the live endpoint bytes, not tag inference.
+                client.newCall(Request.Builder().url(local.url("/api1/file/${old.id}")).build()).execute().use {
+                    assertEquals(200, it.code)
+                    assertArrayEquals(liveBytes, requireNotNull(it.body).bytes())
+                }
+                val spec = DataSpec.Builder().setUri(requireNotNull(item.localConfiguration).uri).build()
+                val source = OfflineDataSource { request ->
+                    routeOfflineRequest(request, shelf, listOf(shelf), offline = !explicit)
+                }
+                try {
+                    assertEquals(payloadA.size.toLong(), source.open(spec))
+                    val actual = ByteArray(payloadA.size)
+                    assertEquals(actual.size, source.read(actual, 0, actual.size))
+                    assertArrayEquals("Current routing still returns saved A, not live B", payloadA, actual)
+                    assertFalse(actual.contentEquals(liveBytes))
+                    assertEquals(-1, source.read(ByteArray(1), 0, 1))
+                    assertEquals("Only the independent live control contacted the peer", 1, requests.get())
+                    assertEquals(savedKey, routeOfflineRequest(spec, shelf, listOf(shelf), !explicit).second.key)
+                } finally { source.close() }
+                assertEquals("Retained bytes remain intact", payloadA.size.toLong(), cache.getCacheSpace())
+            } finally {
+                peer.close(); owner.join(5000)
+                client.dispatcher.cancelAll(); client.connectionPool.evictAll(); client.dispatcher.executorService.shutdown()
+                assertTrue(client.dispatcher.executorService.awaitTermination(5, TimeUnit.SECONDS))
+                assertFalse("Loopback owner must terminate before disposable cache teardown", owner.isAlive)
+                assertNull("No unexpected peer failure", peerFailure.get())
+            }
+        }
     }
 
     private fun stream(track: TauonTrack): DataSpec =
