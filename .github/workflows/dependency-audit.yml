@@ -77,3 +77,12 @@ jobs:
         run: ./gradlew --no-daemon --no-configuration-cache --console=plain --init-script tools/dependency-inventory.init.gradle.kts :app:auditDependencyInventory
       - name: Verify inventory provenance and scopes
         run: python3 tools/dependency_inventory.py app/build/reports/dependency-inventory.json --commit "$GITHUB_SHA"
+      # Public coordinates/edges/file names/sizes/hashes only, after exact-head schema validation.
+      # Preserve portable evidence when very long structured log lines are unavailable.
+      - name: Upload public dependency inventory
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dependency-inventory-${{ github.sha }}
+          path: app/build/reports/dependency-inventory.json
+          if-no-files-found: error
+          retention-days: 14
