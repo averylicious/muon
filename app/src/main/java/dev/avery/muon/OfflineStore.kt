@@ -149,11 +149,15 @@ internal object OfflineStore {
             }
             override fun onDownloadRemoved(m: DownloadManager, download: Download) = store.removed(download)
         })
-        Executors.newSingleThreadExecutor().execute {
-            val known = ArrayList<Download>()
-            runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
-            main.post { known.forEach(store.record) }
-        }
+        // One-shot: shut down once the scan is submitted. An orderly shutdown still lets it run and post.
+        val bootstrap = Executors.newSingleThreadExecutor()
+        try {
+            bootstrap.execute {
+                val known = ArrayList<Download>()
+                runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
+                main.post { known.forEach(store.record) }
+            }
+        } finally { bootstrap.shutdown() }
     }
 
     /** Where new downloads go: the card when chosen and in, otherwise the phone. */
