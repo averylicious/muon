@@ -33,10 +33,6 @@ internal fun cardPresent(folder: File): Boolean = runCatching {
     Environment.getExternalStorageState(folder) == Environment.MEDIA_MOUNTED && folder.isDirectory
 }.getOrDefault(false)
 
-/** The shelf a finished download of [id] plays from: the first available one that has it. */
-internal fun <S : ShelfState> servingShelf(shelves: List<S>, id: String): S? =
-    shelves.firstOrNull { it.available() && it.completed(id) }
-
 /** The shelves whose finished downloads are listed and resumed now. */
 internal fun <S : ShelfState> availableShelves(shelves: List<S>): List<S> = shelves.filter { it.available() }
 
@@ -47,23 +43,6 @@ internal fun downloadTarget(card: ShelfState?, onCard: Boolean): DownloadTarget 
     !onCard -> DownloadTarget.Phone
     card != null && card.available() -> DownloadTarget.Card
     else -> DownloadTarget.CardUnavailable
-}
-
-/**
- * Which remove commands to send: every id to each available shelf (one without the download ignores it),
- * nothing to an unavailable one. [withheld] are the ids an unavailable shelf's index still records; no
- * remove is sent for them there.
- */
-internal class RemovalPlan<S>(val commands: List<Pair<S, List<String>>>, val withheld: List<String>)
-
-internal fun <S : ShelfState> removalPlan(shelves: List<S>, ids: List<String>): RemovalPlan<S> {
-    val commands = ArrayList<Pair<S, List<String>>>()
-    val withheld = LinkedHashSet<String>()
-    shelves.forEach { shelf ->
-        if (shelf.available()) commands += shelf to ids
-        else ids.filterTo(withheld) { shelf.holds(it) }
-    }
-    return RemovalPlan(commands, withheld.toList())
 }
 
 /**

@@ -44,7 +44,7 @@ internal fun queuedMessage(title: String, next: Boolean): String {
 internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQueue: Boolean,
     album: LibraryAlbum?, artists: List<LibraryArtist>, dismiss: () -> Unit,
     queue: (next: Boolean) -> Unit, goToAlbum: (LibraryAlbum) -> Unit, goToArtist: (LibraryArtist) -> Unit,
-    download: DownloadMark? = null, canDownload: Boolean = false, toggleDownload: () -> Unit = {}) {
+    canSave: Boolean = false, save: () -> Unit = {}) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
@@ -79,12 +79,9 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
                 SheetAction("play-next", "Play next") { choose { queue(true) } }
                 SheetAction("add-queue", "Add to queue") { choose { queue(false) } }
             }
-            // Keep on the phone, or stop keeping it (#112).
-            when (download) {
-                DownloadMark.Done -> SheetAction("delete", "Remove download") { choose(toggleDownload) }
-                DownloadMark.Queued, DownloadMark.Downloading -> SheetAction("close", "Cancel download") { choose(toggleDownload) }
-                null -> if (canDownload) SheetAction("download", "Download") { choose(toggleDownload) }
-            }
+            // Keeps a new copy on the phone (#112). A live song never removes or claims a copy saved
+            // earlier under its track number (#213): those are managed in Saved copies.
+            if (canSave) SheetAction("download", "Save a copy") { choose(save) }
             album?.let { a -> SheetAction("album", "Go to album") { choose { goToAlbum(a) } } }
             artists.forEach { a ->
                 SheetAction("artist", "Go to artist", if (artists.size > 1) artistLabel(a.name) else null) { choose { goToArtist(a) } }

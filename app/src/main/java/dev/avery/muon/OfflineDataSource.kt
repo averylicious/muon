@@ -8,10 +8,11 @@ import androidx.media3.datasource.TransferListener
 import java.io.IOException
 
 /**
- * Plays each request from the shelf that holds it (#112): a download on the phone or the SD card, a
- * played-song copy, or else the stream. [route] names the shelf and the request to make of it, once per
- * open, so a card found unavailable then is not read (#179 S1). Only the card found when the store was
- * made is known: one inserted later is not used until Muon restarts.
+ * Plays each request from the shelf [route] names, once per open (#112, #213): a live song streams
+ * through the phone's shelf, and a saved copy (a download on the phone or the SD card, or a played
+ * copy) is read from its own shelf with no upstream at all, so a missing or partial byte fails rather
+ * than reaching Tauon. A card found unavailable is not read (#179 S1). Only the card found when the
+ * store was made is known: one inserted later is not used until Muon restarts.
  *
  * The chosen shelf is checked again before its source is made, and before every read (#179 containment;
  * docs/audits/2026-10-06-card-reader-containment.md). Once it is found unavailable, this open fails
@@ -33,7 +34,8 @@ internal class OfflineDataSource(private val route: (DataSpec) -> Pair<Shelf, Da
         val (shelf, spec) = route(dataSpec)
         // The card can go between the route's decision and here; nothing has been made or opened yet.
         if (!shelf.available()) throw IOException("Storage became unavailable before opening")
-        val source = shelf.source.createDataSource().also { source -> listeners.forEach(source::addTransferListener) }
+        val factory = if (spec.uri.scheme == SAVED_SCHEME) shelf.savedSource else shelf.source
+        val source = factory.createDataSource().also { source -> listeners.forEach(source::addTransferListener) }
         active = source
         this.shelf = shelf
         lost = false

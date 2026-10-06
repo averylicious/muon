@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class LibraryModel(app: Application) : AndroidViewModel(app) {
@@ -17,8 +18,20 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var progress by mutableStateOf(""); private set
-    /** Tauon could not be reached, so the library is only what was downloaded from it (#112). */
+    /** Tauon could not be reached, so the library is only the saved copies (#112, #213). */
     var offline by mutableStateOf(false); private set
+    /** Every saved copy, each its own Unverified entry (#213); read by [refreshSaved], off the main thread. */
+    internal var saved by mutableStateOf<List<SavedEntry>>(emptyList()); private set
+    private var savedLoad: kotlinx.coroutines.Job? = null
+
+    /** Reads the saved copies again, as when Saved copies opens or one is added or removed. */
+    fun refreshSaved() {
+        savedLoad?.cancel()
+        savedLoad = viewModelScope.launch {
+            val found = withContext(Dispatchers.IO) { runCatching { OfflineStore.savedEntries(getApplication<Application>()) }.getOrNull() }
+            if (found != null) saved = found
+        }
+    }
     private val loads = LibraryLoads(viewModelScope) { busy = it }
     val allTracks: List<TauonTrack> get() = tracksByPlaylist.values.flatten().distinctBy { it.id }
     init { if (address.isNotBlank()) connect() }
@@ -63,15 +76,14 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 ensureCurrent()
-                // With no library from this sitting, what was downloaded from the saved server is
-                // still playable, so it is shown rather than the connect screen. A library already
-                // loaded stays as it was.
-                val saved = if (endpoint == null || offline) runCatching { ServerEndpoint.parse(address) }.getOrNull() else null
-                val kept = saved?.let { withContext(Dispatchers.IO) { OfflineStore.downloadedSongs(getApplication<Application>(), it.origin) } }.orEmpty()
+                // With no library from this sitting, the saved copies still play, so they are shown
+                // rather than the connect screen. A library already loaded stays as it was.
+                val server = if (endpoint == null || offline) runCatching { ServerEndpoint.parse(address) }.getOrNull() else null
+                val kept = server?.let { withContext(Dispatchers.IO) { OfflineStore.savedEntries(getApplication<Application>()) } }.orEmpty()
                 ensureCurrent()
-                if (saved != null && kept.isNotEmpty()) {
-                    showOffline(saved, kept)
-                    if (e is LocalNetworkDenied) error = "Muon needs your permission to reach Tauon. Your downloads still play."
+                if (server != null && kept.any { it.complete }) {
+                    showOffline(server, kept)
+                    if (e is LocalNetworkDenied) error = "Muon needs your permission to reach Tauon. Your saved copies still play."
                 }
                 else {
                     error = friendlyError(e)
@@ -80,11 +92,16 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
-    private fun showOffline(server: ServerEndpoint, songs: List<TauonTrack>) {
-        endpoint = server; playlists = emptyList(); tracksByPlaylist = mapOf(OFFLINE_LIBRARY to songs); offline = true
+    /**
+     * The saved copies in place of the library (#213). No live song is listed: none could be streamed, and
+     * a copy kept under a track number is not shown as that song. Each copy is its own Unverified entry.
+     */
+    private fun showOffline(server: ServerEndpoint, entries: List<SavedEntry>) {
+        endpoint = server; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = true
+        saved = entries
         OfflineStore.offline = true
         error = OFFLINE_NOTE
-        progress = "Offline · ${songs.size} ${if (songs.size == 1) "song" else "songs"} on this phone"
+        progress = "Offline · ${entries.size} saved ${if (entries.size == 1) "copy" else "copies"}"
     }
 
     /**
@@ -97,13 +114,13 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         OfflineStore.get(getApplication<Application>())
         loads.start {
             try {
-                val (origin, songs) = withContext(Dispatchers.IO) {
-                    OfflineStore.downloadedLibrary(getApplication<Application>())
+                val (origin, entries) = withContext(Dispatchers.IO) {
+                    OfflineStore.savedLibrary(getApplication<Application>())
                 } ?: return@start
                 ensureCurrent()
                 val server = ServerEndpoint.parse(origin)
                 address = server.origin; prefs.edit().putString("origin", server.origin).apply()
-                showOffline(server, songs)
+                showOffline(server, entries)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { ensureCurrent(); error = friendlyError(e) }
         }
@@ -115,8 +132,8 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().clear().apply(); address = ""; error = null; progress = ""
     }
 }
-/** Shown on the library while it holds only downloads; Retry asks Tauon again. */
-internal const val OFFLINE_NOTE = "Tauon isn't reachable. Your downloads still play."
+/** Shown on the library while it holds only saved copies; Retry asks Tauon again. */
+internal const val OFFLINE_NOTE = "Tauon isn't reachable. Your saved copies still play."
 
 /** Connecting was not attempted: Android 17's local network access is missing. */
 internal class LocalNetworkDenied : Exception("Muon needs your permission to reach Tauon on your local network.")

@@ -33,7 +33,8 @@ private val GroupInnerCorner = 4.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings, disconnect: () -> Unit) {
+internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings, openSaved: () -> Unit = {},
+    disconnect: () -> Unit) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     // Survives rotation and process death: a half-answered destructive question should not vanish.
     var confirmDisconnect by rememberSaveable { mutableStateOf(false) }
@@ -83,7 +84,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             PlaybackGroup()
 
             GroupLabel("Storage")
-            StorageGroup { confirmClear = true }
+            StorageGroup(openSaved) { confirmClear = true }
 
             GroupLabel("Appearance")
             AppearanceGroup(appearance)
@@ -92,8 +93,8 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
         }
     }
     if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false },
-        title = { Text("Remove all downloads?") },
-        text = { Text("Songs you downloaded will stream again, and need Tauon to play.") },
+        title = { Text("Remove all saved copies?") },
+        text = { Text("Every saved copy on the phone, and on the SD card if it's in, is removed. Songs in Tauon still stream.") },
         confirmButton = { TextButton(onClick = { confirmClear = false; OfflineStore.removeAll(context) }) { Text("Remove") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } })
     if (confirmDisconnect) DisconnectDialog(model.address, dismiss = { confirmDisconnect = false }) {
@@ -107,7 +108,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
  * Downloads are kept across disconnecting, since offline is exactly when they are wanted.
  */
 @Composable
-private fun StorageGroup(clear: () -> Unit) {
+private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     val songs = DownloadMarks.marks.values.count { it == DownloadMark.Done }
@@ -132,11 +133,13 @@ private fun StorageGroup(clear: () -> Unit) {
     val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
     StorageBar(DownloadMarks.bytes, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
-        SettingsRow(shape = rowShape(0, rows), headline = "Downloads",
+        // Opens Saved copies (#213), where each copy is listed, played and removed on its own.
+        SettingsRow(shape = rowShape(0, rows), headline = "Saved copies",
             supporting = if (moving != null) "Moving ${moving.first} of ${moving.second}…"
-                else if (songs == 0) "None yet. Long-press a song, or use Download all on an album, artist or playlist."
-                else "$songs ${if (songs == 1) "song" else "songs"} · ${formatBytes(DownloadMarks.bytes)}",
-            trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } })
+                else if (songs == 0) "None yet. Long-press a song, or use Save copies on an album, artist or playlist."
+                else "$songs ${if (songs == 1) "copy" else "copies"} · ${formatBytes(DownloadMarks.bytes)} · $UNVERIFIED",
+            trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } },
+            modifier = Modifier.clickable(onClickLabel = "Open saved copies", onClick = openSaved))
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
         SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
