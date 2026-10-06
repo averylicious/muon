@@ -2,9 +2,11 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-10-06, root-assisted private-index and card-service QA, by GPT-6 (Codex desktop; exact variant/effort not exposed). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
+_Last updated: 2026-10-07, saved-access / library-budget continuation, by GPT-6 (Codex desktop; exact variant/effort not exposed). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
+
+- **October7 source/build boundary:** [Saved-access and budgets checkpoint](handoffs/2026-10-07-saved-access-and-budgets.md). Refreshed #302 .686 passed with 667 tests per variant; #365 .687 passed with 676 and guards aggregate library retention. Draft #366 separates Unverified saved copies from genuinely streamed live audio, preserves per-entry metadata/artwork and requires tracked byte-verified move completion; new startup preservation is awaiting final-head CI/acceptance. #302 excludes #365/#366 until explicit tested integration. App PRs remain open for acceptance. No phone or experimental work in this continuation; full #179 remains deferred, not fixed.
 
 - **SD recovery deferred, October 6:** the user moved full #179 eject/reinsert and live-process/restart recovery out of the current Stable gate; keep it open as a follow-up, not fixed. [Reader/move checkpoint](handoffs/2026-10-06-storage-reader-move.md) supersedes older gate descriptions. #362/#363 are narrow production fixes on open #302 ancestry; final exact-head checks/artifacts are recorded on their PRs. General #213 identity and #230 move preservation remain separate work. No Stable release, emulator setup or experimental change is authorized by this deferral.
 
