@@ -14,8 +14,8 @@ private const val DOWNLOAD_NOTIFICATION = 2
 
 /**
  * Runs downloads for offline listening (#112) in the foreground while any are in progress, with a
- * progress notification, so leaving the app does not stop them. No scheduler: a download that could
- * not finish carries on the next time Muon asks for downloads.
+ * progress notification, so leaving the app does not stop them. No scheduler. After process restart, unfinished saves and pending removals are kept stopped;
+ * new saves use fresh entries instead of resuming unverified retained bytes.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 class MuonDownloadService : DownloadService(DOWNLOAD_NOTIFICATION, DownloadService.DEFAULT_FOREGROUND_NOTIFICATION_UPDATE_INTERVAL,

@@ -119,11 +119,13 @@ private suspend fun fetchArtwork(request: ArtworkRequest, size: Int, disk: Artwo
     // Preserve existing disk filenames while the memory key also includes identity.
     val diskKey = if (size >= ARTWORK_ORIGINAL_SIZE) url else "$url#$size"
     fun keep(art: Bitmap): Bitmap? = ArtworkIdentities.ifCurrent(request) { artCache.put(key, art); art }
-    if (identity != null) disk.read(diskKey, identity)?.let { decodeArtwork(it, size) }?.let { art ->
-        return@withContext keep(art)
+    // A saved copy's own cover is read from that entry's file and nowhere else, never fetched (#213).
+    // A live song's picture never comes from a saved copy: one kept under its number may be another song's.
+    savedArtRequest(url)?.let { requestId ->
+        return@withContext OfflineStore.current()?.art?.forEntry(requestId)?.let { decodeArtwork(it, size) }?.let(::keep)
     }
-    // A downloaded song's cover is kept with the download, so it shows offline and after Disconnect.
-    OfflineStore.current()?.art?.forArtwork(url)?.let { decodeArtwork(it, size) }?.let { art ->
+    if (url.startsWith("$SAVED_ART_SCHEME:")) return@withContext null
+    if (identity != null) disk.read(diskKey, identity)?.let { decodeArtwork(it, size) }?.let { art ->
         return@withContext keep(art)
     }
     try {

@@ -30,7 +30,7 @@ class PlaybackService : MediaSessionService() {
             setSmallIcon(R.drawable.ic_notification)
         })
         val player = ExoPlayer.Builder(this)
-            // A downloaded song plays its copy from the phone; everything else streams as before (#112).
+            // A live song streams; a saved copy plays from its own shelf, cache-only (#112, #213).
             .setMediaSourceFactory(DefaultMediaSourceFactory(
                 OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client))))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
@@ -41,9 +41,10 @@ class PlaybackService : MediaSessionService() {
         // everything else is still to come rather than wherever an old shuffle had left it.
         player.setShuffleOrder(QueueShuffleOrder())
         player.addListener(object : Player.Listener {
-            // Each song that starts playing is copied for offline listening (#112), behind playback.
+            // Each live song that starts playing is copied for offline listening (#112), behind playback.
+            // A saved copy is never copied again (#213).
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                if (mediaItem == null || OfflineStore.offline) return
+                if (mediaItem == null || OfflineStore.offline || isSavedHandle(mediaItem.mediaId)) return
                 OfflineStore.copyPlayed(this@PlaybackService, mediaItem.mediaId, mediaItem.mediaMetadata.extras?.getByteArray(SONG_EXTRA))
             }
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -96,18 +97,21 @@ class PlaybackService : MediaSessionService() {
                 OkHttpDataSource.Factory(Transport.metadataClient))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            .setCallback(PlaybackSessionCallback()).build()
+            .setCallback(PlaybackSessionCallback({ OfflineStore.admitsSaved(this, it) }, admission)).build()
     }
+    // Saved-copy admission reads an index row, so it is kept off the session's main thread (#213).
+    private val admission = java.util.concurrent.Executors.newSingleThreadExecutor()
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
     override fun onDestroy() {
         loudnessListener?.let { getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
             .unregisterOnSharedPreferenceChangeListener(it) }; loudnessListener = null
         session?.run { player.release(); release() }; session = null
+        admission.shutdown()
         super.onDestroy()
     }
 }
 fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builder()
-    .setMediaId("${endpoint.origin}/$id")
+    .setMediaId(downloadId(endpoint.origin, id))
     .setUri(endpoint.url("/api1/file/$id"))
     .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(displayCredits(artist)).setAlbumTitle(album)
         .setAlbumArtist(displayCredits(albumArtist))

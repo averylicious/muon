@@ -7,6 +7,7 @@ import androidx.media3.common.C
 import androidx.media3.common.util.BitmapLoader
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.ByteArrayDataSource
 import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
@@ -19,9 +20,10 @@ internal const val NOTIFICATION_ART_SIDE = 512
 
 /** The service has a separate loader from Compose: apply limits to URI and embedded artwork here. */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal fun notificationBitmapLoader(context: Context, upstream: DataSource.Factory): BitmapLoader {
+internal fun notificationBitmapLoader(context: Context, upstream: DataSource.Factory,
+    savedArt: (String) -> ByteArray? = { OfflineStore.current()?.art?.forEntry(it) }): BitmapLoader {
     val delegate = DataSourceBitmapLoader.Builder(context)
-        .setDataSourceFactory { LimitedArtworkSource(upstream.createDataSource()) }
+        .setDataSourceFactory { LimitedArtworkSource(SavedArtworkSource(upstream.createDataSource(), savedArt)) }
         .setMaximumOutputDimension(NOTIFICATION_ART_SIDE).build()
     return object : BitmapLoader {
         override fun supportsMimeType(mimeType: String): Boolean = delegate.supportsMimeType(mimeType)
@@ -56,4 +58,30 @@ internal class LimitedArtworkSource(private val upstream: DataSource) : DataSour
     override fun getUri(): Uri? = upstream.uri
     override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
     override fun close() = upstream.close()
+}
+
+/** Entry-owned artwork is resolved locally; malformed/missing local handles never fall back to HTTP. */
+@androidx.annotation.OptIn(UnstableApi::class)
+internal class SavedArtworkSource(private val upstream: DataSource,
+    private val saved: (String) -> ByteArray?) : DataSource {
+    private var active: DataSource? = null
+    private val listeners = ArrayList<TransferListener>()
+
+    override fun addTransferListener(transferListener: TransferListener) { listeners += transferListener }
+    override fun open(dataSpec: DataSpec): Long {
+        val source = if (dataSpec.uri.scheme.equals(SAVED_ART_SCHEME, ignoreCase = true)) {
+            val id = savedArtRequest(dataSpec.uri.toString()) ?: throw IOException("Invalid saved artwork handle")
+            val bytes = saved(id) ?: throw IOException("Saved artwork isn't available")
+            if (bytes.size > NOTIFICATION_ART_BYTES) throw IOException("Saved artwork exceeds 4 MiB")
+            ByteArrayDataSource(bytes)
+        } else upstream
+        active = source
+        listeners.forEach(source::addTransferListener)
+        return source.open(dataSpec)
+    }
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+        checkNotNull(active) { "Read before open" }.read(buffer, offset, length)
+    override fun getUri(): Uri? = active?.uri
+    override fun getResponseHeaders(): Map<String, List<String>> = active?.responseHeaders ?: emptyMap()
+    override fun close() { try { active?.close() } finally { active = null } }
 }

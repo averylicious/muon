@@ -68,6 +68,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var lyricsOpen by rememberSaveable { mutableStateOf(false) }
         // Queue sits over the player exactly as Lyrics does; only one of the two is ever open.
         var queueOpen by rememberSaveable { mutableStateOf(false) }
+        // Saved copies (#213), opened from Settings while Tauon is reachable; offline, they are the library.
+        var savedOpen by rememberSaveable { mutableStateOf(false) }
         val library = rememberLibrarySettings()
         val context = LocalContext.current
         // Downloads are read in at launch, so rows can mark them, and any left unfinished carry on.
@@ -148,7 +150,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 value = SearchResults(found, searching = false, completed = query.trim())
             }
         }
-        val connected = model.endpoint != null
+        // Offline, the saved copies show with or without a known server (#213).
+        val connected = model.endpoint != null || model.offline
         val origin = model.endpoint?.origin
         // Grouped once per library snapshot, off the main thread, and labelled with the server and
         // the snapshot it was grouped from. Keyed on the same snapshot identity that decides whether
@@ -261,6 +264,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
         }
         BackHandler(target != BackTarget.None) { goBack() }
+        // Saved copies over Settings: Back closes them first, unless the player is over them.
+        BackHandler(savedOpen && tab == Tab.Settings && !overlayOpen) { savedOpen = false }
         // While the finger is carrying a closed player up, Back cancels that and nothing else: the
         // library underneath is hidden by the rising player and must not be navigated. Registered
         // after the app's own handler, so the dispatcher gives it the press while it is enabled.
@@ -283,6 +288,21 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             player.setMediaItems(queue.map { it.mediaItem(endpoint) }, if (shuffle) queue.indices.random() else 0, 0L)
             player.prepare(); player.play()
         }
+        // Saved copies (#213) play from their own list, each by its exact handle, cache-only; the queue is
+        // the complete copies in the order shown, starting from the one chosen.
+        fun playSaved(list: List<SavedEntry>, entry: SavedEntry) {
+            val index = list.indexOf(entry)
+            if (index < 0 || player == null) return
+            player.setMediaItems(list.map { it.mediaItem() }, index, 0L)
+            player.prepare(); player.play()
+        }
+        fun removeSaved(entry: SavedEntry) = OfflineStore.removeSaved(context, entry.ref)
+        // The list follows what is kept: a copy finishing, being removed, or a played copy coming or going.
+        val savedShown = model.offline || (savedOpen && tab == Tab.Settings)
+        LaunchedEffect(savedShown, DownloadMarks.marks.size, DownloadMarks.bytes, PlayedCacheState.used) {
+            if (savedShown) model.refreshSaved()
+        }
+        val savedCardUnavailable = remember(savedShown, model.saved) { OfflineStore.current()?.card?.available() == false }
         // The song a long press chose (#46), while its actions sheet is open. Not saved: a sheet is a
         // passing choice, and a rotation that closes it loses nothing.
         var actionTrack by remember { mutableStateOf<TauonTrack?>(null) }
@@ -406,7 +426,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 active = connected && player != null && ui.item != null && !overlayOpen,
                                 sheet = sheet,
                                 open = {
-                                    if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
+                                    if (connected && player != null && playback.ui.item != null && !overlayOpen)
                                         playerOpen = true
                                 },
                                 toggle = { if (ui.playing) player?.pause() else player?.play() },
@@ -447,7 +467,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         }, label = "screen") { shown ->
                             when (shown) {
                                 null -> ConnectScreen(model, ::allowLocalNetwork)
-                                Tab.Settings -> SettingsScreen(model, appearance) {
+                                Tab.Settings -> if (savedOpen) {
+                                    SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
+                                        ::playSaved, ::removeSaved, back = { savedOpen = false })
+                                } else SettingsScreen(model, appearance, openSaved = { savedOpen = true }) {
                                     player?.stop(); player?.clearMediaItems(); model.disconnect()
                                     // Nothing from the server just left is shown again or kept on disk.
                                     val disk = ArtworkStore.disk(context)
@@ -457,9 +480,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     playlistList = LazyListState()
                                     libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
                                     lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library; fromSearch = false
-                                    searchOpen = false
+                                    searchOpen = false; savedOpen = false
                                 }
-                                Tab.Library -> {
+                                // Offline, the library is the saved copies, each its own Unverified entry (#213).
+                                Tab.Library -> if (model.offline) {
+                                    SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
+                                        ::playSaved, ::removeSaved)
+                                } else {
                                     val page = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey)
                                     val shift = with(LocalDensity.current) { LIBRARY_PAGE_SHIFT.roundToPx() }
                                     // Opening a playlist or an artist steps down a level, so the page
@@ -618,7 +645,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // Lyrics and Queue are layered over the player, so they open it too; Back from
                     // either then steps down through Now Playing, as it does when they are opened there.
                     fun openPlayer(): Boolean {
-                        if (model.endpoint != null && player != null && playback.ui.item != null) playerOpen = true
+                        if (connected && player != null && playback.ui.item != null) playerOpen = true
                         return playerOpen
                     }
                     PlayerPanel(ui, position, revision, player,
@@ -638,14 +665,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     artists = songArtists(track, artists).filter { !(here is LibraryPage.Artist && here.artistKey == it.key) },
                     dismiss = { actionTrack = null }, queue = { next -> queueSong(track, next) },
                     goToAlbum = ::goToAlbum, goToArtist = ::goToArtist,
-                    download = downloadMark(model.endpoint, track), canDownload = model.endpoint != null && track.playable,
-                    toggleDownload = {
-                        model.endpoint?.let { endpoint ->
-                            if (DownloadMarks.marks[downloadId(endpoint.origin, track.id)] != null)
-                                OfflineStore.remove(context, listOf(downloadId(endpoint.origin, track.id)))
-                            else OfflineStore.add(context, endpoint, listOf(track))
-                        }
-                    })
+                    canSave = model.endpoint != null && track.playable && !model.offline,
+                    save = { model.endpoint?.let { endpoint -> OfflineStore.add(context, endpoint, listOf(track)) } })
             }
             // Dims the library under the player, so a player being dragged, closed or previewed
             // by Back reads as a sheet over it rather than more of the same surface. It stays
