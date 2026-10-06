@@ -150,7 +150,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 value = SearchResults(found, searching = false, completed = query.trim())
             }
         }
-        val connected = model.endpoint != null
+        // Offline, the saved copies show with or without a known server (#213).
+        val connected = model.endpoint != null || model.offline
         val origin = model.endpoint?.origin
         // Grouped once per library snapshot, off the main thread, and labelled with the server and
         // the snapshot it was grouped from. Keyed on the same snapshot identity that decides whether
@@ -425,7 +426,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 active = connected && player != null && ui.item != null && !overlayOpen,
                                 sheet = sheet,
                                 open = {
-                                    if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
+                                    if (connected && player != null && playback.ui.item != null && !overlayOpen)
                                         playerOpen = true
                                 },
                                 toggle = { if (ui.playing) player?.pause() else player?.play() },
@@ -644,7 +645,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // Lyrics and Queue are layered over the player, so they open it too; Back from
                     // either then steps down through Now Playing, as it does when they are opened there.
                     fun openPlayer(): Boolean {
-                        if (model.endpoint != null && player != null && playback.ui.item != null) playerOpen = true
+                        if (connected && player != null && playback.ui.item != null) playerOpen = true
                         return playerOpen
                     }
                     PlayerPanel(ui, position, revision, player,

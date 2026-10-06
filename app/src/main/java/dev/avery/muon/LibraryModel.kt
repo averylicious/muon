@@ -96,7 +96,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      * The saved copies in place of the library (#213). No live song is listed: none could be streamed, and
      * a copy kept under a track number is not shown as that song. Each copy is its own Unverified entry.
      */
-    private fun showOffline(server: ServerEndpoint, entries: List<SavedEntry>) {
+    private fun showOffline(server: ServerEndpoint?, entries: List<SavedEntry>) {
         endpoint = server; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = true
         saved = entries
         OfflineStore.offline = true
@@ -118,8 +118,9 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                     OfflineStore.savedLibrary(getApplication<Application>())
                 } ?: return@start
                 ensureCurrent()
-                val server = ServerEndpoint.parse(origin)
-                address = server.origin; prefs.edit().putString("origin", server.origin).apply()
+                // A copy with no known origin still opens: no server is needed to play it (#213).
+                val server = origin?.let { runCatching { ServerEndpoint.parse(it) }.getOrNull() }
+                if (server != null) { address = server.origin; prefs.edit().putString("origin", server.origin).apply() }
                 showOffline(server, entries)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { ensureCurrent(); error = friendlyError(e) }

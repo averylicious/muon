@@ -23,17 +23,21 @@ internal class DownloadArt(private val dir: File) {
     /** Whether the entry with this request ID has its own cover. */
     fun hasEntry(requestId: String): Boolean = entryFile(requestId).isFile
 
-    /** The entry's own cover, if it has one; never an older download's per-track cover. */
-    fun forEntry(requestId: String): ByteArray? =
-        runCatching { entryFile(requestId).takeIf { it.isFile }?.readBytes() }.getOrNull()
+    /** The entry's own cover, if it has one and is within the cover size cap; never an older per-track cover. */
+    fun forEntry(requestId: String): ByteArray? = runCatching {
+        entryFile(requestId).takeIf { it.isFile && it.length() in 1..COVER_BYTES }?.readBytes()
+    }.getOrNull()
 
-    /** Fetches and keeps the entry's own cover from [url]. Blocking; call it off the main thread. */
+    /**
+     * Fetches and keeps the entry's own cover from [url]. Blocking; call it off the main thread. Uses the
+     * finite metadata client, whose whole-call deadline also bounds a slow-drip response, and the cap.
+     */
     fun fetchEntry(requestId: String, url: String) {
         if (hasEntry(requestId)) return
         runCatching {
-            Transport.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            Transport.metadataClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 val source = response.body?.source()
-                if (!response.isSuccessful || source == null || source.request(4 * 1024 * 1024 + 1L)) return
+                if (!response.isSuccessful || source == null || source.request(COVER_BYTES + 1)) return
                 val bytes = source.readByteArray()
                 if (bytes.isEmpty()) return
                 dir.mkdirs()
@@ -47,4 +51,6 @@ internal class DownloadArt(private val dir: File) {
 
     /** Removes the entry's own cover; any other file, including an older per-track cover, stays. */
     fun removeEntry(requestId: String) { entryFile(requestId).delete() }
+
+    private companion object { const val COVER_BYTES = 4L * 1024 * 1024 }
 }

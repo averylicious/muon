@@ -350,7 +350,7 @@ class ReaderRouteCompositionTest {
             // that fails if ever reached, replacing the OkHttp one before any source is created.
             // Saved copies read through savedSource, which has no upstream at all (#213).
             shelf.savedSource.setCacheReadDataSourceFactory { Wrapper(folder, FileDataSource()).also { wrappers.add(it) } }
-            shelf.source.setUpstreamDataSourceFactory { FailingUpstream() }
+            shelf.stream = DataSource.Factory { FailingUpstream() }
         }
     }
 

@@ -34,7 +34,7 @@ internal class OfflineDataSource(private val route: (DataSpec) -> Pair<Shelf, Da
         val (shelf, spec) = route(dataSpec)
         // The card can go between the route's decision and here; nothing has been made or opened yet.
         if (!shelf.available()) throw IOException("Storage became unavailable before opening")
-        val factory = if (spec.uri.scheme == SAVED_SCHEME) shelf.savedSource else shelf.source
+        val factory = if (spec.uri.scheme == SAVED_SCHEME) shelf.savedSource else shelf.stream
         val source = factory.createDataSource().also { source -> listeners.forEach(source::addTransferListener) }
         active = source
         this.shelf = shelf

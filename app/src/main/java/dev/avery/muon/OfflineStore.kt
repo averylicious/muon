@@ -39,9 +39,11 @@ import okhttp3.Request
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val service: Class<out DownloadService>,
     private val present: () -> Boolean = { true }) : ShelfState {
-    /** Reads this shelf's copies; anything not on it streams, and nothing streamed is written. */
-    val source: CacheDataSource.Factory = CacheDataSource.Factory().setCache(cache)
-        .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client)).setCacheWriteDataSinkFactory(null)
+    /**
+     * Streams a live song straight from Tauon (#213): no cache is read or written at all, so no kept copy,
+     * even one whose key is exactly the live address, can answer for it. Replaceable only by fixtures.
+     */
+    @Volatile var stream: DataSource.Factory = OkHttpDataSource.Factory(Transport.client)
 
     /** Reads one saved copy and nothing else (#213): no upstream and no sink, so a missing byte fails. */
     val savedSource: CacheDataSource.Factory = CacheDataSource.Factory().setCache(cache)
@@ -421,14 +423,15 @@ internal object OfflineStore {
     }
 
     /**
-     * The server most saved copies came from, and every saved copy: what "Listen offline" opens when there
-     * is no saved server, as after Disconnect. Null with nothing playable. Off the main thread.
+     * The server most saved copies came from, if any names one, and every saved copy: what "Listen offline"
+     * opens when there is no saved server, as after Disconnect. Copies with no known origin, played copies
+     * included, open just the same: they play from this phone without any server. Null with nothing
+     * playable. Off the main thread.
      */
-    fun savedLibrary(context: Context): Pair<String, List<SavedEntry>>? {
+    fun savedLibrary(context: Context): Pair<String?, List<SavedEntry>>? {
         val entries = savedEntries(context)
         if (entries.none { it.complete }) return null
-        val origin = entries.mapNotNull { it.from }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: return null
-        return origin to entries
+        return entries.mapNotNull { it.from }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key to entries
     }
 
     /**

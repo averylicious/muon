@@ -31,7 +31,13 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     val scan = combineDiscovery(nsd, probe, allowed)
     // Downloads open without a server (#112): offered whenever any are on the phone.
     LaunchedEffect(Unit) { OfflineStore.get(context) }
-    val downloaded = DownloadMarks.marks.values.count { it == DownloadMark.Done }
+    // Every playable saved copy counts, played copies and ones from an unknown server included (#213).
+    var downloaded by remember { mutableIntStateOf(0) }
+    LaunchedEffect(DownloadMarks.marks.size, PlayedCacheState.used) {
+        downloaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { OfflineStore.savedEntries(context).count { it.complete } }.getOrDefault(0)
+        }
+    }
     // Looks for Tauon as soon as there is nothing to show (#39): first run, after Disconnect, or when
     // the saved address stopped answering. Exactly one answer is connected to without asking, once
     // per visit, and not over an address the user is typing; several are listed to choose from.
@@ -137,10 +143,10 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
         // Downloads open without a server (#112).
         if (downloaded > 0) {
             GroupHeading("On this phone")
-            GroupRow(groupShape(0, 1), onClick = { model.listenOffline() }, enabled = !model.busy, label = "Open my downloads") {
+            GroupRow(groupShape(0, 1), onClick = { model.listenOffline() }, enabled = !model.busy, label = "Open saved copies") {
                 Column(Modifier.weight(1f)) {
-                    Text("My downloads", style = MaterialTheme.typography.titleMedium)
-                    Text("$downloaded ${if (downloaded == 1) "song plays" else "songs play"} without Tauon",
+                    Text("Saved copies", style = MaterialTheme.typography.titleMedium)
+                    Text("$downloaded ${if (downloaded == 1) "copy plays" else "copies play"} without Tauon · $UNVERIFIED",
                         style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                 }
                 Text("Open", style = MaterialTheme.typography.labelLarge, color = colors.primary)
