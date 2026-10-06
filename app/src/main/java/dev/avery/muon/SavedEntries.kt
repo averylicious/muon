@@ -106,13 +106,15 @@ internal enum class SavedCoverage { Full, Partial, Missing, UnknownLength }
 internal data class SavedEntry(val ref: SavedRef, val song: TauonTrack?, val from: String?, val state: Int?,
     val coverage: SavedCoverage, val bytes: Long, val ownCover: Boolean,
     /** Whether Remove may delete its bytes now: they are claimed by it alone ([soleOwner], [PlayedClaims]). */
-    val removable: Boolean, val stoppedAfterRestart: Boolean = false) {
+    val removable: Boolean, val stoppedAfterRestart: Boolean = false,
+    /** The retained encoded record exceeded the display budget, so it was never decoded. */
+    val storedMetadataTooLarge: Boolean = false) {
     /** Whether every byte is held and its download, if any, finished: what can be played. */
     val complete: Boolean get() = coverage == SavedCoverage.Full && (state == null || state == Download.STATE_COMPLETED || stoppedAfterRestart)
     // Old index/cache metadata predates incoming tag limits. Keep its record, but never put unsafe
     // text into Compose/Media3 IPC. Evaluated once while inventory is projected off the main thread.
     val displaySong: TauonTrack? = song?.takeIf { runCatching { requireTrackMetadataBudget(it) }.isSuccess }
-    val metadataTooLarge: Boolean get() = song != null && displaySong == null
+    val metadataTooLarge: Boolean get() = storedMetadataTooLarge || (song != null && displaySong == null)
 }
 
 /** The cache key a row's bytes are under: its own key, or Media3's fallback to its address. */
@@ -229,9 +231,10 @@ internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache:
         val (coverage, bytes) = savedCoverage(cache, key)
         // Only a new save's own cover is shown, and only for the row it was fetched for (see DownloadArt).
         val newSave = request.id.startsWith(NEW_SAVE_PREFIX) && request.customCacheKey == request.id
-        entries += SavedEntry(ref, decodeSong(request.data), savedOrigin(request.uri.toString()), download.state,
+        entries += SavedEntry(ref, decodeSavedSong(request.data), savedOrigin(request.uri.toString()), download.state,
             coverage, bytes, newSave && ownsCover(request.id), request.id in removableIds,
-            stoppedAfterRestart = download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON)
+            stoppedAfterRestart = download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON,
+            storedMetadataTooLarge = request.data.size > TRACK_METADATA_MAX_BYTES)
     }
     // Played copies live only in the phone's cache; [played] is null for any other shelf.
     if (played != null) for (key in cache.keys.sorted()) {
@@ -241,11 +244,17 @@ internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache:
         if (coverage != SavedCoverage.Full) continue
         val metadata = cache.getContentMetadata(key)
         val from = metadata.get(SAVED_FROM_METADATA, null as String?) ?: key.removePrefix(PLAYED_PREFIX)
-        entries += SavedEntry(ref, metadata.get(SONG_METADATA, null as ByteArray?)?.let(::decodeSong),
-            savedOrigin(from), null, coverage, bytes, ownCover = false, removable = played.removable(key))
+        val songData = metadata.get(SONG_METADATA, null as ByteArray?)
+        entries += SavedEntry(ref, songData?.let(::decodeSavedSong),
+            savedOrigin(from), null, coverage, bytes, ownCover = false, removable = played.removable(key),
+            storedMetadataTooLarge = songData != null && songData.size > TRACK_METADATA_MAX_BYTES)
     }
     return entries
 }
+
+/** Refuse oversized retained tags before String/split/Base64 expansion; never change stored data. */
+private fun decodeSavedSong(data: ByteArray): TauonTrack? =
+    if (data.size > TRACK_METADATA_MAX_BYTES) null else decodeSong(data)
 
 /** Saved copies in a stable reading order: by title, unknown ones last, then by handle. */
 internal fun sortSaved(entries: List<SavedEntry>): List<SavedEntry> = entries.sortedWith(

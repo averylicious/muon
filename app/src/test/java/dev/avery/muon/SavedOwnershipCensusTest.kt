@@ -165,6 +165,53 @@ class SavedOwnershipCensusTest {
         assertFalse(soleOwner(listOf(duplicate, duplicate), duplicate.request.id))
     }
 
+    @Test fun oversizedDownloadMetadataIsNotProjectedAndItsStoredRecordAndAudioAreKept() {
+        val index = DefaultDownloadIndex(database, "large_metadata")
+        val cache = cache(PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
+        val row = put(index, "saved/large", "saved/large")
+        val record = encodeSong(TauonTrack(42, "T".repeat(700_000), "Artist", "Album", 1000, true, false))
+        val request = DownloadRequest.Builder(row.request.id, row.request.uri)
+            .setCustomCacheKey(row.request.customCacheKey).setData(record).build()
+        index.putDownload(Download(request, Download.STATE_COMPLETED, 0, 0, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        seed(cache, request.id)
+        val entry = savedInventory(SavedShelf.Phone, rows(index), cache, null) { false }.single()
+        assertNull("Do not retain a decoded oversized record", entry.song)
+        assertTrue(entry.complete)
+        assertTrue(entry.metadataTooLarge)
+        assertEquals("Saved song (metadata too large)", entry.title())
+        assertEquals(entry.ref.handle, entry.mediaItem().mediaId)
+        assertNull(entry.mediaItem().mediaMetadata.extras?.getByteArray(SONG_EXTRA))
+        assertArrayEquals(record, requireNotNull(index.getDownload(request.id)).request.data)
+        assertArrayEquals(bytes, requireNotNull(cache.getCachedSpans(request.id).single().file).readBytes())
+    }
+
+    @Test fun playedMetadataPreflightPreservesOversizedBytesAndAcceptsTheExactEncodedBoundary() {
+        val cache = cache(PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
+        val ordinary = TauonTrack(42, "", "Artist", "Album", 1000, true, false)
+        val titleSize = TRACK_METADATA_MAX_BYTES - encodeSong(ordinary).size
+        val exactSong = ordinary.copy(title = "T".repeat(titleSize))
+        val exact = encodeSong(exactSong)
+        assertEquals(TRACK_METADATA_MAX_BYTES, exact.size)
+        val oversized = encodeSong(exactSong.copy(title = exactSong.title + "T"))
+        val keys = listOf("played:exact", "played:oversized")
+        for ((key, record) in keys.zip(listOf(exact, oversized))) {
+            seed(cache, key)
+            cache.applyContentMetadataMutations(key, ContentMetadataMutations().set(SONG_METADATA, record))
+        }
+        val entries = savedInventory(SavedShelf.Phone, emptyList(), cache, PlayedClaims.none()) { false }
+            .associateBy { it.ref.key }
+        val accepted = requireNotNull(entries[keys[0]])
+        assertEquals(exactSong, accepted.song)
+        assertFalse(accepted.metadataTooLarge)
+        val refused = requireNotNull(entries[keys[1]])
+        assertNull(refused.song)
+        assertTrue(refused.metadataTooLarge)
+        assertTrue(refused.complete)
+        assertArrayEquals(oversized, cache.getContentMetadata(keys[1]).get(SONG_METADATA, ByteArray(0)))
+        assertArrayEquals(bytes, requireNotNull(cache.getCachedSpans(keys[1]).single().file).readBytes())
+    }
+
     private fun put(index: DefaultDownloadIndex, id: String, key: String?): Download {
         val request = DownloadRequest.Builder(id, Uri.parse("http://192.168.1.10:7814/api1/fileopus/9"))
             .setCustomCacheKey(key).setData(ByteArray(0)).build()

@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Current source follow-up: [Move target extent](handoffs/2026-10-07-move-target-extent.md) on the complete #370 acceptance stack and current main. CI pending at authoring; application acceptance remains pending. [Previous exact receipts](handoffs/2026-10-07-final-acceptance.md). No phone/experiment changes.
+Current source follow-up: [Saved metadata before-decode bound](handoffs/2026-10-07-saved-metadata-predecode.md), containing #372 extent checks and #370 acceptance stack. CI pending at authoring. [Previous exact receipts](handoffs/2026-10-07-final-acceptance.md). No phone/experiment changes; inherited app acceptance remains pending.
 
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The earlier controller-policy checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 
