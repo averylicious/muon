@@ -96,13 +96,16 @@ class PlayedCopyCharacterizationTest {
 
     @Test fun normalCopyKeepsExactBytesAndMetadataWithoutTouchingExplicitDownload() {
         startGatedCopy()
-        assertFalse("An unfinished response must not be advertised as playable offline",
-            OfflineStore.playedCopy(app, id))
+        assertNull("An unfinished response must not be listed as a playable copy", playedFrom(id))
         server.release()
         awaitCopier()
-        assertTrue(OfflineStore.playedCopy(app, id))
-        assertArrayEquals(payload, resourceBytes(playedKey(id)))
-        assertArrayEquals(song, cache.getContentMetadata(playedKey(id)).get(SONG_METADATA, null as ByteArray?))
+        // A new, independent played copy (#213): its own fresh key, never the live ID's old played key.
+        val copied = requireNotNull(playedFrom(id))
+        assertTrue(copied.startsWith(playedKey(NEW_SAVE_PREFIX)))
+        assertFalse(copied == playedKey(id))
+        assertArrayEquals(payload, resourceBytes(copied))
+        assertArrayEquals(song, cache.getContentMetadata(copied).get(SONG_METADATA, null as ByteArray?))
+        assertEquals(id, cache.getContentMetadata(copied).get(SAVED_FROM_METADATA, null as String?))
         assertArrayEquals(seed, resourceBytes(explicit))
         assertEquals("GET /api1/fileopus/7 HTTP/1.1", server.requestLine)
         server.assertCompleted()
@@ -133,7 +136,7 @@ class PlayedCopyCharacterizationTest {
         assertTrue(cache.keys.filter { it.startsWith(PLAYED_PREFIX) }.sumOf { key ->
             cache.getCachedSpans(key).sumOf { it.length }
         } <= 64)
-        assertFalse(OfflineStore.playedCopy(app, id))
+        assertNull(playedFrom(id))
         server.release()
         assertArrayEquals(seed, resourceBytes(explicit))
         server.assertCompleted()
@@ -144,7 +147,7 @@ class PlayedCopyCharacterizationTest {
         server.truncate = true
         server.release()
         awaitCopier()
-        assertFalse(OfflineStore.playedCopy(app, id))
+        assertNull(playedFrom(id))
         OfflineStore.clearPlayed(app)
         awaitCopier()
         assertTrue(cache.keys.none { it.startsWith(PLAYED_PREFIX) })
@@ -159,7 +162,7 @@ class PlayedCopyCharacterizationTest {
         startGatedCopy()
         awaitCopier()
         assertFalse("Byte rejection must finish without the server releasing its body", server.finished)
-        assertFalse(OfflineStore.playedCopy(app, id))
+        assertNull(playedFrom(id))
         assertArrayEquals(seed, resourceBytes(explicit))
         server.release()
         server.assertCompleted()
@@ -172,6 +175,10 @@ class PlayedCopyCharacterizationTest {
     }
 
     private fun awaitCopier() { copier.submit {}.get(10, TimeUnit.SECONDS) }
+
+    /** The complete played copy saved from [id], as Saved copies would list it; null when there is none. */
+    private fun playedFrom(id: String): String? = savedInventory(SavedShelf.Phone, emptyList(), cache, PlayedClaims.none()) { false }
+        .firstOrNull { cache.getContentMetadata(it.ref.key).get(SAVED_FROM_METADATA, null as String?) == id }?.ref?.key
 
     private fun seedCache(key: String, bytes: ByteArray) {
         val hole = requireNotNull(cache.startReadWrite(key, 0, bytes.size.toLong()))

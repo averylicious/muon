@@ -60,7 +60,78 @@ Tests: in progress.
 
 ## Remaining checks and limits
 
-(Filled in at the end.)
+### Claude completion pass (Claude Opus 5.5, High; not compiled, no test run)
+
+**Contract 6 is superseded.** The `requestId == key` rule was replaced after review:
+
+- **`soleOwner` census.** A download row's bytes may be deleted only when, in that shelf's index (all states), the row's key is its own request ID, is not a played key, and no other row names it.
+- **Why the census holds until Media3 removes the bytes:** there are two production index writers, both verified by grep for `sendAddDownload`.
+  - `add` uses a fresh `saved/<uuid>` that is absent from every row's ID and key in both indexes and from both caches (`takenNames`).
+  - A move adds only rows that pass `movable`: the source row is sole owner, and the target holds no row naming that key except the same ID with the same key. Pinned `DownloadRequest.copyWithMergedRequest` takes the new request's key, so other cases are refused.
+- **`PlayedClaims`.** The played-copy keys any phone index row names are read once at startup. They are never evicted, cleared, removed or cleaned up. Before that read finishes, nothing played is removed and no played copy is made.
+- **Guarded callers:**
+  - `removeSavedNow`, played and download;
+  - `removeAllNow`, per-row census instead of Media3's remove-all;
+  - the leftover removal after a move (`removeLeftoverNow`, census on the saver thread);
+  - the move census, once per batch;
+  - `PlayedSongEvictor`, `clearPlayed`, and the cleanup of an unfinished played copy;
+  - entry covers: only `saved/` IDs, and only once no row of that ID is left on either shelf.
+
+**Findings 1, 2 and 9 fixed in source:**
+
+1. Live songs stream through `Shelf.stream`, a plain OkHttp source with no cache read or write. The test fixtures now replace `stream` in place of the old `source`.
+2. `savedLibrary` no longer needs an origin. `showOffline` takes a nullable server, and `connected` includes offline. ConnectScreen counts every complete saved copy, played-only and unknown-origin included, off the main thread.
+3. Finding 9: `fetchEntry` uses `Transport.metadataClient` (whole-call deadline) with the 4 MiB cap. `forEntry` refuses an empty or over-cap file before reading it.
+
+**Tests (source-only; GitHub Actions is the first compile and run):**
+
+- New `SavedOwnershipCensusTest`:
+  - aliased, malformed, keyless and played-key rows are never sole owners;
+  - a move refuses aliases and rebinding;
+  - inventory removable flags;
+  - the real evictor never evicts a claimed key, or anything before claims are known.
+- Updated:
+  - `RetainedIdentityCharacterizationTest`: live B streams over loopback even with a resource keyed by the exact live URI; saved A reads only by its handle with no request; bundle and Undo restore the exact handle.
+  - `CardAvailabilityRouteTest`, `CardIndexCharacterizationTest`: missing card bytes fail cache-only; removal of an unavailable card's copy is refused.
+  - `OfflineReaderContainmentTest`, `ReaderRouteCompositionTest`, `SourceCloseControlTest`: saved handles read through `savedSource`.
+  - `PlayedCopyCharacterizationTest`: new played keys and provenance.
+  - `SavedOwnershipControlTest`: the legacy-cover API is gone; the legacy file stays intact and is never served.
+  - `DownloadArtTest`, `OfflineDownloadsTest`, `CardAvailabilityTest`: removed helpers dropped, replaced by real-index coverage.
+
+**Pinned-source checks** (`/tmp/muon-oct7-saved-access-review/pinned-source`):
+
+- `ProgressiveDownloader.remove` deletes by the key from the cache-key factory, i.e. the request's custom key.
+- `copyWithMergedRequest` takes the new request's custom key.
+- `Util.inferContentType` returns OTHER for an opaque `muon-saved:` URI, so it plays as progressive.
+- `SimpleCache.getKeys` and `getCachedSpans` return copies.
+- `CacheDataSource` with no upstream uses `PlaceholderDataSource`.
+- Media3 1.11 has no ignore-cache-always flag, hence the plain stream factory.
+- Not checked: `MediaSession.Callback` acceptance of an asynchronously completed `onAddMediaItems` future (session sources not extracted).
+
+**Open findings from the coordinator review** (`docs/audits/2026-10-07-saved-draft-review.md`), not resolved here and still blocking a #213 claim:
+
+- **4:** persisted metadata size in saved MediaItems.
+- **5:** notification loader cannot read `muon-saved-art:`, so there is no cover in the notification.
+- **6:** admission does not check card availability; the reader does.
+- **7:** `refreshSaved` cancellation, and unbounded scans (#253).
+- **8:** listener leftover removal is triggered by a same-ID completion. Removal is now census-gated per shelf, but two unrelated legacy rows with the same ID on phone and card can still trigger it when the other one completes; tracked, byte-verified move provenance is not implemented.
+
+**Other limits:**
+
+- Rows already `REMOVING` from an older app version are still processed by Media3 at startup.
+- Played copies made before this version are listed but never resumed.
+- Removing a copy while it is playing unlinks files under the open reader.
+- No device, UI or Compose verification. The checkpoint describes source only.
+
+**Manual QA (pending user):**
+
+- live play while saved copies exist;
+- Saved copies list, play and remove, including the refusal notices;
+- Disconnect, then Open saved copies with only played copies;
+- card out and in;
+- move with mixed legacy rows;
+- Clear the played cache;
+- Undo of a saved queue item.
 
 ## Coordinator review checkpoint (before first compile)
 

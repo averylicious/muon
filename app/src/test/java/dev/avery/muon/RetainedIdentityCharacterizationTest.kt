@@ -215,6 +215,9 @@ class RetainedIdentityCharacterizationTest {
                     assertArrayEquals(liveBytes, requireNotNull(it.body).bytes())
                 }
                 val spec = DataSpec.Builder().setUri(requireNotNull(item.localConfiguration).uri).build()
+                // Finding 1: an older resource keyed by exactly the live address (as a key-less legacy row's
+                // fallback key would be) must not answer the live request either.
+                seed(spec.uri.toString(), encodeSong(old))
                 val source = OfflineDataSource { request -> routeOfflineRequest(request, shelf, null) }
                 try {
                     // The live item plays live B from the peer, though saved A has the same tags and number.
@@ -242,7 +245,9 @@ class RetainedIdentityCharacterizationTest {
                     assertEquals(-1, source.read(ByteArray(1), 0, 1))
                 } finally { source.close() }
                 assertEquals("Saved playback made no request", 2, requests.get())
-                assertEquals("Retained bytes remain intact, and nothing streamed was written", payloadA.size.toLong(), cache.getCacheSpace())
+                assertEquals("Both retained resources remain intact, and nothing streamed was written",
+                    2L * payloadA.size, cache.getCacheSpace())
+                assertArrayEquals(payloadA, requireNotNull(cache.getCachedSpans(spec.uri.toString()).single().file).readBytes())
             } finally {
                 peer.close(); owner.join(5000)
                 client.dispatcher.cancelAll(); client.connectionPool.evictAll(); client.dispatcher.executorService.shutdown()

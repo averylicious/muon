@@ -260,8 +260,7 @@ class OfflineReaderContainmentTest {
             // The only seams: the real FileDataSource, counted, and an in-memory upstream instead of OkHttp.
             // Saved copies read through savedSource, which has no upstream at all (#213); live songs stream.
             shelf.savedSource.setCacheReadDataSourceFactory { CountingFile().also(files::add) }
-            shelf.source.setCacheReadDataSourceFactory { CountingFile().also(files::add) }
-            shelf.source.setUpstreamDataSourceFactory { Upstream().also(upstreams::add) }
+            shelf.stream = DataSource.Factory { Upstream().also(upstreams::add) }
             shelves += shelf
         }
     }
