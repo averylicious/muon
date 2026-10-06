@@ -43,6 +43,7 @@ class TauonApi(val endpoint: ServerEndpoint) {
     }
     suspend fun playlists(): List<TauonPlaylist> = withContext(Dispatchers.IO) {
         val a = json("/api1/playlists").getJSONArray("playlists")
+        requireLibraryPlaylistCount(a.length())
         val ids = HashSet<String>()
         List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getString("id")
@@ -54,6 +55,7 @@ class TauonApi(val endpoint: ServerEndpoint) {
     suspend fun tracks(playlistId: String): List<TauonTrack> = withContext(Dispatchers.IO) {
         require(playlistId.matches(Regex("[0-9]+")))
         val a = json("/api1/tracklist/$playlistId").getJSONArray("tracks")
+        requireLibraryEntryCount(a.length())
         List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getLong("id"); require(id >= 0)
             val artist = it.optString("artist")
