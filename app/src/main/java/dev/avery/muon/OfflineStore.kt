@@ -589,6 +589,7 @@ internal object OfflineStore {
                 val downloads = sourceRows.filter { it.state == Download.STATE_COMPLETED }
                 main.post { DownloadMarks.moving = 0 to downloads.size }
                 var kept = 0
+                var failed = 0
                 for ((index, download) in downloads.withIndex()) {
                     if (!canMove(from, to)) {
                         notice(context, "The SD card isn't available any more, so the rest weren't moved.")
@@ -598,8 +599,10 @@ internal object OfflineStore {
                     // stays where it is, untouched; an unread target index moves nothing.
                     val safe = targetRows != null && movable(download, sourceRows, targetRows)
                     if (!safe) kept++
-                    if (safe && moveOwnership.permits(batch, download.request.id) &&
-                        runCatching { copy(download, from, to) }.isSuccess)
+                    val attempted = safe && moveOwnership.permits(batch, download.request.id)
+                    val copied = attempted && runCatching { copy(download, from, to) }.isSuccess
+                    if (attempted && !copied) failed++
+                    if (copied)
                         // Hand-over needs both shelves still available (#179 S1) and the move still owning
                         // this song: removed or Remove all since means no Add (#234).
                         main.post {
@@ -619,6 +622,9 @@ internal object OfflineStore {
                 }
                 if (kept > 0) notice(context, "$kept ${if (kept == 1) "copy was" else "copies were"} kept where " +
                     "${if (kept == 1) "it was" else "they were"}: Muon can't tell their bytes belong to them alone.")
+                if (failed > 0) notice(context, if (failed == 1)
+                    "1 copy couldn't be moved. Its saved entry was kept."
+                else "$failed copies couldn't be moved. Their saved entries were kept.")
             } finally {
                 // Posted after every completion: callbacks still carry ownership until they drain.
                 main.post { moveOwnership.finish(batch); DownloadMarks.moving = null }

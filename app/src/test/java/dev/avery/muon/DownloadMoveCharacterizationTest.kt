@@ -26,6 +26,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowToast
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.annotation.SQLiteMode
@@ -152,6 +153,7 @@ class DownloadMoveCharacterizationTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
         assertNull(targetIndex.getDownload(id))
+        assertEquals("1 copy couldn't be moved. Its saved entry was kept.", ShadowToast.getTextOfLatestToast())
         assertTrue("Failed copy retains unindexed target spans", card.cache.getCachedSpans(id).isNotEmpty())
         assertFalse(card.cache.isCached(id, 0, 2L * chunk.size))
         assertArrayEquals(chunk, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
@@ -421,6 +423,41 @@ class DownloadMoveCharacterizationTest {
         assertTrue(card.cache.getCachedSpans(id).isEmpty())
         assertTrue(phone.cache.isCached(id, 0, bytes.size.toLong()))
         assertNotNull(sourceIndex.getDownload(id))
+    }
+
+    @Test fun failureAfterAMatchingPrefixPreservesThatPrefixAndReportsTheKeptOriginal() {
+        val chunk = ByteArray(128 * 1024) { (it % 251).toByte() }
+        val prefix = chunk.copyOf(1000)
+        val priorFile = seed(card.cache, 0, prefix)
+        seed(phone.cache, 0, chunk)
+        val later = seed(phone.cache, chunk.size.toLong(), chunk)
+        setLength(phone.cache, 2L * chunk.size)
+        putCompleted(2L * chunk.size)
+        assertTrue(later.delete()) // Disposable source fixture only, not a device eject.
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertNull(targetIndex.getDownload(id))
+        assertArrayEquals(prefix, priorFile.readBytes())
+        assertFalse(card.cache.isCached(id, 0, 2L * chunk.size))
+        assertNotNull(sourceIndex.getDownload(id))
+        assertArrayEquals(chunk, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
+        assertEquals("1 copy couldn't be moved. Its saved entry was kept.", ShadowToast.getTextOfLatestToast())
+    }
+
+    @Test fun aBatchOfUnreadableCompletedSourcesReportsEveryAttemptWithoutPublishing() {
+        putCompleted(bytes.size.toLong()) // Completed index rows, deliberately no source spans/length.
+        val second = DownloadRequest.Builder("another-saved-copy", request.uri)
+            .setCustomCacheKey("another-saved-copy").setData(request.data).build()
+        sourceIndex.putDownload(Download(second, Download.STATE_COMPLETED, 1, 1, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertTrue(card.cache.keys.isEmpty())
+        assertNotNull(sourceIndex.getDownload(id))
+        assertNotNull(sourceIndex.getDownload(second.id))
+        assertEquals("2 copies couldn't be moved. Their saved entries were kept.", ShadowToast.getTextOfLatestToast())
     }
 
     private fun shelf(name: String, index: DefaultDownloadIndex,
