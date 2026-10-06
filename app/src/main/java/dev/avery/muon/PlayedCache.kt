@@ -53,7 +53,11 @@ internal class PlayedSongEvictor(limit: Long, private val report: (Long) -> Unit
     private fun played(span: CacheSpan) = span.key.startsWith(PLAYED_PREFIX)
 
     override fun requiresCacheSpanTouches() = true
-    override fun onCacheInitialized() = Unit
+    override fun onCacheInitialized() {
+        // Loading spans protects each key as if it were being written. Once startup is complete,
+        // there is no writer to protect; trim an oversized played resource left by an older app.
+        cache?.let { evict(it, 0, keep = null) }
+    }
     override fun onStartFile(cache: Cache, key: String, position: Long, length: Long) {
         this.cache = cache
         if (key.startsWith(PLAYED_PREFIX) && length != C.LENGTH_UNSET.toLong()) evict(cache, length, keep = key)
