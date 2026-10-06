@@ -120,6 +120,51 @@ class SavedOwnershipCensusTest {
         assertTrue(cache.isCached("played:claimed", 0, bytes.size.toLong()))
     }
 
+    @Test fun anUnlistedRemovingAliasStillProtectsTheListedSavedCopy() {
+        val index = DefaultDownloadIndex(database, "removing-alias")
+        val cache = cache(PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
+        val kept = put(index, "saved/kept", "saved/kept")
+        seed(cache, kept.request.id)
+        val alias = put(index, "removing-alias", kept.request.id)
+        index.putDownload(Download(alias.request, Download.STATE_REMOVING, 0, 0, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        val census = rows(index)
+        val entries = savedInventory(SavedShelf.Phone, census, cache, null) { false }
+        assertEquals(listOf(kept.request.id), entries.map { it.ref.requestId })
+        assertFalse(entries.single().removable)
+        assertFalse(soleOwner(census, kept.request.id))
+        assertTrue(cache.isCached(kept.request.id, 0, bytes.size.toLong()))
+        assertEquals(Download.STATE_REMOVING, index.getDownload(alias.request.id)?.state)
+    }
+
+    @Test fun inventoryOwnershipVisitsGrowLinearlyAndDuplicateIdsRemainProtected() {
+        val cache = cache(PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
+        val downloads = (0 until 2048).map { number ->
+            val id = "saved/$number"
+            val request = DownloadRequest.Builder(id, Uri.parse("http://192.168.1.10:7814/api1/fileopus/9"))
+                .setCustomCacheKey(id).build()
+            Download(request, Download.STATE_COMPLETED, 0, 0, bytes.size.toLong(),
+                Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
+        }
+        var visits = 0
+        val counted = object : AbstractList<Download>() {
+            override val size get() = downloads.size
+            override fun get(index: Int): Download = downloads[index].also { visits++ }
+        }
+        val entries = savedInventory(SavedShelf.Phone, counted, cache, null) { false }
+        assertEquals(downloads.size, entries.size)
+        assertTrue(entries.all { it.removable })
+        // Counts production list visits, not wall time or a mirrored census implementation.
+        assertTrue("Ownership must not rescan the whole index for each entry: $visits visits",
+            visits <= 8 * downloads.size)
+        assertTrue(cache.keys.isEmpty())
+        val duplicate = downloads.first()
+        val repeated = savedInventory(SavedShelf.Phone, listOf(duplicate, duplicate), cache, null) { false }
+        assertEquals(2, repeated.size)
+        assertTrue(repeated.none { it.removable })
+        assertFalse(soleOwner(listOf(duplicate, duplicate), duplicate.request.id))
+    }
+
     private fun put(index: DefaultDownloadIndex, id: String, key: String?): Download {
         val request = DownloadRequest.Builder(id, Uri.parse("http://192.168.1.10:7814/api1/fileopus/9"))
             .setCustomCacheKey(key).setData(ByteArray(0)).build()

@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Latest continuation: [Move failure feedback](handoffs/2026-10-07-move-failure-feedback.md), a bounded #230 follow-up on the verified combined #302/.696. CI is pending; application PRs remain open for acceptance. Parent saved-access/budget receipts are in the linked checkpoint. No phone or experimental work; allocated Claude stays idle.
+Latest continuation: [Saved inventory census](handoffs/2026-10-07-saved-inventory-census.md), a bounded #253 follow-up on #369 move-failure feedback and verified combined #302/.696. Final-head CI pending; app acceptance remains pending. Follow the parent receipts and live PRs before takeover. No device/experimental changes; Claude idle.
 
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The earlier controller-policy checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 

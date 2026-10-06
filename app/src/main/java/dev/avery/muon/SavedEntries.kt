@@ -138,6 +138,19 @@ internal fun soleOwner(rows: List<Download>, requestId: String): Boolean {
     return rows.count { keyOf(it) == key } == 1
 }
 
+/** Same sole-owner rule for one inventory, without rescanning all rows for every listed copy. */
+@androidx.annotation.OptIn(UnstableApi::class)
+private fun soleOwners(rows: List<Download>): Set<String> {
+    // Include every state and even rows that cannot be listed: they still claim their effective key.
+    val ids = rows.groupingBy { it.request.id }.eachCount()
+    val keys = rows.groupingBy(::keyOf).eachCount()
+    return rows.mapNotNullTo(HashSet()) { row ->
+        val id = row.request.id
+        val key = row.request.customCacheKey
+        id.takeIf { key == id && !id.startsWith(PLAYED_PREFIX) && ids[id] == 1 && keys[id] == 1 }
+    }
+}
+
 /**
  * Whether a move may hand [download] from a shelf whose index holds [sourceRows] to one whose index holds
  * [targetRows] without making a second row name its key, or rebinding a row already there: it must solely
@@ -207,6 +220,7 @@ internal fun savedOrigin(address: String?): String? = address?.let {
 internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache: Cache, played: PlayedClaims?,
     ownsCover: (String) -> Boolean): List<SavedEntry> {
     val entries = ArrayList<SavedEntry>()
+    val removableIds = soleOwners(downloads)
     for (download in downloads) {
         if (download.state == Download.STATE_REMOVING) continue
         val request = download.request
@@ -216,7 +230,7 @@ internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache:
         // Only a new save's own cover is shown, and only for the row it was fetched for (see DownloadArt).
         val newSave = request.id.startsWith(NEW_SAVE_PREFIX) && request.customCacheKey == request.id
         entries += SavedEntry(ref, decodeSong(request.data), savedOrigin(request.uri.toString()), download.state,
-            coverage, bytes, newSave && ownsCover(request.id), soleOwner(downloads, request.id),
+            coverage, bytes, newSave && ownsCover(request.id), request.id in removableIds,
             stoppedAfterRestart = download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON)
     }
     // Played copies live only in the phone's cache; [played] is null for any other shelf.
