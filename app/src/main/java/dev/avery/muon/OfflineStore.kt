@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
@@ -518,9 +519,11 @@ internal object OfflineStore {
             val key = receipt.request.customCacheKey ?: return false
             val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(key))
             if (length <= 0 || ContentMetadata.getContentLength(to.cache.getContentMetadata(key)) != length ||
-                !from.cache.isCached(key, 0, length) || !to.cache.isCached(key, 0, length)) return false
+                !from.cache.isCached(key, 0, length) || !to.cache.isCached(key, 0, length) ||
+                !spansWithin(to.cache, key, length)) return false
             if (!sameBytes(DataSpec.Builder().setUri(receipt.request.uri).setKey(key).setLength(length).build(), from, to))
                 return false
+            if (!spansWithin(to.cache, key, length)) return false
             var sent = false
             store.moves.publish(receipt) {
                 if (canMove(from, to)) {
@@ -638,6 +641,7 @@ internal object OfflineStore {
         val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(id))
         require(length != C.LENGTH_UNSET.toLong() && from.cache.isCached(id, 0, length)) { "Not fully downloaded" }
         val targetLength = ContentMetadata.getContentLength(to.cache.getContentMetadata(id))
+        require(spansWithin(to.cache, id, length)) { "Existing destination bytes extend beyond the source" }
         val targetRecord = to.manager.downloadIndex.getDownload(id)
         if (targetRecord != null) {
             // Matching address/tags are not audio identity. An older recorded partial copy cannot be
@@ -676,8 +680,17 @@ internal object OfflineStore {
         require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id).setLength(length).build(), from, to)) {
             "Copy differs from its source"
         }
+        // A late writer may have appended bytes after the preflight. Comparing only [0, length)
+        // cannot see them. Keep all bytes and the source when the current extent no longer fits.
+        require(spansWithin(to.cache, id, length)) { "Destination bytes now extend beyond the source" }
         to.cache.applyContentMetadataMutations(id, ContentMetadataMutations.setContentLength(ContentMetadataMutations(), length))
     }
+
+    /** A current extent snapshot, not a writer lock or authority to truncate unknown spans. */
+    private fun spansWithin(cache: Cache, key: String, length: Long): Boolean =
+        length > 0 && cache.getCachedSpans(key).all {
+            it.position >= 0 && it.length >= 0 && it.position <= length && it.length <= length - it.position
+        }
 
     /**
      * Whether [to] holds exactly [from]'s bytes for [spec], read now from both caches in bounded blocks.

@@ -193,6 +193,41 @@ class DownloadMoveCharacterizationTest {
             OfflineStore.get(app), card, completed))
     }
 
+    @Test fun recordedCompleteTargetWithExtraBytesIsNotAdoptedOrTruncated() {
+        completeSource(bytes)
+        val retained = seed(card.cache, 0, bytes + byteArrayOf(99))
+        setLength(card.cache, bytes.size.toLong())
+        targetIndex.putDownload(Download(request, Download.STATE_COMPLETED, 0, 0, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertArrayEquals(bytes + byteArrayOf(99), retained.readBytes())
+        assertEquals(bytes.size.toLong(), ContentMetadata.getContentLength(card.cache.getContentMetadata(id)))
+        assertNotNull(sourceIndex.getDownload(id))
+        assertEquals("1 copy couldn't be moved. Its saved entry was kept.", ShadowToast.getTextOfLatestToast())
+    }
+
+    @Test fun trailingFragmentAddedAfterMovePublicationPreventsSourceRemoval() {
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, startedCommands().count { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        // Simulate a late cache writer after hand-over: the original range still compares equal.
+        val fragment = seed(card.cache, bytes.size.toLong() + 10, byteArrayOf(88, 99))
+        val completed = Download(request, Download.STATE_COMPLETED, 0, 0, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
+        targetIndex.putDownload(completed)
+        assertFalse(OfflineStore.completeMovedCopyNow(app, OfflineStore.get(app), card, completed))
+        assertTrue(startedCommands().isEmpty())
+        assertArrayEquals(byteArrayOf(88, 99), fragment.readBytes())
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+        assertNotNull(targetIndex.getDownload(id))
+    }
+
     @Test fun changedTargetBytesOrRemovalInvalidationKeepBothCopies() {
         completeSource(bytes)
         val store = OfflineStore.get(app)
