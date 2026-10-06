@@ -121,7 +121,7 @@ class SavedOwnershipCensusTest {
     }
 
     @Test fun anUnlistedRemovingAliasStillProtectsTheListedSavedCopy() {
-        val index = DefaultDownloadIndex(database, "removing-alias")
+        val index = DefaultDownloadIndex(database, "removing_alias")
         val cache = cache(PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
         val kept = put(index, "saved/kept", "saved/kept")
         seed(cache, kept.request.id)
