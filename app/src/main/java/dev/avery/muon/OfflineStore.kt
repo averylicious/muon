@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
@@ -25,20 +26,37 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.atomic.AtomicReference
+import okhttp3.Call
+import okhttp3.Request
 
 /**
  * Where downloads are kept: the phone's own storage, or a removable SD card (#112, mockup 01). Each has
- * its own cache, its own download index and its own service, so a card taken out simply takes its
- * downloads with it until it is back.
+ * its own cache, its own download index and its own service. A card that is unavailable is skipped by
+ * new decisions (#179 S1, [ShelfState]); whether its downloads survive removal is not established.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val service: Class<out DownloadService>) {
-    /** Reads this shelf's copies; anything not on it streams, and nothing streamed is written. */
-    val source: CacheDataSource.Factory = CacheDataSource.Factory().setCache(cache)
-        .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client)).setCacheWriteDataSinkFactory(null)
+internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val service: Class<out DownloadService>,
+    private val present: () -> Boolean = { true }) : ShelfState {
+    /**
+     * Streams a live song straight from Tauon (#213): no cache is read or written at all, so no kept copy,
+     * even one whose key is exactly the live address, can answer for it. Replaceable only by fixtures.
+     */
+    @Volatile var stream: DataSource.Factory = OkHttpDataSource.Factory(Transport.client)
 
-    fun completed(id: String): Boolean =
+    /** Reads one saved copy and nothing else (#213): no upstream and no sink, so a missing byte fails. */
+    val savedSource: CacheDataSource.Factory = CacheDataSource.Factory().setCache(cache)
+        .setUpstreamDataSourceFactory(null).setCacheWriteDataSinkFactory(null)
+
+    /** Checked at each decision (#179 S1); see [cardPresent] for the card. */
+    override fun available(): Boolean = runCatching(present).getOrDefault(false)
+
+    override fun completed(id: String): Boolean =
         runCatching { manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED }.getOrDefault(false)
+
+    override fun holds(id: String): Boolean =
+        runCatching { manager.downloadIndex.getDownload(id) != null }.getOrDefault(false)
 }
 
 /** A mounted removable SD card's folder for Muon, if there is one. Muon needs no permission for it. */
@@ -56,10 +74,17 @@ internal fun cardFolder(context: Context): File? = context.getExternalFilesDirs(
 internal object OfflineStore {
     class Store(val phone: Shelf, val art: DownloadArt, val played: PlayedSongEvictor,
         val prefs: android.content.SharedPreferences, val database: StandaloneDatabaseProvider,
-        val record: (Download) -> Unit, val removed: (Download) -> Unit) {
+        val record: (Download) -> Unit, val removed: (Download) -> Unit,
+        /** Where a new save's own cover is fetched; fixtures leave it doing nothing. */
+        val artwork: java.util.concurrent.Executor = java.util.concurrent.Executor { },
+        /** Played-copy keys a phone index row names, which the played cache never removes (#213). */
+        val playedClaims: PlayedClaims = PlayedClaims.none(),
+        val moves: DownloadMoveReceipts = DownloadMoveReceipts()) {
         /** The phone's cache, which also holds the played-song copies. */
         val cache: SimpleCache get() = phone.cache
         @Volatile var card: Shelf? = null
+        /** The app's folder on [card], for its name and free space; null without a card. */
+        @Volatile var cardFolder: File? = null
         val shelves: List<Shelf> get() = listOfNotNull(phone, card)
     }
 
@@ -68,6 +93,8 @@ internal object OfflineStore {
 
     /** Copies played songs one at a time, behind playback. */
     private val copier = Executors.newSingleThreadExecutor()
+    private val copyDeadlines = ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy = true }
+    private val playedWork = PlayedCopyWork(copier, copyDeadlines)
 
     @Volatile private var store: Store? = null
 
@@ -78,13 +105,14 @@ internal object OfflineStore {
     fun get(context: Context): Store = store ?: create(context.applicationContext).also { store = it }
 
     private fun shelf(context: Context, folder: File, evictor: androidx.media3.datasource.cache.CacheEvictor,
-        database: StandaloneDatabaseProvider, index: String, service: Class<out DownloadService>): Shelf {
+        database: StandaloneDatabaseProvider, index: String, service: Class<out DownloadService>,
+        present: () -> Boolean = { true }): Shelf {
         val cache = SimpleCache(folder, evictor, database)
         val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client))
-        val manager = DownloadManager(context, DefaultDownloadIndex(database, index),
+        val manager = DownloadManager(context, RetainedDownloadIndex(DefaultDownloadIndex(database, index)),
             DefaultDownloaderFactory(factory, Executors.newFixedThreadPool(2)))
         manager.maxParallelDownloads = 2
-        return Shelf(cache, manager, service)
+        return Shelf(cache, manager, service, present)
     }
 
     private fun create(context: Context): Store {
@@ -93,13 +121,20 @@ internal object OfflineStore {
         val limit = prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT)
         val main = Handler(Looper.getMainLooper())
         PlayedCacheState.limit = limit
-        // Downloads stay until removed: only played-song copies are ever evicted, oldest first.
-        val played = PlayedSongEvictor(limit) { used -> main.post { PlayedCacheState.used = used } }
+        // Downloads stay until removed: only played-song copies are ever evicted, oldest first, and none that
+        // a download row names, nor any until the phone's index has been read (#213).
+        val claims = PlayedClaims()
+        val played = PlayedSongEvictor(limit, claims::removable) { used -> main.post { PlayedCacheState.used = used } }
         val phone = shelf(context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java)
+        saver.execute {
+            // If the index cannot be read, the claims stay unknown and no played copy is ever removed.
+            runCatching { claims.ready(PlayedClaims.keysIn(rows(phone))) }
+            if (claims.known) playedWork.resize { played.resize(limit) }
+        }
         val art = DownloadArt(File(context.filesDir, "downloads-art"))
         // Covers are fetched one at a time, beside the downloads rather than in their way.
         val artwork = Executors.newSingleThreadExecutor()
-        val sizes = HashMap<String, Long>()
+        val sizes = DownloadByteTotals()
         fun record(download: Download) {
             val id = download.request.id
             val mark = when (download.state) {
@@ -112,196 +147,415 @@ internal object OfflineStore {
             // other holds it complete: it stays downloaded throughout.
             if (mark != DownloadMark.Done && listOfNotNull(phone, store?.card).any { it.completed(id) }) return
             if (mark == null) DownloadMarks.marks.remove(id) else DownloadMarks.marks[id] = mark
-            if (mark == DownloadMark.Done) sizes[id] = download.bytesDownloaded else sizes.remove(id)
-            // Also fills in the cover of a download made before covers were kept, when Tauon answers.
-            if (mark != null && !art.has(id)) artwork.execute { art.fetch(id) }
-            DownloadMarks.bytes = sizes.values.sum()
+            if (mark == DownloadMark.Done) sizes.put(id, download.bytesDownloaded) else sizes.remove(id)
+            // No cover is fetched here for an older download (#213): one fetched now by its track number
+            // could be another song's. A new save fetches its own when it is asked for (see [add]).
+            DownloadMarks.bytes = sizes.total
         }
         fun removed(download: Download) {
             // Moved rather than removed: the song is still kept, on the other shelf.
             if (listOfNotNull(phone, store?.card).any { it.completed(download.request.id) }) return
-            artwork.execute { art.remove(download.request.id) }
-            DownloadMarks.marks.remove(download.request.id)
-            sizes.remove(download.request.id)
-            DownloadMarks.bytes = sizes.values.sum()
+            // Only a cover this entry owns goes with it, and only once no row of its ID is left anywhere.
+            // An older download's cover was kept per track number and may belong to other copies, so it is
+            // left where it is.
+            val id = download.request.id
+            if (id.startsWith(NEW_SAVE_PREFIX) && listOfNotNull(phone, store?.card).none { it.holds(id) })
+                artwork.execute { art.removeEntry(id) }
+            DownloadMarks.marks.remove(id)
+            sizes.remove(id)
+            DownloadMarks.bytes = sizes.total
         }
-        val made = Store(phone, art, played, prefs, database, ::record, ::removed)
+        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims)
         watch(context, phone, made, main)
         cardFolder(context)?.let { folder ->
-            runCatching { shelf(context, File(folder, "downloads"), NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java) }
-                .getOrNull()?.let { card -> made.card = card; watch(context, card, made, main) }
+            // The card found now; later its availability is only ever this folder's, never another card's.
+            val downloads = File(folder, "downloads")
+            runCatching {
+                // The app's own folder on the card, made by getExternalFilesDirs above. Not the cache
+                // folder, which the cache creates on its own thread a moment later.
+                shelf(context, downloads, NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java) {
+                    cardPresent(folder)
+                }
+            }.getOrNull()?.let { card -> made.card = card; made.cardFolder = folder; watch(context, card, made, main) }
         }
         return made
     }
 
     /**
-     * Reports one shelf's downloads to the UI: those already there, then every change. A song is kept on
-     * one shelf only, so once it finishes on this one, a copy left on the other (a move) is removed.
+     * Reports one shelf's downloads to the UI. Removing a move's original requires this process's
+     * receipt and rechecked records/bytes, never a same-ID completion alone. Restart keeps both copies.
      */
     private fun watch(context: Context, shelf: Shelf, store: Store, main: Handler) {
+        // Live callbacks and publication run on the application/main looper. An index snapshot can
+        // already be obsolete when posted; retain newer events until that one bootstrap finishes.
+        var changed: MutableSet<String>? = HashSet()
         shelf.manager.addListener(object : DownloadManager.Listener {
             override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) {
-                store.record(download)
-                if (download.state != Download.STATE_COMPLETED) return
                 val id = download.request.id
-                store.shelves.filter { it !== shelf && it.completed(id) }
-                    .forEach { DownloadService.sendRemoveDownload(context, it.service, id, false) }
+                changed?.add(id)
+                store.record(download)
+                if (download.state == Download.STATE_FAILED || download.state == Download.STATE_REMOVING)
+                    store.moves.find(shelf, id)?.let(store.moves::finish)
+                if (download.state != Download.STATE_COMPLETED || store.moves.find(shelf, id) == null) return
+                saver.execute {
+                    if (!completeMovedCopyNow(context, store, shelf, download))
+                        notice(context, "The original copy was kept: Muon couldn't confirm the move finished safely.")
+                }
             }
-            override fun onDownloadRemoved(m: DownloadManager, download: Download) = store.removed(download)
+            override fun onDownloadRemoved(m: DownloadManager, download: Download) {
+                changed?.add(download.request.id)
+                store.moves.invalidate(download.request.id)
+                store.removed(download)
+            }
         })
-        Executors.newSingleThreadExecutor().execute {
-            val known = ArrayList<Download>()
-            runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
-            main.post { known.forEach(store.record) }
-        }
+        // One-shot: shut down once the scan is submitted. An orderly shutdown still lets it run and post.
+        val bootstrap = Executors.newSingleThreadExecutor()
+        try {
+            bootstrap.execute {
+                val known = ArrayList<Download>()
+                runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
+                main.post {
+                    try { known.filterNot { it.request.id in changed.orEmpty() }.forEach(store.record) }
+                    finally { changed = null } // No lifetime-long tombstones for removed/changed songs.
+                }
+            }
+        } finally { bootstrap.shutdown() }
     }
 
-    /** Where new downloads go: the card when chosen and in, otherwise the phone. */
-    private fun target(store: Store): Shelf = store.card?.takeIf { store.prefs.getBoolean("onCard", false) } ?: store.phone
+    /** Where new downloads go: the card when chosen and available, the phone when the card isn't chosen. */
+    private fun target(store: Store): DownloadTarget = downloadTarget(store.card, store.prefs.getBoolean("onCard", false))
+
+    /** Whether the card Muon opened with is there now; false with none (#179 S1). */
+    fun cardAvailable(context: Context): Boolean = get(context).card?.available() == true
+
+    /** Says why a request was refused, rather than leaving it to look as if nothing happened. */
+    private fun notice(context: Context, text: String) {
+        Handler(Looper.getMainLooper()).post { Toast.makeText(context.applicationContext, text, Toast.LENGTH_LONG).show() }
+    }
 
     /** Whether new downloads go to the SD card; only offered while one is in. */
     fun storeOnCard(context: Context): Boolean = get(context).prefs.getBoolean("onCard", false)
 
     fun setStoreOnCard(context: Context, onCard: Boolean) { get(context).prefs.edit().putBoolean("onCard", onCard).apply() }
 
-    /** The shelf holding a finished download of [id], if any. Called from the player's loading thread. */
-    fun downloadedOn(context: Context, id: String): Shelf? = get(context).shelves.firstOrNull { it.completed(id) }
-
-    /** Whether a finished download of [id] is on the phone or its card. */
-    fun downloaded(context: Context, id: String): Boolean = downloadedOn(context, id) != null
-
     /**
-     * The player's data source: a song with a finished download plays its Opus copy from wherever it is
-     * kept, with no network at all; every other request streams as before, and nothing streamed is written.
+     * The player's data source: a live song streams, and nothing streamed is written; a saved copy plays
+     * from its own shelf with no network at all (#213, [routeOfflineRequest]).
      */
     @Suppress("UNUSED_PARAMETER")
     fun playbackSource(context: Context, upstream: DataSource.Factory): DataSource.Factory =
-        DataSource.Factory { OfflineDataSource { spec -> route(context, spec) } }
-
-    /** Which shelf serves [spec], and the request to make of it. */
-    private fun route(context: Context, spec: DataSpec): Pair<Shelf, DataSpec> {
-        val store = get(context)
-        return routeOfflineRequest(spec, store.phone, store.shelves, offline)
-    }
-
-    /** Whether a complete played-song copy of [id] is on the phone. */
-    fun playedCopy(context: Context, id: String): Boolean =
-        runCatching { hasPlayedCopy(get(context).cache, id) }.getOrDefault(false)
+        DataSource.Factory { OfflineDataSource { spec -> get(context).let { routeOfflineRequest(spec, it.phone, it.card) } } }
 
     /**
-     * Keeps an Opus copy of a song that has started playing, with its details for the offline library,
-     * unless it is downloaded or already copied. Runs behind playback; a failure leaves nothing to show.
+     * Keeps an Opus copy of a live song that has started playing, as a new played copy under its own
+     * fresh key (#213), unless a complete one saved from the same address with the same details is
+     * already kept. An older copy under the song's number is never resumed or reused. Runs behind
+     * playback; a copy that does not finish is removed, so nothing partial is left behind under its key.
      */
     fun copyPlayed(context: Context, id: String, song: ByteArray?) {
-        if (song == null) return
+        if (song == null || isSavedHandle(id)) return
         val store = get(context)
-        copier.execute {
+        playedWork.copy(id) { owner ->
             runCatching {
-                if (downloaded(context, id) || playedCopy(context, id)) return@runCatching
+                // Not before the phone index has been read: a fresh key must be one no row names (#213).
+                if (owner.isCancelled || !store.playedClaims.known || hasPlayedCopyFrom(store.cache, id, song)) return@runCatching
+                val call = AtomicReference<Call?>()
+                val writer = AtomicReference<CacheWriter?>()
+                owner.onCancel { writer.get()?.cancel(); call.get()?.cancel() }
                 val origin = id.substringBeforeLast('/')
                 val number = id.substringAfterLast('/')
                 val url = ServerEndpoint.parse(origin).url("/api1/fileopus/$number")
-                val key = playedKey(id)
-                store.cache.applyContentMetadataMutations(key, ContentMetadataMutations().set(SONG_METADATA, song))
+                val key = playedKey(newSaveId { candidate ->
+                    playedKey(candidate) in store.cache.keys || !store.playedClaims.removable(playedKey(candidate))
+                })
+                store.cache.applyContentMetadataMutations(key, ContentMetadataMutations()
+                    .set(SONG_METADATA, song).set(SAVED_FROM_METADATA, id))
+                val upstream = OkHttpDataSource.Factory(object : Call.Factory {
+                    override fun newCall(request: Request): Call {
+                        val made = Transport.client.newCall(request)
+                        call.set(made)
+                        if (owner.isCancelled) made.cancel()
+                        return made
+                    }
+                })
                 val source = CacheDataSource.Factory().setCache(store.cache)
-                    .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client)).createDataSourceForDownloading()
-                CacheWriter(source, DataSpec.Builder().setUri(Uri.parse(url)).setKey(key).build(), null, null).cache()
+                    .setUpstreamDataSourceFactory(upstream).createDataSourceForDownloading()
+                try {
+                    copyPlayedWithinLimit(source, DataSpec.Builder().setUri(Uri.parse(url)).setKey(key).build(),
+                        onWriterCreated = { copy ->
+                            writer.set(copy)
+                            if (owner.isCancelled) copy.cancel()
+                        }) { store.prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT) }
+                } catch (failure: Throwable) {
+                    // The key was made for this copy alone, on this worker, in no cache and named by no row,
+                    // and no Muon writer gives a row a played-copy key, so nothing else owns it.
+                    if (store.playedClaims.removable(key)) runCatching { store.cache.removeResource(key) }
+                    throw failure
+                }
             }
         }
     }
+
+    /** Whether a complete new-style played copy saved from [id] with these same details is kept. */
+    private fun hasPlayedCopyFrom(cache: androidx.media3.datasource.cache.Cache, id: String, song: ByteArray): Boolean =
+        runCatching {
+            cache.keys.any { key ->
+                if (!key.startsWith(playedKey(NEW_SAVE_PREFIX))) return@any false
+                val metadata = cache.getContentMetadata(key)
+                metadata.get(SAVED_FROM_METADATA, null as String?) == id &&
+                    metadata.get(SONG_METADATA, null as ByteArray?)?.contentEquals(song) == true &&
+                    savedCoverage(cache, key).first == SavedCoverage.Full
+            }
+        }.getOrDefault(false)
 
     /** A new cache limit, kept for next time; lowering it makes room at once. */
     fun setCacheLimit(context: Context, limit: Long) {
         val store = get(context)
         store.prefs.edit().putLong("cacheLimit", limit).apply()
         PlayedCacheState.limit = limit
-        copier.execute { store.played.resize(limit) }
+        playedWork.resize { store.played.resize(limit) }
     }
 
-    /** Empties the played-song cache; downloads stay. */
+    /**
+     * Empties the played-song cache; downloads stay. A played-copy key a download row also names is kept
+     * (#213, [PlayedClaims]): its bytes are that row's too. Before the phone index is read, nothing goes.
+     */
     fun clearPlayed(context: Context) {
-        val cache = get(context).cache
-        copier.execute { runCatching { cache.keys.filter { it.startsWith(PLAYED_PREFIX) }.forEach(cache::removeResource) } }
+        val store = get(context)
+        val cache = store.cache
+        playedWork.clear {
+            runCatching {
+                cache.keys.filter { it.startsWith(PLAYED_PREFIX) && store.playedClaims.removable(it) }.forEach(cache::removeResource)
+            }
+        }
     }
 
-    /** Asks for these songs to be downloaded, skipping any already on the phone or on their way. */
+    /** Every row of a shelf's index, in every state: what a key census reads. Off the main thread. */
+    private fun rows(shelf: Shelf): List<Download> {
+        val rows = ArrayList<Download>()
+        shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) rows += it.download }
+        return rows
+    }
+
+    /** Runs saved-copy requests and their checks off the main thread, one at a time. */
+    private val saver = Executors.newSingleThreadExecutor()
+
+    /**
+     * Saves a new copy of each of these live songs (#213). Every copy is a new, independent entry with its
+     * own request ID and cache key, never one already used by a row or a cached resource on that shelf, so
+     * an older copy of the same track number is neither replaced nor merged into, and its bytes stay. Its
+     * cover is fetched now, from the address it is saved from, and kept as that entry's own. With the card
+     * chosen but unavailable, nothing is queued anywhere, and the refusal is said (#179 S1).
+     */
     fun add(context: Context, endpoint: ServerEndpoint, tracks: List<TauonTrack>) {
-        tracks.filter { it.playable }.forEach { track ->
-            val id = downloadId(endpoint.origin, track.id)
-            if (DownloadMarks.marks[id] != null) return@forEach
-            val request = DownloadRequest.Builder(id, Uri.parse(endpoint.url("/api1/fileopus/${track.id}")))
-                .setCustomCacheKey(id).setData(encodeSong(track)).build()
-            DownloadService.sendAddDownload(context, target(get(context)).service, request, false)
+        val store = get(context)
+        val shelf = when (target(store)) {
+            DownloadTarget.Phone -> store.phone
+            DownloadTarget.Card -> store.card ?: return
+            DownloadTarget.CardUnavailable -> {
+                notice(context, "The SD card isn't available, so nothing was saved. Try again when it's back, " +
+                    "or turn off Store on SD card in Settings to save to the phone.")
+                return
+            }
+        }
+        val playable = tracks.filter { it.playable }
+        if (playable.isEmpty()) return
+        saver.execute {
+            val requests = runCatching {
+                val taken = takenNames(store)
+                playable.map { track -> newSaveRequest(taken, endpoint, track) }
+            }.getOrNull()
+            if (requests == null) {
+                notice(context, "Muon couldn't save these copies. Nothing was changed.")
+                return@execute
+            }
+            requests.forEach { (request, cover) ->
+                DownloadService.sendAddDownload(context, shelf.service, request, false)
+                store.artwork.execute { store.art.fetchEntry(request.id, cover) }
+            }
+            notice(context, if (requests.size == 1) "Saving a copy. It's under Saved copies."
+                else "Saving ${requests.size} copies. They're under Saved copies.")
         }
     }
 
     /**
-     * The songs downloaded from [origin], for the library shown when Tauon cannot be reached. Reads the
-     * download index, so call it off the main thread, after [get].
+     * Every name a new save must not take: each row's request ID and cache key in the phone's and the
+     * card's index (both kept in the app's own database, read even while the card is out), and each key in
+     * either cache. Off the main thread. A failed read fails the save rather than guessing.
      */
-    fun downloadedSongs(context: Context, origin: String): List<TauonTrack> {
-        val songs = ArrayList<TauonTrack>()
-        get(context).shelves.forEach { shelf -> runCatching {
-            shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
-                while (cursor.moveToNext()) {
-                    val download = cursor.download
-                    if (!download.request.id.startsWith("$origin/")) continue
-                    decodeSong(download.request.data)?.takeIf { downloadId(origin, it.id) == download.request.id }?.let(songs::add)
-                }
-            }
-        } }
-        // And the songs played recently enough to still have a complete copy.
-        runCatching {
-            val cache = get(context).cache
-            val have = songs.mapTo(HashSet()) { it.id }
-            cache.keys.filter { it.startsWith(playedKey("$origin/")) }.forEach { key ->
-                val id = key.removePrefix(PLAYED_PREFIX)
-                val song = cache.getContentMetadata(key).get(SONG_METADATA, null as ByteArray?)?.let(::decodeSong) ?: return@forEach
-                if (song.id !in have && downloadId(origin, song.id) == id && playedCopy(context, id)) { songs += song; have += song.id }
+    internal fun takenNames(store: Store): MutableSet<String> {
+        val taken = HashSet<String>()
+        for (shelf in store.shelves) {
+            rows(shelf).forEach { taken += it.request.id; taken += keyOf(it) }
+            taken += shelf.cache.keys
+        }
+        return taken
+    }
+
+    /**
+     * A new save's request, under a fresh request ID and key that is in [taken] nowhere (and is then added
+     * to it), and the cover address it is saved from. The name says nothing about the audio.
+     */
+    internal fun newSaveRequest(taken: MutableSet<String>, endpoint: ServerEndpoint, track: TauonTrack): Pair<DownloadRequest, String> {
+        val id = newSaveId { it in taken }
+        taken += id
+        val request = DownloadRequest.Builder(id, Uri.parse(endpoint.url("/api1/fileopus/${track.id}")))
+            .setCustomCacheKey(id).setData(encodeSong(track)).build()
+        return request to endpoint.url("/api1/pic/medium/${track.id}")
+    }
+
+    /**
+     * Every saved copy (#213): the download rows on the phone and on the card while it is available, and
+     * the complete played copies, each as its own entry however many share a track number or tags.
+     * Unknown or unreadable tags are kept, not dropped. An unavailable card's copies are not listed: they
+     * could not play from it (#179 S1). Reads the indexes: call it off the main thread.
+     */
+    fun savedEntries(context: Context): List<SavedEntry> {
+        val store = get(context)
+        val entries = ArrayList<SavedEntry>()
+        val shelves = listOfNotNull(SavedShelf.Phone to store.phone,
+            store.card?.takeIf { it.available() }?.let { SavedShelf.Card to it })
+        for ((name, shelf) in shelves) runCatching {
+            entries += savedInventory(name, rows(shelf), shelf.cache,
+                played = store.playedClaims.takeIf { name == SavedShelf.Phone }) { store.art.hasEntry(it) }
+        }
+        return sortSaved(entries)
+    }
+
+    /**
+     * The server most saved copies came from, if any names one, and every saved copy: what "Listen offline"
+     * opens when there is no saved server, as after Disconnect. Copies with no known origin, played copies
+     * included, open just the same: they play from this phone without any server. Null with nothing
+     * playable. Off the main thread.
+     */
+    fun savedLibrary(context: Context): Pair<String?, List<SavedEntry>>? {
+        val entries = savedEntries(context)
+        if (entries.none { it.complete }) return null
+        return entries.mapNotNull { it.from }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key to entries
+    }
+
+    /**
+     * Whether [ref] names a saved copy that is here now: a row on its shelf whose key is the one named, or
+     * a played copy in the phone's cache. For the session's admission check; reads one index row, so it
+     * is called off the main thread. Existence only: it says nothing about what the audio is.
+     */
+    fun admitsSaved(context: Context, ref: SavedRef): Boolean = runCatching {
+        val store = get(context)
+        when (ref.source) {
+            SavedSource.Played -> ref.key in store.cache.keys
+            SavedSource.Download -> {
+                val shelf = (if (ref.shelf == SavedShelf.Card) store.card else store.phone) ?: return@runCatching false
+                if (!shelf.available()) return@runCatching false
+                val download = shelf.manager.downloadIndex.getDownload(ref.requestId) ?: return@runCatching false
+                download.state != Download.STATE_REMOVING &&
+                    (download.request.customCacheKey ?: download.request.uri.toString()) == ref.key
             }
         }
-        return songs
+    }.getOrDefault(false)
+
+    /**
+     * Removes one saved copy, and only it (#213). A download row goes only when its shelf is available and
+     * a census of that shelf's index finds it the sole owner of its bytes ([soleOwner]); a played copy only
+     * when no download row names its key ([PlayedClaims]). Otherwise nothing is changed, the copy still
+     * plays, and the refusal is said. A played copy being made is under its own fresh key and is not listed,
+     * so removing a listed one cannot cut into it. The census is a snapshot; why it holds until Media3
+     * removes the bytes is set out at [soleOwner].
+     */
+    fun removeSaved(context: Context, ref: SavedRef) {
+        saver.execute {
+            when (removeSavedNow(context, ref)) {
+                SavedRemoval.Sent -> Unit
+                SavedRemoval.Unavailable ->
+                    notice(context, "That copy is on the SD card, which isn't available, so it wasn't removed.")
+                SavedRemoval.NotOwned ->
+                    notice(context, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
+            }
+        }
+    }
+
+    internal enum class SavedRemoval { Sent, Unavailable, NotOwned }
+
+    /** [removeSaved]'s checks and command, on the calling thread; reads one index row. */
+    internal fun removeSavedNow(context: Context, ref: SavedRef): SavedRemoval {
+        val store = get(context)
+        store.moves.invalidate(ref.requestId)
+        if (ref.source == SavedSource.Played) {
+            if (!store.playedClaims.removable(ref.key)) return SavedRemoval.NotOwned
+            // A copy being written is under a fresh key of its own; SimpleCache serializes removals.
+            runCatching { store.cache.removeResource(ref.key) }
+            return SavedRemoval.Sent
+        }
+        val shelf = (if (ref.shelf == SavedShelf.Card) store.card else store.phone)
+            ?.takeIf { it.available() } ?: return SavedRemoval.Unavailable
+        val census = runCatching { rows(shelf) }.getOrNull() ?: return SavedRemoval.NotOwned
+        val row = census.singleOrNull { it.request.id == ref.requestId }
+        if (row == null || keyOf(row) != ref.key || !soleOwner(census, ref.requestId)) return SavedRemoval.NotOwned
+        // Its own move, if one is under way, loses its hand-over too (#234).
+        moveOwnership.remove(listOf(ref.requestId))
+        DownloadService.sendRemoveDownload(context, shelf.service, ref.requestId, false)
+        return SavedRemoval.Sent
     }
 
     /**
-     * The server most songs were downloaded from, and those songs: what "Listen offline" opens when
-     * there is no saved server, as after Disconnect. Null with nothing downloaded. Off the main thread.
+     * Completes only this process's byte-checked move, never an unrelated same-ID download. Current
+     * source and destination rows must still be the exact published request, completed and sole owners;
+     * every cached byte is compared again before removal. Missing evidence or any failure keeps both.
+     * The final command shares the receipt invalidation lock. Cache/index checks remain snapshots;
+     * supported Muon producers must continue never rebinding or aliasing another entry's key.
      */
-    fun downloadedLibrary(context: Context): Pair<String, List<TauonTrack>>? {
-        val origins = HashMap<String, Int>()
-        get(context).shelves.forEach { shelf -> runCatching {
-            shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { cursor ->
-                while (cursor.moveToNext()) {
-                    val origin = cursor.download.request.id.substringBeforeLast('/', "")
-                    if (origin.isNotEmpty()) origins[origin] = (origins[origin] ?: 0) + 1
+    internal fun completeMovedCopyNow(context: Context, store: Store, to: Shelf, completed: Download): Boolean {
+        val receipt = store.moves.find(to, completed.request.id) ?: return false
+        try {
+            val from = receipt.from
+            if (receipt.to !== to || completed.request != receipt.request || !canMove(from, to)) return false
+            val sourceRows = rows(from)
+            val targetRows = rows(to)
+            val source = sourceRows.singleOrNull { it.request.id == receipt.request.id } ?: return false
+            val target = targetRows.singleOrNull { it.request.id == receipt.request.id } ?: return false
+            if (source.request != receipt.request || target.request != receipt.request ||
+                source.state != Download.STATE_COMPLETED || target.state != Download.STATE_COMPLETED ||
+                !soleOwner(sourceRows, receipt.request.id) || !soleOwner(targetRows, receipt.request.id)) return false
+            val key = receipt.request.customCacheKey ?: return false
+            val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(key))
+            if (length <= 0 || ContentMetadata.getContentLength(to.cache.getContentMetadata(key)) != length ||
+                !from.cache.isCached(key, 0, length) || !to.cache.isCached(key, 0, length)) return false
+            if (!sameBytes(DataSpec.Builder().setUri(receipt.request.uri).setKey(key).setLength(length).build(), from, to))
+                return false
+            var sent = false
+            store.moves.publish(receipt) {
+                if (canMove(from, to)) {
+                    DownloadService.sendRemoveDownload(context, from.service, receipt.request.id, false)
+                    sent = true
                 }
             }
-        } }
-        val origin = origins.maxByOrNull { it.value }?.key ?: return null
-        return downloadedSongs(context, origin).takeIf { it.isNotEmpty() }?.let { origin to it }
-    }
-
-    /** Removes these downloads, finished or not. */
-    fun remove(context: Context, ids: List<String>) = get(context).shelves.forEach { shelf ->
-        // A download is on one shelf; asking the other to remove it does nothing.
-        ids.forEach { DownloadService.sendRemoveDownload(context, shelf.service, it, false) }
+            return sent
+        } catch (_: Exception) { return false }
+        finally { store.moves.finish(receipt) }
     }
 
     /**
-     * Carries on with downloads left queued when Muon last closed. The service stops itself again
-     * once there is nothing to do.
+     * Starts services for current-process saves. Retained unfinished operations are stopped by
+     * RetainedDownloadIndex; they never fetch replacement audio or resume an old deletion. The service
+     * stops itself again once there is nothing to do.
      */
     fun resume(context: Context) {
-        get(context).shelves.forEach { runCatching { DownloadService.start(context, it.service) } }
+        // An unavailable card's service is not started here, so its queued downloads are not resumed onto
+        // missing storage. A card service already running, or restarted by the system, is not covered.
+        availableShelves(get(context).shelves).forEach { runCatching { DownloadService.start(context, it.service) } }
     }
 
     /** Moves one download at a time, behind everything else. */
     private val mover = Executors.newSingleThreadExecutor()
+    private val moveOwnership = DownloadMoveOwnership()
 
-    /** How many finished downloads are on the card ([card]) or the phone. Reads the index. */
-    fun downloadsOn(context: Context, card: Boolean): Int {
+    /**
+     * How many finished downloads are on the card ([card]) or the phone. Reads the index. Null for a
+     * card that is missing or unavailable, which is not the same as one with nothing on it (#179 S1).
+     */
+    fun downloadsOn(context: Context, card: Boolean): Int? {
         val store = get(context)
-        val shelf = (if (card) store.card else store.phone) ?: return 0
+        val shelf = (if (card) store.card else store.phone) ?: return null
+        if (!shelf.available()) return null
         return runCatching { shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { it.count } }.getOrDefault(0)
     }
 
@@ -313,20 +567,62 @@ internal object OfflineStore {
      */
     fun move(context: Context, toCard: Boolean) {
         val store = get(context)
-        val card = store.card ?: return
+        val card = store.card
         val from = if (toCard) store.phone else card
         val to = if (toCard) card else store.phone
+        // #179 S1: not started without an available card, stopped before the next song if either shelf
+        // goes, and a copy is not handed over if either went before the hand-over ran. These are
+        // snapshots: a card that goes during one song's copy is not covered.
+        if (from == null || to == null || !canMove(from, to)) {
+            notice(context, "The SD card isn't available, so nothing was moved.")
+            return
+        }
         val main = Handler(Looper.getMainLooper())
+        val batch = moveOwnership.begin()
         mover.execute {
-            val downloads = ArrayList<Download>()
-            runCatching { from.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { while (it.moveToNext()) downloads += it.download } }
-            main.post { DownloadMarks.moving = 0 to downloads.size }
-            downloads.forEachIndexed { index, download ->
-                if (runCatching { copy(download, from, to) }.isSuccess)
-                    main.post { DownloadService.sendAddDownload(context, to.service, download.request, false) }
-                main.post { DownloadMarks.moving = index + 1 to downloads.size }
+            try {
+                // One census of both indexes for the batch (#213). It stays valid for each song: neither
+                // writer can add a row naming a key another row owns (see [soleOwner]), and this move adds
+                // only rows that pass [movable].
+                val sourceRows = runCatching { rows(from) }.getOrDefault(emptyList())
+                val targetRows = runCatching { rows(to) }.getOrNull()
+                val downloads = sourceRows.filter { it.state == Download.STATE_COMPLETED }
+                main.post { DownloadMarks.moving = 0 to downloads.size }
+                var kept = 0
+                for ((index, download) in downloads.withIndex()) {
+                    if (!canMove(from, to)) {
+                        notice(context, "The SD card isn't available any more, so the rest weren't moved.")
+                        break
+                    }
+                    // A copy whose bytes another row may share, or one the target already names otherwise,
+                    // stays where it is, untouched; an unread target index moves nothing.
+                    val safe = targetRows != null && movable(download, sourceRows, targetRows)
+                    if (!safe) kept++
+                    if (safe && moveOwnership.permits(batch, download.request.id) &&
+                        runCatching { copy(download, from, to) }.isSuccess)
+                        // Hand-over needs both shelves still available (#179 S1) and the move still owning
+                        // this song: removed or Remove all since means no Add (#234).
+                        main.post {
+                            deliverMovedCopy(from, to) {
+                                moveOwnership.publish(batch, download.request.id) {
+                                    if (store.moves.remember(from, to, download.request)) {
+                                        try { DownloadService.sendAddDownload(context, to.service, download.request, false) }
+                                        catch (failure: Exception) {
+                                            store.moves.invalidate(download.request.id)
+                                            throw failure
+                                        }
+                                    } else notice(context, "The original copy was kept: another move is still pending. Retry later.")
+                                }
+                            }
+                        }
+                    main.post { DownloadMarks.moving = index + 1 to downloads.size }
+                }
+                if (kept > 0) notice(context, "$kept ${if (kept == 1) "copy was" else "copies were"} kept where " +
+                    "${if (kept == 1) "it was" else "they were"}: Muon can't tell their bytes belong to them alone.")
+            } finally {
+                // Posted after every completion: callbacks still carry ownership until they drain.
+                main.post { moveOwnership.finish(batch); DownloadMarks.moving = null }
             }
-            main.post { DownloadMarks.moving = null }
         }
     }
 
@@ -335,15 +631,119 @@ internal object OfflineStore {
         val id = download.request.id
         val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(id))
         require(length != C.LENGTH_UNSET.toLong() && from.cache.isCached(id, 0, length)) { "Not fully downloaded" }
+        val targetLength = ContentMetadata.getContentLength(to.cache.getContentMetadata(id))
+        val targetRecord = to.manager.downloadIndex.getDownload(id)
+        if (targetRecord != null) {
+            // Matching address/tags are not audio identity. An older recorded partial copy cannot be
+            // extended/relabelled from another copy; keep it intact. An already complete exact copy
+            // needs no writes or metadata mutation, only the later tracked hand-over/completion.
+            require(targetRecord.request == download.request &&
+                (targetRecord.state == Download.STATE_COMPLETED ||
+                    (targetRecord.state == Download.STATE_STOPPED && targetRecord.stopReason == RETAINED_STOP_REASON)) &&
+                targetLength == length && to.cache.isCached(id, 0, length)) { "Existing recorded destination is not a complete exact copy" }
+            require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id).setLength(length).build(), from, to)) {
+                "Existing recorded destination differs from the source"
+            }
+            return
+        }
+        val targetSpans = to.cache.getCachedSpans(id)
+        require(targetSpans.isEmpty() || targetLength == C.LENGTH_UNSET.toLong() || targetLength == length) {
+            "Existing destination has another known length"
+        }
+        // CacheWriter fills holes around existing target spans. Refuse a known mismatch before that
+        // first write, rather than extending an unrelated partial copy and rejecting it afterwards.
+        // Snapshot only: late writers are still checked by the full post-copy comparison below.
+        for (span in targetSpans) {
+            require(span.position <= length && span.length <= length - span.position) {
+                "Existing destination bytes extend beyond the source"
+            }
+            require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id)
+                .setPosition(span.position).setLength(span.length).build(), from, to)) {
+                "Existing destination bytes differ from the source"
+            }
+        }
         // No upstream: a byte missing from the source fails the copy rather than reaching the network.
         val reader = CacheDataSource.Factory().setCache(from.cache).setCacheWriteDataSinkFactory(null)
         val writer = CacheDataSource.Factory().setCache(to.cache).setUpstreamDataSourceFactory(reader).createDataSourceForDownloading()
         CacheWriter(writer, DataSpec.Builder().setUri(download.request.uri).setKey(id).build(), null, null).cache()
+        // CacheWriter keeps whatever the target already held for this key, so only an exact copy counts (#230).
+        require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id).setLength(length).build(), from, to)) {
+            "Copy differs from its source"
+        }
         to.cache.applyContentMetadataMutations(id, ContentMetadataMutations.setContentLength(ContentMetadataMutations(), length))
     }
 
-    fun removeAll(context: Context) = get(context).shelves.forEach {
-        DownloadService.sendRemoveAllDownloads(context, it.service, false)
+    /**
+     * Whether [to] holds exactly [from]'s bytes for [spec], read now from both caches in bounded blocks.
+     * Neither reader has an upstream or a sink: a missing or locked byte fails, and no replacement audio is fetched or
+     * written. Cache reads may still touch metadata or reconcile stale spans. A check at this moment only, not a guarantee against later changes.
+     */
+    private fun sameBytes(spec: DataSpec, from: Shelf, to: Shelf): Boolean {
+        val source = CacheDataSource.Factory().setCache(from.cache).createDataSource()
+        val target = CacheDataSource.Factory().setCache(to.cache).createDataSource()
+        return try {
+            source.open(spec)
+            target.open(spec)
+            val expected = ByteArray(64 * 1024)
+            val actual = ByteArray(expected.size)
+            var left = spec.length
+            while (left > 0) {
+                if (!canMove(from, to)) return false
+                val count = minOf(left, expected.size.toLong()).toInt()
+                if (!readFully(source, expected, count) || !readFully(target, actual, count)) return false
+                for (i in 0 until count) if (expected[i] != actual[i]) return false
+                left -= count
+            }
+            true
+        } finally {
+            runCatching { source.close() }
+            runCatching { target.close() }
+        }
+    }
+
+    private fun readFully(source: DataSource, buffer: ByteArray, count: Int): Boolean {
+        var done = 0
+        while (done < count) {
+            val read = source.read(buffer, done, count - done)
+            if (read <= 0) return false
+            done += read
+        }
+        return true
+    }
+
+    /** Removes every download from the available shelves; an unavailable card keeps its own (#179 S1). */
+    fun removeAll(context: Context) {
+        // Every move in flight loses its publication, whichever shelves receive the commands (#234).
+        moveOwnership.removeAll()
+        get(context).moves.invalidateAll()
+        saver.execute {
+            val (_, kept) = removeAllNow(context)
+            if (get(context).shelves.any { !it.available() })
+                notice(context, "The SD card isn't available, so its saved copies weren't removed.")
+            if (kept > 0) notice(context, "$kept saved ${if (kept == 1) "copy was" else "copies were"} kept: " +
+                "Muon can't tell their bytes belong to them alone.")
+        }
+    }
+
+    /**
+     * [removeAll]'s commands, on the calling thread: every row on each available shelf that a census finds
+     * the sole owner of its bytes ([soleOwner]) is removed, one by one. Media3's own Remove all would also
+     * delete bytes a kept played copy or an unknown row shares (#213). Returns how many were sent and kept.
+     */
+    internal fun removeAllNow(context: Context): Pair<Int, Int> {
+        var sent = 0
+        var kept = 0
+        for (shelf in availableShelves(get(context).shelves)) {
+            val census = runCatching { rows(shelf) }.getOrNull() ?: continue
+            for (row in census) {
+                if (row.state == Download.STATE_REMOVING) continue
+                if (soleOwner(census, row.request.id)) {
+                    DownloadService.sendRemoveDownload(context, shelf.service, row.request.id, false)
+                    sent++
+                } else kept++
+            }
+        }
+        return sent to kept
     }
 }
 
