@@ -51,7 +51,7 @@ class SavedPresentationTest {
         assertFalse(saved.metadataTooLarge)
         assertEquals(ordinary.title, saved.title())
         assertEquals(ordinary.album, saved.mediaItem().mediaMetadata.albumTitle.toString())
-        val unsafe = ordinary.copy(title = "\u0000".repeat(12_000))
+        val unsafe = ordinary.copy(title = "\u0000".repeat(13_000))
         assertTrue(encodeSong(unsafe).size > TRACK_METADATA_MAX_BYTES)
         val kept = entry(unsafe)
         assertSame(unsafe, kept.song)

@@ -64,10 +64,23 @@ class SavedOwnershipCensusTest {
         val fresh = put(source, "saved/b", "saved/b")
         // The target already holds an unknown row naming the legacy key under another ID.
         put(target, "unknown", "http://192.168.1.10:7814/2")
-        // And the new save's own row, as after an earlier partial move: same ID and key, so a merge is harmless.
+        // And the exact same request, as after an earlier partial move: no address or metadata rebinding.
         put(target, "saved/b", "saved/b")
         assertFalse(movable(legacy, rows(source), rows(target)))
         assertTrue(movable(fresh, rows(source), rows(target)))
+        // Even byte-equal caches do not justify replacing another retained request's address or tags.
+        val otherAddress = fresh.request.copyWithId(fresh.request.id).let {
+            DownloadRequest.Builder(it.id, Uri.parse("http://192.168.1.10:7814/api1/fileopus/10"))
+                .setCustomCacheKey(it.customCacheKey).setData(it.data).build()
+        }
+        target.putDownload(Download(otherAddress, Download.STATE_COMPLETED, 0L, 0L, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        assertFalse(movable(fresh, rows(source), rows(target)))
+        val otherTags = DownloadRequest.Builder(fresh.request.id, fresh.request.uri)
+            .setCustomCacheKey(fresh.request.customCacheKey).setData(byteArrayOf(9)).build()
+        target.putDownload(Download(otherTags, Download.STATE_COMPLETED, 0L, 0L, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        assertFalse(movable(fresh, rows(source), rows(target)))
         // The same ID with another key there would be rebound by Media3's merge, so it is refused too.
         put(target, "saved/b", "rebound")
         assertFalse(movable(fresh, rows(source), rows(target)))

@@ -142,13 +142,13 @@ internal fun soleOwner(rows: List<Download>, requestId: String): Boolean {
  * Whether a move may hand [download] from a shelf whose index holds [sourceRows] to one whose index holds
  * [targetRows] without making a second row name its key, or rebinding a row already there: it must solely
  * own its key on the source (so its leftover can go once the move completes) and the target may hold no
- * row naming that key, except this same request's own row with the same key.
+ * row naming that key, except an exactly equal request (including address and saved metadata).
  */
 internal fun movable(download: Download, sourceRows: List<Download>, targetRows: List<Download>): Boolean {
     val id = download.request.id
     if (!soleOwner(sourceRows, id)) return false
     val there = targetRows.filter { keyOf(it) == id || it.request.id == id }
-    return there.isEmpty() || (there.size == 1 && there[0].request.id == id && there[0].request.customCacheKey == id)
+    return there.isEmpty() || (there.size == 1 && there[0].request == download.request)
 }
 
 /**
