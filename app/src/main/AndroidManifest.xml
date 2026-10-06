@@ -16,7 +16,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service android:name=".PlaybackService" android:exported="true"
+        <!-- Muon binds internally. System playback uses the published session token and
+             Media3's immutable notification PendingIntents, not arbitrary service start intents.
+             Do not re-export without authenticating the media-button start-intent route. -->
+        <service android:name=".PlaybackService" android:exported="false"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>
         </service>

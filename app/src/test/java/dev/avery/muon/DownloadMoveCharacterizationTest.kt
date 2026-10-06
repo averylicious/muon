@@ -35,7 +35,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * #230: actual OfflineStore.move/remove calls, real cache copy/indexes, captured service intents.
- * Failure cases assert CURRENT unsafe ordering, not a production fix or Android service delivery.
+ * Removal cases reject stale publication (#234); missing-span cases still characterize an unfixed risk;
+ * the target-prefix cases assert the copy's byte check (#281). Not Android service delivery.
  * Reflection only installs disposable shelves and waits for the existing mover's FIFO boundary;
  * it does not replace the worker, copy implementation, command sender or main-thread handler.
  */
@@ -106,7 +107,7 @@ class DownloadMoveCharacterizationTest {
         assertNull("Captured intents are not end-to-end service delivery", targetIndex.getDownload(id))
     }
 
-    @Test fun removingTheSongBeforeQueuedAddStillEmitsTheLaterAdd() {
+    @Test fun removingTheSongBeforeQueuedAddRejectsTheLaterAdd() {
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
@@ -116,12 +117,12 @@ class DownloadMoveCharacterizationTest {
         assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD &&
             it.getStringExtra(DownloadService.KEY_CONTENT_ID) == id })
         shadowOf(Looper.getMainLooper()).idle()
-        val add = startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
-        assertEquals(id, addRequest(add).id)
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        // Do not blindly remove target spans: ownership-aware partial cleanup is still separate.
         assertArrayEquals(bytes, targetBytes())
     }
 
-    @Test fun removingAllBeforeQueuedAddStillEmitsTheLaterAdd() {
+    @Test fun removingAllBeforeQueuedAddRejectsTheLaterAdd() {
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
@@ -130,8 +131,7 @@ class DownloadMoveCharacterizationTest {
         assertEquals(2, removals.size)
         assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_ALL_DOWNLOADS })
         shadowOf(Looper.getMainLooper()).idle()
-        assertEquals(id, addRequest(startedCommands().single {
-            it.action == DownloadService.ACTION_ADD_DOWNLOAD }).id)
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
     }
 
     @Test fun missingLaterSpanLeavesPartialDestinationBytesWithoutAnAddOrDownloadRecord() {
@@ -152,25 +152,69 @@ class DownloadMoveCharacterizationTest {
         assertArrayEquals(chunk, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
     }
 
-    // Unsafe characterization, not a fix: the move reuses whatever the target already holds for the
-    // key. Shows the copy's reuse only, not DownloadManager adoption, decoding or a renumbered song.
-    @Test fun unindexedTargetPrefixIsKeptAndCompletedFromTheSourceThenAdded() {
+    // Refuse known conflicting spans before any destination write. The original prefix is kept;
+    // no source suffix is appended to a different copy and no add is sent.
+    @Test fun differentUnindexedTargetPrefixIsRejectedWithoutAnAddAndKept() {
         val old = ByteArray(200) { (255 - it % 251).toByte() } // Differs from [bytes] at every index.
         seed(card.cache, 0, old)
         assertNull(targetIndex.getDownload(id))
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
-        assertTrue(card.cache.isCached(id, 0, bytes.size.toLong()))
-        assertArrayEquals(old + bytes.copyOfRange(old.size, bytes.size), targetBytes())
-        assertEquals(bytes.size.toLong(), ContentMetadata.getContentLength(card.cache.getContentMetadata(id)))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertNull(targetIndex.getDownload(id))
+        val earlier = card.cache.getCachedSpans(id).single { it.position == 0L }
+        assertEquals(old.size.toLong(), earlier.length)
+        assertArrayEquals(old, requireNotNull(earlier.file).readBytes())
+        assertArrayEquals(old, targetBytes())
         assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
         assertNotNull(sourceIndex.getDownload(id))
+    }
+
+    // A legitimate resume: a target prefix that matches the source is kept and the move is published.
+    @Test fun identicalUnindexedTargetPrefixIsReusedAndAdded() {
+        seed(card.cache, 0, bytes.copyOfRange(0, 200))
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        assertArrayEquals(bytes, targetBytes())
+        assertEquals(bytes.size.toLong(), ContentMetadata.getContentLength(card.cache.getContentMetadata(id)))
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
         shadowOf(Looper.getMainLooper()).idle()
         val add = startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
         assertEquals(MuonCardDownloadService::class.java.name, add.component?.className)
         assertEquals(request, addRequest(add))
-        assertNull("Captured service intent is not delivered", targetIndex.getDownload(id))
+    }
+
+    @Test fun identicalPrefixAcrossSeveralComparisonBlocksIsAdded() {
+        val payload = ByteArray(2 * 64 * 1024 + 17) { (it % 251).toByte() }
+        seed(card.cache, 0, payload.copyOfRange(0, 90 * 1024))
+        completeSource(payload)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertArrayEquals(payload, targetBytes())
+        assertArrayEquals(payload, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+        assertEquals(request, addRequest(startedCommands().single {
+            it.action == DownloadService.ACTION_ADD_DOWNLOAD }))
+        assertNull(targetIndex.getDownload(id))
+    }
+
+    @Test fun mismatchAfterTheFirstComparisonBlockIsRejectedWithoutDeletingBytes() {
+        val payload = ByteArray(2 * 64 * 1024 + 17) { (it % 251).toByte() }
+        val old = payload.copyOfRange(0, 90 * 1024)
+        old[80 * 1024] = (old[80 * 1024].toInt() xor 1).toByte()
+        seed(card.cache, 0, old)
+        completeSource(payload)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertNull(targetIndex.getDownload(id))
+        assertArrayEquals(old, targetBytes())
+        assertArrayEquals(payload, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
     }
 
     @Test fun failedMoveOverAnUnindexedTargetPrefixKeepsItAndTheSourceWithoutAnAdd() {
@@ -192,6 +236,51 @@ class DownloadMoveCharacterizationTest {
         assertArrayEquals(old, requireNotNull(earlier.file).readBytes())
         assertFalse(card.cache.isCached(id, 0, 2L * chunk.size))
         assertArrayEquals(chunk, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+    }
+
+    @Test fun aConflictingTargetIslandDoesNotFillTheHolesAroundIt() {
+        val old = ByteArray(128) { (255 - it % 251).toByte() }
+        val island = seed(card.cache, 200, old)
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertNull(targetIndex.getDownload(id))
+        val spans = card.cache.getCachedSpans(id)
+        assertEquals(1, spans.size)
+        assertEquals(200L, spans.single().position)
+        assertEquals(128L, card.cache.cacheSpace)
+        assertArrayEquals(old, island.readBytes())
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+    }
+
+    @Test fun aMatchingTargetIslandCanStillBeCompletedAndAdded() {
+        seed(card.cache, 200, bytes.copyOfRange(200, 328))
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertArrayEquals(bytes, targetBytes())
+        assertEquals(request, addRequest(startedCommands().single {
+            it.action == DownloadService.ACTION_ADD_DOWNLOAD }))
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+    }
+
+    @Test fun destinationBytesBeyondTheSourceAreKeptWithoutTruncationOrAnAdd() {
+        val old = bytes + byteArrayOf(1)
+        val retained = seed(card.cache, 0, old)
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertNull(targetIndex.getDownload(id))
+        assertArrayEquals(old, retained.readBytes())
+        assertEquals(old.size.toLong(), card.cache.cacheSpace)
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
         assertNotNull(sourceIndex.getDownload(id))
     }
 
