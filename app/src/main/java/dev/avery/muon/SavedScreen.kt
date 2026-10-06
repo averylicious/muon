@@ -69,6 +69,8 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
 private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, play: () -> Unit, remove: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val status = when {
+        entry.stoppedAfterRestart -> if (entry.complete) "Kept after restart · plays from saved bytes"
+            else "Save paused after restart · save a new copy from the live song"
         entry.state == Download.STATE_QUEUED || entry.state == Download.STATE_RESTARTING -> "Waiting to save"
         entry.state == Download.STATE_DOWNLOADING -> "Saving…"
         entry.state == Download.STATE_FAILED -> "Saving failed · can't play"

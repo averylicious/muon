@@ -106,9 +106,9 @@ internal enum class SavedCoverage { Full, Partial, Missing, UnknownLength }
 internal data class SavedEntry(val ref: SavedRef, val song: TauonTrack?, val from: String?, val state: Int?,
     val coverage: SavedCoverage, val bytes: Long, val ownCover: Boolean,
     /** Whether Remove may delete its bytes now: they are claimed by it alone ([soleOwner], [PlayedClaims]). */
-    val removable: Boolean) {
+    val removable: Boolean, val stoppedAfterRestart: Boolean = false) {
     /** Whether every byte is held and its download, if any, finished: what can be played. */
-    val complete: Boolean get() = coverage == SavedCoverage.Full && (state == null || state == Download.STATE_COMPLETED)
+    val complete: Boolean get() = coverage == SavedCoverage.Full && (state == null || state == Download.STATE_COMPLETED || stoppedAfterRestart)
     // Old index/cache metadata predates incoming tag limits. Keep its record, but never put unsafe
     // text into Compose/Media3 IPC. Evaluated once while inventory is projected off the main thread.
     val displaySong: TauonTrack? = song?.takeIf { runCatching { requireTrackMetadataBudget(it) }.isSuccess }
@@ -216,7 +216,8 @@ internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache:
         // Only a new save's own cover is shown, and only for the row it was fetched for (see DownloadArt).
         val newSave = request.id.startsWith(NEW_SAVE_PREFIX) && request.customCacheKey == request.id
         entries += SavedEntry(ref, decodeSong(request.data), savedOrigin(request.uri.toString()), download.state,
-            coverage, bytes, newSave && ownsCover(request.id), soleOwner(downloads, request.id))
+            coverage, bytes, newSave && ownsCover(request.id), soleOwner(downloads, request.id),
+            stoppedAfterRestart = download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON)
     }
     // Played copies live only in the phone's cache; [played] is null for any other shelf.
     if (played != null) for (key in cache.keys.sorted()) {

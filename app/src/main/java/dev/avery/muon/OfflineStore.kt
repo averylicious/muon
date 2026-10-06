@@ -109,7 +109,7 @@ internal object OfflineStore {
         present: () -> Boolean = { true }): Shelf {
         val cache = SimpleCache(folder, evictor, database)
         val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client))
-        val manager = DownloadManager(context, DefaultDownloadIndex(database, index),
+        val manager = DownloadManager(context, RetainedDownloadIndex(DefaultDownloadIndex(database, index)),
             DefaultDownloaderFactory(factory, Executors.newFixedThreadPool(2)))
         manager.maxParallelDownloads = 2
         return Shelf(cache, manager, service, present)
@@ -534,8 +534,9 @@ internal object OfflineStore {
     }
 
     /**
-     * Carries on with downloads left queued when Muon last closed. The service stops itself again
-     * once there is nothing to do.
+     * Starts services for current-process saves. Retained unfinished operations are stopped by
+     * RetainedDownloadIndex; they never fetch replacement audio or resume an old deletion. The service
+     * stops itself again once there is nothing to do.
      */
     fun resume(context: Context) {
         // An unavailable card's service is not started here, so its queued downloads are not resumed onto
