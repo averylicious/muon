@@ -1,0 +1,99 @@
+{
+  "batches": [
+    {
+      "count": 100,
+      "response_sha256": "944db654f4a1bde30f0266bfad6de1f77f99d4db288b2d45764262cb91b25686"
+    },
+    {
+      "count": 100,
+      "response_sha256": "7af3e182cade03c89cfaf65a6f53bb7046283c420796828e352dbd582ac4410f"
+    },
+    {
+      "count": 86,
+      "response_sha256": "c1ba161990b0659f4a757f350bb4e221da1888847c472593d5aacd026813991d"
+    }
+  ],
+  "inventory_commit": "c60b4965047b0b5b49f57257ee127191833ea30b",
+  "inventory_sha256": "ef0095c81bcbf8339d9a9dcc40862f68bd4fa42335e78a4e63f1e2084890ac4b",
+  "matches": {
+    "io.netty:netty-codec-http2:4.1.110.Final": [
+      "GHSA-563q-j3cm-6jxm",
+      "GHSA-5x3r-wrvg-rp6q",
+      "GHSA-93wv-jw9v-4972",
+      "GHSA-c2gf-v879-257j",
+      "GHSA-c69g-56f8-xwqj",
+      "GHSA-f6hv-jmp6-3vwv",
+      "GHSA-prj3-ccx8-p6x4",
+      "GHSA-w9fj-cfpg-grvv"
+    ],
+    "io.netty:netty-codec-http:4.1.110.Final": [
+      "GHSA-38f8-5428-x5cv",
+      "GHSA-4mp9-239f-g9hg",
+      "GHSA-57rv-r2g8-2cj3",
+      "GHSA-6cqp-g7gg-8hr5",
+      "GHSA-6jqx-86gh-f27w",
+      "GHSA-84h7-rjj3-6jx4",
+      "GHSA-8c42-7qj2-3j46",
+      "GHSA-f6hv-jmp6-3vwv",
+      "GHSA-fghv-69vj-qj49",
+      "GHSA-gcjf-9mgh-3p7g",
+      "GHSA-hvcg-qmg6-jm4c",
+      "GHSA-jppx-w49h-x2qq",
+      "GHSA-m4cv-j2px-7723",
+      "GHSA-mvh2-crg5-v77c",
+      "GHSA-pwqr-wmgm-9rr8",
+      "GHSA-q4f6-jm68-57ww",
+      "GHSA-v8h7-rr48-vmmv",
+      "GHSA-xxqh-mfjm-7mv9"
+    ],
+    "io.netty:netty-codec:4.1.110.Final": [
+      "GHSA-3p8m-j85q-pgmj",
+      "GHSA-558v-64gr-wgg4",
+      "GHSA-mj4r-2hfc-f8p6"
+    ],
+    "io.netty:netty-common:4.1.110.Final": [
+      "GHSA-389x-839f-4rhx",
+      "GHSA-xq3w-v528-46rv"
+    ],
+    "io.netty:netty-handler-proxy:4.1.110.Final": [
+      "GHSA-45q3-82m4-75jr"
+    ],
+    "io.netty:netty-handler:4.1.110.Final": [
+      "GHSA-3qp7-7mw8-wx86",
+      "GHSA-4g8c-wm8x-jfhw",
+      "GHSA-c4c3-7fpv-j4q5",
+      "GHSA-c653-97m9-rcg9",
+      "GHSA-fccg-mwvh-qqg4",
+      "GHSA-x4gw-5cx5-pgmh"
+    ],
+    "org.apache.commons:commons-compress:1.21": [
+      "GHSA-4265-ccf5-phj5",
+      "GHSA-4g9r-vxhx-9pgx"
+    ],
+    "org.bitbucket.b_c:jose4j:0.9.5": [
+      "GHSA-3677-xxcr-wjqv"
+    ],
+    "org.bouncycastle:bcpkix-jdk18on:1.79": [
+      "GHSA-wg6q-6289-32hp"
+    ],
+    "org.bouncycastle:bcprov-jdk18on:1.79": [
+      "GHSA-574f-3g2m-x479",
+      "GHSA-9pwp-9qqc-pr26",
+      "GHSA-c3fc-8qff-9hwx",
+      "GHSA-qp49-qgx5-5m26"
+    ],
+    "org.bouncycastle:bcprov-jdk18on:1.81": [
+      "GHSA-574f-3g2m-x479",
+      "GHSA-9pwp-9qqc-pr26",
+      "GHSA-c3fc-8qff-9hwx",
+      "GHSA-qp49-qgx5-5m26"
+    ],
+    "org.jdom:jdom2:2.0.6": [
+      "GHSA-2363-cqg2-863c"
+    ],
+    "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21": [
+      "GHSA-r937-wjx7-w2jp"
+    ]
+  },
+  "queries": 286
+}

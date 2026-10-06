@@ -1,6 +1,6 @@
 # Main-branch audit
 
-Latest source-only continuation: [October7 follow-ups](../handoffs/2026-10-07-source-only-followups.md) and [build/dependency trust disposition](2026-10-07-build-trust-disposition.md). #372/#373 retain inherited application acceptance; no device work. Remaining #230/#253/trust engineering is explicit, not assumed to be phone QA only.
+Latest source-only continuation: [October7 follow-ups](../handoffs/2026-10-07-source-only-followups.md) and [build/dependency trust disposition](2026-10-07-build-trust-disposition.md). #372/.709 and #373/.710 passed exact-head reports/APK verification and retain inherited application acceptance; #374 inventory artifact is merged with fresh resolved-graph/advisory evidence; no device work. Remaining #230/#253/trust engineering is explicit, not assumed to be phone QA only.
 
 Previous continuation: [October7 final acceptance checkpoint](../handoffs/2026-10-07-final-acceptance.md). Most complete candidate #370/.701 includes saved-access, budgets and two follow-ups;700 tests per variant and actual APK/report checks passed. App PRs remain OPEN for acceptance; #179 recovery remains user-deferred/unresolved. Next source boundary: general #230 ownership/accounting, then remaining #253 resource questions.
 
