@@ -97,6 +97,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 if (server != null && kept.any { it.complete }) {
                     showOffline(server, kept)
                     if (e is LocalNetworkDenied) error = "Muon needs your permission to reach Tauon. Your saved copies still play."
+                    else if (e is LibraryResourceLimit) error = friendlyError(e) + " Your saved copies still play."
                 }
                 else {
                     error = friendlyError(e)
