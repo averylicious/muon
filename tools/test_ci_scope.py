@@ -123,6 +123,88 @@ class ScopeTest(unittest.TestCase):
         self.assertFalse(self.scope(head))
         self.release_query.assert_not_called()
 
+    def docs_merge(self, path='app/Thing.kt', publish=True, main_docs=False,
+                   previous_code=False):
+        self.git('checkout', '-qb', 'docs')
+        if previous_code:
+            self.commit('app/Feature.kt', 'class Feature')
+        before = self.commit('docs/note.md', '# Note\n')
+        self.git('checkout', 'main')
+        code = self.commit(path, 'main update')
+        self.tag('0.1.0-canary.10', code, published=publish)
+        if main_docs:
+            self.commit('README.md', '# Main note\n')
+        self.git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+        self.git('checkout', 'docs')
+        self.git('merge', '--no-ff', '-m', 'Refresh main', 'main')
+        return before, self.git('rev-parse', 'HEAD'), code
+
+    def test_docs_merge_of_published_main_skips(self):
+        for path in ['app/Thing.kt', 'tools/check.py', 'docs/signing-certificates.txt']:
+            with self.subTest(path=path):
+                # Each fixture starts a separate real history.
+                before, head, _ = self.docs_merge(path=path)
+                build, reason, paths = ci_scope.classify(
+                    'push', 'refs/heads/docs', head, {'before': before})
+                self.assertFalse(build)
+                self.assertIn('inherited main code already published', reason)
+                self.assertEqual({'docs/note.md'}, paths)
+                self.git('checkout', 'main')
+                self.git('branch', '-D', 'docs')
+                self.git('tag', '-d', '0.1.0-canary.10')
+
+    def test_docs_merge_after_published_main_and_main_docs_skips(self):
+        before, head, _ = self.docs_merge(main_docs=True)
+        self.assertFalse(self.scope(head, before))
+
+    def test_docs_merge_of_unpublished_main_builds(self):
+        before, head, _ = self.docs_merge(publish=False)
+        self.assertTrue(self.scope(head, before))
+
+    def test_docs_merge_with_unknown_publication_builds(self):
+        before, head, _ = self.docs_merge()
+        self.release_query.side_effect = OSError('unavailable')
+        self.assertTrue(self.scope(head, before))
+
+    def test_docs_merge_with_moved_publication_tag_builds(self):
+        before, head, _ = self.docs_merge()
+        self.git('tag', '-f', '0.1.0-canary.10', self.base)
+        self.assertTrue(self.scope(head, before))
+
+    def test_main_code_after_last_publication_still_builds_on_docs_merge(self):
+        before, _, _ = self.docs_merge()
+        self.git('checkout', 'main')
+        self.commit('app/Unpublished.kt', 'class Unpublished')
+        self.git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+        self.git('checkout', 'docs')
+        self.git('merge', '--no-ff', '-m', 'Refresh main again', 'main')
+        self.assertTrue(self.scope(self.git('rev-parse', 'HEAD'), before))
+
+    def test_docs_merge_with_feature_code_still_builds(self):
+        before, head, _ = self.docs_merge(previous_code=True)
+        self.assertTrue(self.scope(head, before))
+        self.release_query.assert_not_called()
+
+    def test_removing_previous_feature_code_during_merge_still_builds(self):
+        before, _, _ = self.docs_merge(previous_code=True)
+        self.git('rm', 'app/Feature.kt')
+        self.git('commit', '-qm', 'Remove feature code')
+        self.assertTrue(self.scope(self.git('rev-parse', 'HEAD'), before))
+        self.release_query.assert_not_called()
+
+    def test_force_push_replacing_docs_history_with_published_main_builds(self):
+        before, head, code = self.docs_merge()
+        self.git('checkout', '-qb', 'replacement', code)
+        replacement = self.commit('docs/replacement.md', '# Replacement\n')
+        self.assertTrue(self.scope(replacement, before))
+
+    def test_docs_head_missing_current_main_still_builds(self):
+        before, head, _ = self.docs_merge()
+        self.git('checkout', 'main')
+        self.commit('README.md', '# New main note\n')
+        self.git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+        self.assertTrue(self.scope(head, before))
+
     def test_newest_canary_is_chosen_by_run_number(self):
         self.tag('0.1.0-canary.9', self.base)
         code = self.commit('app/Thing.kt', 'class Thing')

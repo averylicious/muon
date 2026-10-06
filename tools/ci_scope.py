@@ -106,8 +106,25 @@ def classify(event_name, ref, head, event):
             paths.update(changed_paths(tag, head))
         if ref != 'refs/heads/main':
             # Include all unmerged feature work even when the last push only edits docs.
-            base = git('merge-base', head, 'refs/remotes/origin/main').decode().strip()
-            paths.update(changed_paths(base, head))
+            main = git('rev-parse', 'refs/remotes/origin/main').decode().strip()
+            base = git('merge-base', head, main).decode().strip()
+            branch_paths = changed_paths(base, head)
+            paths.update(branch_paths)
+            if (paths and any(not is_documentation(p) for p in paths)
+                    and branch_paths and all(is_documentation(p) for p in branch_paths)
+                    and base == main and before and before != '0' * 40):
+                # A docs branch can inherit already-built app changes when it merges main.
+                # Do not erase the push comparison for force pushes or previous feature work.
+                git('merge-base', '--is-ancestor', before, head)
+                previous_base = git('merge-base', before, main).decode().strip()
+                previous_paths = changed_paths(previous_base, before)
+                if all(is_documentation(p) for p in previous_paths):
+                    tag = last_canary(base)
+                    if tag is not None and all(is_documentation(p)
+                                               for p in changed_paths(tag, base)):
+                        return False, ('Only documentation branch changes; inherited main '
+                                       'code already published in a verified Canary.'), {
+                                           p for p in paths if is_documentation(p)}
         if paths and all(is_documentation(p) for p in paths):
             return False, 'Only documentation paths changed.', paths
         return True, 'Code/build/unknown paths or empty comparison: full build.', paths
