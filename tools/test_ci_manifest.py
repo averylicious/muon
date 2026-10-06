@@ -28,7 +28,7 @@ class ManifestTest(unittest.TestCase):
         return verify_manifest(ET.tostring(root, encoding='unicode'), package)
 
     def test_both_channels_preserve_source_namespace(self):
-        for package in ('dev.avery.muon', 'dev.avery.muon.release'):
+        for package in ('dev.avery.muon', 'dev.avery.muon.release', 'dev.avery.muon.diagnostic'):
             self.check(self.manifest(package), package)
 
     def test_old_exported_playback_service_is_rejected(self):

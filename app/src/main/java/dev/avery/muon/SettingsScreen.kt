@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import android.content.pm.ApplicationInfo
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +23,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -42,6 +44,8 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
     // The expanded title is 36sp, so its bar has to grow with the user's font scale or it clips.
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 2f)
     val colors = MaterialTheme.colorScheme
+    // The installed APK's own flag, not a build setting, so the banner cannot disagree with the app.
+    val debuggable = remember(context) { (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 }
     Column(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         LargeTopAppBar(
             title = { CollapsingTitle("Settings") },
@@ -57,6 +61,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // A failed refresh keeps the previous library on screen; this says why it is stale.
             model.error?.let { ErrorCard(it, "Retry", quiet = model.offline, modifier = Modifier) { model.connect() } }
+            if (debuggable) DiagnosticBuildBanner()
 
             GroupLabel("Connection")
             SettingsGroup {
@@ -241,6 +246,21 @@ private fun Legend(color: Color, label: String, outlined: Boolean = false) {
             .then(if (outlined) Modifier.border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(5.dp)) else Modifier))
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+@Composable
+private fun DiagnosticBuildBanner() {
+    // A temporary debuggable test build (docs/ci.md). Error colours make it hard to miss, and the
+    // words say what it is, so the warning never depends on colour; TalkBack reads it as one item.
+    val colors = MaterialTheme.colorScheme
+    Surface(color = colors.errorContainer, contentColor = colors.onErrorContainer, shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Diagnostic build — debugging enabled", style = MaterialTheme.typography.titleMedium)
+            Text("A temporary test build. Performance with debugging enabled is not representative. " +
+                "Use ordinary Canary or Stable for normal listening.", style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 

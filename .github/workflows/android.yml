@@ -5,6 +5,12 @@ on:
     branches: ['**']
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      diagnostic_debug:
+        # Temporary device diagnosis only: see docs/ci.md. Never publishes.
+        description: Diagnostic build (separate debuggable APK; branches other than main only, never published)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,6 +27,7 @@ jobs:
     outputs:
       channel: ${{ steps.version.outputs.channel }}
       version: ${{ steps.version.outputs.version }}
+      diagnostic: ${{ steps.diagnostic.outputs.diagnostic }}
     env:
       MUON_VERSION_CODE: ${{ github.run_number }}
     steps:
@@ -43,12 +50,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/ci_scope.py
 
+      # Before the SDK and signing keys: an invalid or unauthorized request fails the run here.
+      - name: Select diagnostic build mode
+        if: steps.scope.outputs.build_apks == 'true'
+        id: diagnostic
+        env:
+          MUON_DIAGNOSTIC_REQUEST: ${{ inputs.diagnostic_debug }}
+        run: python3 tools/diagnostic_mode.py
+
       - name: Select version and publication channel
         if: steps.scope.outputs.build_apks == 'true'
         id: version
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          DIAGNOSTIC: ${{ steps.diagnostic.outputs.diagnostic }}
         run: |
           set -euo pipefail
           version=0.1.0
@@ -60,6 +76,8 @@ jobs:
           elif [[ "$REF_NAME" == main ]]; then
             channel=canary
           fi
+          # A diagnostic build never publishes, whatever the ref.
+          [[ "$DIAGNOSTIC" == false ]] || channel=none
           echo "MUON_VERSION_NAME=$version" >> "$GITHUB_ENV"
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -99,6 +117,30 @@ jobs:
         if: steps.scope.outputs.build_apks == 'true'
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
 
+      # Separate default-key helper, built before any Muon signing material is restored.
+      - name: Build disposable media-entry QA helper
+        if: steps.diagnostic.outputs.diagnostic == 'true'
+        env:
+          MUON_DIAGNOSTIC_REQUEST: ${{ inputs.diagnostic_debug }}
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain :mediaentryprobe:assembleDebug :mediaentryprobe:lintDebug
+          python3 tools/verify_entryprobe.py "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" mediaentryprobe/build/outputs/apk/debug/mediaentryprobe-debug.apk
+          mkdir -p artifacts/entryprobe
+          cp mediaentryprobe/build/outputs/apk/debug/mediaentryprobe-debug.apk artifacts/entryprobe/
+          (cd artifacts/entryprobe && sha256sum mediaentryprobe-debug.apk > SHA256SUMS)
+          printf 'Commit: %s\nRun: %s\nVersion: qa.%s\nMode: disposable foreign-UID QA probe; default ephemeral debug key; never published\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_NUMBER" > artifacts/entryprobe/BUILD.txt
+
+      - name: Upload media-entry QA helper
+        if: steps.diagnostic.outputs.diagnostic == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: media-entry-probe-${{ github.sha }}
+          path: artifacts/entryprobe/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
       - name: Restore signing keys
         if: steps.scope.outputs.build_apks == 'true'
         env:
@@ -129,6 +171,8 @@ jobs:
 
       - name: Verify APK signatures and prepare artifacts
         if: steps.scope.outputs.build_apks == 'true'
+        env:
+          MUON_DIAGNOSTIC_REQUEST: ${{ inputs.diagnostic_debug }}
         run: |
           set -euo pipefail
           apksigner="$ANDROID_HOME/build-tools/37.0.0/apksigner"
@@ -140,14 +184,18 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk artifacts/release/
           (cd artifacts/debug && sha256sum app-debug.apk > SHA256SUMS)
           (cd artifacts/release && sha256sum app-release.apk > SHA256SUMS)
-          printf 'Commit: %s\nRun: %s\nVersion: %s-canary.%s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" "$GITHUB_RUN_NUMBER" > artifacts/debug/BUILD.txt
+          if [[ "$MUON_DIAGNOSTIC_DEBUG" == true ]]; then
+            printf 'Commit: %s\nRun: %s\nVersion: %s-canary.%s-diagnostic\nMode: diagnostic (debuggable; temporary testing only, never published)\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" "$GITHUB_RUN_NUMBER" > artifacts/debug/BUILD.txt
+          else
+            printf 'Commit: %s\nRun: %s\nVersion: %s-canary.%s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" "$GITHUB_RUN_NUMBER" > artifacts/debug/BUILD.txt
+          fi
           printf 'Commit: %s\nRun: %s\nVersion: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" > artifacts/release/BUILD.txt
 
       - name: Upload debug APK
         if: steps.scope.outputs.build_apks == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: app-debug-${{ github.sha }}
+          name: app-${{ steps.diagnostic.outputs.diagnostic == 'true' && 'diagnostic' || 'debug' }}-${{ github.sha }}
           path: artifacts/debug/
           if-no-files-found: error
           compression-level: 0
@@ -182,7 +230,8 @@ jobs:
   publish:
     name: Publish private release
     needs: build
-    if: needs.build.outputs.channel == 'canary' || needs.build.outputs.channel == 'stable'
+    # The diagnostic check is separate from the channel so a diagnostic build can never publish.
+    if: needs.build.outputs.diagnostic == 'false' && (needs.build.outputs.channel == 'canary' || needs.build.outputs.channel == 'stable')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
