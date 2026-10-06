@@ -74,6 +74,52 @@ class ReplayGainSettingsTest {
         assertEquals(-12f, serviceSettings.gainFor(A)!!, 0f)
     }
 
+    @Test fun aWrongTypedSwitchUsesTheOffDefaultAndCanBeReplacedByAUserToggle() {
+        prefs.edit().putString(ReplayGainSettings.KEY_ENABLED, "true")
+            .putFloat("gain:" + A, -12f).putString("unrelated", "kept").commit()
+        val settings = ReplayGainSettings(prefs)
+        assertFalse(settings.enabled)
+        assertEquals(1f, settings.volumeFor(A), 0f)
+        assertEquals("true", prefs.getString(ReplayGainSettings.KEY_ENABLED, null))
+        assertEquals(-12f, settings.gainFor(A)!!, 0f)
+        settings.choose(true)
+        val restored = ReplayGainSettings(prefs)
+        assertTrue(restored.enabled)
+        assertEquals(volumeForGain(-12f), restored.volumeFor(A), 0.00001f)
+        assertEquals("kept", prefs.getString("unrelated", null))
+    }
+
+    @Test fun reloadingAWrongTypedSwitchUsesTheDefaultWithoutDeletingOtherValues() {
+        val settings = ReplayGainSettings(prefs)
+        settings.choose(true)
+        settings.remember(A, -6f)
+        prefs.edit().putInt(ReplayGainSettings.KEY_ENABLED, 1).commit()
+        settings.reload()
+        assertFalse(settings.enabled)
+        assertEquals(1f, settings.volumeFor(A), 0f)
+        assertEquals(1, prefs.getInt(ReplayGainSettings.KEY_ENABLED, 0))
+        assertEquals(-6f, settings.gainFor(A)!!, 0f)
+        settings.choose(true)
+        settings.reload()
+        assertTrue(settings.enabled)
+    }
+
+    @Test fun wrongTypedGainUsesTheExistingMedianThenAParsedGainReplacesOnlyThatEntry() {
+        prefs.edit().putBoolean(ReplayGainSettings.KEY_ENABLED, true)
+            .putString("gain:" + A, "-6").putFloat("gain:" + B, -12f)
+            .putString("unrelated", "kept").commit()
+        val settings = ReplayGainSettings(prefs)
+        assertNull(settings.gainFor(A))
+        assertEquals(volumeForGain(-12f), settings.volumeFor(A), 0.00001f)
+        assertEquals("-6", prefs.getString("gain:" + A, null))
+        settings.remember(A, -6f)
+        val restored = ReplayGainSettings(prefs)
+        assertEquals(-6f, restored.gainFor(A)!!, 0f)
+        assertEquals(-12f, restored.gainFor(B)!!, 0f)
+        assertEquals(volumeForGain(-9f), restored.volumeFor("unknown"), 0.00001f)
+        assertEquals("kept", prefs.getString("unrelated", null))
+    }
+
     private companion object {
         const val A = "http://192.168.1.20:7814/7"
         const val B = "http://192.168.1.21:7814/7"
