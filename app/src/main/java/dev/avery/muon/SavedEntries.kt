@@ -107,6 +107,10 @@ internal data class SavedEntry(val ref: SavedRef, val song: TauonTrack?, val fro
     val removable: Boolean) {
     /** Whether every byte is held and its download, if any, finished: what can be played. */
     val complete: Boolean get() = coverage == SavedCoverage.Full && (state == null || state == Download.STATE_COMPLETED)
+    // Old index/cache metadata predates incoming tag limits. Keep its record, but never put unsafe
+    // text into Compose/Media3 IPC. Evaluated once while inventory is projected off the main thread.
+    val displaySong: TauonTrack? = song?.takeIf { runCatching { requireTrackMetadataBudget(it) }.isSuccess }
+    val metadataTooLarge: Boolean get() = song != null && displaySong == null
 }
 
 /** The cache key a row's bytes are under: its own key, or Media3's fallback to its address. */
@@ -228,7 +232,7 @@ internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache:
 
 /** Saved copies in a stable reading order: by title, unknown ones last, then by handle. */
 internal fun sortSaved(entries: List<SavedEntry>): List<SavedEntry> = entries.sortedWith(
-    compareBy<SavedEntry>({ it.song == null }, { it.song?.title?.lowercase().orEmpty() }, { it.ref.handle }))
+    compareBy<SavedEntry>({ it.displaySong == null }, { it.displaySong?.title?.lowercase().orEmpty() }, { it.ref.handle }))
 
 /** A fresh request ID and key for a new save that no row and no cached resource already uses. */
 internal fun newSaveId(taken: (String) -> Boolean): String {
@@ -256,12 +260,14 @@ internal fun savedArtRequest(url: String): String? {
 /** The words that mark a saved copy wherever it is shown, so the warning never depends on colour. */
 internal const val UNVERIFIED = "Unverified"
 
-internal fun SavedEntry.title(): String = song?.title?.takeIf { it.isNotBlank() } ?: "Unknown saved song"
+internal fun SavedEntry.title(): String = displaySong?.title?.takeIf { it.isNotBlank() }
+    ?: if (metadataTooLarge) "Saved song (metadata too large)" else "Unknown saved song"
 
 internal fun SavedEntry.subtitle(): String = listOfNotNull(
-    song?.artist?.takeIf { it.isNotBlank() }?.let(::displayCredits),
+    displaySong?.artist?.takeIf { it.isNotBlank() }?.let(::displayCredits),
     UNVERIFIED + " " + if (ref.source == SavedSource.Played) "played copy" else "saved copy",
     if (ref.shelf == SavedShelf.Card) "SD card" else null,
+    if (metadataTooLarge) "Metadata too large to display" else null,
 ).joinToString(" · ")
 
 /**
@@ -273,8 +279,8 @@ internal fun SavedEntry.mediaItem(): MediaItem = MediaItem.Builder()
     .setMediaId(ref.handle)
     .setUri(ref.handle)
     .setMediaMetadata(MediaMetadata.Builder().setTitle(title()).setArtist(subtitle())
-        .setAlbumTitle(song?.album?.takeIf { it.isNotBlank() })
-        .setDurationMs(song?.durationMs?.takeIf { it > 0 })
+        .setAlbumTitle(displaySong?.album?.takeIf { it.isNotBlank() })
+        .setDurationMs(displaySong?.durationMs?.takeIf { it > 0 })
         .apply { if (ownCover) setArtworkUri(Uri.parse(savedArtUrl(ref.requestId))) }
         .build())
     .build().let(::queueOccurrence)

@@ -69,6 +69,37 @@ class NotificationArtworkTest {
         bitmap.recycle()
     }
 
+    @Test fun savedArtworkDecodesItsOwnLocalCoverWithoutOpeningNetwork() {
+        val source = Source(byteArrayOf(), 0)
+        val requests = ArrayList<String>()
+        val bytes = png(2048)
+        val own = notificationBitmapLoader(RuntimeEnvironment.getApplication(), DataSource.Factory { source }) { id ->
+            requests += id
+            bytes
+        }
+        val bitmap = own.loadBitmap(Uri.parse(savedArtUrl("saved/owned"))).get(10, TimeUnit.SECONDS)
+        assertEquals(listOf("saved/owned"), requests)
+        assertFalse(source.opened)
+        assertTrue(bitmap.width in 1..NOTIFICATION_ART_SIDE)
+        bitmap.recycle()
+    }
+
+    @Test fun missingOversizedAndMalformedSavedArtNeverUsesNetwork() {
+        for (mode in listOf("missing", "oversized", "malformed")) {
+            val source = Source(png(64), 0)
+            var lookedUp = false
+            val own = notificationBitmapLoader(RuntimeEnvironment.getApplication(), DataSource.Factory { source }) {
+                lookedUp = true
+                if (mode == "oversized") ByteArray(NOTIFICATION_ART_BYTES + 1) else null
+            }
+            val uri = Uri.parse(if (mode == "malformed") "$SAVED_ART_SCHEME:***" else savedArtUrl("saved/owned"))
+            val failure = assertThrows(ExecutionException::class.java) { own.loadBitmap(uri).get(10, TimeUnit.SECONDS) }
+            assertTrue(failure.cause is IOException)
+            assertFalse(source.opened)
+            assertEquals(mode != "malformed", lookedUp)
+        }
+    }
+
     private fun loader(source: Source) = notificationBitmapLoader(RuntimeEnvironment.getApplication(), DataSource.Factory { source })
     private fun png(width: Int): ByteArray = requireNotNull(javaClass.getResourceAsStream(
         "/fixtures/notification-art-$width.png")).use { it.readBytes() }
