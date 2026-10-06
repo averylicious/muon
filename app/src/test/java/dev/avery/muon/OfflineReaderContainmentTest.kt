@@ -118,7 +118,7 @@ class OfflineReaderContainmentTest {
         assertEquals(1, file.closes)
     }
 
-    @Test fun afterCloseAFreshOpenRoutesAgainToThePhoneOrTheReturnedCard() {
+    @Test fun afterCloseAFreshOpenFailsWhileTheCardIsGoneAndReadsItOnceBack() {
         val source = offlineSource()
         source.open(stream(onCard))
         source.read(ByteArray(4), 0, 4)
@@ -126,11 +126,11 @@ class OfflineReaderContainmentTest {
         assertThrows(IOException::class.java) { source.read(ByteArray(4), 0, 4) }
         source.close()
 
-        // Still gone: the fresh route streams through the phone shelf; the card's file is not opened again.
-        source.open(stream(onCard))
+        // Still gone: the copy's handle names the card, so the fresh open fails; nothing is streamed in its
+        // place under its track number (#213), and the card's file is not opened again.
+        assertThrows(IOException::class.java) { source.open(stream(onCard)) }
         assertEquals(1, opened(files).size)
-        assertArrayEquals(streamBytes, readAll(source))
-        assertEquals(1, opened(upstreams).single().opens)
+        assertTrue(opened(upstreams).isEmpty())
         source.close()
 
         // Back: a new open reads the card again from the start, through a new reader.
@@ -140,14 +140,14 @@ class OfflineReaderContainmentTest {
         assertEquals("A new real file, not the invalidated one", 2, opened(files).size)
         assertEquals(1, opened(files).first().closes)
         source.close()
-        assertEquals(1, opened(upstreams).single().opens)
+        assertTrue("Nothing was ever streamed for the saved copy", opened(upstreams).isEmpty())
     }
 
     @Test fun aCardThatGoesBetweenRouteAndSourceCreationIsNeverOpened() {
         val source = OfflineDataSource { request ->
-            routeOfflineRequest(request, phone, listOf(phone, card), offline = true).also { cardUp = false }
+            routeOfflineRequest(request, phone, card).also { cardUp = false }
         }.also { sources += it }
-        val routed = routeOfflineRequest(stream(onCard), phone, listOf(phone, card), offline = true)
+        val routed = routeOfflineRequest(stream(onCard), phone, card)
         assertSame("The route chose the card while it was there", card, routed.first)
         cardUp = true
 
@@ -214,7 +214,7 @@ class OfflineReaderContainmentTest {
     // ---- fixtures ----
 
     private fun offlineSource() = OfflineDataSource { request ->
-        routeOfflineRequest(request, phone, listOf(phone, card), offline = true)
+        routeOfflineRequest(request, phone, card)
     }.also { sources += it }
 
     private fun id(track: TauonTrack) = downloadId(endpoint.origin, track.id)
@@ -223,11 +223,19 @@ class OfflineReaderContainmentTest {
     private fun opened(made: List<CountingFile>) = made.filter { it.opens > 0 }
     @JvmName("openedUpstreams") private fun opened(made: List<Upstream>) = made.filter { it.opens > 0 }
 
-    private fun stream(track: TauonTrack): DataSpec =
-        DataSpec.Builder().setUri(Uri.parse(endpoint.url("/api1/file/${track.id}"))).build()
+    /**
+     * A kept song's saved handle on the shelf that holds it (#213), the only way to its bytes; any other
+     * song is a live stream.
+     */
+    private fun stream(track: TauonTrack): DataSpec {
+        val shelf = when (track) { onCard -> SavedShelf.Card; onPhone -> SavedShelf.Phone; else -> null }
+        val uri = shelf?.let { requireNotNull(SavedRef.download(it, id(track), id(track))).handle }
+            ?: endpoint.url("/api1/file/${track.id}")
+        return DataSpec.Builder().setUri(Uri.parse(uri)).build()
+    }
 
     /** The URI the route asks a shelf for, so the expectation does not restate the route's format. */
-    private fun TauonTrack.routedUri(): Uri = routeOfflineRequest(stream(this), phone, listOf(phone, card), true).second.uri
+    private fun TauonTrack.routedUri(): Uri = routeOfflineRequest(stream(this), phone, card).second.uri
 
     /** Bounded: a source that never ends, or returns more than any fixture holds, fails rather than hangs. */
     private fun readAll(source: DataSource): ByteArray {
@@ -250,6 +258,8 @@ class OfflineReaderContainmentTest {
             DownloaderFactory { error("Fixture must not start a downloader/network") }),
             MuonDownloadService::class.java, present).also { shelf ->
             // The only seams: the real FileDataSource, counted, and an in-memory upstream instead of OkHttp.
+            // Saved copies read through savedSource, which has no upstream at all (#213); live songs stream.
+            shelf.savedSource.setCacheReadDataSourceFactory { CountingFile().also(files::add) }
             shelf.source.setCacheReadDataSourceFactory { CountingFile().also(files::add) }
             shelf.source.setUpstreamDataSourceFactory { Upstream().also(upstreams::add) }
             shelves += shelf

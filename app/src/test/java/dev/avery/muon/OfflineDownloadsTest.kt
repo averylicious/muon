@@ -11,13 +11,7 @@ class OfflineDownloadsTest {
         assertEquals("http://192.168.1.10:7814/42", downloadId(endpoint.origin, 42))
     }
 
-    @Test fun onlyAnOriginalFileStreamIsRedirectedToItsDownload() {
-        assertEquals("http://192.168.1.10:7814/42" to "http://192.168.1.10:7814/api1/fileopus/42",
-            downloadForStream("http", "192.168.1.10:7814", "/api1/file/42"))
-        assertNull(downloadForStream("http", "192.168.1.10:7814", "/api1/pic/medium/42"))
-        assertNull(downloadForStream("http", "192.168.1.10:7814", "/api1/file/42/extra"))
-        assertNull(downloadForStream("http", "8.8.8.8:7814", "/api1/file/42"))
-    }
+    // A live stream is no longer redirected to any copy by its track number (#213): SavedAccessTest.
 
     @Test fun theEstimateIsEightyFourKilobitsPerSecond() {
         val fourMinutes = TauonTrack(1, "", "", "", 240_000, true, false)
@@ -64,13 +58,6 @@ class OfflineDownloadsTest {
         assertEquals("900 kB", formatBytes(900_000))
         assertEquals("340 MB", formatBytes(340_200_000))
         assertEquals("1.1 GB", formatBytes(1_100_000_000))
-    }
-
-    @Test fun aPagesProgressCountsWhatIsDoneAndWhatIsComing() {
-        val marks = mapOf("a" to DownloadMark.Done, "b" to DownloadMark.Downloading, "c" to DownloadMark.Queued)
-        assertEquals(DownloadProgress(4, 1, 2), downloadProgress(listOf("a", "b", "c", "d"), marks))
-        assertTrue(downloadProgress(listOf("a"), marks).all)
-        assertFalse(downloadProgress(emptyList(), marks).all)
     }
 
     @Test fun aDownloadRemembersItsSongForTheOfflineLibrary() {

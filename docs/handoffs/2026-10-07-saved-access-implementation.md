@@ -65,3 +65,9 @@ Tests: in progress.
 ## Coordinator review checkpoint (before first compile)
 
 The first allocated Claude run ended at its configured turn cap, not quota exhaustion (latest runtime event 48% five-hour /43% weekly used). Its production draft is preserved; tests and compile remain pending. GPT-6/Codex review identified a blocking gap in the proposed destructive ownership rule above: `requestId == customCacheKey` does not exclude another legacy/unknown row whose different request ID uses that same custom key. Played-prefix resources may also be claimed by such rows. Those bytes must remain preserved through removal, move completion, automatic played eviction/clear and listener cleanup. Merely restricting which selected row is removable does not protect an alias from another owner's deletion. This review supersedes the proposed rule until corrected and tested against actual cache/index fixtures. No CI, device, independent whole-change review or #213 completion claimed.
+
+## Second source checkpoint
+
+The second allocated run ended at its configured 45-turn cap, not quota exhaustion (82% five-hour /47% weekly used). It adds `soleOwner`/`movable` full-row checks, startup `PlayedClaims` protection for indexed played keys, guards around explicit/bulk removal and move/listener paths, and updates existing route/identity/cover/reader fixtures. These are uncompiled and require review of all production callers and new actual-mutation regression coverage. The original contract item 6 is superseded by these draft checks; it must not be treated as a final proof.
+
+Additional GPT-6 draft findings and concrete next checks are preserved in `docs/audits/2026-10-07-saved-draft-review.md`. Live cache bypass, address-independent offline access, cross-shelf completion removal, safe persisted-metadata presentation and notification artwork need particular attention. No #213 closure, merge eligibility or manual QA claim.

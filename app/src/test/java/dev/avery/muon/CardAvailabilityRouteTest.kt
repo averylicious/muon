@@ -101,29 +101,35 @@ class CardAvailabilityRouteTest {
         assertFalse(cardPresent(folders.newFolder("unregistered")))
     }
 
-    @Test fun anAvailableCardRoutesItsSongNormally() {
-        val route = routeOfflineRequest(stream(onCard), phone, listOf(phone, card), offline = true)
+    @Test fun anAvailableCardsSavedCopyRoutesToItAndIsListed() {
+        val entries = OfflineStore.savedEntries(app)
+        assertTrue(presenceChecks > 0)
+        assertEquals(setOf(onCard, onPhone), entries.mapNotNull { it.song }.toSet())
+        val onTheCard = entries.single { it.song == onCard }
+        assertEquals(SavedShelf.Card, onTheCard.ref.shelf)
+        val route = routeOfflineRequest(saved(onTheCard), phone, card)
         assertSame(card, route.first)
         assertEquals(id(onCard), route.second.key)
-        assertTrue(presenceChecks > 0)
-        assertSame(card, OfflineStore.downloadedOn(app, id(onCard)))
-        assertEquals(setOf(onCard, onPhone), OfflineStore.downloadedSongs(app, endpoint.origin).toSet())
         assertEquals(1, OfflineStore.downloadsOn(app, card = true))
+        // A live song never routes to a copy, on either shelf (#213).
+        val live = stream(onCard)
+        assertSame(phone, routeOfflineRequest(live, phone, card).first)
+        assertSame(live, routeOfflineRequest(live, phone, card).second)
     }
 
     @Test fun anUnavailableCardIsSkippedWhileThePhoneStillWorks() {
+        val onTheCard = OfflineStore.savedEntries(app).single { it.song == onCard }
         remove()
-        // The card's song now streams: phone shelf, request unchanged, not rewritten to the card's key.
-        val request = stream(onCard)
-        val route = routeOfflineRequest(request, phone, listOf(phone, card), offline = true)
-        assertSame(phone, route.first)
-        assertSame(request, route.second)
-        assertNull(OfflineStore.downloadedOn(app, id(onCard)))
-        // The phone's own download still routes and lists.
-        val phoneRoute = routeOfflineRequest(stream(onPhone), phone, listOf(phone, card), offline = true)
-        assertSame(phone, phoneRoute.first)
-        assertEquals(id(onPhone), phoneRoute.second.key)
-        assertEquals(listOf(onPhone), OfflineStore.downloadedSongs(app, endpoint.origin))
+        // Not listed, and its handle is refused by the reader rather than read from missing storage.
+        val listed = OfflineStore.savedEntries(app)
+        assertEquals(listOf(onPhone), listed.mapNotNull { it.song })
+        val source = OfflineDataSource { routeOfflineRequest(it, phone, card) }
+        try {
+            assertThrows(java.io.IOException::class.java) { source.open(saved(onTheCard)) }
+        } finally { source.close() }
+        // The phone's own copy still routes.
+        val phoneEntry = listed.single()
+        assertSame(phone, routeOfflineRequest(saved(phoneEntry), phone, card).first)
         // Unavailable is not empty.
         assertNull(OfflineStore.downloadsOn(app, card = true))
         assertEquals(1, OfflineStore.downloadsOn(app, card = false))
@@ -133,19 +139,24 @@ class CardAvailabilityRouteTest {
         assertTrue(card.completed(id(onCard)))
         restore()
         assertArrayEquals(bytes, requireNotNull(card.cache.getCachedSpans(id(onCard)).first().file).readBytes())
-        assertSame(card, routeOfflineRequest(stream(onCard), phone, listOf(phone, card), offline = true).first)
+        assertSame(card, routeOfflineRequest(saved(onTheCard), phone, card).first)
     }
 
     @Test fun removingWithTheCardUnavailableSendsNothingToTheCardService() {
+        val entries = OfflineStore.savedEntries(app)
         remove()
         val started = shadowOf(app)
         while (started.nextStartedService != null) Unit
-        OfflineStore.remove(app, listOf(id(onCard), id(onPhone)))
+        assertEquals(OfflineStore.SavedRemoval.Unavailable,
+            OfflineStore.removeSavedNow(app, entries.single { it.song == onCard }.ref))
+        assertEquals(OfflineStore.SavedRemoval.Sent,
+            OfflineStore.removeSavedNow(app, entries.single { it.song == onPhone }.ref))
         val services = generateSequence { started.nextStartedService }.map { it.component?.className }.toList()
-        assertTrue(services.isNotEmpty())
-        assertTrue(services.all { it == MuonDownloadService::class.java.name })
+        assertEquals(listOf(MuonDownloadService::class.java.name), services)
         assertTrue(card.completed(id(onCard)))
     }
+
+    private fun saved(entry: SavedEntry): DataSpec = DataSpec.Builder().setUri(Uri.parse(entry.ref.handle)).build()
 
     private fun id(track: TauonTrack) = downloadId(endpoint.origin, track.id)
 

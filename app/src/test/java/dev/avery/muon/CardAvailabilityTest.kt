@@ -24,15 +24,11 @@ class CardAvailabilityTest {
     private val phone = FakeShelf("phone", finished = setOf("p"))
     private val card = FakeShelf("card", finished = setOf("c", "both"), queued = setOf("q"))
 
-    @Test fun anAvailableCardStillServesItsSongs() {
-        assertSame(card, servingShelf(listOf(phone, card), "c"))
-        assertSame(phone, servingShelf(listOf(phone, card), "p"))
-    }
-
-    @Test fun anUnavailableCardServesNothingAndThePhoneStillDoes() {
+    // Which shelf a saved copy plays from is now its own handle's (#213; SavedAccessTest), not a lookup by
+    // track number; listing and resuming still skip an unavailable card.
+    @Test fun anUnavailableCardIsLeftOutOfTheAvailableShelves() {
+        assertEquals(listOf(phone, card), availableShelves(listOf(phone, card)))
         card.present = false
-        assertNull(servingShelf(listOf(phone, card), "c"))
-        assertSame(phone, servingShelf(listOf(phone, card), "p"))
         assertEquals(listOf(phone), availableShelves(listOf(phone, card)))
     }
 
@@ -46,19 +42,7 @@ class CardAvailabilityTest {
         assertEquals(DownloadTarget.Phone, downloadTarget(null, onCard = false))
     }
 
-    @Test fun removingWithTheCardAwaySendsNothingToItAndWithholdsItsSongs() {
-        card.present = false
-        val plan = removalPlan(listOf(phone, card), listOf("p", "c", "q", "elsewhere"))
-        assertEquals(listOf(phone to listOf("p", "c", "q", "elsewhere")), plan.commands)
-        // Withheld, not removed and not reported as gone: finished and still-queued alike.
-        assertEquals(listOf("c", "q"), plan.withheld)
-    }
-
-    @Test fun removingWithTheCardInSendsToBothAndWithholdsNothing() {
-        val plan = removalPlan(listOf(phone, card), listOf("c"))
-        assertEquals(listOf(phone, card), plan.commands.map { it.first })
-        assertTrue(plan.withheld.isEmpty())
-    }
+    // Removal with the card away is refused per saved copy, against real indexes, in SavedAccessTest.
 
     @Test fun aMoveLeftoverOnAnUnavailableCardIsKept() {
         // "both" finished on the phone; the card's copy is a leftover to remove only while it is there.

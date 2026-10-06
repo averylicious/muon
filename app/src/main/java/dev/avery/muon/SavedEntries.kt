@@ -102,19 +102,75 @@ internal enum class SavedCoverage { Full, Partial, Missing, UnknownLength }
  * row's state, null for a played copy.
  */
 internal data class SavedEntry(val ref: SavedRef, val song: TauonTrack?, val from: String?, val state: Int?,
-    val coverage: SavedCoverage, val bytes: Long, val ownCover: Boolean) {
+    val coverage: SavedCoverage, val bytes: Long, val ownCover: Boolean,
+    /** Whether Remove may delete its bytes now: they are claimed by it alone ([soleOwner], [PlayedClaims]). */
+    val removable: Boolean) {
     /** Whether every byte is held and its download, if any, finished: what can be played. */
     val complete: Boolean get() = coverage == SavedCoverage.Full && (state == null || state == Download.STATE_COMPLETED)
-    /** Muon's own invariant for a download row: its cache key is its request ID (see [ownedDownload]). */
-    val removable: Boolean get() = ref.source == SavedSource.Played || ownedDownload(ref.requestId, ref.key)
+}
+
+/** The cache key a row's bytes are under: its own key, or Media3's fallback to its address. */
+internal fun keyOf(download: Download): String = download.request.customCacheKey ?: download.request.uri.toString()
+
+/**
+ * Whether removing [requestId]'s row from a shelf whose index holds [rows] (every row, in every state)
+ * deletes only bytes that row alone claims (#213). Media3 removes a row's bytes by its cache key, whoever
+ * else names that key, so this requires the row's key to be its own request ID, outside the played-copy
+ * namespace, and named by no other row there. Older or unknown rows that alias a key, or use another
+ * row's ID or a played-copy key, fail this and are kept.
+ *
+ * A census is a snapshot. It stays true until the removal runs because Muon has only two writers of
+ * index rows, and neither can add another row naming this key: a new save uses a fresh `saved/<uuid>`
+ * request ID and key found in no row of either index and no cache ([newSaveId] in [OfflineStore.add]), and a
+ * move hands over only a row whose key is its own ID and that no other row on the target names
+ * ([movable]), so a second row naming the key would have to carry the same ID, which merges into this one.
+ */
+internal fun soleOwner(rows: List<Download>, requestId: String): Boolean {
+    val row = rows.singleOrNull { it.request.id == requestId } ?: return false
+    val key = row.request.customCacheKey ?: return false
+    if (key != requestId || key.startsWith(PLAYED_PREFIX)) return false
+    return rows.count { keyOf(it) == key } == 1
 }
 
 /**
- * Every download row Muon writes uses its request ID as its cache key (legacy rows "origin/id", new ones
- * "saved/<uuid>"), and request IDs are unique within an index, so no other row on that shelf can claim
- * the key. A row that breaks this, which Muon did not make, is not removed: its bytes may be shared.
+ * Whether a move may hand [download] from a shelf whose index holds [sourceRows] to one whose index holds
+ * [targetRows] without making a second row name its key, or rebinding a row already there: it must solely
+ * own its key on the source (so its leftover can go once the move completes) and the target may hold no
+ * row naming that key, except this same request's own row with the same key.
  */
-internal fun ownedDownload(requestId: String, key: String?): Boolean = key != null && key == requestId
+internal fun movable(download: Download, sourceRows: List<Download>, targetRows: List<Download>): Boolean {
+    val id = download.request.id
+    if (!soleOwner(sourceRows, id)) return false
+    val there = targetRows.filter { keyOf(it) == id || it.request.id == id }
+    return there.isEmpty() || (there.size == 1 && there[0].request.id == id && there[0].request.customCacheKey == id)
+}
+
+/**
+ * The played-copy keys that any row of the phone's index names, read once when the store opens. Media3
+ * removes those bytes with their row, so the played cache must never remove them itself: not by eviction,
+ * Clear, Remove or a failed copy's cleanup (#213). No Muon writer makes a row with a played-copy key (new
+ * saves use `saved/`, a move refuses such a row), so this set can only shrink after it is read, and holding
+ * on to it keeps every such key protected. Until it is read, no played copy is removed at all.
+ */
+internal class PlayedClaims private constructor(@Volatile private var claimed: Set<String>?) {
+    constructor() : this(null)
+
+    /** Whether the phone index has been read. */
+    val known: Boolean get() = claimed != null
+
+    fun ready(keys: Set<String>) { claimed = keys }
+
+    /** Whether the played cache may remove [key]: the index has been read and no row names it. */
+    fun removable(key: String): Boolean = claimed?.let { key !in it } ?: false
+
+    companion object {
+        /** For fixtures with no phone index rows naming played keys. */
+        fun none() = PlayedClaims(emptySet())
+
+        /** The played-copy keys named by [rows]. */
+        fun keysIn(rows: List<Download>): Set<String> = rows.map(::keyOf).filterTo(HashSet()) { it.startsWith(PLAYED_PREFIX) }
+    }
+}
 
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun savedCoverage(cache: Cache, key: String): Pair<SavedCoverage, Long> {
@@ -142,20 +198,22 @@ internal fun savedOrigin(address: String?): String? = address?.let {
  * Reads the index and the cache's in-memory state: call it off the main thread.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache: Cache, played: Boolean,
+internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache: Cache, played: PlayedClaims?,
     ownsCover: (String) -> Boolean): List<SavedEntry> {
     val entries = ArrayList<SavedEntry>()
     for (download in downloads) {
         if (download.state == Download.STATE_REMOVING) continue
         val request = download.request
-        // Media3 falls back to the address when a request has no key; Muon's own requests always have one.
-        val key = request.customCacheKey ?: request.uri.toString()
+        val key = keyOf(download)
         val ref = SavedRef.download(shelf, request.id, key) ?: continue
         val (coverage, bytes) = savedCoverage(cache, key)
+        // Only a new save's own cover is shown, and only for the row it was fetched for (see DownloadArt).
+        val newSave = request.id.startsWith(NEW_SAVE_PREFIX) && request.customCacheKey == request.id
         entries += SavedEntry(ref, decodeSong(request.data), savedOrigin(request.uri.toString()), download.state,
-            coverage, bytes, ownsCover(request.id))
+            coverage, bytes, newSave && ownsCover(request.id), soleOwner(downloads, request.id))
     }
-    if (played) for (key in cache.keys.sorted()) {
+    // Played copies live only in the phone's cache; [played] is null for any other shelf.
+    if (played != null) for (key in cache.keys.sorted()) {
         if (!key.startsWith(PLAYED_PREFIX)) continue
         val ref = SavedRef.played(key) ?: continue
         val (coverage, bytes) = savedCoverage(cache, key)
@@ -163,7 +221,7 @@ internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache:
         val metadata = cache.getContentMetadata(key)
         val from = metadata.get(SAVED_FROM_METADATA, null as String?) ?: key.removePrefix(PLAYED_PREFIX)
         entries += SavedEntry(ref, metadata.get(SONG_METADATA, null as ByteArray?)?.let(::decodeSong),
-            savedOrigin(from), null, coverage, bytes, ownCover = false)
+            savedOrigin(from), null, coverage, bytes, ownCover = false, removable = played.removable(key))
     }
     return entries
 }

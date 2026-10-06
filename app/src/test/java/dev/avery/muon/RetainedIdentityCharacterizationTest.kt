@@ -32,7 +32,11 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
-/** #213 characterization: the mismatch assertions describe the existing bug, NOT an identity fix. */
+/**
+ * #213 with real cache, index and a loopback peer: a live song with a reused number streams its own
+ * bytes, and the copy saved earlier under that number is reached only by its own handle, as a separate
+ * Unverified entry. Equal tags and numbers decide nothing either way. No identity is verified here.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
@@ -65,57 +69,51 @@ class RetainedIdentityCharacterizationTest {
         try { manager.release(); cache.release() } finally { database.close() }
     }
 
-    @Test fun liveReplacementStillReadsExplicitRetainedAudioAndIndexNamesOldSong() {
+    @Test fun liveReplacementStreamsAndTheSavedCopyIsItsOwnEntry() {
         downloadOldSong()
         val item = replacement.mediaItem(endpoint)
-        assertEquals(replacement, decodeSong(requireNotNull(item.mediaMetadata.extras?.getByteArray(SONG_EXTRA))))
-        assertNull("No current song identity reaches the progressive DataSpec", item.localConfiguration?.customCacheKey)
+        assertNull("No saved key reaches the live item", item.localConfiguration?.customCacheKey)
         val spec = DataSpec.Builder().setUri(requireNotNull(item.localConfiguration).uri).build()
-        val routed = routeOfflineRequest(spec, shelf, listOf(shelf), offline = false)
+        val routed = routeOfflineRequest(spec, shelf, null)
         assertSame(shelf, routed.first)
-        assertEquals(id, routed.second.key)
-        assertEquals(old, decodeSong(requireNotNull(index.getDownload(id)).request.data))
-        // The production OfflineDataSource reads the actual retained spans, without network access.
-        val source = OfflineDataSource { request -> routeOfflineRequest(request, shelf, listOf(shelf), false) }
+        assertSame("The live request is left exactly as it was: a stream", spec, routed.second)
+        assertNull(routed.second.key)
+        // The copy saved under number 42 is listed separately, with its own tags, and reads its own bytes.
+        val entry = savedInventory(SavedShelf.Phone, listOf(requireNotNull(index.getDownload(id))), cache,
+            PlayedClaims.none()) { false }.single()
+        assertEquals(old, entry.song)
+        assertNotEquals(item.mediaId, entry.mediaItem().mediaId)
+        val source = OfflineDataSource { request -> routeOfflineRequest(request, shelf, null) }
         try {
-            assertEquals(payloadA.size.toLong(), source.open(spec))
+            assertEquals(payloadA.size.toLong(), source.open(DataSpec.Builder().setUri(Uri.parse(entry.ref.handle)).build()))
             val read = ByteArray(payloadA.size)
             assertEquals(payloadA.size, source.read(read, 0, read.size))
             assertArrayEquals(payloadA, read)
         } finally { source.close() }
     }
 
-    @Test fun ordinaryMatchingDownloadUsesTheSameRetainedRoute() {
+    @Test fun evenAMatchingDownloadOrPlayedCopyIsNeverSubstitutedForTheLiveSong() {
         downloadOldSong()
-        val result = routeOfflineRequest(stream(old), shelf, listOf(shelf), offline = false)
-        assertEquals(id, result.second.key)
-        assertEquals(endpoint.url("/api1/fileopus/42"), result.second.uri.toString())
-        assertTrue(shelf.completed(id))
-    }
-
-    @Test fun offlinePlayedCopyAlsoSelectsOldBytesForAReusedLiveId() {
         seed(playedKey(id), encodeSong(old))
-        val result = routeOfflineRequest(stream(replacement), shelf, listOf(shelf), offline = true)
-        assertEquals(playedKey(id), result.second.key)
-        assertEquals(old, decodeSong(requireNotNull(cache.getContentMetadata(playedKey(id))
-            .get(SONG_METADATA, null as ByteArray?))))
-        assertTrue(hasPlayedCopy(cache, id))
-    }
-
-    @Test fun onlinePlayedCopyAndDifferentOriginDoNotRedirect() {
-        seed(playedKey(id), encodeSong(old))
-        val spec = stream(replacement)
-        assertSame(spec, routeOfflineRequest(spec, shelf, listOf(shelf), offline = false).second)
-        downloadOldSong()
+        for (track in listOf(old, replacement)) {
+            val spec = stream(track)
+            assertSame(spec, routeOfflineRequest(spec, shelf, null).second)
+        }
         val other = DataSpec.Builder().setUri("http://192.168.1.11:7814/api1/file/42").build()
-        assertSame(other, routeOfflineRequest(other, shelf, listOf(shelf), offline = true).second)
+        assertSame(other, routeOfflineRequest(other, shelf, null).second)
+        // Both copies stay, each its own entry: the download and the older played copy.
+        val entries = savedInventory(SavedShelf.Phone, listOf(requireNotNull(index.getDownload(id))), cache,
+            PlayedClaims.none()) { false }
+        assertEquals(setOf(SavedSource.Download, SavedSource.Played), entries.map { it.ref.source }.toSet())
+        assertEquals(setOf(id, playedKey(id)), entries.map { it.ref.key }.toSet())
+        assertTrue(entries.all { it.song == old && it.complete })
     }
 
-    @Test fun identicalTagsDoNotEstablishThatExplicitSavedBytesAreTheLiveAudio() =
-        identicalTagsStillSelectSavedBytes(explicit = true)
+    @Test fun identicalTagsDoNotMakeAnExplicitSavedCopyTheLiveAudio() =
+        liveStreamsWhileSavedCopyStaysSeparate(explicit = true)
 
-    @Test fun identicalTagsDoNotEstablishThatOfflinePlayedBytesAreTheLiveAudio() =
-        identicalTagsStillSelectSavedBytes(explicit = false)
+    @Test fun identicalTagsDoNotMakeAPlayedCopyTheLiveAudio() =
+        liveStreamsWhileSavedCopyStaysSeparate(explicit = false)
 
     @Test fun bundleRoundTripsPreserveMetadataButDoNotAlwaysPreserveLocalRoutingFields() {
         // Test-local marker, not an implemented or trusted production saved-entry schema.
@@ -137,12 +135,35 @@ class RetainedIdentityCharacterizationTest {
             assertEquals("test-unverified-entry", restored.mediaMetadata.extras?.getString(markerKey))
             assertArrayEquals(encodeSong(old), requireNotNull(restored.mediaMetadata.extras?.getByteArray(SONG_EXTRA)))
         }
-        // The current Undo helper still reconstructs a live stream URL from this shared numeric ID.
+        // A live item is put back as the live stream; that is all its number names.
         assertEquals(endpoint.url("/api1/file/${old.id}"), restoreUrl(timelineForm.mediaId))
     }
 
+    @Test fun aSavedItemCarriesOnlyItsHandleThroughBundlesAndUndo() {
+        downloadOldSong()
+        val entry = savedInventory(SavedShelf.Phone, listOf(requireNotNull(index.getDownload(id))), cache,
+            PlayedClaims.none()) { false }.single()
+        val item = entry.mediaItem()
+        assertEquals(entry.ref.handle, item.mediaId)
+        assertNull("No song record travels, so it is never copied again as a played song",
+            item.mediaMetadata.extras?.getByteArray(SONG_EXTRA))
+        assertNull("No live cover address", item.mediaMetadata.artworkUri)
+        assertTrue(item.mediaMetadata.artist.toString().contains(UNVERIFIED))
+        val withLocal = androidx.media3.common.MediaItem.fromBundle(item.toBundleIncludeLocalConfiguration())
+        val timelineForm = androidx.media3.common.MediaItem.fromBundle(item.toBundle())
+        assertEquals(entry.ref.handle, requireNotNull(withLocal.localConfiguration).uri.toString())
+        for (restored in listOf(withLocal, timelineForm)) {
+            assertEquals(entry.ref.handle, restored.mediaId)
+            // Undo restores the exact handle, never a stream address rebuilt from the number 42.
+            assertEquals(entry.ref.handle, restoreUrl(restored.mediaId))
+            assertNotNull(queueOccurrenceKey(restored))
+        }
+        // A tampered handle is not restored at all.
+        assertNull(restoreUrl(entry.ref.handle.replaceFirst(":1:", ":2:")))
+    }
+
     /** A byte fixture, not playable encoded audio or a live Tauon rebuild. No user/network data. */
-    private fun identicalTagsStillSelectSavedBytes(explicit: Boolean) {
+    private fun liveStreamsWhileSavedCopyStaysSeparate(explicit: Boolean) {
         val liveBytes = byteArrayOf(9, 8, 7, 6)
         val requests = AtomicInteger()
         val peerFailure = AtomicReference<Throwable?>()
@@ -194,20 +215,34 @@ class RetainedIdentityCharacterizationTest {
                     assertArrayEquals(liveBytes, requireNotNull(it.body).bytes())
                 }
                 val spec = DataSpec.Builder().setUri(requireNotNull(item.localConfiguration).uri).build()
-                val source = OfflineDataSource { request ->
-                    routeOfflineRequest(request, shelf, listOf(shelf), offline = !explicit)
-                }
+                val source = OfflineDataSource { request -> routeOfflineRequest(request, shelf, null) }
                 try {
-                    assertEquals(payloadA.size.toLong(), source.open(spec))
-                    val actual = ByteArray(payloadA.size)
-                    assertEquals(actual.size, source.read(actual, 0, actual.size))
-                    assertArrayEquals("Current routing still returns saved A, not live B", payloadA, actual)
-                    assertFalse(actual.contentEquals(liveBytes))
-                    assertEquals(-1, source.read(ByteArray(1), 0, 1))
-                    assertEquals("Only the independent live control contacted the peer", 1, requests.get())
-                    assertEquals(savedKey, routeOfflineRequest(spec, shelf, listOf(shelf), !explicit).second.key)
+                    // The live item plays live B from the peer, though saved A has the same tags and number.
+                    source.open(spec)
+                    val actual = ByteArray(liveBytes.size)
+                    var read = 0
+                    while (read < actual.size) {
+                        val count = source.read(actual, read, actual.size - read)
+                        check(count > 0) { "read returned $count" }
+                        read += count
+                    }
+                    assertArrayEquals("The live song streams its own bytes", liveBytes, actual)
+                    assertEquals(2, requests.get())
                 } finally { source.close() }
-                assertEquals("Retained bytes remain intact", payloadA.size.toLong(), cache.getCacheSpace())
+                // Saved A is its own entry, read by its handle from the cache, with no request to the peer.
+                val rows = if (explicit) listOf(requireNotNull(index.getDownload(localId))) else emptyList()
+                val entry = savedInventory(SavedShelf.Phone, rows, cache, PlayedClaims.none()) { false }
+                    .single { it.ref.key == savedKey }
+                assertEquals(old, entry.song)
+                try {
+                    assertEquals(payloadA.size.toLong(), source.open(DataSpec.Builder().setUri(Uri.parse(entry.ref.handle)).build()))
+                    val saved = ByteArray(payloadA.size)
+                    assertEquals(saved.size, source.read(saved, 0, saved.size))
+                    assertArrayEquals(payloadA, saved)
+                    assertEquals(-1, source.read(ByteArray(1), 0, 1))
+                } finally { source.close() }
+                assertEquals("Saved playback made no request", 2, requests.get())
+                assertEquals("Retained bytes remain intact, and nothing streamed was written", payloadA.size.toLong(), cache.getCacheSpace())
             } finally {
                 peer.close(); owner.join(5000)
                 client.dispatcher.cancelAll(); client.connectionPool.evictAll(); client.dispatcher.executorService.shutdown()

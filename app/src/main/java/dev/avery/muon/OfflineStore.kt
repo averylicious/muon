@@ -74,7 +74,9 @@ internal object OfflineStore {
         val prefs: android.content.SharedPreferences, val database: StandaloneDatabaseProvider,
         val record: (Download) -> Unit, val removed: (Download) -> Unit,
         /** Where a new save's own cover is fetched; fixtures leave it doing nothing. */
-        val artwork: java.util.concurrent.Executor = java.util.concurrent.Executor { }) {
+        val artwork: java.util.concurrent.Executor = java.util.concurrent.Executor { },
+        /** Played-copy keys a phone index row names, which the played cache never removes (#213). */
+        val playedClaims: PlayedClaims = PlayedClaims.none()) {
         /** The phone's cache, which also holds the played-song copies. */
         val cache: SimpleCache get() = phone.cache
         @Volatile var card: Shelf? = null
@@ -116,9 +118,16 @@ internal object OfflineStore {
         val limit = prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT)
         val main = Handler(Looper.getMainLooper())
         PlayedCacheState.limit = limit
-        // Downloads stay until removed: only played-song copies are ever evicted, oldest first.
-        val played = PlayedSongEvictor(limit) { used -> main.post { PlayedCacheState.used = used } }
+        // Downloads stay until removed: only played-song copies are ever evicted, oldest first, and none that
+        // a download row names, nor any until the phone's index has been read (#213).
+        val claims = PlayedClaims()
+        val played = PlayedSongEvictor(limit, claims::removable) { used -> main.post { PlayedCacheState.used = used } }
         val phone = shelf(context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java)
+        saver.execute {
+            // If the index cannot be read, the claims stay unknown and no played copy is ever removed.
+            runCatching { claims.ready(PlayedClaims.keysIn(rows(phone))) }
+            if (claims.known) playedWork.resize { played.resize(limit) }
+        }
         val art = DownloadArt(File(context.filesDir, "downloads-art"))
         // Covers are fetched one at a time, beside the downloads rather than in their way.
         val artwork = Executors.newSingleThreadExecutor()
@@ -143,14 +152,17 @@ internal object OfflineStore {
         fun removed(download: Download) {
             // Moved rather than removed: the song is still kept, on the other shelf.
             if (listOfNotNull(phone, store?.card).any { it.completed(download.request.id) }) return
-            // Only a cover this entry owns goes with it. An older download's cover was kept per track
-            // number and may belong to other copies, so it is left where it is.
-            artwork.execute { art.removeEntry(download.request.id) }
-            DownloadMarks.marks.remove(download.request.id)
-            sizes.remove(download.request.id)
+            // Only a cover this entry owns goes with it, and only once no row of its ID is left anywhere.
+            // An older download's cover was kept per track number and may belong to other copies, so it is
+            // left where it is.
+            val id = download.request.id
+            if (id.startsWith(NEW_SAVE_PREFIX) && listOfNotNull(phone, store?.card).none { it.holds(id) })
+                artwork.execute { art.removeEntry(id) }
+            DownloadMarks.marks.remove(id)
+            sizes.remove(id)
             DownloadMarks.bytes = sizes.total
         }
-        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork)
+        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims)
         watch(context, phone, made, main)
         cardFolder(context)?.let { folder ->
             // The card found now; later its availability is only ever this folder's, never another card's.
@@ -181,8 +193,13 @@ internal object OfflineStore {
                 store.record(download)
                 if (download.state != Download.STATE_COMPLETED) return
                 // An unavailable card keeps its copy (#179 S1): removing it would act on missing files.
-                leftoverCopies(shelf, store.shelves, id)
-                    .forEach { DownloadService.sendRemoveDownload(context, it.service, id, false) }
+                // Each leftover goes only if its row alone names its bytes there (#213), checked off the
+                // main thread; otherwise both copies stay.
+                val leftovers = leftoverCopies(shelf, store.shelves, id)
+                if (leftovers.isNotEmpty()) saver.execute {
+                    if (leftovers.count { removeLeftoverNow(context, it, id) } < leftovers.size)
+                        notice(context, "A moved copy was also kept where it was: Muon can't tell its bytes belong to it alone.")
+                }
             }
             override fun onDownloadRemoved(m: DownloadManager, download: Download) {
                 changed?.add(download.request.id)
@@ -238,7 +255,8 @@ internal object OfflineStore {
         val store = get(context)
         playedWork.copy(id) { owner ->
             runCatching {
-                if (owner.isCancelled || hasPlayedCopyFrom(store.cache, id, song)) return@runCatching
+                // Not before the phone index has been read: a fresh key must be one no row names (#213).
+                if (owner.isCancelled || !store.playedClaims.known || hasPlayedCopyFrom(store.cache, id, song)) return@runCatching
                 val call = AtomicReference<Call?>()
                 val writer = AtomicReference<CacheWriter?>()
                 owner.onCancel { writer.get()?.cancel(); call.get()?.cancel() }
@@ -246,7 +264,7 @@ internal object OfflineStore {
                 val number = id.substringAfterLast('/')
                 val url = ServerEndpoint.parse(origin).url("/api1/fileopus/$number")
                 val key = playedKey(newSaveId { candidate ->
-                    playedKey(candidate) in store.cache.keys
+                    playedKey(candidate) in store.cache.keys || !store.playedClaims.removable(playedKey(candidate))
                 })
                 store.cache.applyContentMetadataMutations(key, ContentMetadataMutations()
                     .set(SONG_METADATA, song).set(SAVED_FROM_METADATA, id))
@@ -267,8 +285,9 @@ internal object OfflineStore {
                             if (owner.isCancelled) copy.cancel()
                         }) { store.prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT) }
                 } catch (failure: Throwable) {
-                    // The key was made for this copy alone, on this worker, so nothing else owns it.
-                    runCatching { store.cache.removeResource(key) }
+                    // The key was made for this copy alone, on this worker, in no cache and named by no row,
+                    // and no Muon writer gives a row a played-copy key, so nothing else owns it.
+                    if (store.playedClaims.removable(key)) runCatching { store.cache.removeResource(key) }
                     throw failure
                 }
             }
@@ -295,10 +314,25 @@ internal object OfflineStore {
         playedWork.resize { store.played.resize(limit) }
     }
 
-    /** Empties the played-song cache; downloads stay. */
+    /**
+     * Empties the played-song cache; downloads stay. A played-copy key a download row also names is kept
+     * (#213, [PlayedClaims]): its bytes are that row's too. Before the phone index is read, nothing goes.
+     */
     fun clearPlayed(context: Context) {
-        val cache = get(context).cache
-        playedWork.clear { runCatching { cache.keys.filter { it.startsWith(PLAYED_PREFIX) }.forEach(cache::removeResource) } }
+        val store = get(context)
+        val cache = store.cache
+        playedWork.clear {
+            runCatching {
+                cache.keys.filter { it.startsWith(PLAYED_PREFIX) && store.playedClaims.removable(it) }.forEach(cache::removeResource)
+            }
+        }
+    }
+
+    /** Every row of a shelf's index, in every state: what a key census reads. Off the main thread. */
+    private fun rows(shelf: Shelf): List<Download> {
+        val rows = ArrayList<Download>()
+        shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) rows += it.download }
+        return rows
     }
 
     /** Runs saved-copy requests and their checks off the main thread, one at a time. */
@@ -325,7 +359,10 @@ internal object OfflineStore {
         val playable = tracks.filter { it.playable }
         if (playable.isEmpty()) return
         saver.execute {
-            val requests = runCatching { playable.map { track -> newSaveRequest(shelf, endpoint, track) } }.getOrNull()
+            val requests = runCatching {
+                val taken = takenNames(store)
+                playable.map { track -> newSaveRequest(taken, endpoint, track) }
+            }.getOrNull()
             if (requests == null) {
                 notice(context, "Muon couldn't save these copies. Nothing was changed.")
                 return@execute
@@ -339,12 +376,27 @@ internal object OfflineStore {
         }
     }
 
-    /** A new save's request, under a fresh name unused on [shelf], and the cover address it is saved from. */
-    internal fun newSaveRequest(shelf: Shelf, endpoint: ServerEndpoint, track: TauonTrack): Pair<DownloadRequest, String> {
-        val id = newSaveId { candidate ->
-            shelf.manager.downloadIndex.getDownload(candidate) != null || shelf.cache.getCachedSpans(candidate).isNotEmpty() ||
-                ContentMetadata.getContentLength(shelf.cache.getContentMetadata(candidate)) != C.LENGTH_UNSET.toLong()
+    /**
+     * Every name a new save must not take: each row's request ID and cache key in the phone's and the
+     * card's index (both kept in the app's own database, read even while the card is out), and each key in
+     * either cache. Off the main thread. A failed read fails the save rather than guessing.
+     */
+    internal fun takenNames(store: Store): MutableSet<String> {
+        val taken = HashSet<String>()
+        for (shelf in store.shelves) {
+            rows(shelf).forEach { taken += it.request.id; taken += keyOf(it) }
+            taken += shelf.cache.keys
         }
+        return taken
+    }
+
+    /**
+     * A new save's request, under a fresh request ID and key that is in [taken] nowhere (and is then added
+     * to it), and the cover address it is saved from. The name says nothing about the audio.
+     */
+    internal fun newSaveRequest(taken: MutableSet<String>, endpoint: ServerEndpoint, track: TauonTrack): Pair<DownloadRequest, String> {
+        val id = newSaveId { it in taken }
+        taken += id
         val request = DownloadRequest.Builder(id, Uri.parse(endpoint.url("/api1/fileopus/${track.id}")))
             .setCustomCacheKey(id).setData(encodeSong(track)).build()
         return request to endpoint.url("/api1/pic/medium/${track.id}")
@@ -362,9 +414,8 @@ internal object OfflineStore {
         val shelves = listOfNotNull(SavedShelf.Phone to store.phone,
             store.card?.takeIf { it.available() }?.let { SavedShelf.Card to it })
         for ((name, shelf) in shelves) runCatching {
-            val rows = ArrayList<Download>()
-            shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) rows += it.download }
-            entries += savedInventory(name, rows, shelf.cache, played = name == SavedShelf.Phone) { store.art.hasEntry(it) }
+            entries += savedInventory(name, rows(shelf), shelf.cache,
+                played = store.playedClaims.takeIf { name == SavedShelf.Phone }) { store.art.hasEntry(it) }
         }
         return sortSaved(entries)
     }
@@ -399,12 +450,12 @@ internal object OfflineStore {
     }.getOrDefault(false)
 
     /**
-     * Removes one saved copy, and only it (#213). A download row goes only when it is on its own shelf,
-     * that shelf is available, and its key is its own request ID, which no other row there can claim
-     * ([ownedDownload]); otherwise nothing is changed, the copy still plays, and the refusal is said.
-     * A played copy is one cached resource no row claims; each new one is written under its own fresh key,
-     * so removing a listed, complete one cannot cut into a copy being made. These checks are snapshots,
-     * not a lock: they rely on every Muon writer keeping those rules.
+     * Removes one saved copy, and only it (#213). A download row goes only when its shelf is available and
+     * a census of that shelf's index finds it the sole owner of its bytes ([soleOwner]); a played copy only
+     * when no download row names its key ([PlayedClaims]). Otherwise nothing is changed, the copy still
+     * plays, and the refusal is said. A played copy being made is under its own fresh key and is not listed,
+     * so removing a listed one cannot cut into it. The census is a snapshot; why it holds until Media3
+     * removes the bytes is set out at [soleOwner].
      */
     fun removeSaved(context: Context, ref: SavedRef) {
         saver.execute {
@@ -424,18 +475,32 @@ internal object OfflineStore {
     internal fun removeSavedNow(context: Context, ref: SavedRef): SavedRemoval {
         val store = get(context)
         if (ref.source == SavedSource.Played) {
+            if (!store.playedClaims.removable(ref.key)) return SavedRemoval.NotOwned
+            // A copy being written is under a fresh key of its own; SimpleCache serializes removals.
             runCatching { store.cache.removeResource(ref.key) }
             return SavedRemoval.Sent
         }
         val shelf = (if (ref.shelf == SavedShelf.Card) store.card else store.phone)
             ?.takeIf { it.available() } ?: return SavedRemoval.Unavailable
-        val download = runCatching { shelf.manager.downloadIndex.getDownload(ref.requestId) }.getOrNull()
-        val key = download?.request?.customCacheKey
-        if (download == null || key != ref.key || !ownedDownload(ref.requestId, key)) return SavedRemoval.NotOwned
+        val census = runCatching { rows(shelf) }.getOrNull() ?: return SavedRemoval.NotOwned
+        val row = census.singleOrNull { it.request.id == ref.requestId }
+        if (row == null || keyOf(row) != ref.key || !soleOwner(census, ref.requestId)) return SavedRemoval.NotOwned
         // Its own move, if one is under way, loses its hand-over too (#234).
         moveOwnership.remove(listOf(ref.requestId))
         DownloadService.sendRemoveDownload(context, shelf.service, ref.requestId, false)
         return SavedRemoval.Sent
+    }
+
+    /**
+     * After a move completed elsewhere, removes [id]'s leftover row from [shelf] only if a census finds it
+     * the sole owner of its bytes there ([soleOwner]); otherwise both copies stay. Returns whether it was sent.
+     */
+    internal fun removeLeftoverNow(context: Context, shelf: Shelf, id: String): Boolean {
+        if (!shelf.available()) return false
+        val census = runCatching { rows(shelf) }.getOrNull() ?: return false
+        if (!soleOwner(census, id)) return false
+        DownloadService.sendRemoveDownload(context, shelf.service, id, false)
+        return true
     }
 
     /**
@@ -485,15 +550,24 @@ internal object OfflineStore {
         val batch = moveOwnership.begin()
         mover.execute {
             try {
-                val downloads = ArrayList<Download>()
-                runCatching { from.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { while (it.moveToNext()) downloads += it.download } }
+                // One census of both indexes for the batch (#213). It stays valid for each song: neither
+                // writer can add a row naming a key another row owns (see [soleOwner]), and this move adds
+                // only rows that pass [movable].
+                val sourceRows = runCatching { rows(from) }.getOrDefault(emptyList())
+                val targetRows = runCatching { rows(to) }.getOrNull()
+                val downloads = sourceRows.filter { it.state == Download.STATE_COMPLETED }
                 main.post { DownloadMarks.moving = 0 to downloads.size }
+                var kept = 0
                 for ((index, download) in downloads.withIndex()) {
                     if (!canMove(from, to)) {
                         notice(context, "The SD card isn't available any more, so the rest weren't moved.")
                         break
                     }
-                    if (moveOwnership.permits(batch, download.request.id) &&
+                    // A copy whose bytes another row may share, or one the target already names otherwise,
+                    // stays where it is, untouched; an unread target index moves nothing.
+                    val safe = targetRows != null && movable(download, sourceRows, targetRows)
+                    if (!safe) kept++
+                    if (safe && moveOwnership.permits(batch, download.request.id) &&
                         runCatching { copy(download, from, to) }.isSuccess)
                         // Hand-over needs both shelves still available (#179 S1) and the move still owning
                         // this song: removed or Remove all since means no Add (#234).
@@ -506,6 +580,8 @@ internal object OfflineStore {
                         }
                     main.post { DownloadMarks.moving = index + 1 to downloads.size }
                 }
+                if (kept > 0) notice(context, "$kept ${if (kept == 1) "copy was" else "copies were"} kept where " +
+                    "${if (kept == 1) "it was" else "they were"}: Muon can't tell their bytes belong to them alone.")
             } finally {
                 // Posted after every completion: callbacks still carry ownership until they drain.
                 main.post { moveOwnership.finish(batch); DownloadMarks.moving = null }
@@ -580,12 +656,36 @@ internal object OfflineStore {
 
     /** Removes every download from the available shelves; an unavailable card keeps its own (#179 S1). */
     fun removeAll(context: Context) {
-        // Every move in flight loses its publication, whichever shelves receive the command (#234).
+        // Every move in flight loses its publication, whichever shelves receive the commands (#234).
         moveOwnership.removeAll()
-        val shelves = get(context).shelves
-        availableShelves(shelves).forEach { DownloadService.sendRemoveAllDownloads(context, it.service, false) }
-        if (shelves.any { !it.available() })
-            notice(context, "The SD card isn't available, so its downloads weren't removed.")
+        saver.execute {
+            val (_, kept) = removeAllNow(context)
+            if (get(context).shelves.any { !it.available() })
+                notice(context, "The SD card isn't available, so its saved copies weren't removed.")
+            if (kept > 0) notice(context, "$kept saved ${if (kept == 1) "copy was" else "copies were"} kept: " +
+                "Muon can't tell their bytes belong to them alone.")
+        }
+    }
+
+    /**
+     * [removeAll]'s commands, on the calling thread: every row on each available shelf that a census finds
+     * the sole owner of its bytes ([soleOwner]) is removed, one by one. Media3's own Remove all would also
+     * delete bytes a kept played copy or an unknown row shares (#213). Returns how many were sent and kept.
+     */
+    internal fun removeAllNow(context: Context): Pair<Int, Int> {
+        var sent = 0
+        var kept = 0
+        for (shelf in availableShelves(get(context).shelves)) {
+            val census = runCatching { rows(shelf) }.getOrNull() ?: continue
+            for (row in census) {
+                if (row.state == Download.STATE_REMOVING) continue
+                if (soleOwner(census, row.request.id)) {
+                    DownloadService.sendRemoveDownload(context, shelf.service, row.request.id, false)
+                    sent++
+                } else kept++
+            }
+        }
+        return sent to kept
     }
 }
 
