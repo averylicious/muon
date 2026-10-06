@@ -117,6 +117,30 @@ jobs:
         if: steps.scope.outputs.build_apks == 'true'
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
 
+      # Separate default-key helper, built before any Muon signing material is restored.
+      - name: Build disposable media-entry QA helper
+        if: steps.diagnostic.outputs.diagnostic == 'true'
+        env:
+          MUON_DIAGNOSTIC_REQUEST: ${{ inputs.diagnostic_debug }}
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain :mediaentryprobe:assembleDebug :mediaentryprobe:lintDebug
+          python3 tools/verify_entryprobe.py "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" mediaentryprobe/build/outputs/apk/debug/mediaentryprobe-debug.apk
+          mkdir -p artifacts/entryprobe
+          cp mediaentryprobe/build/outputs/apk/debug/mediaentryprobe-debug.apk artifacts/entryprobe/
+          (cd artifacts/entryprobe && sha256sum mediaentryprobe-debug.apk > SHA256SUMS)
+          printf 'Commit: %s\nRun: %s\nVersion: qa.%s\nMode: disposable foreign-UID QA probe; default ephemeral debug key; never published\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_NUMBER" > artifacts/entryprobe/BUILD.txt
+
+      - name: Upload media-entry QA helper
+        if: steps.diagnostic.outputs.diagnostic == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: media-entry-probe-${{ github.sha }}
+          path: artifacts/entryprobe/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
       - name: Restore signing keys
         if: steps.scope.outputs.build_apks == 'true'
         env:
