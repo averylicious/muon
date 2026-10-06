@@ -145,7 +145,7 @@ class WorkflowTest(unittest.TestCase):
         block = WORKFLOW[WORKFLOW.index('      diagnostic_debug:'):WORKFLOW.index('\npermissions:')]
         self.assertIn('type: boolean', block)
         self.assertIn('default: false', block)
-        self.assertEqual(WORKFLOW.count('inputs.diagnostic_debug'), 2)
+        self.assertEqual(WORKFLOW.count('inputs.diagnostic_debug'), 3)
         self.assertNotIn('pull_request', WORKFLOW)
         self.assertIn('permissions:\n  contents: read\n', WORKFLOW)
 
