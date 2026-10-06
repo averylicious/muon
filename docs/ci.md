@@ -113,3 +113,7 @@ Create these **repository Actions secrets** in the new private repository:
 The current repository has all three configured. GitHub secrets cannot be retrieved as a recovery backup; keep the local/1Password originals. Restored key files exist only under runner temporary storage, are removed in an always-run cleanup step, and are excluded from caches and uploaded artifacts. Missing secrets fail the build rather than silently generating new identities. Only grant repository push access to people trusted with signing; a modified workflow on a pushed branch can access repository secrets. Fork PR workflows are not enabled.
 
 For workstream names versus APK versions, see [workstream names and release versions](release-naming.md).
+
+### Disposable media-entry QA helper
+
+An explicit manual diagnostic branch run also builds `mediaentryprobe`, a separate ordinary-app UID fixture for private-service denial checks. It has no network/storage/elevated permissions and refuses an exported target. The helper is compiled before Muon signing-key restoration with its own default temporary debug key, uploaded separately as `media-entry-probe-<full-SHA>`, and never published. Normal builds do not configure this module. See [the probe boundaries and operation](audits/2026-10-06-media-entry-device-probe.md). This does not replace the Canary acceptance app or establish headset/controller compatibility.
