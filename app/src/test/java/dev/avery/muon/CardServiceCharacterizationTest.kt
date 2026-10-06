@@ -3,6 +3,7 @@ package dev.avery.muon
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.NoOpCacheEvictor
@@ -11,8 +12,11 @@ import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.Downloader
 import androidx.media3.exoplayer.offline.DownloaderFactory
 import androidx.media3.exoplayer.offline.DownloadService
+import androidx.media3.exoplayer.scheduler.Requirements
+import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -28,7 +32,7 @@ import org.robolectric.android.controller.ServiceController
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.SQLiteMode
 
-/** Actual service/helper lifetime and manually delivered pause/resume intents; no tasks, network or mount events. */
+/** Actual service/helper lifetime and manually delivered command intents; no download I/O, network or mount events. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
@@ -200,7 +204,7 @@ class CardServiceCharacterizationTest {
         assertNull(startedService())
     }
 
-    @Test fun aCardCommandDeliveredWithNoCardSelectedRunsAgainstThePhoneManager() {
+    @Test fun aCardCommandDeliveredWithNoCardSelectedLeavesThePhoneManagerAlone() {
         val app = RuntimeEnvironment.getApplication()
         val card = shelf("fallback_card", "fallback_card_fixture")
         store.card = card
@@ -216,14 +220,159 @@ class CardServiceCharacterizationTest {
         first.destroy(); services.remove(first)
         DownloadService.clearDownloadManagerHelpers()
         store.card = null
-        val fresh = service() // The card service's existing fallback selects the phone manager
+        val fresh = service() // The card service's existing fallback selects (and resumes) the phone manager
         assertSame(store.phone.manager, selected(fresh.get()))
         assertFalse(store.phone.manager.downloadsPaused)
 
         fresh.get().onStartCommand(queued, 0, 1)
-        assertTrue("The card-class command paused the phone manager", store.phone.manager.downloadsPaused)
+        assertFalse("A card-class command is not carried out on the phone manager", store.phone.manager.downloadsPaused)
         assertFalse("The card manager is untouched", card.manager.downloadsPaused)
+        assertEquals("The delivered intent itself is not rewritten", DownloadService.ACTION_PAUSE_DOWNLOADS, queued.action)
         assertNull(startedService())
+    }
+
+    // #179 command admission: changing commands reach only the card manager this instance's helper was built
+    // with, and only while that is the store's card. Delivery is still the real onStartCommand called directly.
+
+    @Test fun noChangingCardCommandAltersAFallbackPhoneManager() {
+        val app = RuntimeEnvironment.getApplication()
+        val phone = seededPhone()
+        val fallback = service() // No card: Media3 builds the helper with the phone manager and resumes it
+        assertSame(phone.manager, selected(fallback.get()))
+        awaitSettled(phone.manager)
+        assertFalse(phone.manager.downloadsPaused)
+
+        val card = MuonCardDownloadService::class.java
+        listOf(
+            DownloadService.buildAddDownloadIntent(app, card, request("added"), false),
+            DownloadService.buildRemoveDownloadIntent(app, card, KEPT, false),
+            DownloadService.buildSetStopReasonIntent(app, card, KEPT, Download.STOP_REASON_NONE, false),
+            DownloadService.buildRemoveAllDownloadsIntent(app, card, false),
+            DownloadService.buildSetRequirementsIntent(app, card, Requirements(Requirements.NETWORK_UNMETERED), false),
+            DownloadService.buildPauseDownloadsIntent(app, card, false),
+        ).forEachIndexed { startId, command -> fallback.get().onStartCommand(command, 0, startId + 1) }
+        assertFalse("Pause refused", phone.manager.downloadsPaused)
+        phone.manager.pauseDownloads() // Directly, so that a delivered resume would show
+        fallback.get().onStartCommand(DownloadService.buildResumeDownloadsIntent(app, card, false), 0, 7)
+        assertTrue("Resume refused", phone.manager.downloadsPaused)
+
+        // Anything delivered would have been queued on the manager before this settles.
+        awaitSettled(phone.manager)
+        assertEquals(DownloadManager.DEFAULT_REQUIREMENTS, phone.manager.requirements)
+        assertNull("Add refused", phone.manager.downloadIndex.getDownload("added"))
+        val kept = requireNotNull(phone.manager.downloadIndex.getDownload(KEPT)) { "Remove and remove-all refused" }
+        assertEquals(Download.STATE_STOPPED, kept.state)
+        assertEquals("Stop reason unchanged", KEPT_REASON, kept.stopReason)
+        assertEquals(listOf(KEPT), phone.manager.currentDownloads.map { it.request.id })
+    }
+
+    @Test fun cardCommandsReachTheCardManagerFromTheFirstAndARecreatedInstance() {
+        val app = RuntimeEnvironment.getApplication()
+        val card = shelf("bound_card", "bound_card_fixture")
+        store.card = card
+        val first = service()
+        awaitSettled(card.manager)
+        val clazz = MuonCardDownloadService::class.java
+        first.get().onStartCommand(DownloadService.buildAddDownloadIntent(app, clazz, request(KEPT), KEPT_REASON, false), 0, 1)
+        first.get().onStartCommand(DownloadService.buildPauseDownloadsIntent(app, clazz, false), 0, 2)
+        assertTrue(card.manager.downloadsPaused)
+        awaitSettled(card.manager)
+        assertEquals(KEPT_REASON, card.manager.downloadIndex.getDownload(KEPT)?.stopReason)
+
+        first.destroy(); services.remove(first)
+        val recreated = service() // Media3 reuses the helper and does not ask this instance for a manager
+        assertSame(card.manager, selected(recreated.get()))
+        recreated.get().onStartCommand(DownloadService.buildResumeDownloadsIntent(app, clazz, false), 0, 1)
+        assertFalse("Admitted through the retained binding", card.manager.downloadsPaused)
+        assertTrue("The phone manager, never resumed here, is untouched", store.phone.manager.downloadsPaused)
+        assertNull(store.phone.manager.downloadIndex.getDownload(KEPT))
+    }
+
+    @Test fun aCardAddedAfterThePhoneFallbackDoesNotOpenTheRetainedHelper() {
+        val app = RuntimeEnvironment.getApplication()
+        val first = service() // No card yet: the class helper is built with the phone manager
+        first.destroy(); services.remove(first)
+        store.card = shelf("late_admission_card", "late_admission_card_fixture") // Artificial in-process assignment
+        val recreated = service()
+        assertSame("The helper is reused, still on the phone manager", store.phone.manager, selected(recreated.get()))
+        recreated.get().onStartCommand(DownloadService.buildPauseDownloadsIntent(app, MuonCardDownloadService::class.java, false), 0, 1)
+        assertFalse("A store card does not admit commands that would reach the phone", store.phone.manager.downloadsPaused)
+    }
+
+    @Test fun anOlderInstanceKeepsItsOwnBindingAfterATestOnlyClear() {
+        val app = RuntimeEnvironment.getApplication()
+        val original = shelf("receipt_original", "receipt_original_fixture")
+        store.card = original
+        val old = service()
+        // Artificial: Robolectric lets a second instance exist while the first is live, which Android would not.
+        DownloadService.clearDownloadManagerHelpers()
+        val replacement = shelf("receipt_replacement", "receipt_replacement_fixture")
+        store.card = replacement
+        val fresh = service()
+        assertSame(original.manager, selected(old.get()))
+        assertSame(replacement.manager, selected(fresh.get()))
+
+        val pause = DownloadService.buildPauseDownloadsIntent(app, MuonCardDownloadService::class.java, false)
+        old.get().onStartCommand(pause, 0, 1)
+        assertFalse("The old instance's helper reaches the original card, no longer the store's", original.manager.downloadsPaused)
+        fresh.get().onStartCommand(pause, 0, 1)
+        assertTrue(replacement.manager.downloadsPaused)
+    }
+
+    @Test fun commandAdmissionDoesNotCreateAnAbsentStore() {
+        val app = RuntimeEnvironment.getApplication()
+        val fallback = service()
+        storeField.set(null, null) // Test-only disappearance, not a production retirement mechanism.
+        val command = DownloadService.buildPauseDownloadsIntent(app, MuonCardDownloadService::class.java, false)
+        fallback.get().onStartCommand(command, 0, 1)
+        assertNull("Admission must not initialize another store", OfflineStore.current())
+        assertFalse("The retained phone manager remains unchanged", store.phone.manager.downloadsPaused)
+    }
+
+    @Test fun aRefusedForegroundCommandStillShowsTheForegroundNotification() {
+        val app = RuntimeEnvironment.getApplication()
+        val fallback = service() // No card: bound to the phone manager
+        val command = DownloadService.buildPauseDownloadsIntent(app, MuonCardDownloadService::class.java, true)
+        fallback.get().onStartCommand(command, 0, 1)
+        assertFalse(store.phone.manager.downloadsPaused)
+        assertNotNull("The foreground start's notification is shown", shadowOf(fallback.get()).lastForegroundNotification)
+        assertEquals(CARD_NOTIFICATION_ID, shadowOf(fallback.get()).lastForegroundNotificationId)
+        assertEquals(DownloadService.ACTION_PAUSE_DOWNLOADS, command.action)
+        assertTrue(command.getBooleanExtra(DownloadService.KEY_FOREGROUND, false))
+    }
+
+    /** Replaces the fixture's phone with one whose index already holds a stopped download, and inert downloaders. */
+    private fun seededPhone(): Shelf {
+        DefaultDownloadIndex(database, "seeded_phone").putDownload(Download(request(KEPT), Download.STATE_STOPPED,
+            0L, 0L, C.LENGTH_UNSET.toLong(), KEPT_REASON, Download.FAILURE_REASON_NONE))
+        val phone = shelf("seeded_phone", "seeded_phone", MuonDownloadService::class.java, inert)
+        store = OfflineStore.Store(phone, store.art, store.played, store.prefs, database, {}, {})
+        storeField.set(null, store)
+        awaitSettled(phone.manager)
+        return phone
+    }
+
+    /** Waits until the manager has loaded its index and processed everything sent to it. */
+    private fun awaitSettled(manager: DownloadManager) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (true) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (manager.isInitialized && manager.isIdle) return
+            check(System.nanoTime() < deadline) { "The manager did not settle" }
+            Thread.sleep(5)
+        }
+    }
+
+    private fun request(id: String): DownloadRequest =
+        DownloadRequest.Builder(id, Uri.parse("http://192.168.1.20:7814/api1/fileopus/$id")).build()
+
+    /** Should a command wrongly get through, its task finishes at once without I/O. */
+    private val inert = DownloaderFactory {
+        object : Downloader {
+            override fun download(progressListener: Downloader.ProgressListener?) = Unit
+            override fun cancel() = Unit
+            override fun remove() = Unit
+        }
     }
 
     private fun helper(service: MuonCardDownloadService): DownloadManager.Listener =
@@ -253,16 +402,20 @@ class CardServiceCharacterizationTest {
     }
 
     private fun shelf(folder: String, index: String,
-        service: Class<out DownloadService> = MuonCardDownloadService::class.java): Shelf {
+        service: Class<out DownloadService> = MuonCardDownloadService::class.java,
+        downloaders: DownloaderFactory = DownloaderFactory { error("Fixture must not start downloader/network") }): Shelf {
         val cache = SimpleCache(folders.newFolder(folder), NoOpCacheEvictor(), database)
         cache.checkInitialization()
-        val manager = DownloadManager(RuntimeEnvironment.getApplication(), DefaultDownloadIndex(database, index),
-            DownloaderFactory { error("Fixture must not start downloader/network") })
+        val manager = DownloadManager(RuntimeEnvironment.getApplication(), DefaultDownloadIndex(database, index), downloaders)
         return Shelf(cache, manager, service).also(shelves::add)
     }
 
     private companion object {
         /** DownloadService.ACTION_RESTART is private; the pinned 1.11.0 value (DownloadService.java 71-72). */
         const val RESTART = "androidx.media3.exoplayer.downloadService.action.RESTART"
+        /** MuonCardDownloadService's notification ID (private in MuonDownloadService.kt). */
+        const val CARD_NOTIFICATION_ID = 3
+        const val KEPT = "http://192.168.1.20:7814/kept"
+        const val KEPT_REASON = 7
     }
 }
