@@ -205,6 +205,47 @@ class SavedOwnershipControlTest {
         assertArrayEquals(legacyBytes, bytes(phone, live))
     }
 
+    @Test fun aliasAddedAfterTheCensusInvalidatesAnOtherwiseExactRemovalPlan() {
+        save(phone, "entry-A", "sole-at-plan-time", legacyBytes, encodeSong(song))
+        val plan = planRemoval(phone, "entry-A") as Plan.Exact
+        // Deterministic interleaving: a different writer publishes an alias after the census.
+        save(phone, "entry-B", plan.key, null, encodeSong(song))
+        assertEquals(Plan.Refused(Reason.Aliased), planRemoval(phone, "entry-A"))
+        // The previously captured plan still passes execute's request-ID/key check. Real downloader
+        // removal then destroys the bytes the new completed owner claims. A census is not a lease.
+        execute(phone, plan)
+        assertEquals("entry-B", records(phone).single().request.id)
+        assertEquals(Download.STATE_COMPLETED, records(phone).single().state)
+        assertTrue(phone.cache.getCachedSpans(plan.key).isEmpty())
+    }
+
+    @Test fun sameRequestAndKeyCanBeReboundAfterPlanningSoThoseFieldsAreNotARevision() {
+        save(phone, "entry-A", "same-key", legacyBytes, encodeSong(song))
+        val plan = planRemoval(phone, "entry-A") as Plan.Exact
+        val newer = encodeSong(song.copy(id = 43, title = "New owner"))
+        // An actual index replacement keeps the plan's ID/key but changes the record's owner data.
+        save(phone, "entry-A", plan.key, null, newer)
+        assertArrayEquals(newer, requireNotNull(phone.index.getDownload("entry-A")).request.data)
+        execute(phone, plan)
+        assertNull(phone.index.getDownload("entry-A"))
+        assertTrue(phone.cache.getCachedSpans(plan.key).isEmpty())
+        // No generation/revision check prevented deletion of the replacement record and its bytes.
+    }
+
+    @Test fun removalPlanCannotBeTransferredAcrossShelvesEvenWithMatchingRecordAndKey() {
+        save(phone, "entry-A", "same-key", legacyBytes, encodeSong(song))
+        val plan = planRemoval(phone, "entry-A") as Plan.Exact
+        save(card, "entry-A", plan.key, freshBytes, encodeSong(song))
+        val before = snapshot(phone)
+        // Exact on the phone does not authorize deletion on a different cache/index. The test-local
+        // plan carries neither cache owner nor generation, so its executor accepts this transfer.
+        execute(card, plan)
+        assertTrue(records(card).isEmpty())
+        assertTrue(card.cache.getCachedSpans(plan.key).isEmpty())
+        assertEquals(before, snapshot(phone))
+        assertArrayEquals(legacyBytes, bytes(phone, plan.key))
+    }
+
     // --- Prospective ownership rule (test-local) ---
 
     private enum class Reason { MissingOwner, MalformedOwner, InFlight, Aliased, IncompleteCensus }
