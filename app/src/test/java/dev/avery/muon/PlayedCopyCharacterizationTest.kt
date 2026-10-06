@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit
 /**
  * #225: actual optional copy and maintenance calls, real cache/evictor and loopback OkHttp I/O.
  * A response-body gate keeps the production copier occupied without changing its executor or client.
- * These characterize current ordering, not a scheduler fix or real-device performance measurement.
+ * These cover copy preservation and cancellation/maintenance ordering, not real-device performance.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
@@ -108,30 +108,33 @@ class PlayedCopyCharacterizationTest {
         server.assertCompleted()
     }
 
-    @Test fun clearWaitsBehindUnfinishedOptionalCopyThenRemovesPlayedBytesOnly() {
+    @Test fun clearCancelsUnfinishedOptionalCopyBeforeRemovingPlayedBytesOnly() {
         startGatedCopy()
+        server.allowDisconnect = true
         OfflineStore.clearPlayed(app)
         val afterClear = copier.submit {}
-        assertFalse("Clear is queued behind the response-body gate", afterClear.isDone)
-        assertTrue(cache.isCached(oldPlayed, 0, seed.size.toLong()))
+        afterClear.get(5, TimeUnit.SECONDS)
+        assertFalse("Maintenance must finish without the server releasing its body", server.finished)
         server.release()
-        afterClear.get(10, TimeUnit.SECONDS)
         assertTrue(cache.keys.none { it.startsWith(PLAYED_PREFIX) })
         assertArrayEquals(seed, resourceBytes(explicit))
         server.assertCompleted()
     }
 
-    @Test fun resizeUpdatesPreferenceButEvictionWaitsBehindUnfinishedOptionalCopy() {
+    @Test fun resizeCancelsUnfinishedOptionalCopyBeforeApplyingNewBudget() {
         startGatedCopy()
+        server.allowDisconnect = true
         OfflineStore.setCacheLimit(app, 64)
         val afterResize = copier.submit {}
         assertEquals(64L, PlayedCacheState.limit)
         assertEquals(64L, OfflineStore.current()!!.prefs.getLong("cacheLimit", -1))
-        assertFalse("Actual eviction is queued behind the response-body gate", afterResize.isDone)
-        assertTrue(cache.isCached(oldPlayed, 0, seed.size.toLong()))
+        afterResize.get(5, TimeUnit.SECONDS)
+        assertFalse("Resize must finish without the server releasing its body", server.finished)
+        assertTrue(cache.keys.filter { it.startsWith(PLAYED_PREFIX) }.sumOf { key ->
+            cache.getCachedSpans(key).sumOf { it.length }
+        } <= 64)
+        assertFalse(OfflineStore.playedCopy(app, id))
         server.release()
-        afterResize.get(10, TimeUnit.SECONDS)
-        assertTrue(cache.keys.none { it.startsWith(PLAYED_PREFIX) })
         assertArrayEquals(seed, resourceBytes(explicit))
         server.assertCompleted()
     }
@@ -139,14 +142,26 @@ class PlayedCopyCharacterizationTest {
     @Test fun truncatedResponseIsNotPlayableAndQueuedMaintenanceEventuallyRuns() {
         startGatedCopy()
         server.truncate = true
-        OfflineStore.clearPlayed(app)
-        val afterClear = copier.submit {}
-        assertFalse(afterClear.isDone)
         server.release()
-        afterClear.get(10, TimeUnit.SECONDS)
+        awaitCopier()
         assertFalse(OfflineStore.playedCopy(app, id))
+        OfflineStore.clearPlayed(app)
+        awaitCopier()
         assertTrue(cache.keys.none { it.startsWith(PLAYED_PREFIX) })
         assertArrayEquals(seed, resourceBytes(explicit))
+        server.assertCompleted()
+    }
+
+    @Test fun actualOptionalCopyRejectsDeclaredOversizeWithoutWaitingForBody() {
+        // Exercise production copyPlayed wiring, not just the byte-policy helper in isolation.
+        OfflineStore.current()!!.prefs.edit().putLong("cacheLimit", 64).commit()
+        server.allowDisconnect = true
+        startGatedCopy()
+        awaitCopier()
+        assertFalse("Byte rejection must finish without the server releasing its body", server.finished)
+        assertFalse(OfflineStore.playedCopy(app, id))
+        assertArrayEquals(seed, resourceBytes(explicit))
+        server.release()
         server.assertCompleted()
     }
 
@@ -181,6 +196,7 @@ class PlayedCopyCharacterizationTest {
         val started = CountDownLatch(1)
         val port: Int get() = listener.localPort
         @Volatile var truncate = false
+        @Volatile var allowDisconnect = false
         @Volatile var finished = false
         @Volatile var requestLine: String? = null
         @Volatile private var socket: Socket? = null
@@ -192,13 +208,13 @@ class PlayedCopyCharacterizationTest {
                 requestLine = reader.readLine()
                 while (!reader.readLine().isNullOrEmpty()) { /* HTTP headers */ }
                 val output = client.getOutputStream()
-                output.write(("HTTP/1.1 200 OK\r\nContent-Type: audio/ogg\r\n" +
-                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
-                output.write(bytes, 0, 32)
+                val headers = ("HTTP/1.1 200 OK\r\nContent-Type: audio/ogg\r\n" +
+                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII)
+                output.write(headers + bytes.copyOfRange(0, 32))
                 output.flush()
                 started.countDown()
                 check(gate.await(10, TimeUnit.SECONDS)) { "Fixture response gate was not released" }
-                if (!truncate) { output.write(bytes, 32, bytes.size - 32); output.flush() }
+                if (!truncate && !allowDisconnect) { output.write(bytes, 32, bytes.size - 32); output.flush() }
             }
             finished = true
         }

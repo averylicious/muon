@@ -83,4 +83,37 @@ class OfflineDownloadsTest {
         assertNull(decodeSong("Hold On".toByteArray()))
         assertNull(decodeSong(ByteArray(0)))
     }
+    @Test fun ordinaryRecordsKeepTheirOriginalBytesAndRemainReadable() {
+        val song = TauonTrack(7, "Song", "Artist", "Album", 235000, true, false, "Album Artist", "2/15")
+        val old = listOf("muon-song-1", "7", "Song", "Artist", "Album", "Album Artist", "235000", "2/15")
+            .joinToString("\u0000").toByteArray(Charsets.UTF_8)
+        assertArrayEquals(old, encodeSong(song))
+        assertEquals(song, decodeSong(old))
+    }
+
+    @Test fun nulInAnyTextFieldRoundTripsWithoutChangingOtherMetadata() {
+        val song = TauonTrack(7, "Song", "Artist", "Album", 235000, true, false, "Album Artist", "2/15")
+        val variants = listOf(song.copy(title = "Song\u0000other"), song.copy(artist = "Artist\u0000other"),
+            song.copy(album = "Album\u0000other"), song.copy(albumArtist = "Album Artist\u0000other"),
+            song.copy(trackNumber = "2\u0000/15"))
+        variants.forEach { actual ->
+            assertEquals("muon-song-2", String(encodeSong(actual), Charsets.UTF_8).substringBefore('\u0000'))
+            assertEquals(actual, decodeSong(encodeSong(actual)))
+        }
+    }
+
+    @Test fun escapedUnicodeEmptyTextAndLiteralBase64ArePreserved() {
+        val song = TauonTrack(7, "Björk\u0000宇多田ヒカル🎵", "", "U29uZw==", 0, true, false, "", "")
+        assertEquals(song, decodeSong(encodeSong(song)))
+    }
+
+    @Test fun malformedEscapedAndUnknownRecordsAreIgnored() {
+        fun record(version: String, title: String) = listOf(version, "7", title, "", "", "", "0", "")
+            .joinToString("\u0000").toByteArray(Charsets.UTF_8)
+        assertNull(decodeSong(record("muon-song-2", "%%%")))
+        assertNull(decodeSong(record("muon-song-3", "")))
+        assertNull(decodeSong(listOf("muon-song-1", "7", "Old\u0000ambiguous", "", "", "", "0", "")
+            .joinToString("\u0000").toByteArray(Charsets.UTF_8)))
+    }
+
 }
