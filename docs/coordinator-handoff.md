@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Latest main-audit checkpoint: [Gradle distribution and combined QA](handoffs/2026-10-05-gradle-and-qa.md). #329 CI-only guard merged after all three workflows and exact-head review. #302 local integration and delivery-time availability correction are reviewed, final push/CI pending; main Canary.587 publication verified; all application acceptance gates remain open. No phone or experimental work. Current issue/PR receipts supersede pending statuses in this dated snapshot.
+Latest main-audit checkpoint: [Saved-entry preparation](handoffs/2026-10-05-saved-entry-preparation.md). #351/#352 test-only preparation merged with actual latest-head XML/artifact verification; #213 still has no production fix. Claude Opus5.5/High-selected read-only advisory independently checked and qualified; session idle. #302 remains OPEN for user acceptance and is being refreshed with current-main tests/docs; read final PR/#181/#213/#40 receipts for superseding head/check/artifact evidence. No device/experiment/Stable work.
 
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The earlier controller-policy checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 
