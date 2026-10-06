@@ -13,3 +13,5 @@ These are snapshots. A writer can still race later; no global drain, cache/index
 ## Verification and handoff
 
 Actions is the first Android compile; exact-head results/artifact belong on the PR. No local Android build, phone QA, measured performance gain or Stable release. This branch includes the open acceptance stack; leave it OPEN for its inherited gates. Next source-only slice: prevent oversized retained metadata from being decoded before its existing display budget. No new Claude assignment: allocated audit session was idle, last97% five-hour used, not confirmed exhausted.
+
+Initial Android704 compiled and ran702 debug tests but failed the new late-fragment fixture before assertions: SimpleCache refused committing beyond its known length. The fixture now explicitly unsets length before the late write and restores the prior value afterward, as a stale metadata interleaving; all source-preservation/no-remove assertions remain.704 is not a pass; replacement CI required.

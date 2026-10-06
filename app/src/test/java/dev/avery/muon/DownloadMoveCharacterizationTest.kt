@@ -215,8 +215,11 @@ class DownloadMoveCharacterizationTest {
         awaitMover()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(1, startedCommands().count { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
-        // Simulate a late cache writer after hand-over: the original range still compares equal.
+        // A real writer must extend/unset the known length before SimpleCache accepts another span.
+        // A later metadata update can restore the old length without deleting that retained span.
+        setLength(card.cache, androidx.media3.common.C.LENGTH_UNSET.toLong())
         val fragment = seed(card.cache, bytes.size.toLong() + 10, byteArrayOf(88, 99))
+        setLength(card.cache, bytes.size.toLong())
         val completed = Download(request, Download.STATE_COMPLETED, 0, 0, bytes.size.toLong(),
             Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
         targetIndex.putDownload(completed)
