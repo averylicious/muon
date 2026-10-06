@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Latest main-audit checkpoint: [October7 final acceptance boundary](handoffs/2026-10-07-final-acceptance.md). #370/.701 is the most complete open QA candidate,700 tests per variant and actual APK/report verification passed; app branches/allocated Claude are clean, pushed and idle. Read the checkpoint and live PR receipts before takeover. Application/user hardware acceptance, general #230/#253 remain; full #179 is deferred/open. No phone/experimental work or Stable release.
+Current source follow-up: [Move target extent](handoffs/2026-10-07-move-target-extent.md) on the complete #370 acceptance stack and current main. CI pending at authoring; application acceptance remains pending. [Previous exact receipts](handoffs/2026-10-07-final-acceptance.md). No phone/experiment changes.
 
 This runbook lets another user-selected Astra contributor resume Muon without the original conversation. Read [AGENTS.md](../AGENTS.md) first, then **[STATE.md](STATE.md)**. The earlier controller-policy checkpoint is [2026-09-30, network and entry points](handoffs/2026-09-30-controller-policy.md), with the [repository map and continuation plan](audits/README.md). Earlier handoffs and audit baselines are historical evidence. Refresh PR heads, checks and the latest shared issue comments before assuming any checkpoint is current.
 
