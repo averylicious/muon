@@ -40,20 +40,29 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 ensureCurrent()
                 val lists = api.playlists()
                 ensureCurrent()
+                val budget = withContext(Dispatchers.IO) { LibraryLoadBudget(lists) }
                 val loaded = linkedMapOf<String, List<TauonTrack>>()
                 var firstFailure: Exception? = null
                 lists.forEachIndexed { i, list ->
                     ensureCurrent()
                     progress = "Loading playlists ${i + 1} / ${lists.size}"
                     // One playlist failing no longer throws the rest away (#53).
-                    try { loaded[list.id] = api.tracks(list.id) }
+                    val songs = try { api.tracks(list.id) }
                     catch (failure: CancellationException) { throw failure }
-                    catch (failure: Exception) { if (firstFailure == null) firstFailure = failure }
+                    // A policy limit rejects the refresh, not a silently truncated partial library.
+                    catch (failure: LibraryResourceLimit) { throw failure }
+                    catch (failure: Exception) { if (firstFailure == null) firstFailure = failure; null }
+                    if (songs != null) {
+                        withContext(Dispatchers.IO) { budget.add(songs) }
+                        ensureCurrent()
+                        loaded[list.id] = songs
+                    }
                 }
                 ensureCurrent()
                 // Only this server's own last library can fill a gap; never another's, nor the offline one.
                 val previous = tracksByPlaylist.takeIf { endpoint?.origin == e.origin && !offline }
-                val load = combineLoad(lists, loaded, previous)
+                val load = withContext(Dispatchers.IO) { combineBudgetedLoad(lists, loaded, previous) }
+                ensureCurrent()
                 // Nothing at all to show: handled as a failed connection, exactly as before.
                 if (lists.isNotEmpty() && load.tracks.isEmpty()) throw firstFailure ?: IllegalStateException("No playlists loaded")
                 endpoint = e; playlists = load.playlists; tracksByPlaylist = load.tracks; offline = false; OfflineStore.offline = false
