@@ -8,9 +8,10 @@ import androidx.media3.datasource.TransferListener
 
 /**
  * Plays each request from the shelf that holds it (#112): a download on the phone or the SD card, a
- * played-song copy, or else the stream. [route] names the shelf and the request to make of it; the
- * source for that shelf is made per request, so a card that appears later is used without restarting
- * the player.
+ * played-song copy, or else the stream. [route] names the shelf and the request to make of it, once per
+ * open, so a card found unavailable then is not read (#179 S1). Only the card found when the store was
+ * made is known: one inserted later is not used until Muon restarts, and a card removed after an open
+ * is not noticed until the next one.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class OfflineDataSource(private val route: (DataSpec) -> Pair<Shelf, DataSpec>) : DataSource {
