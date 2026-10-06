@@ -78,6 +78,33 @@ class PublicationTest(unittest.TestCase):
             release.publish()
         self.assertEqual(self.calls, [])
 
+    def test_diagnostic_build_is_never_published(self):
+        # Even with an otherwise matching Version line, a Mode line marks a diagnostic artifact.
+        self.artifact()
+        build = Path('release-input/BUILD.txt')
+        build.write_text(build.read_text() + 'Mode: diagnostic (debuggable; temporary testing only, never published)\n')
+        with patch.object(release, 'gh', self.fake_gh), self.assertRaisesRegex(SystemExit, 'never published'):
+            release.publish()
+        self.assertEqual(self.calls, [])
+
+    def test_diagnostic_artifact_version_does_not_match_canary(self):
+        self.artifact(version='0.1.0-canary.7-diagnostic')
+        with patch.object(release, 'gh', self.fake_gh), self.assertRaises(SystemExit):
+            release.publish()
+        self.assertEqual(self.calls, [])
+
+    def test_diagnostic_setting_is_refused_for_either_channel(self):
+        for channel, variant, version in [('canary', 'debug', '0.1.0-canary.7'), ('stable', 'release', '0.1.0')]:
+            for value in ['true', 'TRUE', '']:
+                with self.subTest(channel=channel, value=value), tempfile.TemporaryDirectory() as temp:
+                    os.chdir(temp)
+                    self.artifact(variant, version)
+                    with patch.dict(os.environ, {'CHANNEL': channel, 'MUON_DIAGNOSTIC_DEBUG': value}), \
+                            patch.object(release, 'gh', self.fake_gh), \
+                            self.assertRaisesRegex(SystemExit, 'never published'):
+                        release.publish()
+                    self.assertEqual(self.calls, [])
+
     def test_published_release_is_unchanged(self):
         self.artifact()
         self.existing = {'tag_name': '0.1.0-canary.7', 'draft': False, 'html_url': 'example'}

@@ -31,17 +31,29 @@ android {
             keyPassword = storePassword
         }
     }
+    // Opt-in diagnostic app (docs/ci.md): CI sets it only for a manual branch run that asked for
+    // one (tools/diagnostic_mode.py). Exactly "true" or "false"; anything else stops the build.
+    val diagnosticDebug = when (val value = providers.environmentVariable("MUON_DIAGNOSTIC_DEBUG").getOrElse("false")) {
+        "true" -> true
+        "false" -> false
+        else -> throw GradleException("MUON_DIAGNOSTIC_DEBUG must be true or false, not \"$value\"")
+    }
     buildTypes {
         getByName("debug") {
             // Canary is built like Stable in the one way that matters for QA: not debuggable, so
             // Compose runs at full speed and phone testing reflects real performance (#125). The
             // package, signing key and update path are unchanged. "Muon β" fits the launcher's
-            // one-line label, where "Muon Canary" was cut to "Muon Can…" (#29).
-            isDebuggable = false
-            resValue("string", "app_name", "Muon β")
-            versionNameSuffix = "-canary." + providers.environmentVariable("MUON_VERSION_CODE").getOrElse("local")
+            // one-line label, where "Muon Canary" was cut to "Muon Can…" (#29). A diagnostic build
+            // is the one exception: debuggable, and named so that it cannot pass for a normal one.
+            isDebuggable = diagnosticDebug
+            if (diagnosticDebug) applicationIdSuffix = ".diagnostic"
+            resValue("string", "app_name", if (diagnosticDebug) "Muon diag" else "Muon β")
+            versionNameSuffix = "-canary." + providers.environmentVariable("MUON_VERSION_CODE").getOrElse("local") +
+                if (diagnosticDebug) "-diagnostic" else ""
         }
         getByName("release") {
+            // Never debuggable, diagnostic build or not; the benchmark type inherits this.
+            isDebuggable = false
             // Install beside the original milestone/debug app, preserving its settings.
             applicationIdSuffix = ".release"
             resValue("string", "app_name", "Muon")
