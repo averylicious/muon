@@ -193,6 +193,39 @@ class DownloadMoveCharacterizationTest {
             OfflineStore.get(app), card, completed))
     }
 
+    @Test fun sourceWithStaleShortLengthIsKeptWithoutPublishingAPrefixAsTheWholeCopy() {
+        val original = bytes + byteArrayOf(77)
+        val file = seed(phone.cache, 0, original)
+        setLength(phone.cache, bytes.size.toLong())
+        putCompleted(bytes.size.toLong())
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertTrue(card.cache.getCachedSpans(id).isEmpty())
+        assertArrayEquals(original, file.readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+    }
+
+    @Test fun extraSourceBytesAfterPublicationCannotBeDeletedByAReceiptForOnlyItsPrefix() {
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, startedCommands().count { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        setLength(phone.cache, androidx.media3.common.C.LENGTH_UNSET.toLong())
+        val extra = seed(phone.cache, bytes.size.toLong() + 10, byteArrayOf(77))
+        setLength(phone.cache, bytes.size.toLong())
+        val completed = Download(request, Download.STATE_COMPLETED, 0, 0, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
+        targetIndex.putDownload(completed)
+        assertFalse(OfflineStore.completeMovedCopyNow(app, OfflineStore.get(app), card, completed))
+        assertTrue(startedCommands().isEmpty())
+        assertArrayEquals(byteArrayOf(77), extra.readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+        assertNotNull(targetIndex.getDownload(id))
+    }
+
     @Test fun recordedCompleteTargetWithExtraBytesIsNotAdoptedOrTruncated() {
         completeSource(bytes)
         val retained = seed(card.cache, 0, bytes + byteArrayOf(99))

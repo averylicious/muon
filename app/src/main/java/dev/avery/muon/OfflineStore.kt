@@ -520,10 +520,10 @@ internal object OfflineStore {
             val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(key))
             if (length <= 0 || ContentMetadata.getContentLength(to.cache.getContentMetadata(key)) != length ||
                 !from.cache.isCached(key, 0, length) || !to.cache.isCached(key, 0, length) ||
-                !spansWithin(to.cache, key, length)) return false
+                !spansWithin(from.cache, key, length) || !spansWithin(to.cache, key, length)) return false
             if (!sameBytes(DataSpec.Builder().setUri(receipt.request.uri).setKey(key).setLength(length).build(), from, to))
                 return false
-            if (!spansWithin(to.cache, key, length)) return false
+            if (!spansWithin(from.cache, key, length) || !spansWithin(to.cache, key, length)) return false
             var sent = false
             store.moves.publish(receipt) {
                 if (canMove(from, to)) {
@@ -639,7 +639,7 @@ internal object OfflineStore {
     private fun copy(download: Download, from: Shelf, to: Shelf) {
         val id = download.request.id
         val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(id))
-        require(length != C.LENGTH_UNSET.toLong() && from.cache.isCached(id, 0, length)) { "Not fully downloaded" }
+        require(length > 0 && from.cache.isCached(id, 0, length) && spansWithin(from.cache, id, length)) { "Not fully downloaded within the expected length" }
         val targetLength = ContentMetadata.getContentLength(to.cache.getContentMetadata(id))
         require(spansWithin(to.cache, id, length)) { "Existing destination bytes extend beyond the source" }
         val targetRecord = to.manager.downloadIndex.getDownload(id)
@@ -682,7 +682,7 @@ internal object OfflineStore {
         }
         // A late writer may have appended bytes after the preflight. Comparing only [0, length)
         // cannot see them. Keep all bytes and the source when the current extent no longer fits.
-        require(spansWithin(to.cache, id, length)) { "Destination bytes now extend beyond the source" }
+        require(spansWithin(from.cache, id, length) && spansWithin(to.cache, id, length)) { "Copy bytes now extend beyond the expected length" }
         to.cache.applyContentMetadataMutations(id, ContentMetadataMutations.setContentLength(ContentMetadataMutations(), length))
     }
 
