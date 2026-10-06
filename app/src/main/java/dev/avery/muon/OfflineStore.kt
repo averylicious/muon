@@ -78,7 +78,8 @@ internal object OfflineStore {
         /** Where a new save's own cover is fetched; fixtures leave it doing nothing. */
         val artwork: java.util.concurrent.Executor = java.util.concurrent.Executor { },
         /** Played-copy keys a phone index row names, which the played cache never removes (#213). */
-        val playedClaims: PlayedClaims = PlayedClaims.none()) {
+        val playedClaims: PlayedClaims = PlayedClaims.none(),
+        val moves: DownloadMoveReceipts = DownloadMoveReceipts()) {
         /** The phone's cache, which also holds the played-song copies. */
         val cache: SimpleCache get() = phone.cache
         @Volatile var card: Shelf? = null
@@ -181,8 +182,8 @@ internal object OfflineStore {
     }
 
     /**
-     * Reports one shelf's downloads to the UI: those already there, then every change. A song is kept on
-     * one shelf only, so once it finishes on this one, a copy left on the other (a move) is removed.
+     * Reports one shelf's downloads to the UI. Removing a move's original requires this process's
+     * receipt and rechecked records/bytes, never a same-ID completion alone. Restart keeps both copies.
      */
     private fun watch(context: Context, shelf: Shelf, store: Store, main: Handler) {
         // Live callbacks and publication run on the application/main looper. An index snapshot can
@@ -193,18 +194,17 @@ internal object OfflineStore {
                 val id = download.request.id
                 changed?.add(id)
                 store.record(download)
-                if (download.state != Download.STATE_COMPLETED) return
-                // An unavailable card keeps its copy (#179 S1): removing it would act on missing files.
-                // Each leftover goes only if its row alone names its bytes there (#213), checked off the
-                // main thread; otherwise both copies stay.
-                val leftovers = leftoverCopies(shelf, store.shelves, id)
-                if (leftovers.isNotEmpty()) saver.execute {
-                    if (leftovers.count { removeLeftoverNow(context, it, id) } < leftovers.size)
-                        notice(context, "A moved copy was also kept where it was: Muon can't tell its bytes belong to it alone.")
+                if (download.state == Download.STATE_FAILED || download.state == Download.STATE_REMOVING)
+                    store.moves.find(shelf, id)?.let(store.moves::finish)
+                if (download.state != Download.STATE_COMPLETED || store.moves.find(shelf, id) == null) return
+                saver.execute {
+                    if (!completeMovedCopyNow(context, store, shelf, download))
+                        notice(context, "The original copy was kept: Muon couldn't confirm the move finished safely.")
                 }
             }
             override fun onDownloadRemoved(m: DownloadManager, download: Download) {
                 changed?.add(download.request.id)
+                store.moves.invalidate(download.request.id)
                 store.removed(download)
             }
         })
@@ -445,6 +445,7 @@ internal object OfflineStore {
             SavedSource.Played -> ref.key in store.cache.keys
             SavedSource.Download -> {
                 val shelf = (if (ref.shelf == SavedShelf.Card) store.card else store.phone) ?: return@runCatching false
+                if (!shelf.available()) return@runCatching false
                 val download = shelf.manager.downloadIndex.getDownload(ref.requestId) ?: return@runCatching false
                 download.state != Download.STATE_REMOVING &&
                     (download.request.customCacheKey ?: download.request.uri.toString()) == ref.key
@@ -477,6 +478,7 @@ internal object OfflineStore {
     /** [removeSaved]'s checks and command, on the calling thread; reads one index row. */
     internal fun removeSavedNow(context: Context, ref: SavedRef): SavedRemoval {
         val store = get(context)
+        store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
             if (!store.playedClaims.removable(ref.key)) return SavedRemoval.NotOwned
             // A copy being written is under a fresh key of its own; SimpleCache serializes removals.
@@ -495,15 +497,40 @@ internal object OfflineStore {
     }
 
     /**
-     * After a move completed elsewhere, removes [id]'s leftover row from [shelf] only if a census finds it
-     * the sole owner of its bytes there ([soleOwner]); otherwise both copies stay. Returns whether it was sent.
+     * Completes only this process's byte-checked move, never an unrelated same-ID download. Current
+     * source and destination rows must still be the exact published request, completed and sole owners;
+     * every cached byte is compared again before removal. Missing evidence or any failure keeps both.
+     * The final command shares the receipt invalidation lock. Cache/index checks remain snapshots;
+     * supported Muon producers must continue never rebinding or aliasing another entry's key.
      */
-    internal fun removeLeftoverNow(context: Context, shelf: Shelf, id: String): Boolean {
-        if (!shelf.available()) return false
-        val census = runCatching { rows(shelf) }.getOrNull() ?: return false
-        if (!soleOwner(census, id)) return false
-        DownloadService.sendRemoveDownload(context, shelf.service, id, false)
-        return true
+    internal fun completeMovedCopyNow(context: Context, store: Store, to: Shelf, completed: Download): Boolean {
+        val receipt = store.moves.find(to, completed.request.id) ?: return false
+        try {
+            val from = receipt.from
+            if (receipt.to !== to || completed.request != receipt.request || !canMove(from, to)) return false
+            val sourceRows = rows(from)
+            val targetRows = rows(to)
+            val source = sourceRows.singleOrNull { it.request.id == receipt.request.id } ?: return false
+            val target = targetRows.singleOrNull { it.request.id == receipt.request.id } ?: return false
+            if (source.request != receipt.request || target.request != receipt.request ||
+                source.state != Download.STATE_COMPLETED || target.state != Download.STATE_COMPLETED ||
+                !soleOwner(sourceRows, receipt.request.id) || !soleOwner(targetRows, receipt.request.id)) return false
+            val key = receipt.request.customCacheKey ?: return false
+            val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(key))
+            if (length <= 0 || ContentMetadata.getContentLength(to.cache.getContentMetadata(key)) != length ||
+                !from.cache.isCached(key, 0, length) || !to.cache.isCached(key, 0, length)) return false
+            if (!sameBytes(DataSpec.Builder().setUri(receipt.request.uri).setKey(key).setLength(length).build(), from, to))
+                return false
+            var sent = false
+            store.moves.publish(receipt) {
+                if (canMove(from, to)) {
+                    DownloadService.sendRemoveDownload(context, from.service, receipt.request.id, false)
+                    sent = true
+                }
+            }
+            return sent
+        } catch (_: Exception) { return false }
+        finally { store.moves.finish(receipt) }
     }
 
     /**
@@ -577,7 +604,13 @@ internal object OfflineStore {
                         main.post {
                             deliverMovedCopy(from, to) {
                                 moveOwnership.publish(batch, download.request.id) {
-                                    DownloadService.sendAddDownload(context, to.service, download.request, false)
+                                    if (store.moves.remember(from, to, download.request)) {
+                                        try { DownloadService.sendAddDownload(context, to.service, download.request, false) }
+                                        catch (failure: Exception) {
+                                            store.moves.invalidate(download.request.id)
+                                            throw failure
+                                        }
+                                    } else notice(context, "The original copy was kept: another move is still pending. Retry later.")
                                 }
                             }
                         }
@@ -635,6 +668,7 @@ internal object OfflineStore {
             val actual = ByteArray(expected.size)
             var left = spec.length
             while (left > 0) {
+                if (!canMove(from, to)) return false
                 val count = minOf(left, expected.size.toLong()).toInt()
                 if (!readFully(source, expected, count) || !readFully(target, actual, count)) return false
                 for (i in 0 until count) if (expected[i] != actual[i]) return false
@@ -661,6 +695,7 @@ internal object OfflineStore {
     fun removeAll(context: Context) {
         // Every move in flight loses its publication, whichever shelves receive the commands (#234).
         moveOwnership.removeAll()
+        get(context).moves.invalidateAll()
         saver.execute {
             val (_, kept) = removeAllNow(context)
             if (get(context).shelves.any { !it.available() })

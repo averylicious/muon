@@ -55,6 +55,7 @@ class DownloadMoveCharacterizationTest {
     private lateinit var targetIndex: DefaultDownloadIndex
     private val storeField = OfflineStore::class.java.getDeclaredField("store").apply { isAccessible = true }
     private val moverField = OfflineStore::class.java.getDeclaredField("mover").apply { isAccessible = true }
+    private val saverField = OfflineStore::class.java.getDeclaredField("saver").apply { isAccessible = true }
     private var previousStore: Any? = null
     private val id = "http://192.168.1.20:7814/7"
     private val request get() = DownloadRequest.Builder(id, Uri.parse("http://192.168.1.20:7814/api1/fileopus/7"))
@@ -80,6 +81,7 @@ class DownloadMoveCharacterizationTest {
     @After fun tearDown() {
         try {
             awaitMover()
+            awaitSaver()
             shadowOf(Looper.getMainLooper()).idle()
             storeField.set(null, previousStore)
             DownloadMarks.moving = null
@@ -111,9 +113,10 @@ class DownloadMoveCharacterizationTest {
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
-        OfflineStore.remove(app, listOf(id))
+        assertEquals(OfflineStore.SavedRemoval.Sent, OfflineStore.removeSavedNow(app,
+            requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
         val removals = startedCommands()
-        assertEquals(2, removals.size)
+        assertEquals(1, removals.size)
         assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD &&
             it.getStringExtra(DownloadService.KEY_CONTENT_ID) == id })
         shadowOf(Looper.getMainLooper()).idle()
@@ -127,9 +130,11 @@ class DownloadMoveCharacterizationTest {
         OfflineStore.move(app, toCard = true)
         awaitMover()
         OfflineStore.removeAll(app)
+        awaitSaver()
         val removals = startedCommands()
-        assertEquals(2, removals.size)
-        assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_ALL_DOWNLOADS })
+        assertEquals(1, removals.size)
+        assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD &&
+            it.getStringExtra(DownloadService.KEY_CONTENT_ID) == id })
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
     }
@@ -150,6 +155,73 @@ class DownloadMoveCharacterizationTest {
         assertTrue("Failed copy retains unindexed target spans", card.cache.getCachedSpans(id).isNotEmpty())
         assertFalse(card.cache.isCached(id, 0, 2L * chunk.size))
         assertArrayEquals(chunk, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
+    }
+
+    @Test fun unrelatedCrossShelfCompletionNeverDeletesTheOlderCopy() {
+        completeSource(bytes)
+        val otherBytes = ByteArray(bytes.size) { 99 }
+        seed(card.cache, 0, otherBytes)
+        setLength(card.cache, otherBytes.size.toLong())
+        val otherRequest = request.copyWithId(id) // Same old ID/key, different audio: not a move receipt.
+        val completed = Download(otherRequest, Download.STATE_COMPLETED, 0L, 0L, otherBytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
+        targetIndex.putDownload(completed)
+        assertFalse(OfflineStore.completeMovedCopyNow(app, OfflineStore.get(app), card, completed))
+        assertTrue(startedCommands().isEmpty())
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
+        assertArrayEquals(otherBytes, targetBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+    }
+
+    @Test fun onlyTrackedByteIdenticalCompletionRequestsSourceRemoval() {
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, startedCommands().count { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        val completed = Download(request, Download.STATE_COMPLETED, 0L, 0L, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
+        targetIndex.putDownload(completed)
+        assertTrue(OfflineStore.completeMovedCopyNow(app, OfflineStore.get(app), card, completed))
+        val removal = startedCommands().single()
+        assertEquals(DownloadService.ACTION_REMOVE_DOWNLOAD, removal.action)
+        assertEquals(MuonDownloadService::class.java.name, removal.component?.className)
+        assertEquals(id, removal.getStringExtra(DownloadService.KEY_CONTENT_ID))
+        assertFalse("The receipt is consumed, not replayable", OfflineStore.completeMovedCopyNow(app,
+            OfflineStore.get(app), card, completed))
+    }
+
+    @Test fun changedTargetBytesOrRemovalInvalidationKeepBothCopies() {
+        completeSource(bytes)
+        val store = OfflineStore.get(app)
+        assertTrue(store.moves.remember(phone, card, request))
+        val changed = ByteArray(bytes.size) { 33 }
+        seed(card.cache, 0, changed)
+        setLength(card.cache, changed.size.toLong())
+        val completed = Download(request, Download.STATE_COMPLETED, 0L, 0L, changed.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
+        targetIndex.putDownload(completed)
+        assertFalse(OfflineStore.completeMovedCopyNow(app, store, card, completed))
+        assertTrue(startedCommands().isEmpty())
+        assertArrayEquals(changed, targetBytes())
+        assertTrue(store.moves.remember(phone, card, request))
+        store.moves.invalidate(id)
+        assertFalse(OfflineStore.completeMovedCopyNow(app, store, card, completed))
+        assertTrue(startedCommands().isEmpty())
+        assertNotNull(sourceIndex.getDownload(id))
+    }
+
+    @Test fun anAliasedSourceCannotBeRemovedThroughTheSavedEntryAction() {
+        completeSource(bytes)
+        val alias = DownloadRequest.Builder("unknown-alias", request.uri).setCustomCacheKey(id).build()
+        sourceIndex.putDownload(Download(alias, Download.STATE_COMPLETED, 0L, 0L, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        assertEquals(OfflineStore.SavedRemoval.NotOwned, OfflineStore.removeSavedNow(app,
+            requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
+        assertTrue(startedCommands().isEmpty())
+        assertNotNull(sourceIndex.getDownload(id))
+        assertNotNull(sourceIndex.getDownload(alias.id))
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
     }
 
     // Refuse known conflicting spans before any destination write. The original prefix is kept;
@@ -341,6 +413,11 @@ class DownloadMoveCharacterizationTest {
     private fun startedCommands(): List<Intent> = buildList {
         val shadow = shadowOf(app)
         while (true) add(shadow.nextStartedService ?: break)
+    }
+
+    private fun awaitSaver() {
+        val saver = saverField.get(null) as ExecutorService
+        saver.submit {}.get(10, TimeUnit.SECONDS)
     }
 
     private fun awaitMover() {

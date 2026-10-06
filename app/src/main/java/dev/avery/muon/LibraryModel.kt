@@ -28,7 +28,11 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     fun refreshSaved() {
         savedLoad?.cancel()
         savedLoad = viewModelScope.launch {
-            val found = withContext(Dispatchers.IO) { runCatching { OfflineStore.savedEntries(getApplication<Application>()) }.getOrNull() }
+            val found = withContext(Dispatchers.IO) {
+                try { OfflineStore.savedEntries(getApplication<Application>()) }
+                catch (failure: CancellationException) { throw failure }
+                catch (_: Exception) { null }
+            }
             if (found != null) saved = found
         }
     }
