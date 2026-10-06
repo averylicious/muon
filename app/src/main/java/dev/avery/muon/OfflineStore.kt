@@ -452,6 +452,18 @@ internal object OfflineStore {
         val id = download.request.id
         val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(id))
         require(length != C.LENGTH_UNSET.toLong() && from.cache.isCached(id, 0, length)) { "Not fully downloaded" }
+        // CacheWriter fills holes around existing target spans. Refuse a known mismatch before that
+        // first write, rather than extending an unrelated partial copy and rejecting it afterwards.
+        // Snapshot only: late writers are still checked by the full post-copy comparison below.
+        for (span in to.cache.getCachedSpans(id)) {
+            require(span.position <= length && span.length <= length - span.position) {
+                "Existing destination bytes extend beyond the source"
+            }
+            require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id)
+                .setPosition(span.position).setLength(span.length).build(), from, to)) {
+                "Existing destination bytes differ from the source"
+            }
+        }
         // No upstream: a byte missing from the source fails the copy rather than reaching the network.
         val reader = CacheDataSource.Factory().setCache(from.cache).setCacheWriteDataSinkFactory(null)
         val writer = CacheDataSource.Factory().setCache(to.cache).setUpstreamDataSourceFactory(reader).createDataSourceForDownloading()
