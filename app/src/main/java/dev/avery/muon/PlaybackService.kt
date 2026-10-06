@@ -94,7 +94,7 @@ class PlaybackService : MediaSessionService() {
             })
         session = MediaSession.Builder(this, player)
             .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader(
-                DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), OkHttpDataSource.Factory(Transport.client))))
+                DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), OkHttpDataSource.Factory(Transport.metadataClient))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .setCallback(PlaybackSessionCallback()).build()
@@ -117,4 +117,4 @@ fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builde
         .setArtworkUri(android.net.Uri.parse(endpoint.url("/api1/pic/medium/$id")))
         // The song's own record, so the service can keep a played copy the offline library can list.
         .setExtras(android.os.Bundle().apply { putByteArray(SONG_EXTRA, encodeSong(this@mediaItem)) }).build())
-    .build()
+    .build().let(::queueOccurrence)
