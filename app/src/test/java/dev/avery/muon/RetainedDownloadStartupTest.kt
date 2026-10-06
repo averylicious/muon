@@ -83,6 +83,42 @@ class RetainedDownloadStartupTest {
         assertTrue("The other row survives while its actual bytes disappear", cache.getCachedSpans("shared").isEmpty())
     }
 
+    @Test fun failedInitialCensusNeverRescansAndPausesANewerProcessCommand() {
+        put("old", "old", Download.STATE_REMOVING)
+        seed("old")
+        val scans = AtomicInteger()
+        val onceUnreadable = object : WritableDownloadIndex by index {
+            override fun getDownloads(vararg states: Int): DownloadCursor {
+                if (scans.incrementAndGet() == 1) throw IOException("Initial census failed")
+                return index.getDownloads(*states)
+            }
+        }
+        val guard = RetainedDownloadIndex(onceUnreadable)
+        start(guard, DownloaderFactory { error("No tasks may start") })
+        // Exercise the manager directly as a positive control after its failed initialization.
+        val fresh = DownloadRequest.Builder("saved/new", Uri.parse("http://127.0.0.1:7814/9"))
+            .setCustomCacheKey("saved/new").build()
+        requireNotNull(manager).addDownload(fresh, 7)
+        pumpUntil { index.getDownload(fresh.id)?.stopReason == 7 }
+        assertThrows(IOException::class.java) { guard.getDownloads().close() }
+        assertEquals(1, scans.get())
+        assertEquals(7, index.getDownload(fresh.id)?.stopReason)
+        assertEquals(fresh, index.getDownload(fresh.id)?.request)
+        assertEquals(Download.STATE_REMOVING, index.getDownload("old")?.state)
+        assertTrue(cache.isCached("old", 0, 4))
+    }
+
+    @Test fun anEarlyMainThreadCountNeverWritesStartupStatesAndTheWorkerCanStillInitialize() {
+        put("pending", "pending", Download.STATE_REMOVING)
+        seed("pending")
+        val guard = RetainedDownloadIndex(index)
+        assertThrows(IOException::class.java) { guard.getDownloads().close() }
+        assertEquals(Download.STATE_REMOVING, index.getDownload("pending")?.state)
+        start(guard, DownloaderFactory { error("The worker must stop the pending removal") })
+        assertEquals(RETAINED_STOP_REASON, index.getDownload("pending")?.stopReason)
+        assertTrue(cache.isCached("pending", 0, 4))
+    }
+
     @Test fun unreadableStartupCensusStartsNoTaskAndKeepsRawRowsAndBytes() {
         val pending = put("pending", "pending", Download.STATE_REMOVING)
         seed("pending")

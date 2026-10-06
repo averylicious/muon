@@ -1,6 +1,8 @@
 package dev.avery.muon
 
+import android.os.Looper
 import androidx.media3.common.util.UnstableApi
+import java.io.IOException
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadCursor
 import androidx.media3.exoplayer.offline.DownloadProgress
@@ -23,6 +25,7 @@ internal const val RETAINED_STOP_REASON = 213
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class RetainedDownloadIndex(private val actual: WritableDownloadIndex) : WritableDownloadIndex by actual {
+    private var inspectionFailure: IOException? = null
     private var inspected = false // Protected by inspect; bootstrap/saved inventory also read this index.
 
     override fun setDownloadingStatesToQueued() {
@@ -36,23 +39,34 @@ internal class RetainedDownloadIndex(private val actual: WritableDownloadIndex) 
     }
 
     @Synchronized private fun inspect() {
+        inspectionFailure?.let { throw it }
         if (!inspected) {
-            val unfinished = ArrayList<Download>()
-            actual.getDownloads(Download.STATE_QUEUED, Download.STATE_DOWNLOADING,
-                Download.STATE_REMOVING, Download.STATE_RESTARTING).use { cursor ->
-                while (cursor.moveToNext()) unfinished += cursor.download
-            }
-            // Close the cursor before updating; an IO failure propagates to Media3's initialization,
-            // which loads no tasks. Partial state updates still preserve the requests and their bytes.
-            for (row in unfinished) {
-                val progress = DownloadProgress().apply {
-                    bytesDownloaded = row.bytesDownloaded
-                    percentDownloaded = row.percentDownloaded
+            // Counts can be requested from Settings before initialization. Do not move SQLite writes
+            // onto the UI thread; the caller reports not ready and the manager's worker initializes.
+            if (Looper.myLooper() == Looper.getMainLooper()) throw IOException("Saved copies are still initializing")
+            try {
+                val unfinished = ArrayList<Download>()
+                actual.getDownloads(Download.STATE_QUEUED, Download.STATE_DOWNLOADING,
+                    Download.STATE_REMOVING, Download.STATE_RESTARTING).use { cursor ->
+                    while (cursor.moveToNext()) unfinished += cursor.download
                 }
-                actual.putDownload(Download(row.request, Download.STATE_STOPPED, row.startTimeMs,
-                    row.updateTimeMs, row.contentLength, RETAINED_STOP_REASON, Download.FAILURE_REASON_NONE, progress))
+                // Close the cursor before updating; an IO failure propagates to Media3's initialization,
+                // which loads no tasks. Partial state updates still preserve the requests and their bytes.
+                for (row in unfinished) {
+                    val progress = DownloadProgress().apply {
+                        bytesDownloaded = row.bytesDownloaded
+                        percentDownloaded = row.percentDownloaded
+                    }
+                    actual.putDownload(Download(row.request, Download.STATE_STOPPED, row.startTimeMs,
+                        row.updateTimeMs, row.contentLength, RETAINED_STOP_REASON, Download.FAILURE_REASON_NONE, progress))
+                }
+                inspected = true
+            } catch (failure: IOException) {
+                // Once initialization fails, a later rescan could include current-process commands.
+                // Keep this instance closed; a new process retries before its manager starts tasks.
+                inspectionFailure = failure
+                throw failure
             }
-            inspected = true
         }
     }
 }

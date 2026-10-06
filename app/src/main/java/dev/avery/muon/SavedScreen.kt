@@ -70,7 +70,7 @@ private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, play: 
     val colors = MaterialTheme.colorScheme
     val status = when {
         entry.stoppedAfterRestart -> if (entry.complete) "Kept after restart · plays from saved bytes"
-            else "Save paused after restart · save a new copy from the live song"
+            else "Kept after restart · incomplete · save a new copy from the live song"
         entry.state == Download.STATE_QUEUED || entry.state == Download.STATE_RESTARTING -> "Waiting to save"
         entry.state == Download.STATE_DOWNLOADING -> "Saving…"
         entry.state == Download.STATE_FAILED -> "Saving failed · can't play"
@@ -85,7 +85,7 @@ private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, play: 
         supportingContent = {
             Column {
                 Text(entry.subtitle(), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                status?.let { Text(it, color = colors.error) }
+                status?.let { Text(it, color = if (entry.complete) colors.onSurfaceVariant else colors.error) }
                 if (!entry.removable) Text("Kept: Muon can't tell its bytes belong to it alone", color = colors.onSurfaceVariant)
             }
         },
