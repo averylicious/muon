@@ -6,7 +6,7 @@ _Last updated: 2026-10-06, user-authorized POCO automated acceptance checks, by 
 
 ## Where things are
 
-- **Current device evidence:** [POCO automated QA checkpoint](handoffs/2026-10-06-poco-automated-qa.md). Signed combined #302 .652 installed preserving data; POCO lockscreen play/pause/next/previous/tap-seek passed, with scoped library/queue/preference smoke. Settings restored, Pixel untouched. #331 refreshed for final-head checks; other application QA and hardware gates remain open. Read final PR/#181/#40 receipts before assuming a merge/publication.
+- **Current device evidence:** [POCO automated QA checkpoint](handoffs/2026-10-06-poco-automated-qa.md). Signed combined #302 .652 installed preserving data; POCO lockscreen play/pause/next/previous/tap-seek passed, with scoped library/queue/preference smoke. Settings restored, Pixel untouched. #331 narrow type-read fix merged8daaae9 after final-head Android653/505 tests per variant; other application QA and hardware gates remain open. Read final PR/#181/#40 receipts before assuming a merge/publication.
 
 - **Prior October5 source preparation:** [Saved-entry preparation checkpoint](handoffs/2026-10-05-saved-entry-preparation.md). #351/#352 inventory/cache-only controls merged with499/502 tests per variant and actual full-head artifact verification. #213 selected policy unchanged; no production fix. [Next coherent boundary](audits/2026-10-05-saved-production-boundary.md) records reviewed Claude advisory and preservation/cover/collision constraints. #302 remains OPEN for acceptance; refresh/check/artifact receipts on PR/#181 supersede pending checkpoint snapshots. Full #179/#213/#230/#253 and hardware/performance/build trust remain. That October5 continuation made no device/experimental changes.
 
