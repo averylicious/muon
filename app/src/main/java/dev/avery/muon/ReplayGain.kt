@@ -82,7 +82,7 @@ internal fun volumeForGain(gainDb: Float): Float = 10f.pow(gainDb / 20f).coerceI
  * modern songs quieter.
  */
 internal class ReplayGainSettings(private val prefs: SharedPreferences) {
-    var enabled by mutableStateOf(prefs.getBoolean(KEY_ENABLED, false))
+    var enabled by mutableStateOf(enabledFromPreferences())
         private set
 
     fun choose(on: Boolean) {
@@ -92,10 +92,10 @@ internal class ReplayGainSettings(private val prefs: SharedPreferences) {
     }
 
     /** Re-reads the switch, for the playback service when the app changes it. */
-    fun reload() { enabled = prefs.getBoolean(KEY_ENABLED, false) }
+    fun reload() { enabled = enabledFromPreferences() }
 
     fun remember(mediaId: String, gainDb: Float) {
-        if (prefs.getFloat(gainKey(mediaId), Float.NaN) != gainDb) {
+        if (storedGain(mediaId) != gainDb) {
             prefs.edit().putFloat(gainKey(mediaId), gainDb).apply()
             typical = null
         }
@@ -108,7 +108,17 @@ internal class ReplayGainSettings(private val prefs: SharedPreferences) {
     }).also { typical = it }
 
     fun gainFor(mediaId: String?): Float? =
-        mediaId?.let { prefs.getFloat(gainKey(it), Float.NaN) }?.takeIf { !it.isNaN() }
+        mediaId?.let(::storedGain)?.takeIf { !it.isNaN() }
+
+    // A mismatched local preference type is an absent value, like the playback-mode settings.
+    // Reading does not delete it; a later user toggle or parsed gain writes the expected type.
+    private fun enabledFromPreferences(): Boolean = try {
+        prefs.getBoolean(KEY_ENABLED, false)
+    } catch (_: ClassCastException) { false }
+
+    private fun storedGain(mediaId: String): Float = try {
+        prefs.getFloat(gainKey(mediaId), Float.NaN)
+    } catch (_: ClassCastException) { Float.NaN }
 
     /** The volume for a song: 1 when off; its own gain, or else the library's typical one, when on. */
     fun volumeFor(mediaId: String?): Float =

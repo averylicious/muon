@@ -1,0 +1,11 @@
+# Loudness local preference types — 2026-10-05
+
+Inspected main fa6d47fba0ee131f1860fb087154877401c855fc. GPT-6 / Codex desktop, effort not reported: author/self-review; independent review pending. Narrow follow-up to the [stored-value question](2026-10-04-loudness-volume-source.md), not a resource budget or audio redesign. No phone/private preference/music/secret/experimental access.
+
+`ReplayGainSettings` typed switch reads in construction/reload and gain reads in remember/gainFor can throw `ClassCastException` when local preferences hold a different value type. This is a source-supported local robustness defect; no normal API/untrusted app writer, user corruption incident or remote exploit was established. The playback-mode settings already use type-mismatch defaults.
+
+The correction catches only `ClassCastException` at these reads. A wrong-typed switch uses the existing off default; a wrong-typed gain is absent and therefore uses the existing unknown-track/median fallback. Reads do not delete or convert stored entries. A later user toggle or parsed gain replaces only its normal key. All correctly typed values, persisted names, unrelated settings, scalar/headroom and NaN/infinity handling remain unchanged. Aggregate history work, retained numeric-ID identity and audio/platform behavior remain separate #253/#213 questions.
+
+Three new disposable preference regressions cover constructor recovery plus recreation after a user toggle, service-style reload of a changed wrong type, and median fallback followed by parsed-gain replacement/recreation. Existing four persistence/median/toggle cases remain. Local whitespace/prose checks do not compile Kotlin; Android CI is first compile and Robolectric execution. Exact-head counts/results/artifact and independent review belong on the PR after completion, not inferred from test source.
+
+This application PR stays OPEN pending user manual QA: ordinary normalization toggle across player/screen recreation, tagged/missing-tag playback and no regression in volume controls. No user is asked to corrupt preferences or inject failures on their phone. Tests characterize invalid local types; they do not prove disk crash durability, listener timing, perceived equal loudness, speaker safety or measured resource improvements. No Stable release or data migration/deletion.
