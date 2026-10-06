@@ -226,6 +226,61 @@ class DownloadMoveCharacterizationTest {
 
     // Refuse known conflicting spans before any destination write. The original prefix is kept;
     // no source suffix is appended to a different copy and no add is sent.
+    @Test fun anAlreadyCompleteIdenticalRecordedTargetNeedsNoCacheOrRecordRewrite() {
+        completeSource(bytes)
+        seed(card.cache, 0, bytes)
+        setLength(card.cache, bytes.size.toLong())
+        card.cache.applyContentMetadataMutations(id, ContentMetadataMutations().set("old-note", "kept"))
+        val old = Download(request, Download.STATE_COMPLETED, 3, 4, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
+        targetIndex.putDownload(old)
+        val files = card.cache.getCachedSpans(id).map { requireNotNull(it.file).name }
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        val add = startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
+        assertEquals(request, addRequest(add))
+        assertArrayEquals(bytes, targetBytes())
+        assertEquals(files, card.cache.getCachedSpans(id).map { requireNotNull(it.file).name })
+        assertEquals("kept", card.cache.getContentMetadata(id).get("old-note", ""))
+        assertEquals(old.request, targetIndex.getDownload(id)?.request)
+        assertEquals(old.startTimeMs, targetIndex.getDownload(id)?.startTimeMs)
+        assertTrue(phone.cache.isCached(id, 0, bytes.size.toLong()))
+    }
+
+    @Test fun anOlderRecordedPartialCopyIsNeverExtendedDespiteEqualRequestTags() {
+        completeSource(bytes)
+        val prefix = bytes.copyOf(128)
+        seed(card.cache, 0, prefix)
+        setLength(card.cache, bytes.size.toLong())
+        val held = Download(request, Download.STATE_STOPPED, 3, 4, bytes.size.toLong(),
+            RETAINED_STOP_REASON, Download.FAILURE_REASON_NONE)
+        targetIndex.putDownload(held)
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertArrayEquals(prefix, targetBytes())
+        assertFalse(card.cache.isCached(id, 128, 1))
+        assertEquals(held.request, targetIndex.getDownload(id)?.request)
+        assertEquals(Download.STATE_STOPPED, targetIndex.getDownload(id)?.state)
+        assertEquals(RETAINED_STOP_REASON, targetIndex.getDownload(id)?.stopReason)
+        assertTrue(phone.cache.isCached(id, 0, bytes.size.toLong()))
+    }
+
+    @Test fun conflictingKnownDestinationLengthIsKeptBeforeAnyMetadataOrSpanWrite() {
+        completeSource(bytes)
+        val prefix = bytes.copyOf(128)
+        seed(card.cache, 0, prefix)
+        val oldLength = bytes.size.toLong() + 100
+        setLength(card.cache, oldLength)
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertArrayEquals(prefix, targetBytes())
+        assertFalse(card.cache.isCached(id, 128, 1))
+        assertEquals(oldLength, ContentMetadata.getContentLength(card.cache.getContentMetadata(id)))
+        assertTrue(phone.cache.isCached(id, 0, bytes.size.toLong()))
+    }
+
     @Test fun differentUnindexedTargetPrefixIsRejectedWithoutAnAddAndKept() {
         val old = ByteArray(200) { (255 - it % 251).toByte() } // Differs from [bytes] at every index.
         seed(card.cache, 0, old)

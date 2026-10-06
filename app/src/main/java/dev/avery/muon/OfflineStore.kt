@@ -631,10 +631,29 @@ internal object OfflineStore {
         val id = download.request.id
         val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(id))
         require(length != C.LENGTH_UNSET.toLong() && from.cache.isCached(id, 0, length)) { "Not fully downloaded" }
+        val targetLength = ContentMetadata.getContentLength(to.cache.getContentMetadata(id))
+        val targetRecord = to.manager.downloadIndex.getDownload(id)
+        if (targetRecord != null) {
+            // Matching address/tags are not audio identity. An older recorded partial copy cannot be
+            // extended/relabelled from another copy; keep it intact. An already complete exact copy
+            // needs no writes or metadata mutation, only the later tracked hand-over/completion.
+            require(targetRecord.request == download.request &&
+                (targetRecord.state == Download.STATE_COMPLETED ||
+                    (targetRecord.state == Download.STATE_STOPPED && targetRecord.stopReason == RETAINED_STOP_REASON)) &&
+                targetLength == length && to.cache.isCached(id, 0, length)) { "Existing recorded destination is not a complete exact copy" }
+            require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id).setLength(length).build(), from, to)) {
+                "Existing recorded destination differs from the source"
+            }
+            return
+        }
+        val targetSpans = to.cache.getCachedSpans(id)
+        require(targetSpans.isEmpty() || targetLength == C.LENGTH_UNSET.toLong() || targetLength == length) {
+            "Existing destination has another known length"
+        }
         // CacheWriter fills holes around existing target spans. Refuse a known mismatch before that
         // first write, rather than extending an unrelated partial copy and rejecting it afterwards.
         // Snapshot only: late writers are still checked by the full post-copy comparison below.
-        for (span in to.cache.getCachedSpans(id)) {
+        for (span in targetSpans) {
             require(span.position <= length && span.length <= length - span.position) {
                 "Existing destination bytes extend beyond the source"
             }

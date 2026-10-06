@@ -65,6 +65,7 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, play: () -> Unit, remove: () -> Unit) {
     val colors = MaterialTheme.colorScheme
