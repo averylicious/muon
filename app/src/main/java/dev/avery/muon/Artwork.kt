@@ -20,6 +20,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -125,20 +126,21 @@ private suspend fun fetchArtwork(url: String, size: Int, disk: ArtworkDiskCache)
         artCache.put(key, art)
         return@withContext art
     }
-    runCatching {
-        Transport.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            if (!response.isSuccessful) return@use null
-            val body = response.body ?: return@use null
+    try {
+        val bytes = Transport.metadataClient.newCall(Request.Builder().url(url).build()).readCancellable { response ->
+            if (!response.isSuccessful) return@readCancellable null
+            val body = response.body ?: return@readCancellable null
             val source = body.source()
-            if (source.request(4 * 1024 * 1024 + 1L)) return@use null
-            val bytes = source.readByteArray()
-            decodeArtwork(bytes, size)?.also { art ->
-                artCache.put(key, art)
-                if (identity != null) disk.write(diskKey, identity,
-                    if (size >= ARTWORK_ORIGINAL_SIZE) bytes else encodeArtwork(art))
-            }
+            if (source.request(4 * 1024 * 1024 + 1L)) return@readCancellable null
+            source.readByteArray()
+        } ?: return@withContext null
+        decodeArtwork(bytes, size)?.also { art ->
+            artCache.put(key, art)
+            if (identity != null) disk.write(diskKey, identity,
+                if (size >= ARTWORK_ORIGINAL_SIZE) bytes else encodeArtwork(art))
         }
-    }.getOrNull()
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { null }
 }
 
 /**
