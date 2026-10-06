@@ -68,4 +68,25 @@ class LanProbeTest {
         assertEquals(a, autoConnectTarget(done, false, false))
         assertTrue(combineDiscovery(DiscoverySnapshot(DiscoveryStatus.UNAVAILABLE), emptyList()).servers.isEmpty())
     }
+    @Test fun deniedPermissionDoesNotPretendANullProbeIsSearching() {
+        assertEquals(DiscoverySnapshot(DiscoveryStatus.IDLE),
+            combineDiscovery(DiscoverySnapshot(DiscoveryStatus.IDLE), null, allowed = false))
+    }
+
+    @Test fun deniedPermissionHidesOldCompletedOrInFlightResultsAndBlocksAutoConnect() {
+        for (status in listOf(DiscoveryStatus.SEARCHING, DiscoveryStatus.COMPLETE, DiscoveryStatus.UNAVAILABLE)) {
+            val denied = combineDiscovery(DiscoverySnapshot(status, listOf(a), 2), listOf(probed), allowed = false)
+            assertEquals(DiscoverySnapshot(DiscoveryStatus.IDLE), denied)
+            assertNull(autoConnectTarget(denied, false, false))
+        }
+    }
+
+    @Test fun grantingPermissionAllowsTheOriginalDiscoveryRulesAgain() {
+        val nsd = DiscoverySnapshot(DiscoveryStatus.COMPLETE, listOf(a))
+        assertEquals(DiscoveryStatus.IDLE, combineDiscovery(nsd, null, allowed = false).status)
+        assertEquals(DiscoveryStatus.SEARCHING, combineDiscovery(nsd, null, allowed = true).status)
+        val ready = combineDiscovery(nsd, listOf(probed), allowed = true)
+        assertEquals(a, autoConnectTarget(ready, false, false))
+    }
+
 }
