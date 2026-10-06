@@ -51,9 +51,29 @@ Real Tauon/device instrumentation remains a manual LAN test (`tools/device-proof
 | Debug | `dev.avery.muon` / Muon β (the Canary channel) | Original milestone debug key | Updates the existing Pixel app and preserves its connection settings |
 | Release | `dev.avery.muon.release` / Muon | Dedicated RSA 4096 release key | Installs alongside debug with its own settings; connect it to Tauon separately |
 
-Release is non-debuggable, minified and resource-shrunk. Canary (the debug build type) is also non-debuggable, so phone QA reflects real performance (#125); it is not minified. `tools/verify-apks.py` rejects a debuggable APK of either variant. CI uses the workflow run number as Android versionCode and `0.1.0-canary.<run>` as Canary versionName. Stable versionName comes from the `vMAJOR.MINOR.PATCH` tag (without `v`); untagged release artifacts use `0.1.0`. Update the base version in the workflow when beginning a new development series. Older artifacts can be rejected as downgrades; use a newer run. Local builds default to versionCode 1; set `MUON_VERSION_CODE` higher than the installed version if needed. Each app controls its own Android player; audio focus coordinates them.
+Release is non-debuggable, minified and resource-shrunk. Canary (the debug build type) is also non-debuggable, so phone QA reflects real performance (#125); it is not minified. `tools/verify-apks.py` rejects a debuggable APK of either variant, except the opt-in diagnostic app below. CI uses the workflow run number as Android versionCode and `0.1.0-canary.<run>` as Canary versionName. Stable versionName comes from the `vMAJOR.MINOR.PATCH` tag (without `v`); untagged release artifacts use `0.1.0`. Update the base version in the workflow when beginning a new development series. Older artifacts can be rejected as downgrades; use a newer run. Local builds default to versionCode 1; set `MUON_VERSION_CODE` higher than the installed version if needed. Each app controls its own Android player; audio focus coordinates them.
 
 CI debug signing is stable, but the debug variant is intended for development. Release uses a separate permanent identity; its alias is `muon-release`. Public certificate fingerprints are in [signing-certificates.txt](signing-certificates.txt). Verify APKs with SDK `apksigner verify --verbose --print-certs` and compare these fingerprints.
+
+### Diagnostic build (opt-in, never published)
+
+For temporary device diagnosis that needs a debuggable app (a debugger, `run-as`, or other debug-only tooling), run **Actions → Android APKs → Run workflow** on a branch other than `main` and tick **diagnostic_debug**. It defaults to off. Only that manual branch request makes a separate diagnostic APK debuggable. Pushes, `main`, tags and manual runs left at the default build ordinary non-debuggable APKs. A request on `main` or a tag, or an unexpected value, fails the run before the Android SDK or signing keys are set up (`tools/diagnostic_mode.py`). The Gradle switch, `MUON_DIAGNOSTIC_DEBUG`, is read only for the debug build type and must be exactly `true` or `false`. The release APK, and the benchmark type built from it, are non-debuggable in every run.
+
+A diagnostic run never publishes: its channel is `none`, the publish job separately requires a non-diagnostic build, and `tools/publish-release.py` refuses a diagnostic artifact or setting. No Canary prerelease or Obtainium update is created, and no extra secrets, permissions or triggers are involved. Normal Canary and Stable identities are unchanged. The diagnostic app uses `dev.avery.muon.diagnostic`, the original debug signing key and the workflow run number as versionCode. Android gives it separate settings, private download indexes and external app directories. The release artifact is also unchanged and stays non-debuggable.
+
+How to identify one:
+
+- The run's job summary is headed **Diagnostic build: debugging enabled**.
+- The diagnostic artifact is named `app-diagnostic-<full SHA>` instead of `app-debug-<full SHA>`.
+- Its `BUILD.txt` has a `-diagnostic` version suffix and a `Mode: diagnostic` line.
+- The launcher label is **Muon diag**, and the versionName is `0.1.0-canary.<run>-diagnostic`.
+- Settings shows a red **Diagnostic build — debugging enabled** banner. The banner reads the installed app's actual debuggable flag, so it appears for any debuggable build of Muon, not only a CI diagnostic one.
+
+`tools/verify-apks.py` makes the same selection from the same event. For a diagnostic run it requires the diagnostic APK to be debuggable, with its diagnostic label and version. For every other run it requires both APKs to be non-debuggable, and in all runs it requires the release APK to be non-debuggable. Package, versionCode, signing certificate and label are still verified for both APKs.
+
+It installs **beside** Canary and Stable; it does not update them or share their download indexes, files or connection settings. Connect it separately and use disposable copied/downloaded audio for failure testing. A separate app does not isolate the physical SD card: keep regular Muon stopped during unmount tests and always remount afterward. Do not use existing user downloads as fault-injection fixtures.
+
+Performance is **not representative** with debugging enabled (#125). Do not use it to judge speed, smoothness or battery. Return to the normal Canary or Stable app for listening; neither needs reinstalling or downgrading. The diagnostic app can remain installed for the next test or be removed separately after test evidence is saved. Never uninstall ordinary Canary or Stable to leave diagnostic mode.
 
 ## Where the originals are
 
