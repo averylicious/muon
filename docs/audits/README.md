@@ -109,3 +109,5 @@ Latest boundaries: [sink-close receipt](2026-10-05-close-receipt-source.md), [re
 
 - [Saved ownership controls](2026-10-06-saved-ownership-controls.md): real index/cache/cover aliases and prospective test-local rules; #357 merged with513 tests per variant. No production identity or generation fix.
 - [Diagnostic card evidence](../handoffs/2026-10-06-diagnostic-card-qa.md): explicit branch-only separate app; graceful vold/SIGINT termination and unchanged folder bytes after remount, not private-index or hot-swap safety.
+
+- [Ordinary-app media-entry QA fixture](2026-10-06-media-entry-device-probe.md): #359 merged after standard669/diagnostic671. POCO foreign-UID denials against #302 .652 confirmed; compatibility gates remain. Stock Pixel run-as passes both target-SDK37 test packages, POCO fails; diagnostic checkpoint records limits and cleanup.

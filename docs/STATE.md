@@ -6,7 +6,7 @@ _Last updated: 2026-10-06, diagnostic CI and disposable card QA, by GPT-6 (Codex
 
 ## Where things are
 
-- **Latest diagnostic/card boundary:** [October6 diagnostic QA checkpoint](handoffs/2026-10-06-diagnostic-card-qa.md). #356 opt-in side-by-side diagnostic support merged7f87c5f; normal main Canary.665 published. POCO graceful eject interrupted the isolated active reader via vold/SIGINT; cleanup remounted and preserved diagnostic3/original16 file hashes. Private POCO indexes unavailable; full #179 unresolved. Pixel run-as works; Pixel lockscreen deferred. #357 saved ownership controls merged6c6cc1e after666/513 tests per variant. Refresh final receipts; ordinary #302 .652 remains the acceptance candidate, not replaced by main/diagnostic builds.
+- **Latest diagnostic/card boundary:** [October6 checkpoint](handoffs/2026-10-06-diagnostic-card-qa.md). #356/#357/#359 merged; standard/diagnostic CI passed. Main.672 build/publication passed at fbd290f; release assets read back. Both target-SDK37 test APKs pass run-as on stock Pixel and fail on POCO without security changes; cause unknown. POCO graceful eject terminated isolated reader via vold/SIGINT, remount preserved diagnostic3/original16 hashes; private indexes/full #179 unresolved. Ordinary foreign-UID direct-start/bind/browser denial confirmed on #302 .652, helper removed from both phones. #205/#302 remain open for compatibility/application gates; Pixel lockscreen deferred.
 
 - **Docs refresh CI:** #355 merged63578f7 after exact-head Android658/505 tests per variant and78 Python checks. Published-main-only code inheritance can take lightweight docs checks; actual feature changes, force pushes and unpublished main remain full. Main publication/secret/fork guards preserved. See the October6 checkpoint and final #354/#181 receipts for the real refresh validation. POCO graceful ADB card eject/remount with Muon stopped passed;16 download-folder checksums unchanged. Full card-failure/index recovery remains unverified/unfixed (#179); #356 now provides explicit branch-only diagnostic builds. Limited active graceful-eject evidence is in the latest checkpoint.
 
@@ -30,7 +30,7 @@ _Last updated: 2026-10-06, diagnostic CI and disposable card QA, by GPT-6 (Codex
   - CI (#167): a docs-only merge right after an app merge can no longer skip a Canary;
   - volume normalization (#163, #165) and landscape layouts (#157, #162, #164).
 - **Canary:** each `main` build that changes the app publishes `0.1.0-canary.<run>`. **Stable** has not been released since the redesign.
-- **Package IDs:** Canary is `dev.avery.muon`, Stable `dev.avery.muon.release`, the Baseline Profile tool `dev.avery.muon.benchmark` (never published), and the branch-only diagnostic tool `dev.avery.muon.diagnostic` (never published). Preserve normal update/signing identities.
+- **Package IDs:** Canary is `dev.avery.muon`, Stable `dev.avery.muon.release`, the Baseline Profile tool `dev.avery.muon.benchmark` (never published), and the branch-only diagnostic tool `dev.avery.muon.diagnostic` (never published). The ordinary-app QA helper `dev.avery.muon.entryprobe` is never published and uses a separate temporary debug certificate. Preserve normal update/signing identities.
 - **Desktop:** all 962 songs in `~/Music/random playlist` carry ReplayGain tags (2026-09-27). `~/CHANGES.md` has the manual steps for tagging new songs.
 
 ## The user's agreed roadmap
