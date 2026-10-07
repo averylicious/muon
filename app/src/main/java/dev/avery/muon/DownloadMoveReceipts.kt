@@ -74,6 +74,11 @@ internal class DownloadMoveReceipts(private val capacity: Int = 128) {
         finish(receipt)
         return true
     }
+    /** A service's earlier binding/availability gate refused delivery; release only a queued command. */
+    @Synchronized fun refuseQueued(token: String) {
+        pending.values.singleOrNull { it.token == token && (it.addQueued() || it.removeQueued()) }
+            ?.let(::finish)
+    }
     @Synchronized fun invalidate(id: String) {
         pending.values.filter { it.request.id == id }.toList().forEach {
             it.cancelled = true

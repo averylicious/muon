@@ -616,6 +616,11 @@ internal object OfflineStore {
      */
     internal const val MOVE_COMMAND_TOKEN = "dev.avery.muon.move-command-token"
 
+    /** The card's earlier binding/availability gate refused a move command before this admission gate. */
+    internal fun refusedMoveCommand(intent: Intent) {
+        intent.getStringExtra(MOVE_COMMAND_TOKEN)?.let { current()?.moves?.refuseQueued(it) }
+    }
+
     /** Rechecks a process-owned command at actual service delivery; old/replayed commands become INIT. */
     @Suppress("DEPRECATION")
     internal fun admitCommand(context: Context, intent: Intent?, shelf: Shelf? = null): Intent? {

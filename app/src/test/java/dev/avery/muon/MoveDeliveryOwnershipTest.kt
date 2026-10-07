@@ -50,6 +50,7 @@ class MoveDeliveryOwnershipTest {
     private val id = "saved/move-fixture"
     private val bytes = ByteArray(4096) { (it % 251).toByte() }
     private var startId = 0
+    private var cardPresent = true
 
     @Before fun setUp() {
         DownloadService.clearDownloadManagerHelpers()
@@ -106,6 +107,22 @@ class MoveDeliveryOwnershipTest {
         // Neither internal command can be replayed after acknowledgment.
         deliver(cardService, add); deliver(phoneService, remove)
         settle(phone); settle(card)
+        assertEquals(Download.STATE_COMPLETED, card.manager.downloadIndex.getDownload(id)?.state)
+    }
+
+    @Test fun aCardAvailabilityRefusalDropsOnlyTheQueuedReceiptAndPermitsAnExplicitRetry() {
+        val add = movedAdd()
+        cardPresent = false // Availability injection, not a physical card eject/recovery test.
+        deliver(cardService, add); settle(card)
+        assertFalse(store.moves.hasPending)
+        assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(id)?.state)
+        assertTrue(phone.cache.isCached(id, 0, bytes.size.toLong()))
+        assertNull(card.manager.downloadIndex.getDownload(id))
+        cardPresent = true
+        deliver(cardService, movedAdd()); settle(card); await(saverField)
+        val remove = commands().single { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD }
+        deliver(phoneService, remove); settle(phone); await(saverField)
+        assertFalse(store.moves.hasPending)
         assertEquals(Download.STATE_COMPLETED, card.manager.downloadIndex.getDownload(id)?.state)
     }
 
@@ -228,7 +245,7 @@ class MoveDeliveryOwnershipTest {
         } }
         return Shelf(cache, DownloadManager(app, DefaultDownloadIndex(database, name), factory).apply {
             setRequirements(Requirements(0))
-        }, service)
+        }, service) { name != "card" || cardPresent }
     }
     private fun request(id: String) = DownloadRequest.Builder(id, Uri.parse("fixture://audio")).setCustomCacheKey(id).build()
     private fun complete(shelf: Shelf, id: String) {

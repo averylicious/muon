@@ -67,6 +67,8 @@ class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadServi
         // A command this binding may carry out still passes the move's admission (#230), as the phone's does.
         if (intent == null || action == null || action !in CHANGING_ACTIONS || isCardManager(bound))
             return super.onStartCommand(OfflineStore.admitCommand(this, intent, OfflineStore.current()?.card), flags, startId)
+        // A refused owned move must not leave a pending receipt blocking every later retry.
+        OfflineStore.refusedMoveCommand(intent)
         // A copy that changes nothing, with the same extras, so a foreground start still shows its notification.
         return super.onStartCommand(Intent(intent).setAction(DownloadService.ACTION_INIT), flags, startId)
     }

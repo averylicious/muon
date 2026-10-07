@@ -38,3 +38,7 @@ The user chose to defer both strict dependency verification and the remaining ru
 ## Ownership and next step
 
 GPT-6/Codex desktop, exact variant/effort not reported: delivery implementation/tests and self-review. Claude Opus5.5/Claude Code High selected: strict sink implementation, coordinator source review; no independent whole-stack review claim. Allocated Claude session idle at69%five-hour/61%weeklyUSED before optional bounded read-only review; later receipt supersedes. Next: first compile/tests, source-review corrections, actual artifacts, then pending manual acceptance; no app-stack merge before that gate. Save final head/checks and remaining questions durably before quota cutoff.
+
+## Coordinator refusal follow-up
+
+The card binding/availability guard runs before owned-command admission. It now releases a matching queued receipt when it refuses that command, so a restored card permits an explicit retry instead of leaving permanent pending ownership. Never releases a source removal already admitted to Media3. Added a native both-service test using injected card availability: delayed Add is refused, original stays, then healthy explicit retry completes. This is not physical card-loss QA or full179 recovery. Source acknowledgment tests also reject wrong shelf/request and retain an accepted removal's barrier through invalidation until its true callback. Latest head/CI supersedes earlier receipts.
