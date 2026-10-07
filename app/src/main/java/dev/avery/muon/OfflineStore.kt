@@ -63,8 +63,8 @@ internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val s
 /**
  * What the download marks record about one row: its request ID, state and downloaded bytes, and nothing
  * else (#253). It is read from a row and holds no reference to it, so a status waiting to be published
- * does not keep the row's request, URI or stored song record alive. It names no index row and claims no
- * cache bytes: it is a display status, not ownership or identity.
+ * does not keep the row's request, URI or stored song record alive. It grants no authority over an index row or
+ * cache bytes; ownership and identity checks use the actual records.
  */
 internal data class DownloadStatus(val id: String, val state: Int, val bytesDownloaded: Long) {
     companion object {

@@ -62,7 +62,8 @@ class DownloadBootstrapCharacterizationTest {
     private val statuses = ArrayList<DownloadStatus>()
 
     /** A disposable, non-empty stored song record per row, so the index carries real metadata bytes. */
-    private fun metadata(id: String) = ByteArray(16 * 1024) { (it + id.length).toByte() }
+    private fun metadata(id: String) = encodeSong(TauonTrack(7,
+        "Stored $id " + "t".repeat(15 * 1024), "Fixture artist", "Disposable album", 1000, true, false))
 
     @Before fun setUp() {
         app = RuntimeEnvironment.getApplication()
