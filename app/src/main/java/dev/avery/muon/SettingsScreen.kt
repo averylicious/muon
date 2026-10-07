@@ -33,7 +33,8 @@ private val GroupInnerCorner = 4.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings, disconnect: () -> Unit) {
+internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings, openSaved: () -> Unit = {},
+    disconnect: () -> Unit) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     // Survives rotation and process death: a half-answered destructive question should not vanish.
     var confirmDisconnect by rememberSaveable { mutableStateOf(false) }
@@ -83,7 +84,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             PlaybackGroup()
 
             GroupLabel("Storage")
-            StorageGroup { confirmClear = true }
+            StorageGroup(openSaved) { confirmClear = true }
 
             GroupLabel("Appearance")
             AppearanceGroup(appearance)
@@ -92,8 +93,8 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
         }
     }
     if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false },
-        title = { Text("Remove all downloads?") },
-        text = { Text("Songs you downloaded will stream again, and need Tauon to play.") },
+        title = { Text("Remove all saved copies?") },
+        text = { Text("Every saved copy on the phone, and on the SD card if it's in, is removed. Songs in Tauon still stream.") },
         confirmButton = { TextButton(onClick = { confirmClear = false; OfflineStore.removeAll(context) }) { Text("Remove") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } })
     if (confirmDisconnect) DisconnectDialog(model.address, dismiss = { confirmDisconnect = false }) {
@@ -107,7 +108,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
  * Downloads are kept across disconnecting, since offline is exactly when they are wanted.
  */
 @Composable
-private fun StorageGroup(clear: () -> Unit) {
+private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     val songs = DownloadMarks.marks.values.count { it == DownloadMark.Done }
@@ -116,23 +117,29 @@ private fun StorageGroup(clear: () -> Unit) {
     val full = cacheFull(used, limit)
     // Free space where the downloads live, read once per visit; it changes slowly.
     val free = remember { runCatching { android.os.StatFs(context.filesDir.path).availableBytes }.getOrDefault(0L) }
-    // Offered only while a removable card is in and was found when the store opened; with none, the row
-    // is simply not there (the user's decision).
-    val card = remember { OfflineStore.get(context).card?.let { cardFolder(context) } }
+    // Offered only while the card found when the store opened is still there; with no card at all, the
+    // row is simply not there (the user's decision). Read once per visit.
+    val store = remember { OfflineStore.get(context) }
+    val card = remember { store.cardFolder?.takeIf { OfflineStore.cardAvailable(context) } }
     var onCard by remember { mutableStateOf(OfflineStore.storeOnCard(context)) }
+    // That card gone, or the card chosen with none found: unavailable, not empty (#179 S1). The row
+    // stays so the choice can be turned off, and nothing is offered to move.
+    val cardUnavailable = card == null && (store.card != null || onCard)
     // Where to move, and how many: offered when the switch leaves downloads on the other side.
     var offerMove by remember { mutableStateOf<Pair<Boolean, Int>?>(null) }
     val moving = DownloadMarks.moving
-    val rows = if (card != null) 5 else 4
+    val rows = if (card != null || cardUnavailable) 5 else 4
     // Free space where new downloads go: the card's when they go there (#16 QA).
     val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
     StorageBar(DownloadMarks.bytes, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
-        SettingsRow(shape = rowShape(0, rows), headline = "Downloads",
+        // Opens Saved copies (#213), where each copy is listed, played and removed on its own.
+        SettingsRow(shape = rowShape(0, rows), headline = "Saved copies",
             supporting = if (moving != null) "Moving ${moving.first} of ${moving.second}…"
-                else if (songs == 0) "None yet. Long-press a song, or use Download all on an album, artist or playlist."
-                else "$songs ${if (songs == 1) "song" else "songs"} · ${formatBytes(DownloadMarks.bytes)}",
-            trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } })
+                else if (songs == 0) "None yet. Long-press a song, or use Save copies on an album, artist or playlist."
+                else "$songs ${if (songs == 1) "copy" else "copies"} · ${formatBytes(DownloadMarks.bytes)} · $UNVERIFIED",
+            trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } },
+            modifier = Modifier.clickable(onClickLabel = "Open saved copies", onClick = openSaved))
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
         SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
@@ -165,7 +172,14 @@ private fun StorageGroup(clear: () -> Unit) {
                 modifier = Modifier.toggleable(value = onCard, role = Role.Switch) {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
                     val left = OfflineStore.downloadsOn(context, card = !it)
-                    if (left > 0 && moving == null) offerMove = it to left
+                    if (left != null && left > 0 && moving == null) offerMove = it to left
+                })
+        } else if (cardUnavailable) {
+            SettingsRow(shape = rowShape(4, rows), headline = "Store on SD card",
+                supporting = "SD card not available · its downloads aren't shown or changed",
+                trailing = { Switch(checked = onCard, onCheckedChange = null) },
+                modifier = Modifier.toggleable(value = onCard, role = Role.Switch) {
+                    onCard = it; OfflineStore.setStoreOnCard(context, it)
                 })
         }
     }
@@ -178,7 +192,12 @@ private fun StorageGroup(clear: () -> Unit) {
             confirmButton = { TextButton(onClick = { offerMove = null; OfflineStore.move(context, toCard) }) { Text("Move") } },
             dismissButton = { TextButton(onClick = { offerMove = null }) { Text("Not now") } })
     }
-    if (card != null) Text("New downloads go to the card. Removing the card hides its downloads until it is back.",
+    if (card != null) Text("New downloads go to the card. While it's out, its downloads aren't shown or used.",
+        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp))
+    else if (cardUnavailable) Text(if (onCard) "Downloads to the card can't start right now and aren't saved for later. " +
+                "Try again when it's back, or turn off Store on SD card to download to the phone."
+            else "New downloads go to the phone. Songs on the card aren't shown while it's unavailable.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
     Text("The cache keeps Opus copies of songs you play, so they also play without Tauon. " +

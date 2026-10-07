@@ -37,3 +37,7 @@ Main-track artifacts update the same Canary package as experimental builds and c
 4. Forward-integrate useful main fixes through a separately tested PR into `claude/m3-expressive-alpha`; the experimental owner lands it at their boundary.
 
 No background agent or device task was started. Commit/checkpoint state is the source of recovery; refresh quotas rather than reusing a previous account's reading.
+
+## Completed implementation boundary
+
+#204 merged at `4fd3af9373bfa232e637c06e9705dae49b9b8fe1`. Reviewed head `707af27b8e454794926169ca83d4d4000214e028` passed [run 362](https://github.com/averylicious/muon/actions/runs/36603764830): 387 tests per variant, all nine callback cases, lint and signed APK checks. Two earlier runs exposed test-fixture/API mistakes, corrected without changing production validation. Main publication must be verified separately. Phone QA remains pending. The N1/Q4 follow-up is [#205](https://github.com/averylicious/muon/pull/205); use its [handoff](2026-09-30-private-service.md) and latest build for combined QA.
