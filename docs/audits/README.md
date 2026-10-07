@@ -1,5 +1,7 @@
 # Main-branch audit
 
+Latest completed boundary: [October8 command admission/runtime checkpoint](../handoffs/2026-10-08-command-runtime-checkpoint.md). #384/.735 passed718tests per variant and actual artifact checks, OPEN for application acceptance. #383 runtime inventory merged; main.734 published without the app stack. Actual cold runtime receipt is evidence, not publisher authentication. Main required-check protection was restored with user authorization and verified. Claude Opus5.5 High idle; no device commands used. #230 remains partial; writer/generation/source-removal/restart/cleanup work and #253/trust questions remain.
+
 Latest completed boundary: [Final cursor/bootstrap/trust checkpoint](../handoffs/2026-10-07-audit-cycle-final.md). #381/.729 is verified and open for acceptance; #380 test controls merged. Remaining ownership/resource/trust engineering is explicit.
 
 Previous continuation: [October7 cursor/copy/trust checkpoint](../handoffs/2026-10-07-cursor-copy-trust.md). #376/#377 remain open acceptance; #378 collects an untrusted verification candidate without enforcing it. Limited POCO TalkBack integration has settings restored and manual gaps. Refresh latest exact-head receipts; partial #230/#253/trust engineering remains.
