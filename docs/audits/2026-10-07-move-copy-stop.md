@@ -34,3 +34,7 @@ The trigger depends on the number of card availability checks before the writer 
 1. Run CI to confirm the test.
 2. Define ownership of failed partial destination bytes: a recorded owner (per move attempt), so cleanup or retry can be exact instead of relying on a later byte comparison.
 3. Exclude or detect late writers to the same key during a copy.
+
+## Coordinator source review
+
+GPT-6 / Codex desktop (exact variant and effort not reported) reviewed the implementation and surrounding move/admission paths at `65a188efab78a1af2b30f357267fdea6d05f6059`. Pinned Google Maven `media3-datasource-1.11.0-sources.jar` SHA-256 `a54ddd9858ed2de57e07c5461dcebdae7a53d92a60210a2a3f5bf501398a5e4a`: CacheWriter calls progress before reads, after resolving length and after each read; readBlockToCache catches a callback exception and closes the data source before rethrowing. This is cooperative cancellation, not writer exclusion or transactional rollback; partial destination bytes remain. Repository hook directory has no active hooks; normal coordinator commits retain default hook behavior. CI compilation/native tests still pending.
