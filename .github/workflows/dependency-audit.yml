@@ -8,6 +8,11 @@ on:
         type: boolean
         required: false
         default: false
+      runtime_inventory:
+        description: 'Observe cold Robolectric runtime artifacts without signing (not publisher authentication)'
+        type: boolean
+        required: false
+        default: false
   push:
     paths:
       - '.github/workflows/dependency-audit.yml'
@@ -16,6 +21,9 @@ on:
       - 'tools/test_dependency_inventory.py'
       - 'tools/verification_candidate.py'
       - 'tools/test_verification_candidate.py'
+      - 'tools/runtime_inventory.py'
+      - 'tools/test_runtime_inventory.py'
+      - 'tools/robolectric-runtime.init.gradle.kts'
       - 'tools/sdk_tool_inventory.py'
       - 'tools/test_sdk_tool_inventory.py'
       - 'tools/ApkSignerProviderProbe.java'
@@ -49,6 +57,7 @@ jobs:
           python3 -m unittest discover -s tools -p 'test_dependency_inventory.py'
           python3 -m unittest discover -s tools -p 'test_sdk_tool_inventory.py'
           python3 -m unittest discover -s tools -p 'test_verification_candidate.py'
+          python3 -m unittest discover -s tools -p 'test_runtime_inventory.py'
       # The action verifies archives only when it downloads, not when the runner cache wins.
       - name: Isolate preinstalled Temurin cache before verification
         env:
@@ -114,5 +123,26 @@ jobs:
           path: |
             ${{ runner.temp }}/muon-verification-candidate/verification-metadata.xml
             ${{ runner.temp }}/muon-verification-candidate/RECEIPT.json
+          if-no-files-found: error
+          retention-days: 14
+
+      # Runtime framework jars bypass Gradle dependency verification. Isolate only this manual
+      # audit's test JVM repository; normal builds and shared runner repositories are unchanged.
+      - name: Observe cold Robolectric runtime artifacts
+        if: github.event_name == 'workflow_dispatch' && inputs.runtime_inventory == true
+        run: |
+          set -euo pipefail
+          MUON_ROBO_RUNTIME_REPOSITORY=$(mktemp -d "$RUNNER_TEMP/muon-robo-runtime.XXXXXX")
+          export MUON_ROBO_RUNTIME_REPOSITORY
+          test -z "$(find "$MUON_ROBO_RUNTIME_REPOSITORY" -mindepth 1 -print -quit)"
+          ./gradlew --no-daemon --no-configuration-cache --no-build-cache --rerun-tasks --console=plain --init-script tools/robolectric-runtime.init.gradle.kts :app:testDebugUnitTest :app:testReleaseUnitTest
+          python3 -I tools/runtime_inventory.py "$MUON_ROBO_RUNTIME_REPOSITORY" --commit "$GITHUB_SHA" --out "$RUNNER_TEMP/muon-runtime-inventory.json"
+
+      - name: Upload public runtime artifact receipt
+        if: github.event_name == 'workflow_dispatch' && inputs.runtime_inventory == true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-inventory-${{ github.sha }}
+          path: ${{ runner.temp }}/muon-runtime-inventory.json
           if-no-files-found: error
           retention-days: 14
