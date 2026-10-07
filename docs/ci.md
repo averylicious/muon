@@ -117,3 +117,9 @@ For workstream names versus APK versions, see [workstream names and release vers
 ### Disposable media-entry QA helper
 
 An explicit manual diagnostic branch run also builds `mediaentryprobe`, a separate ordinary-app UID fixture for private-service denial checks. It has no network/storage/elevated permissions and refuses an exported target. The helper is compiled before Muon signing-key restoration with its own default temporary debug key, uploaded separately as `media-entry-probe-<full-SHA>`, and never published. Normal builds do not configure this module. See [the probe boundaries and operation](audits/2026-10-06-media-entry-device-probe.md). This does not replace the Canary acceptance app or establish headset/controller compatibility.
+
+## Untrusted verification candidate (manual, unsigned)
+
+The **Dependency inventory** workflow accepts `verification_candidate=true` only for manual dispatch. The default is false. This runs actual unsigned compile/test/lint tasks and baseline-generator compilation, then uploads `untrusted-verification-candidate-<full-SHA>` containing bounded public `verification-metadata.xml` and `RECEIPT.json`. It does not publish an APK, restore real signing keys or enable dependency verification. These are observed checksums requiring independent publisher/repository review, not an approved allowlist. Artifact retention is 14 days. See [the candidate scope and trust limits](audits/2026-10-07-verification-candidate.md).
+
+The candidate also excludes non-Gradle test-runtime fetches (including Robolectric); executing unit tests does not make Gradle authenticate runtime jars fetched by another client.
