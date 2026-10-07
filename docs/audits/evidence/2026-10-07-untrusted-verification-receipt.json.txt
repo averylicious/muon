@@ -1,0 +1,23 @@
+{
+  "artifacts": 1027,
+  "bytes": 268431,
+  "checksum_values": 1027,
+  "commit": "014a24de55fd835a0216a9f58b542a94688f69a9",
+  "components": 572,
+  "metadata_artifacts": 575,
+  "schema": 1,
+  "scope": "Observed unsigned build-task checksums, NOT independent publisher authentication. Candidate only; no verification policy enabled. Does not cover diagnostic helper, APK signing/assembly, every detached resolution, non-Gradle runtime fetches (including Robolectric), SDK/JDK executables or generated caches.",
+  "sha256": "ed60848d34f7e6e076be7f819ff97536621a2b1b1c371ec2e9f4eb0fa3171d8b",
+  "source_bytes": 267405,
+  "source_sha256": "2e205e45f1311237b49f5a379fb2a6964825041f75301bbea3370e259ace9d30",
+  "tasks": [
+    ":app:compileDebugKotlin",
+    ":app:compileReleaseKotlin",
+    ":app:testDebugUnitTest",
+    ":app:testReleaseUnitTest",
+    ":app:lintDebug",
+    ":app:lintRelease",
+    ":baselineprofile:compileBenchmarkKotlin"
+  ],
+  "trusted": false
+}
