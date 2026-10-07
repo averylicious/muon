@@ -6,6 +6,8 @@ _Last updated: 2026-10-07, source-only move/metadata/build-trust continuation, b
 
 ## Where things are
 
+- **Latest cursor/copy/trust continuation:** [Checkpoint](handoffs/2026-10-07-cursor-copy-trust.md). #376/#377 open app stack and #378 unsigned/untrusted checksum candidate; isolated717/715 and manual69 verified, combined721/normal720 final receipts verified. POCO limited TalkBack integration restored original settings; spoken/gesture QA still pending. #230/#253/trust remain partial engineering, not phone QA only.
+
 - **Latest source-only follow-ups:** [Checkpoint](handoffs/2026-10-07-source-only-followups.md), OPEN #372 source/destination move extent (.709) and #373 saved-metadata predecode (.710, complete acceptance candidate) guards; merged #374 public dependency-inventory artifact with fresh graph/advisory receipts; [build/dependency trust dispositions](audits/2026-10-07-build-trust-disposition.md). Remaining ownership/aggregate-resource/verification engineering is separate from application acceptance. No phone/experiment access.
 
 - **October7 final acceptance boundary:** [Final portable checkpoint](handoffs/2026-10-07-final-acceptance.md). Most complete candidate #370/.701 includes #302/#365/#366/#369, passed700 tests per variant and actual APK/report verification. Saved copies/startup preservation, library budgets, move-failure feedback and one inventory census are implemented on open app branches. User acceptance remains pending; app stack is not on main. General #230/#253 and hardware gates remain; full #179 is user-deferred/unresolved. No phone/experimental work or Stable publication.
