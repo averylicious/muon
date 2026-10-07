@@ -6,6 +6,8 @@ _Last updated: 2026-10-07, cursor/copy/trust continuation and limited POCO acces
 
 ## Where things are
 
+- **Latest completed audit boundary:** [Final cursor/bootstrap/trust checkpoint](handoffs/2026-10-07-audit-cycle-final.md). #381/.729 is the full verified acceptance successor,711 tests per variant; app stack stays open. Test-only #380 merged, main.728 published and excludes that app stack. #230/#253/trust engineering and inherited hardware/accessibility acceptance remain; both agents idle at this boundary.
+
 - **Latest cursor/copy/trust continuation:** [Checkpoint](handoffs/2026-10-07-cursor-copy-trust.md). #376/#377 open app stack; CI-only #378 merged as9d77da5 with unsigned/untrusted checksum candidate evidence. Isolated717/715 and manual69 verified, combined721/normal720 final receipts verified; main722 publication succeeded and excludes the open app stack. POCO limited TalkBack integration restored original settings; spoken/gesture QA still pending. #230/#253/trust remain partial engineering, not phone QA only.
 
 - **Latest source-only follow-ups:** [Checkpoint](handoffs/2026-10-07-source-only-followups.md), OPEN #372 source/destination move extent (.709) and #373 saved-metadata predecode (.710, complete acceptance candidate) guards; merged #374 public dependency-inventory artifact with fresh graph/advisory receipts; [build/dependency trust dispositions](audits/2026-10-07-build-trust-disposition.md). Remaining ownership/aggregate-resource/verification engineering is separate from application acceptance. No phone/experiment access.
