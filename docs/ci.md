@@ -121,3 +121,5 @@ An explicit manual diagnostic branch run also builds `mediaentryprobe`, a separa
 ## Untrusted verification candidate (manual, unsigned)
 
 The **Dependency inventory** workflow accepts `verification_candidate=true` only for manual dispatch. The default is false. This runs actual unsigned compile/test/lint tasks and baseline-generator compilation, then uploads `untrusted-verification-candidate-<full-SHA>` containing bounded public `verification-metadata.xml` and `RECEIPT.json`. It does not publish an APK, restore real signing keys or enable dependency verification. These are observed checksums requiring independent publisher/repository review, not an approved allowlist. Artifact retention is 14 days. See [the candidate scope and trust limits](audits/2026-10-07-verification-candidate.md).
+
+The candidate also excludes non-Gradle test-runtime fetches (including Robolectric); executing unit tests does not make Gradle authenticate runtime jars fetched by another client.

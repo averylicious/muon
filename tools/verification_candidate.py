@@ -88,7 +88,8 @@ def validate(data, commit):
             'tasks': TASKS, 'trusted': False,
             'scope': 'Observed unsigned build-task checksums, NOT independent publisher authentication. '
                      'Candidate only; no verification policy enabled. Does not cover diagnostic helper, '
-                     'APK signing/assembly, every detached resolution, SDK/JDK executables or generated caches.'}
+                     'APK signing/assembly, every detached resolution, non-Gradle runtime fetches (including Robolectric), '
+                     'SDK/JDK executables or generated caches.'}
 
 
 def export(source, commit, destination):

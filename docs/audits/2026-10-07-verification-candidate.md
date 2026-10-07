@@ -13,3 +13,9 @@ Checked official Gradle 8.13.0 dependency-verification userguide source: https:/
 Local candidate exporter/abuse-case, wrapper and distribution guard tests run; exact-head normal Android/inventory CI plus opt-in actual candidate dispatch pending. Device QA not needed for this workflow-only change. Build/dependency trust stays an open gate, not phone acceptance. No Stable release or experimental changes.
 
 Initial manual candidate run66 at `1d2ff0eec5bff19561765dd9f69b4ed3b2fda723` executed all86 Gradle tasks successfully but the exporter refused the actual schema URL; no candidate artifact was uploaded. Fixed the assumed URL using pinned Gradle8.13.0 `DependencyVerificationsXmlWriter` and added its exact1.3 namespace/schema URL to the fixture and unknown-schema rejection control. Latest-head rerun is required; the earlier build is not the final receipt.
+
+## Independent bounded review
+
+Claude Opus5.5 (`claude-opus-5-5`), Claude Code, High effort selected, read-only review at `1d2ff0eec5bff19561765dd9f69b4ed3b2fda723`: no blocking security defect within the five-file candidate scope, no device/build execution. Suggested tying the hardcoded receipt task list to actual workflow arguments and naming non-Gradle test-runtime fetches (including Robolectric) as outside Gradle checksum coverage. Both incorporated. Coordinator separately found/fixed the pinned schema URL via actual failed run66 and Gradle XML-writer source; Claude's earlier review does not validate that later patch or establish all build provenance. Final head source self-review/CI/artifact checks remain coordinator responsibility. No model quota exhaustion; review ended idle at42% five-hour/52% weekly used.
+
+Non-Gradle runtime HTTP fetches, including Robolectric's runtime acquisition path, do not enter Gradle verification merely because the test tasks ran. A separate reviewed runtime-fetch policy/receipt is still needed; this candidate cannot certify those bytes.

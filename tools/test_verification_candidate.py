@@ -1,9 +1,10 @@
 import json
+import shlex
 from pathlib import Path
 import tempfile
 import unittest
 
-from verification_candidate import NS, XSI, export, validate
+from verification_candidate import NS, XSI, TASKS, export, validate
 
 COMMIT = 'a' * 40
 DATA = (f'<verification-metadata xmlns="{NS}" xmlns:xsi="{XSI}" xsi:schemaLocation="{NS} {NS}/dependency-verification-1.3.xsd"><configuration>'
@@ -73,6 +74,8 @@ class CandidateTest(unittest.TestCase):
         self.assertIn('test ! -e gradle/verification-metadata.xml', workflow)
         self.assertIn('--no-build-cache --rerun-tasks', workflow)
         self.assertIn('--write-verification-metadata sha256', workflow)
+        command = next(line.strip() for line in workflow.splitlines() if '--write-verification-metadata sha256' in line)
+        self.assertEqual([word for word in shlex.split(command) if word.startswith(':')], TASKS)
         self.assertNotIn(' --dry-run', next(line for line in workflow.splitlines() if '--write-verification-metadata sha256' in line))
         self.assertNotIn('${{ secrets.', workflow)
         self.assertNotIn('contents: write', workflow)
