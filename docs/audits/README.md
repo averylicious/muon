@@ -1,6 +1,8 @@
 # Main-branch audit
 
-Latest continuation: [October7 cursor/copy/trust checkpoint](../handoffs/2026-10-07-cursor-copy-trust.md). #376/#377 remain open acceptance; #378 collects an untrusted verification candidate without enforcing it. Limited POCO TalkBack integration has settings restored and manual gaps. Refresh latest exact-head receipts; partial #230/#253/trust engineering remains.
+Latest completed boundary: [Final cursor/bootstrap/trust checkpoint](../handoffs/2026-10-07-audit-cycle-final.md). #381/.729 is verified and open for acceptance; #380 test controls merged. Remaining ownership/resource/trust engineering is explicit.
+
+Previous continuation: [October7 cursor/copy/trust checkpoint](../handoffs/2026-10-07-cursor-copy-trust.md). #376/#377 remain open acceptance; #378 collects an untrusted verification candidate without enforcing it. Limited POCO TalkBack integration has settings restored and manual gaps. Refresh latest exact-head receipts; partial #230/#253/trust engineering remains.
 
 Previous source-only continuation: [October7 follow-ups](../handoffs/2026-10-07-source-only-followups.md) and [build/dependency trust disposition](2026-10-07-build-trust-disposition.md). #372/.709 and #373/.710 passed exact-head reports/APK verification and retain inherited application acceptance; #374 inventory artifact is merged with fresh resolved-graph/advisory evidence; no device work. Remaining #230/#253/trust engineering is explicit, not assumed to be phone QA only.
 
