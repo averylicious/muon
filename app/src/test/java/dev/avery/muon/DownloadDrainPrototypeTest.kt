@@ -1,6 +1,7 @@
 package dev.avery.muon
 
 import android.net.Uri
+import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
@@ -10,6 +11,7 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.DefaultDownloaderFactory
 import androidx.media3.exoplayer.offline.DownloadManager
@@ -26,6 +28,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.annotation.SQLiteMode
@@ -35,6 +38,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -140,6 +144,54 @@ class DownloadDrainPrototypeTest {
         assertEquals("Only the admitted download ever reached a real downloader", 1, gate.created.get())
         assertEquals(3, gate.refused.get())
         assertEquals("Refused late work changed no bytes, spans or content length", captured, snapshot())
+    }
+
+    @Test fun aLiveManagerDropsTheIndexAfterARefusedRemovalEvenThoughBytesRemain() =
+        exerciseLiveRemoval(refuse = true)
+
+    @Test fun anAdmittedRemovalDropsBothIndexAndBytes() = exerciseLiveRemoval(refuse = false)
+
+    /** A downloader-only refusal is not an index-preservation barrier for a live manager. */
+    private fun exerciseLiveRemoval(refuse: Boolean) {
+        pumpUntil { manager.isInitialized }
+        manager.resumeDownloads()
+        manager.addDownload(request)
+        assertTrue("The actual downloader reached the disposable source", upstream.entered.await(5, TimeUnit.SECONDS))
+        upstream.proceed.countDown()
+        pumpUntil { index.getDownload(id)?.state == Download.STATE_COMPLETED && manager.isIdle }
+        val before = snapshot()
+        assertEquals(bytes.toList(), before.bytes)
+        assertTrue(cache.isCached(id, 0, bytes.size.toLong()))
+
+        val removed = AtomicBoolean()
+        manager.addListener(object : DownloadManager.Listener {
+            override fun onDownloadRemoved(manager: DownloadManager, download: Download) {
+                if (download.request.id == id) removed.set(true)
+            }
+        })
+        if (refuse) gate.close()
+        manager.removeDownload(id)
+        pumpUntil { removed.get() && manager.isIdle }
+
+        assertNull("Real manager removal completion dropped the index row", index.getDownload(id))
+        if (refuse) {
+            assertEquals("The gate actually refused the remover", 1, gate.refused.get())
+            assertEquals("Refused removal left every span, byte and length intact", before, snapshot())
+        } else {
+            assertEquals(0, gate.refused.get())
+            assertTrue("Positive control: admitted removal deleted actual cache spans", cache.getCachedSpans(id).isEmpty())
+            assertFalse(cache.isCached(id, 0, bytes.size.toLong()))
+        }
+    }
+
+    private fun pumpUntil(done: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (System.nanoTime() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (done()) return
+            Thread.sleep(10)
+        }
+        fail("The real manager did not reach the expected state within five seconds")
     }
 
     private data class Snapshot(val spans: List<Pair<Long, Long>>, val bytes: List<Byte>, val contentLength: Long)
