@@ -92,6 +92,11 @@ class MoveDeliveryOwnershipTest {
         // A target deletion cannot overtake the already accepted removal of its original.
         assertEquals(OfflineStore.SavedRemoval.Busy, OfflineStore.removeSavedNow(app,
             requireNotNull(SavedRef.download(SavedShelf.Card, id, id))))
+        assertFalse(store.moves.acknowledgeRemoval(card, request(id)))
+        assertFalse(store.moves.acknowledgeRemoval(phone, request(id).copyWithId("wrong-copy")))
+        store.moves.invalidateAll() // Cannot undo a removal already admitted to Media3.
+        assertTrue(store.moves.hasPending)
+        assertTrue(store.moves.removalInFlight)
         settle(phone); await(saverField)
         assertFalse(store.moves.hasPending)
         assertNull(phone.manager.downloadIndex.getDownload(id))
