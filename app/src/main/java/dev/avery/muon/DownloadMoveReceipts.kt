@@ -14,6 +14,9 @@ internal class DownloadMoveReceipts(private val capacity: Int = 128) {
     }
     private val pending = HashMap<Pair<Shelf, String>, Receipt>()
 
+    /** Unacknowledged hand-overs also prevent another move from overtaking a queued Add. */
+    val hasPending: Boolean @Synchronized get() = pending.isNotEmpty()
+
     @Synchronized fun remember(from: Shelf, to: Shelf, request: DownloadRequest): Boolean {
         val key = to to request.id
         if (key in pending || pending.size >= capacity) return false

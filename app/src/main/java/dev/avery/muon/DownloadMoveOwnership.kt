@@ -24,3 +24,25 @@ internal class DownloadMoveOwnership {
         if (permits(batch, id)) action()
     }
 }
+
+/**
+ * Command admission while a move reads and writes the copies it protects (#230). A move takes it only when
+ * both managers are initialized, idle and hold no queued, downloading, removing or restarting work (see
+ * OfflineStore.move); while it is held, the download services turn every command that could change a
+ * manager's downloads into a no-op before Media3 sees it, and Muon's own senders refuse with a notice.
+ * The move releases it on the main thread in the same step that hands its copies over, after its last copy.
+ *
+ * This orders commands that reach Muon's services and senders. It is not a lock on SimpleCache, on
+ * Media3's internal handler or downloader threads, or on work Media3 starts by itself, and it is not a
+ * transaction: see docs/handoffs/2026-10-08-move-command-admission.md for what it covers.
+ */
+internal class MoveExclusion {
+    private var holder = false
+
+    /** Takes the exclusion if no move holds it; false means another move is still in flight. */
+    @Synchronized fun tryAcquire(): Boolean = if (holder) false else { holder = true; true }
+
+    @Synchronized fun release() { holder = false }
+
+    val held: Boolean @Synchronized get() = holder
+}

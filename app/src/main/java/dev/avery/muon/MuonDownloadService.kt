@@ -24,6 +24,10 @@ class MuonDownloadService : DownloadService(DOWNLOAD_NOTIFICATION, DownloadServi
 
     override fun getDownloadManager(): DownloadManager = OfflineStore.get(this).phone.manager
 
+    // #230: a command that could change downloads is refused while a move is in flight, before Media3 sees it.
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
+        super.onStartCommand(OfflineStore.admitCommand(this, intent), flags, startId)
+
     override fun getScheduler(): Scheduler? = null
 
     override fun getForegroundNotification(downloads: MutableList<Download>, notMetRequirements: Int): Notification =
@@ -60,8 +64,9 @@ class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadServi
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
+        // A command this binding may carry out still passes the move's admission (#230), as the phone's does.
         if (intent == null || action == null || action !in CHANGING_ACTIONS || isCardManager(bound))
-            return super.onStartCommand(intent, flags, startId)
+            return super.onStartCommand(OfflineStore.admitCommand(this, intent), flags, startId)
         // A copy that changes nothing, with the same extras, so a foreground start still shows its notification.
         return super.onStartCommand(Intent(intent).setAction(DownloadService.ACTION_INIT), flags, startId)
     }

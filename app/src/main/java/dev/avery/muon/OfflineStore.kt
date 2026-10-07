@@ -1,6 +1,7 @@
 package dev.avery.muon
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.os.Handler
@@ -376,6 +377,11 @@ internal object OfflineStore {
         }
         val playable = tracks.filter { it.playable }
         if (playable.isEmpty()) return
+        // #230: nothing is queued while a move is in flight; the service would refuse it anyway.
+        if (moveExclusion.held) {
+            notice(context, "A move is under way, so nothing was saved. Try again when it finishes.")
+            return
+        }
         saver.execute {
             val requests = runCatching {
                 val taken = takenNames(store)
@@ -485,11 +491,14 @@ internal object OfflineStore {
                     notice(context, "That copy is on the SD card, which isn't available, so it wasn't removed.")
                 SavedRemoval.NotOwned ->
                     notice(context, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
+                SavedRemoval.Busy ->
+                    notice(context, "A move is under way, so that copy wasn't removed, and it won't be moved. " +
+                        "Remove it again when the move finishes.")
             }
         }
     }
 
-    internal enum class SavedRemoval { Sent, Unavailable, NotOwned }
+    internal enum class SavedRemoval { Sent, Unavailable, NotOwned, Busy }
 
     /** [removeSaved]'s checks and command, on the calling thread; reads one index row. */
     internal fun removeSavedNow(context: Context, ref: SavedRef): SavedRemoval {
@@ -500,6 +509,13 @@ internal object OfflineStore {
             // A copy being written is under a fresh key of its own; SimpleCache serializes removals.
             runCatching { store.cache.removeResource(ref.key) }
             return SavedRemoval.Sent
+        }
+        // #230: no removal reaches a manager while a move reads and writes copies. The song's own hand-over is
+        // revoked now, so the move does not add it once it finishes (#234); the removal itself is not kept
+        // to run later, and the user is asked to remove it again.
+        if (moveExclusion.held) {
+            moveOwnership.remove(listOf(ref.requestId))
+            return SavedRemoval.Busy
         }
         val shelf = (if (ref.shelf == SavedShelf.Card) store.card else store.phone)
             ?.takeIf { it.available() } ?: return SavedRemoval.Unavailable
@@ -541,7 +557,8 @@ internal object OfflineStore {
             if (!spansWithin(from.cache, key, length) || !spansWithin(to.cache, key, length)) return false
             var sent = false
             store.moves.publish(receipt) {
-                if (canMove(from, to)) {
+                // #230: not while another move is in flight; both copies are kept, as with any other refusal.
+                if (canMove(from, to) && !moveExclusion.held) {
                     DownloadService.sendRemoveDownload(context, from.service, receipt.request.id, false)
                     sent = true
                 }
@@ -565,6 +582,40 @@ internal object OfflineStore {
     /** Moves one download at a time, behind everything else. */
     private val mover = Executors.newSingleThreadExecutor()
     private val moveOwnership = DownloadMoveOwnership()
+    /** Held from a move's admission until its copies are handed over (#230); see [MoveExclusion]. */
+    private val moveExclusion = MoveExclusion()
+
+    /** Service commands a move in flight refuses: every one that can add, remove, start or restart work. */
+    private val moveExcludedActions = setOf(DownloadService.ACTION_ADD_DOWNLOAD, DownloadService.ACTION_REMOVE_DOWNLOAD,
+        DownloadService.ACTION_REMOVE_ALL_DOWNLOADS, DownloadService.ACTION_RESUME_DOWNLOADS,
+        DownloadService.ACTION_SET_STOP_REASON, DownloadService.ACTION_SET_REQUIREMENTS)
+
+    /**
+     * The command a download service may pass on to Media3 now (#230). While a move holds [moveExclusion],
+     * a command that could add, remove, start or restart a download becomes a copy that changes nothing, with
+     * the same extras (so a foreground start still shows its notification), and the refusal is said; it is
+     * not kept to run later. Called on the main thread, before DownloadService.onStartCommand; never makes a
+     * store. Pausing, and everything when no move is in flight, passes unchanged.
+     */
+    internal fun admitCommand(context: Context, intent: Intent?): Intent? {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Download command admission requires main" }
+        val action = intent?.action ?: return intent
+        if (action !in moveExcludedActions || !moveExclusion.held) return intent
+        notice(context, "A move is under way, so that change wasn't made. Try again when it finishes.")
+        return Intent(intent).setAction(DownloadService.ACTION_INIT)
+    }
+
+    /**
+     * Whether [manager] has nothing in flight a move could race (#230): initialized, idle (no command waiting
+     * on its handler, no task running) and no download it could start or remove when resumed or when its
+     * requirements are met. Stopped downloads stay stopped: setting a stop reason is refused during a move.
+     * Read on the main thread, where Media3 keeps these counts.
+     */
+    private fun quiet(manager: DownloadManager): Boolean = manager.isInitialized && manager.isIdle &&
+        manager.currentDownloads.none {
+            it.state == Download.STATE_QUEUED || it.state == Download.STATE_DOWNLOADING ||
+                it.state == Download.STATE_REMOVING || it.state == Download.STATE_RESTARTING
+        }
 
     /**
      * How many finished downloads are on the card ([card]) or the phone. Reads the index. Null for a
@@ -584,6 +635,7 @@ internal object OfflineStore {
      * (see [watch]). A song that fails to copy stays where it was.
      */
     fun move(context: Context, toCard: Boolean) {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Move admission requires main" }
         val store = get(context)
         val card = store.card
         val from = if (toCard) store.phone else card
@@ -595,9 +647,30 @@ internal object OfflineStore {
             notice(context, "The SD card isn't available, so nothing was moved.")
             return
         }
+        // #230: only with both managers quiet, and no other move in flight, does a move start; then no
+        // command can reach either manager until its copies are handed over. Otherwise nothing is moved.
+        if (store.moves.hasPending || !quiet(from.manager) || !quiet(to.manager) || !moveExclusion.tryAcquire()) {
+            notice(context, "Saved copies are still being saved, removed or moved, so nothing was moved. " +
+                "Try again when that has finished.")
+            return
+        }
         val main = Handler(Looper.getMainLooper())
         val batch = moveOwnership.begin()
-        mover.execute {
+        try { mover.execute { moveBatch(context, store, from, to, batch, main) } }
+        catch (failure: RuntimeException) {
+            moveOwnership.finish(batch)
+            moveExclusion.release()
+            throw failure
+        }
+    }
+
+    /** One admitted move, on the mover: copies first, then one main-thread step that releases and hands over. */
+    private fun moveBatch(context: Context, store: Store, from: Shelf, to: Shelf, batch: DownloadMoveOwnership.Batch,
+        main: Handler) {
+        // Written by the mover only; read by the main-thread step it posts last (the post orders the two).
+        val copiedRequests = ArrayList<DownloadRequest>()
+        run {
+            // run only scopes the batch; the finally below runs on every exit, including a thrown Error.
             try {
                 // One census of both indexes for the batch (#213). It stays valid for each song: neither
                 // writer can add a row naming a key another row owns (see [soleOwner]), and this move adds
@@ -625,22 +698,8 @@ internal object OfflineStore {
                         copy(download, from, to) { canMove(from, to) && moveOwnership.permits(batch, download.request.id) }
                     }.isSuccess
                     if (attempted && !copied) failed++
-                    if (copied)
-                        // Hand-over needs both shelves still available (#179 S1) and the move still owning
-                        // this song: removed or Remove all since means no Add (#234).
-                        main.post {
-                            deliverMovedCopy(from, to) {
-                                moveOwnership.publish(batch, download.request.id) {
-                                    if (store.moves.remember(from, to, download.request)) {
-                                        try { DownloadService.sendAddDownload(context, to.service, download.request, false) }
-                                        catch (failure: Exception) {
-                                            store.moves.invalidate(download.request.id)
-                                            throw failure
-                                        }
-                                    } else notice(context, "The original copy was kept: another move is still pending. Retry later.")
-                                }
-                            }
-                        }
+                    // Handed over only after the last copy, when the exclusion is released (#230).
+                    if (copied) copiedRequests += download.request
                     main.post { DownloadMarks.moving = index + 1 to downloads.size }
                 }
                 if (kept > 0) notice(context, "$kept ${if (kept == 1) "copy was" else "copies were"} kept where " +
@@ -649,10 +708,39 @@ internal object OfflineStore {
                     "1 copy couldn't be moved. Its saved entry was kept."
                 else "$failed copies couldn't be moved. Their saved entries were kept.")
             } finally {
-                // Posted after every completion: callbacks still carry ownership until they drain.
-                main.post { moveOwnership.finish(batch); DownloadMarks.moving = null }
+                // One main-thread step, after the mover has stopped reading and writing the copies: release
+                // the exclusion, then hand over. Nothing runs between the two, so a command refused during
+                // the move cannot slip in first; one sent after it is an ordinary command. A removal refused
+                // during the move revoked that song's hand-over, so it is not added (#234).
+                main.post {
+                    try {
+                        moveExclusion.release()
+                        handOver(context, store, from, to, batch, copiedRequests)
+                    } finally { moveOwnership.finish(batch); DownloadMarks.moving = null }
+                }
             }
         }
+    }
+
+    /**
+     * Sends each copied song's Add to [to], on the main thread, once the move's exclusion is released.
+     * Hand-over needs both shelves still available (#179 S1) and the move still owning the song: removed or
+     * Remove all since means no Add (#234). A send that fails invalidates that song's receipt and is said;
+     * the others are still handed over.
+     */
+    private fun handOver(context: Context, store: Store, from: Shelf, to: Shelf, batch: DownloadMoveOwnership.Batch,
+        copied: List<DownloadRequest>) {
+        var unsent = 0
+        for (request in copied) deliverMovedCopy(from, to) {
+            moveOwnership.publish(batch, request.id) {
+                if (store.moves.remember(from, to, request)) {
+                    try { DownloadService.sendAddDownload(context, to.service, request, false) }
+                    catch (_: Exception) { store.moves.invalidate(request.id); unsent++ }
+                } else notice(context, "The original copy was kept: another move is still pending. Retry later.")
+            }
+        }
+        if (unsent > 0) notice(context, "$unsent moved ${if (unsent == 1) "copy wasn't" else "copies weren't"} " +
+            "handed over. The originals were kept.")
     }
 
     /** Thrown from the copy's progress callback once [copy]'s owner no longer wants it; see [copy]. */
@@ -769,6 +857,13 @@ internal object OfflineStore {
         // Every move in flight loses its publication, whichever shelves receive the commands (#234).
         moveOwnership.removeAll()
         get(context).moves.invalidateAll()
+        // #230: nothing reaches a manager while a move is in flight. Its hand-overs were just revoked, so
+        // nothing it copied is added; the removal is not kept to run later.
+        if (moveExclusion.held) {
+            notice(context, "A move is under way, so nothing was removed, and nothing more will be moved. " +
+                "Remove all again when the move finishes.")
+            return
+        }
         saver.execute {
             val (_, kept) = removeAllNow(context)
             if (get(context).shelves.any { !it.available() })

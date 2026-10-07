@@ -79,7 +79,21 @@ class DownloadMoveCharacterizationTest {
         fixture.card = card
         previousStore = storeField.get(null)
         storeField.set(null, fixture)
+        // A move is admitted only with both managers initialized and idle (#230): wait for that here.
+        awaitSettled(phone.manager)
+        awaitSettled(card.manager)
         startedCommands() // Ignore unrelated setup work; no service is instantiated by this fixture.
+    }
+
+    /** Bounded: pumps the main looper until the manager has loaded its index and processed every command. */
+    private fun awaitSettled(manager: androidx.media3.exoplayer.offline.DownloadManager) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (true) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (manager.isInitialized && manager.isIdle) return
+            check(System.nanoTime() < deadline) { "The manager did not settle" }
+            Thread.sleep(5) // Yields to Media3's real internal handler thread; not a timing assertion.
+        }
     }
 
     @After fun tearDown() {
@@ -117,30 +131,43 @@ class DownloadMoveCharacterizationTest {
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
+        // The move holds its command exclusion until its main-thread hand-over runs (#230): the removal is
+        // refused before any command is sent, and the song's hand-over is revoked (#234).
+        assertEquals(OfflineStore.SavedRemoval.Busy, OfflineStore.removeSavedNow(app,
+            requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
+        assertTrue(startedCommands().isEmpty())
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        // Do not blindly remove target spans: ownership-aware partial cleanup is still separate.
+        assertArrayEquals(bytes, targetBytes())
+        // Once the move has finished, the same removal is sent exactly as before.
         assertEquals(OfflineStore.SavedRemoval.Sent, OfflineStore.removeSavedNow(app,
             requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
         val removals = startedCommands()
         assertEquals(1, removals.size)
         assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD &&
             it.getStringExtra(DownloadService.KEY_CONTENT_ID) == id })
-        shadowOf(Looper.getMainLooper()).idle()
-        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
-        // Do not blindly remove target spans: ownership-aware partial cleanup is still separate.
-        assertArrayEquals(bytes, targetBytes())
     }
 
     @Test fun removingAllBeforeQueuedAddRejectsTheLaterAdd() {
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
         awaitMover()
+        // Refused while the move holds its exclusion (#230), but its hand-overs are revoked at once (#234).
+        OfflineStore.removeAll(app)
+        awaitSaver()
+        assertTrue(startedCommands().isEmpty())
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertEquals("A move is under way, so nothing was removed, and nothing more will be moved. " +
+            "Remove all again when the move finishes.", ShadowToast.getTextOfLatestToast())
+        // Once the move has finished, Remove all sends the same per-row removal as before.
         OfflineStore.removeAll(app)
         awaitSaver()
         val removals = startedCommands()
         assertEquals(1, removals.size)
         assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD &&
             it.getStringExtra(DownloadService.KEY_CONTENT_ID) == id })
-        shadowOf(Looper.getMainLooper()).idle()
-        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
     }
 
     @Test fun missingLaterSpanLeavesPartialDestinationBytesWithoutAnAddOrDownloadRecord() {
@@ -160,6 +187,23 @@ class DownloadMoveCharacterizationTest {
         assertTrue("Failed copy retains unindexed target spans", card.cache.getCachedSpans(id).isNotEmpty())
         assertFalse(card.cache.isCached(id, 0, 2L * chunk.size))
         assertArrayEquals(chunk, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
+        // A failed copy still releases the move's command exclusion (#230): the next removal is judged as
+        // usual, not refused as busy.
+        assertNotEquals(OfflineStore.SavedRemoval.Busy, OfflineStore.removeSavedNow(app,
+            requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
+    }
+
+    @Test fun aSecondMoveBeforeTheFirstReleasesIsRefusedAndAddsNothingMore() {
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        // Before the first move's release step runs, a second move is refused; nothing more is copied.
+        awaitMover()
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("Exactly the first move's one hand-over", 1,
+            startedCommands().count { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertArrayEquals(bytes, targetBytes())
     }
 
     @Test fun unrelatedCrossShelfCompletionNeverDeletesTheOlderCopy() {
