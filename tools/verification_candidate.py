@@ -30,7 +30,7 @@ def validate(data, commit):
     if set(root.attrib) - {f'{{{XSI}}}schemaLocation'}:
         raise ValueError('Unexpected root attributes')
     schema = root.get(f'{{{XSI}}}schemaLocation', '')
-    if schema and not re.fullmatch(re.escape(NS) + r' https://schema.gradle.org/dependency-verification-1\.[0-9]+\.xsd', schema):
+    if schema and schema != NS + ' ' + NS + '/dependency-verification-1.3.xsd':
         raise ValueError('Unexpected schema location')
     if [e.tag for e in root] != [f'{{{NS}}}configuration', f'{{{NS}}}components']:
         raise ValueError('Expected only configuration and components')
