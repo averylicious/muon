@@ -76,3 +76,7 @@ These still capture intents rather than delivering them.
 - `app/src/test/java/dev/avery/muon/StrictMoveSinkTest.kt` (new)
 - `app/src/test/java/dev/avery/muon/DownloadMoveCharacterizationTest.kt`: two tests, and the teardown reset.
 - `docs/handoffs/2026-10-08-move-completion-receipt.md`
+
+## Coordinator reservation follow-up
+
+Pinned SimpleCache.startFile returns a path formed from key/position/current time and a chosen cache directory; it does not create or exclusively reserve the file. Coordinator review added atomic createNewFile before assigning ownership/opening the output. Existing unindexed files are refused without opening, truncating or deleting them. A native-cache collision fixture injects an occupied path, verifies that the output factory never opens and preserves its exact bytes. Coordinator authored this correction/test and self-reviewed it; the earlier Claude source review attribution does not independently cover this addition. First CI of this head supplies compile/test evidence.

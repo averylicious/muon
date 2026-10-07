@@ -99,6 +99,22 @@ class StrictMoveSinkTest {
         assertTrue(cache.getCachedSpans(key).isEmpty())
     }
 
+    @Test fun anOccupiedReservationIsNeitherOpenedTruncatedNorDeleted() {
+        val original = byteArrayOf(8, 7, 6, 5)
+        val occupied = File(folder, "existing-unindexed.exo").apply { writeBytes(original) }
+        val colliding = object : Cache by cache {
+            override fun startFile(key: String, position: Long, length: Long): File = occupied
+        }
+        var opens = 0
+        val sink = StrictMoveSink(colliding) { file -> opens++; MoveFileOutputs.Real.open(file) }
+        assertThrows(IOException::class.java) { writeThrough(sink) }
+        assertEquals(0, opens)
+        assertArrayEquals(original, occupied.readBytes())
+        assertFalse(sink.clean)
+        assertEquals(0, sink.committed)
+        assertTrue(cache.getCachedSpans(key).isEmpty())
+    }
+
     @Test fun aFailedOpenLeavesNothingOpenOrReserved() {
         val sink = StrictMoveSink(cache) { throw IOException("Injected open failure") }
         val hole = requireNotNull(cache.startReadWrite(key, 0, payload.size.toLong()))

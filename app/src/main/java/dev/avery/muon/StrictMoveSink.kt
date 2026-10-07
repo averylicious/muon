@@ -78,6 +78,9 @@ internal class StrictMoveSink(private val cache: Cache, private val outputs: Mov
         opened++
         try {
             val reserved = cache.startFile(key, dataSpec.position, dataSpec.length)
+            // startFile returns a pathname, not an exclusive reservation. A same-name unindexed file
+            // may belong to an earlier uncertain commit: neither truncate nor delete it.
+            if (!reserved.createNewFile()) throw IOException("The move destination file already exists")
             file = reserved
             output = outputs.open(reserved)
             written = 0
