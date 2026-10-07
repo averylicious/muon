@@ -97,6 +97,8 @@ internal object OfflineStore {
         val moves: DownloadMoveReceipts = DownloadMoveReceipts()) {
         /** The phone's cache, which also holds the played-song copies. */
         val cache: SimpleCache get() = phone.cache
+        /** Commands admitted by the services since a completion census; no snapshot survives a mutation. */
+        val moveCommandEpoch = java.util.concurrent.atomic.AtomicLong()
         @Volatile var card: Shelf? = null
         /** The app's folder on [card], for its name and free space; null without a card. */
         @Volatile var cardFolder: File? = null
@@ -211,14 +213,12 @@ internal object OfflineStore {
                 store.record(DownloadStatus.of(download))
                 if (download.state == Download.STATE_FAILED || download.state == Download.STATE_REMOVING)
                     store.moves.find(shelf, id)?.let(store.moves::finish)
-                if (download.state != Download.STATE_COMPLETED || store.moves.find(shelf, id) == null) return
-                saver.execute {
-                    if (!completeMovedCopyNow(context, store, shelf, download))
-                        notice(context, "The original copy was kept: Muon couldn't confirm the move finished safely.")
-                }
+                if (download.state == Download.STATE_COMPLETED) finishReadyMoves(context, store)
             }
+            override fun onIdle(m: DownloadManager) { finishReadyMoves(context, store) }
             override fun onDownloadRemoved(m: DownloadManager, download: Download) {
                 changed?.add(download.request.id)
+                store.moves.acknowledgeRemoval(shelf, download.request)
                 store.moves.invalidate(download.request.id)
                 store.removed(download)
             }
@@ -237,6 +237,20 @@ internal object OfflineStore {
                 }
             }
         } finally { bootstrap.shutdown() }
+    }
+
+    /** Serial cleanup starts after both managers settle, not during another target Add/source Remove. */
+    private fun finishReadyMoves(context: Context, store: Store) {
+        if (!store.shelves.all { quiet(it.manager) }) return
+        for (receipt in store.moves.ready()) saver.execute {
+            val completed = runCatching { receipt.to.manager.downloadIndex.getDownload(receipt.request.id) }.getOrNull()
+            if (completed == null || completed.state != Download.STATE_COMPLETED) {
+                store.moves.finish(receipt)
+            } else if (!completeMovedCopyNow(context, store, receipt.to, completed) &&
+                store.moves.find(receipt.to, receipt.request.id) == null) {
+                notice(context, "The original copy was kept: Muon couldn't confirm the move finished safely.")
+            }
+        }
     }
 
     /** Where new downloads go: the card when chosen and available, the phone when the card isn't chosen. */
@@ -378,7 +392,7 @@ internal object OfflineStore {
         val playable = tracks.filter { it.playable }
         if (playable.isEmpty()) return
         // #230: nothing is queued while a move is in flight; the service would refuse it anyway.
-        if (moveExclusion.held) {
+        if (moveExclusion.held || store.moves.removalInFlight) {
             notice(context, "A move is under way, so nothing was saved. Try again when it finishes.")
             return
         }
@@ -492,8 +506,8 @@ internal object OfflineStore {
                 SavedRemoval.NotOwned ->
                     notice(context, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
                 SavedRemoval.Busy ->
-                    notice(context, "A move is under way, so that copy wasn't removed, and it won't be moved. " +
-                        "Remove it again when the move finishes.")
+                    notice(context, "A move is under way, so that copy wasn't removed. " +
+                        "Try again when the move finishes.")
             }
         }
     }
@@ -503,6 +517,7 @@ internal object OfflineStore {
     /** [removeSaved]'s checks and command, on the calling thread; reads one index row. */
     internal fun removeSavedNow(context: Context, ref: SavedRef): SavedRemoval {
         val store = get(context)
+        if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
             if (!store.playedClaims.removable(ref.key)) return SavedRemoval.NotOwned
@@ -537,6 +552,8 @@ internal object OfflineStore {
      */
     internal fun completeMovedCopyNow(context: Context, store: Store, to: Shelf, completed: Download): Boolean {
         val receipt = store.moves.find(to, completed.request.id) ?: return false
+        if (!store.moves.readyToCheck(receipt)) return false
+        val epoch = store.moveCommandEpoch.get()
         try {
             val from = receipt.from
             if (receipt.to !== to || completed.request != receipt.request || !canMove(from, to)) return false
@@ -555,17 +572,14 @@ internal object OfflineStore {
             if (!sameBytes(DataSpec.Builder().setUri(receipt.request.uri).setKey(key).setLength(length).build(), from, to))
                 return false
             if (!spansWithin(from.cache, key, length) || !spansWithin(to.cache, key, length)) return false
-            var sent = false
-            store.moves.publish(receipt) {
-                // #230: not while another move is in flight; both copies are kept, as with any other refusal.
-                if (canMove(from, to) && !moveExclusion.held) {
-                    DownloadService.sendRemoveDownload(context, from.service, receipt.request.id, false)
-                    sent = true
-                }
+            if (store.moveCommandEpoch.get() != epoch) return false
+            return store.moves.queueRemoval(receipt, epoch, length) {
+                val intent = DownloadService.buildRemoveDownloadIntent(context, from.service, receipt.request.id, false)
+                    .putExtra(MOVE_COMMAND_TOKEN, receipt.token)
+                context.startService(intent)
             }
-            return sent
         } catch (_: Exception) { return false }
-        finally { store.moves.finish(receipt) }
+        finally { if (!receipt.removalPending) store.moves.finish(receipt) }
     }
 
     /**
@@ -597,12 +611,67 @@ internal object OfflineStore {
      * not kept to run later. Called on the main thread, before DownloadService.onStartCommand; never makes a
      * store. Pausing, and everything when no move is in flight, passes unchanged.
      */
-    internal fun admitCommand(context: Context, intent: Intent?): Intent? {
+    internal const val MOVE_COMMAND_TOKEN = "dev.avery.muon.move-command-token"
+
+    /** Rechecks a process-owned command at actual service delivery; old/replayed commands become INIT. */
+    @Suppress("DEPRECATION")
+    internal fun admitCommand(context: Context, intent: Intent?, shelf: Shelf? = null): Intent? {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Download command admission requires main" }
         val action = intent?.action ?: return intent
-        if (action !in moveExcludedActions || !moveExclusion.held) return intent
-        notice(context, "A move is under way, so that change wasn't made. Try again when it finishes.")
-        return Intent(intent).setAction(DownloadService.ACTION_INIT)
+        val store = current()
+        fun refused(message: String): Intent {
+            notice(context, message)
+            return Intent(intent).setAction(DownloadService.ACTION_INIT)
+        }
+        if (intent.hasExtra(MOVE_COMMAND_TOKEN)) {
+            val token = intent.getStringExtra(MOVE_COMMAND_TOKEN)
+            val adding = action == DownloadService.ACTION_ADD_DOWNLOAD
+            val request = if (adding) intent.getParcelableExtra<DownloadRequest>(DownloadService.KEY_DOWNLOAD_REQUEST) else null
+            val id = if (adding) request?.id else intent.getStringExtra(DownloadService.KEY_CONTENT_ID)
+            val receipt = if (store != null && shelf != null && token != null && id != null)
+                store.moves.tagged(shelf, id, token, adding) else null
+            val valid = receipt != null && !moveExclusion.held && canMove(receipt.from, receipt.to) &&
+                (if (adding) request == receipt.request && store!!.moves.admitAdd(receipt)
+                else action == DownloadService.ACTION_REMOVE_DOWNLOAD && runCatching {
+                    // Census/byte comparison ran off main. Any subsequently admitted mutation invalidates it;
+                    // quiet managers and exact records prevent a pending/rebound request using this receipt.
+                    val from = receipt.from; val to = receipt.to
+                    val source = from.manager.downloadIndex.getDownload(receipt.request.id)
+                    val target = to.manager.downloadIndex.getDownload(receipt.request.id)
+                    val key = receipt.request.customCacheKey
+                    val length = receipt.checkedLength
+                    store!!.moveCommandEpoch.get() == receipt.checkedEpoch && quiet(from.manager) && quiet(to.manager) &&
+                        source != null && target != null && source.request == receipt.request && target.request == receipt.request &&
+                        source.state == Download.STATE_COMPLETED && target.state == Download.STATE_COMPLETED &&
+                        key != null && length > 0 &&
+                        ContentMetadata.getContentLength(from.cache.getContentMetadata(key)) == length &&
+                        ContentMetadata.getContentLength(to.cache.getContentMetadata(key)) == length &&
+                        from.cache.isCached(key, 0, length) && to.cache.isCached(key, 0, length) &&
+                        spansWithin(from.cache, key, length) && spansWithin(to.cache, key, length) &&
+                        store.moves.admitRemoval(receipt)
+                }.getOrDefault(false))
+            if (!valid) {
+                if (receipt != null && !receipt.removalPending) store!!.moves.finish(receipt)
+                // A queued removal refused at delivery will never be retried automatically.
+                if (receipt != null && receipt.removeQueued()) {
+                    store!!.moves.finish(receipt)
+                    Handler(Looper.getMainLooper()).post { finishReadyMoves(context, store) }
+                }
+                return refused("That move command is no longer current, so it wasn't applied. The remaining copies were kept.")
+            }
+            return intent
+        }
+        if (action !in moveExcludedActions) return intent
+        if (moveExclusion.held || store?.moves?.removalInFlight == true)
+            return refused("A move is under way, so that change wasn't made. Try again when it finishes.")
+        if (store != null) {
+            store.moveCommandEpoch.incrementAndGet()
+            val id = if (action == DownloadService.ACTION_ADD_DOWNLOAD)
+                intent.getParcelableExtra<DownloadRequest>(DownloadService.KEY_DOWNLOAD_REQUEST)?.id
+                else intent.getStringExtra(DownloadService.KEY_CONTENT_ID)
+            if (id == null) store.moves.invalidateAll() else store.moves.invalidate(id)
+        }
+        return intent
     }
 
     /**
@@ -734,7 +803,11 @@ internal object OfflineStore {
         for (request in copied) deliverMovedCopy(from, to) {
             moveOwnership.publish(batch, request.id) {
                 if (store.moves.remember(from, to, request)) {
-                    try { DownloadService.sendAddDownload(context, to.service, request, false) }
+                    try {
+                        val receipt = requireNotNull(store.moves.find(to, request.id))
+                        context.startService(DownloadService.buildAddDownloadIntent(context, to.service, request,
+                            Download.STOP_REASON_NONE, false).putExtra(MOVE_COMMAND_TOKEN, receipt.token))
+                    }
                     catch (_: Exception) { store.moves.invalidate(request.id); unsent++ }
                 } else notice(context, "The original copy was kept: another move is still pending. Retry later.")
             }
@@ -854,6 +927,10 @@ internal object OfflineStore {
 
     /** Removes every download from the available shelves; an unavailable card keeps its own (#179 S1). */
     fun removeAll(context: Context) {
+        if (get(context).moves.removalInFlight) {
+            notice(context, "A move is finishing, so nothing was removed. Try again when it finishes.")
+            return
+        }
         // Every move in flight loses its publication, whichever shelves receive the commands (#234).
         moveOwnership.removeAll()
         get(context).moves.invalidateAll()

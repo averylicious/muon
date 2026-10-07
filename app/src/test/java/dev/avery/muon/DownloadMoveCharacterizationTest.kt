@@ -215,6 +215,7 @@ class DownloadMoveCharacterizationTest {
         val completed = Download(otherRequest, Download.STATE_COMPLETED, 0L, 0L, otherBytes.size.toLong(),
             Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
         targetIndex.putDownload(completed)
+        admitCopiedAdd()
         assertFalse(OfflineStore.completeMovedCopyNow(app, OfflineStore.get(app), card, completed))
         assertTrue(startedCommands().isEmpty())
         assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
@@ -231,12 +232,13 @@ class DownloadMoveCharacterizationTest {
         val completed = Download(request, Download.STATE_COMPLETED, 0L, 0L, bytes.size.toLong(),
             Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
         targetIndex.putDownload(completed)
+        admitCopiedAdd()
         assertTrue(OfflineStore.completeMovedCopyNow(app, OfflineStore.get(app), card, completed))
         val removal = startedCommands().single()
         assertEquals(DownloadService.ACTION_REMOVE_DOWNLOAD, removal.action)
         assertEquals(MuonDownloadService::class.java.name, removal.component?.className)
         assertEquals(id, removal.getStringExtra(DownloadService.KEY_CONTENT_ID))
-        assertFalse("The receipt is consumed, not replayable", OfflineStore.completeMovedCopyNow(app,
+        assertFalse("The queued removal cannot be sent twice", OfflineStore.completeMovedCopyNow(app,
             OfflineStore.get(app), card, completed))
     }
 
@@ -266,6 +268,7 @@ class DownloadMoveCharacterizationTest {
         val completed = Download(request, Download.STATE_COMPLETED, 0, 0, bytes.size.toLong(),
             Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
         targetIndex.putDownload(completed)
+        admitCopiedAdd()
         assertFalse(OfflineStore.completeMovedCopyNow(app, OfflineStore.get(app), card, completed))
         assertTrue(startedCommands().isEmpty())
         assertArrayEquals(byteArrayOf(77), extra.readBytes())
@@ -303,6 +306,7 @@ class DownloadMoveCharacterizationTest {
         val completed = Download(request, Download.STATE_COMPLETED, 0, 0, bytes.size.toLong(),
             Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
         targetIndex.putDownload(completed)
+        admitCopiedAdd()
         assertFalse(OfflineStore.completeMovedCopyNow(app, OfflineStore.get(app), card, completed))
         assertTrue(startedCommands().isEmpty())
         assertArrayEquals(byteArrayOf(88, 99), fragment.readBytes())
@@ -315,16 +319,19 @@ class DownloadMoveCharacterizationTest {
         completeSource(bytes)
         val store = OfflineStore.get(app)
         assertTrue(store.moves.remember(phone, card, request))
+        admitCopiedAdd()
         val changed = ByteArray(bytes.size) { 33 }
         seed(card.cache, 0, changed)
         setLength(card.cache, changed.size.toLong())
         val completed = Download(request, Download.STATE_COMPLETED, 0L, 0L, changed.size.toLong(),
             Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
         targetIndex.putDownload(completed)
+        admitCopiedAdd()
         assertFalse(OfflineStore.completeMovedCopyNow(app, store, card, completed))
         assertTrue(startedCommands().isEmpty())
         assertArrayEquals(changed, targetBytes())
         assertTrue(store.moves.remember(phone, card, request))
+        admitCopiedAdd()
         store.moves.invalidate(id)
         assertFalse(OfflineStore.completeMovedCopyNow(app, store, card, completed))
         assertTrue(startedCommands().isEmpty())
@@ -655,6 +662,13 @@ class DownloadMoveCharacterizationTest {
     @Suppress("DEPRECATION")
     private fun addRequest(intent: Intent): DownloadRequest =
         requireNotNull(intent.getParcelableExtra(DownloadService.KEY_DOWNLOAD_REQUEST))
+
+    /** Captured-command fixture only: marks its Add admitted; the delivery suite runs real services. */
+    private fun admitCopiedAdd() {
+        val moves = OfflineStore.get(app).moves
+        val receipt = moves.find(card, id) ?: return
+        if (receipt.addQueued()) assertTrue(moves.admitAdd(receipt))
+    }
 
     private fun startedCommands(): List<Intent> = buildList {
         val shadow = shadowOf(app)
