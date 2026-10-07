@@ -6,6 +6,8 @@ import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadCursor
+import androidx.media3.exoplayer.offline.DownloadIndex
 import androidx.media3.exoplayer.offline.DownloadRequest
 import org.junit.After
 import org.junit.Assert.*
@@ -210,6 +212,62 @@ class SavedOwnershipCensusTest {
         assertTrue(refused.complete)
         assertArrayEquals(oversized, cache.getContentMetadata(keys[1]).get(SONG_METADATA, ByteArray(0)))
         assertArrayEquals(bytes, requireNotNull(cache.getCachedSpans(keys[1]).single().file).readBytes())
+    }
+
+    @Test fun streamedIndexInventoryIncludesHiddenOwnersAndClosesOneRewoundCursor() {
+        val index = DefaultDownloadIndex(database, "streamed-census")
+        val cache = cache(PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
+        val owner = put(index, "saved/owner", "saved/owner")
+        seed(cache, owner.request.id)
+        // This row cannot be represented by a SavedRef, yet must protect the visible row's bytes.
+        val hidden = put(index, "hidden/" + "X".repeat(1200), owner.request.id)
+        val cursor = index.getDownloads()
+        var opens = 0
+        var reads = 0
+        var rewinds = 0
+        val counted = object : DownloadIndex {
+            override fun getDownload(id: String): Download? = index.getDownload(id)
+            override fun getDownloads(vararg states: Int): DownloadCursor {
+                opens++
+                assertTrue(states.isEmpty())
+                return object : DownloadCursor by cursor {
+                    override fun getDownload(): Download { reads++; return cursor.download }
+                    override fun moveToPosition(position: Int): Boolean {
+                        if (position == -1) rewinds++
+                        return cursor.moveToPosition(position)
+                    }
+                }
+            }
+        }
+        val entries = savedInventory(SavedShelf.Phone, counted, cache, null) { false }
+        assertEquals(1, opens)
+        assertEquals(2, rewinds)
+        assertEquals(4, reads)
+        assertTrue(cursor.isClosed)
+        assertEquals(listOf(owner.request.id), entries.map { it.ref.requestId })
+        assertFalse("An undisplayed row still claims the audio", entries.single().removable)
+        assertTrue(entries.single().complete)
+        assertNotNull(index.getDownload(hidden.request.id))
+        assertArrayEquals(bytes, requireNotNull(cache.getCachedSpans(owner.request.id).single().file).readBytes())
+    }
+
+    @Test fun streamedInventoryClosesCursorOnProjectionFailureWithoutChangingIndexOrAudio() {
+        val index = DefaultDownloadIndex(database, "streamed-failure")
+        val cache = cache(PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
+        val row = put(index, "saved/kept", "saved/kept")
+        seed(cache, row.request.id)
+        val cursor = index.getDownloads()
+        val wrapped = object : DownloadIndex {
+            override fun getDownload(id: String): Download? = index.getDownload(id)
+            override fun getDownloads(vararg states: Int): DownloadCursor = cursor
+        }
+        try {
+            savedInventory(SavedShelf.Phone, wrapped, cache, null) { throw IllegalStateException("cover read failed") }
+            fail("A failed projection must not report a complete inventory")
+        } catch (expected: IllegalStateException) { assertEquals("cover read failed", expected.message) }
+        assertTrue(cursor.isClosed)
+        assertEquals(row.request, index.getDownload(row.request.id)?.request)
+        assertArrayEquals(bytes, requireNotNull(cache.getCachedSpans(row.request.id).single().file).readBytes())
     }
 
     private fun put(index: DefaultDownloadIndex, id: String, key: String?): Download {

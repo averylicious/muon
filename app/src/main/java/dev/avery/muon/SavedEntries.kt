@@ -10,6 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadIndex
 import java.util.UUID
 
 /**
@@ -142,15 +143,20 @@ internal fun soleOwner(rows: List<Download>, requestId: String): Boolean {
 
 /** Same sole-owner rule for one inventory, without rescanning all rows for every listed copy. */
 @androidx.annotation.OptIn(UnstableApi::class)
-private fun soleOwners(rows: List<Download>): Set<String> {
-    // Include every state and even rows that cannot be listed: they still claim their effective key.
-    val ids = rows.groupingBy { it.request.id }.eachCount()
-    val keys = rows.groupingBy(::keyOf).eachCount()
-    return rows.mapNotNullTo(HashSet()) { row ->
+private fun soleOwners(rows: Sequence<Download>): Set<String> {
+    // Count all states/hidden rows but keep only names, never each row's raw metadata bytes.
+    // Two is enough to establish that ownership is not sole, avoiding counter overflow.
+    val ids = HashMap<String, Int>()
+    val keys = HashMap<String, Int>()
+    val candidates = HashSet<String>()
+    for (row in rows) {
         val id = row.request.id
-        val key = row.request.customCacheKey
-        id.takeIf { key == id && !id.startsWith(PLAYED_PREFIX) && ids[id] == 1 && keys[id] == 1 }
+        val key = keyOf(row)
+        ids[id] = minOf(2, (ids[id] ?: 0) + 1)
+        keys[key] = minOf(2, (keys[key] ?: 0) + 1)
+        if (row.request.customCacheKey == id && !id.startsWith(PLAYED_PREFIX)) candidates += id
     }
+    return candidates.filterTo(HashSet()) { ids[it] == 1 && keys[it] == 1 }
 }
 
 /**
@@ -220,10 +226,28 @@ internal fun savedOrigin(address: String?): String? = address?.let {
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache: Cache, played: PlayedClaims?,
+    ownsCover: (String) -> Boolean): List<SavedEntry> =
+    savedInventory(shelf, { downloads.asSequence() }, cache, played, ownsCover)
+
+/**
+ * Inventory over one rewindable index result: raw request data is projected one row at a time rather
+ * than retained as a second full collection. Every row still participates in ownership, even one that
+ * cannot be shown. The cursor closes on either successful projection or a failed cache/index read.
+ * This does not bound native cursor windows, key names, cache metadata or the final display list.
+ */
+internal fun savedInventory(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
+    ownsCover: (String) -> Boolean): List<SavedEntry> = index.getDownloads().use { cursor ->
+    savedInventory(shelf, {
+        cursor.moveToPosition(-1)
+        sequence { while (cursor.moveToNext()) yield(cursor.download) }
+    }, cache, played, ownsCover)
+}
+
+private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
     ownsCover: (String) -> Boolean): List<SavedEntry> {
     val entries = ArrayList<SavedEntry>()
-    val removableIds = soleOwners(downloads)
-    for (download in downloads) {
+    val removableIds = soleOwners(downloads())
+    for (download in downloads()) {
         if (download.state == Download.STATE_REMOVING) continue
         val request = download.request
         val key = keyOf(download)
