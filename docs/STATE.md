@@ -69,6 +69,8 @@ _Last updated: 2026-10-07, cursor/copy/trust continuation and limited POCO acces
 
 ## Open items and known limits
 
+- **Private playback service (#205):** main still has the direct exported-service route. The private-service fix and packaged-manifest gate are refreshed on their PR for a current test build, but remain open for notification/lockscreen/headset/reconnect/companion compatibility QA. Source/controller policy #204 alone does not close this route. See [the focused handoff](handoffs/2026-09-30-private-service.md).
+
 - **#83:** the Baseline Profile ships, but its before-and-after speed measurement hasn't been done.
 - **SD-card lifecycle (#179):** presence is captured at store creation, and deeper review found a possible stale-cache/index purge leading to lost downloads after removal/reinsertion. See [the source evidence and constraints](audits/2026-09-28-storage.md). The [disposable JVM harness](audits/2026-09-29-cache-characterization.md) separates the modeled cache behavior from phone/mount behavior. A data-preserving fix remains a priority; no device loss has been observed in this audit.
 - **Fresh-install discovery:** on 2026-09-27, a fresh install (Muon Benchmark) scanned the network and found no Tauon, although Tauon answered and the phone could reach port 7814. Typing the address worked. This is not investigated yet; check Canary on a fresh install before assuming it's fixed.
