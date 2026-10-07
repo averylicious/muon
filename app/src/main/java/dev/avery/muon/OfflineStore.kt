@@ -60,6 +60,19 @@ internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val s
         runCatching { manager.downloadIndex.getDownload(id) != null }.getOrDefault(false)
 }
 
+/**
+ * What the download marks record about one row: its request ID, state and downloaded bytes, and nothing
+ * else (#253). It is read from a row and holds no reference to it, so a status waiting to be published
+ * does not keep the row's request, URI or stored song record alive. It names no index row and claims no
+ * cache bytes: it is a display status, not ownership or identity.
+ */
+internal data class DownloadStatus(val id: String, val state: Int, val bytesDownloaded: Long) {
+    companion object {
+        @androidx.annotation.OptIn(UnstableApi::class)
+        fun of(download: Download) = DownloadStatus(download.request.id, download.state, download.bytesDownloaded)
+    }
+}
+
 /** A mounted removable SD card's folder for Muon, if there is one. Muon needs no permission for it. */
 internal fun cardFolder(context: Context): File? = context.getExternalFilesDirs(null).drop(1).firstOrNull {
     it != null && runCatching { Environment.isExternalStorageRemovable(it) &&
@@ -75,7 +88,7 @@ internal fun cardFolder(context: Context): File? = context.getExternalFilesDirs(
 internal object OfflineStore {
     class Store(val phone: Shelf, val art: DownloadArt, val played: PlayedSongEvictor,
         val prefs: android.content.SharedPreferences, val database: StandaloneDatabaseProvider,
-        val record: (Download) -> Unit, val removed: (Download) -> Unit,
+        val record: (DownloadStatus) -> Unit, val removed: (Download) -> Unit,
         /** Where a new save's own cover is fetched; fixtures leave it doing nothing. */
         val artwork: java.util.concurrent.Executor = java.util.concurrent.Executor { },
         /** Played-copy keys a phone index row names, which the played cache never removes (#213). */
@@ -136,8 +149,8 @@ internal object OfflineStore {
         // Covers are fetched one at a time, beside the downloads rather than in their way.
         val artwork = Executors.newSingleThreadExecutor()
         val sizes = DownloadByteTotals()
-        fun record(download: Download) {
-            val id = download.request.id
+        fun record(download: DownloadStatus) {
+            val id = download.id
             val mark = when (download.state) {
                 Download.STATE_COMPLETED -> DownloadMark.Done
                 Download.STATE_QUEUED, Download.STATE_RESTARTING -> DownloadMark.Queued
@@ -194,7 +207,7 @@ internal object OfflineStore {
             override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) {
                 val id = download.request.id
                 changed?.add(id)
-                store.record(download)
+                store.record(DownloadStatus.of(download))
                 if (download.state == Download.STATE_FAILED || download.state == Download.STATE_REMOVING)
                     store.moves.find(shelf, id)?.let(store.moves::finish)
                 if (download.state != Download.STATE_COMPLETED || store.moves.find(shelf, id) == null) return
@@ -213,10 +226,12 @@ internal object OfflineStore {
         val bootstrap = Executors.newSingleThreadExecutor()
         try {
             bootstrap.execute {
-                val known = ArrayList<Download>()
-                runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += it.download } }
+                // Only each row's ID, state and byte count wait for the main thread, not its stored song
+                // record (#253): each cursor row is projected as it is read and its Download dropped.
+                val known = ArrayList<DownloadStatus>()
+                runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += DownloadStatus.of(it.download) } }
                 main.post {
-                    try { known.filterNot { it.request.id in changed.orEmpty() }.forEach(store.record) }
+                    try { known.filterNot { it.id in changed.orEmpty() }.forEach(store.record) }
                     finally { changed = null } // No lifetime-long tombstones for removed/changed songs.
                 }
             }

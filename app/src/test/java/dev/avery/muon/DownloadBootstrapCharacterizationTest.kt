@@ -58,6 +58,11 @@ class DownloadBootstrapCharacterizationTest {
     private var watching = false
 
     private data class Event(val id: String, val state: Int?) // null means removed.
+    /** Every status the store recorded, in order: what reached the marks, bytes included. */
+    private val statuses = ArrayList<DownloadStatus>()
+
+    /** A disposable, non-empty stored song record per row, so the index carries real metadata bytes. */
+    private fun metadata(id: String) = ByteArray(16 * 1024) { (it + id.length).toByte() }
 
     @Before fun setUp() {
         app = RuntimeEnvironment.getApplication()
@@ -99,6 +104,15 @@ class DownloadBootstrapCharacterizationTest {
         assertEquals(Download.STATE_COMPLETED, index.getDownload(victim)?.state)
         assertTrue(cache.isCached(victim, 0, payload.size.toLong()))
         assertTrue(cache.isCached(control, 0, payload.size.toLong()))
+        // #253: the bootstrap publishes each row's exact recorded byte count, and reading the index
+        // through it leaves every stored song record exactly as it was.
+        assertEquals(listOf(DownloadStatus(victim, Download.STATE_COMPLETED, payload.size.toLong()),
+            DownloadStatus(control, Download.STATE_COMPLETED, payload.size.toLong())), statuses)
+        for (id in listOf(victim, control)) {
+            val row = requireNotNull(index.getDownload(id))
+            assertArrayEquals(metadata(id), row.request.data)
+            assertEquals(payload.size.toLong(), row.bytesDownloaded)
+        }
     }
 
     @Test fun oldSnapshotCannotPublishCompletedAfterActualManagerRemoval() {
@@ -112,6 +126,10 @@ class DownloadBootstrapCharacterizationTest {
         awaitSnapshot()
         assertFalse("Obsolete completed records must not follow newer removal",
             events.drop(removalPosition + 1).any { it.id == victim })
+        assertEquals("The bootstrap published only the unchanged row",
+            listOf(DownloadStatus(control, Download.STATE_COMPLETED, payload.size.toLong())),
+            statuses.filter { it.state == Download.STATE_COMPLETED })
+        assertArrayEquals(metadata(control), index.getDownload(control)?.request?.data)
         assertNull("The actual index is still removed: this is stale UI publication", index.getDownload(victim))
         assertTrue(cache.getCachedSpans(victim).isEmpty())
         assertEquals(Download.STATE_COMPLETED, index.getDownload(control)?.state)
@@ -151,7 +169,7 @@ class DownloadBootstrapCharacterizationTest {
         val fixture = OfflineStore.Store(shelf, DownloadArt(folders.newFolder("art")),
             PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {},
             app.getSharedPreferences("bootstrap-fixture", Context.MODE_PRIVATE), database,
-            { events += Event(it.request.id, it.state) }, { events += Event(it.request.id, null) })
+            { statuses += it; events += Event(it.id, it.state) }, { events += Event(it.request.id, null) })
         val watch = OfflineStore::class.java.getDeclaredMethod("watch", Context::class.java,
             Shelf::class.java, OfflineStore.Store::class.java, Handler::class.java).apply { isAccessible = true }
         index.arm.set(true)
@@ -176,7 +194,7 @@ class DownloadBootstrapCharacterizationTest {
     }
 
     private fun request(id: String) = DownloadRequest.Builder(id, Uri.parse("$id.opus"))
-        .setCustomCacheKey(id).build()
+        .setCustomCacheKey(id).setData(metadata(id)).build()
 
     private fun completed(id: String, time: Long) {
         val hole = requireNotNull(cache.startReadWrite(id, 0, payload.size.toLong()))
@@ -187,8 +205,12 @@ class DownloadBootstrapCharacterizationTest {
         } finally { cache.releaseHoleSpan(hole) }
         cache.applyContentMetadataMutations(id,
             ContentMetadataMutations.setContentLength(ContentMetadataMutations(), payload.size.toLong()))
+        // A recorded byte count, as a finished download has, so the marks' byte total is checkable.
+        val progress = androidx.media3.exoplayer.offline.DownloadProgress().apply {
+            bytesDownloaded = payload.size.toLong(); percentDownloaded = 100f
+        }
         index.putDownload(Download(request(id), Download.STATE_COMPLETED, time, time,
-            payload.size.toLong(), Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+            payload.size.toLong(), Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE, progress))
     }
 
     /** Only holds watch's empty-state bootstrap query, after releasing the real database cursor. */
