@@ -1,5 +1,7 @@
 # Muon: current state
 
+Latest completed boundary: [October8 command admission/runtime checkpoint](handoffs/2026-10-08-command-runtime-checkpoint.md). #384/.735 passed718tests per variant and actual artifact checks, OPEN for application acceptance. #383 runtime inventory merged; main.734 published without the app stack. Actual cold runtime receipt is evidence, not publisher authentication. Main required-check protection was restored with user authorization and verified. Claude Opus5.5 High idle; no device commands used. #230 remains partial; writer/generation/source-removal/restart/cleanup work and #253/trust questions remain.
+
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
 _Last updated: 2026-10-07, cursor/copy/trust continuation and limited POCO accessibility QA, by GPT-6 (Codex desktop; exact variant/effort not exposed). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
