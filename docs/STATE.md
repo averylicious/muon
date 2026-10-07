@@ -2,9 +2,11 @@
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-10-07, source-only move/metadata/build-trust continuation, by GPT-6 (Codex desktop; exact variant/effort not exposed). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
+_Last updated: 2026-10-07, cursor/copy/trust continuation and limited POCO accessibility QA, by GPT-6 (Codex desktop; exact variant/effort not exposed). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
+
+- **Latest cursor/copy/trust continuation:** [Checkpoint](handoffs/2026-10-07-cursor-copy-trust.md). #376/#377 open app stack; CI-only #378 merged as9d77da5 with unsigned/untrusted checksum candidate evidence. Isolated717/715 and manual69 verified, combined721/normal720 final receipts verified; main722 publication succeeded and excludes the open app stack. POCO limited TalkBack integration restored original settings; spoken/gesture QA still pending. #230/#253/trust remain partial engineering, not phone QA only.
 
 - **Latest source-only follow-ups:** [Checkpoint](handoffs/2026-10-07-source-only-followups.md), OPEN #372 source/destination move extent (.709) and #373 saved-metadata predecode (.710, complete acceptance candidate) guards; merged #374 public dependency-inventory artifact with fresh graph/advisory receipts; [build/dependency trust dispositions](audits/2026-10-07-build-trust-disposition.md). Remaining ownership/aggregate-resource/verification engineering is separate from application acceptance. No phone/experiment access.
 

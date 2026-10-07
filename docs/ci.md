@@ -121,3 +121,9 @@ An explicit manual diagnostic branch run also builds `mediaentryprobe`, a separa
 ## Packaged component access
 
 The APK verifier checks both variants, including the opt-in diagnostic application, after manifest merging and release shrinking. It requires the Muon playback/download services to be private and rejects unreviewed exported components. The launcher and explicitly permission-protected Media3 Bluetooth/profile-installer components are the only allowed exports. `tools/apk_manifest.py` records the policy; `tools/test_ci_manifest.py` exercises failures. It decodes APK manifests with the SDK command-line tools, so a missing analyzer or unexpected manifest fails CI. This is a static package check; notification/headset compatibility still needs user QA.
+
+## Untrusted verification candidate (manual, unsigned)
+
+The **Dependency inventory** workflow accepts `verification_candidate=true` only for manual dispatch. The default is false. This runs actual unsigned compile/test/lint tasks and baseline-generator compilation, then uploads `untrusted-verification-candidate-<full-SHA>` containing bounded public `verification-metadata.xml` and `RECEIPT.json`. It does not publish an APK, restore real signing keys or enable dependency verification. These are observed checksums requiring independent publisher/repository review, not an approved allowlist. Artifact retention is 14 days. See [the candidate scope and trust limits](audits/2026-10-07-verification-candidate.md).
+
+The candidate also excludes non-Gradle test-runtime fetches (including Robolectric); executing unit tests does not make Gradle authenticate runtime jars fetched by another client.
