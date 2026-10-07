@@ -1,5 +1,7 @@
 # Main-branch audit
 
+Latest source extension: [Bootstrap/admission checkpoint](../handoffs/2026-10-07-bootstrap-admission.md) and [live-manager gate controls](2026-10-07-move-admission.md). Startup projection awaits final-head CI; #380 controls passed. App acceptance and #230/#253/trust remain open.
+
 Latest continuation: [October7 cursor/copy/trust checkpoint](../handoffs/2026-10-07-cursor-copy-trust.md). #376/#377 remain open acceptance; #378 collects an untrusted verification candidate without enforcing it. Limited POCO TalkBack integration has settings restored and manual gaps. Refresh latest exact-head receipts; partial #230/#253/trust engineering remains.
 
 Previous source-only continuation: [October7 follow-ups](../handoffs/2026-10-07-source-only-followups.md) and [build/dependency trust disposition](2026-10-07-build-trust-disposition.md). #372/.709 and #373/.710 passed exact-head reports/APK verification and retain inherited application acceptance; #374 inventory artifact is merged with fresh resolved-graph/advisory evidence; no device work. Remaining #230/#253/trust engineering is explicit, not assumed to be phone QA only.
