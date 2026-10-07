@@ -417,7 +417,7 @@ internal object OfflineStore {
         val shelves = listOfNotNull(SavedShelf.Phone to store.phone,
             store.card?.takeIf { it.available() }?.let { SavedShelf.Card to it })
         for ((name, shelf) in shelves) runCatching {
-            entries += savedInventory(name, rows(shelf), shelf.cache,
+            entries += savedInventory(name, shelf.manager.downloadIndex, shelf.cache,
                 played = store.playedClaims.takeIf { name == SavedShelf.Phone }) { store.art.hasEntry(it) }
         }
         return sortSaved(entries)
