@@ -57,6 +57,8 @@ class DownloadMoveCharacterizationTest {
     private val storeField = OfflineStore::class.java.getDeclaredField("store").apply { isAccessible = true }
     private val moverField = OfflineStore::class.java.getDeclaredField("mover").apply { isAccessible = true }
     private val saverField = OfflineStore::class.java.getDeclaredField("saver").apply { isAccessible = true }
+    private val ownershipField = OfflineStore::class.java.getDeclaredField("moveOwnership").apply { isAccessible = true }
+    @Volatile private var onCardCheck: () -> Unit = {}
     private var previousStore: Any? = null
     private val id = "http://192.168.1.20:7814/7"
     private val request get() = DownloadRequest.Builder(id, Uri.parse("http://192.168.1.20:7814/api1/fileopus/7"))
@@ -69,7 +71,8 @@ class DownloadMoveCharacterizationTest {
         sourceIndex = DefaultDownloadIndex(database, "move_source")
         targetIndex = DefaultDownloadIndex(database, "move_target")
         phone = shelf("phone", sourceIndex, MuonDownloadService::class.java)
-        card = shelf("card", targetIndex, MuonCardDownloadService::class.java)
+        // Every card availability check also runs [onCardCheck], so a test can act at a counted point.
+        card = shelf("card", targetIndex, MuonCardDownloadService::class.java) { onCardCheck(); true }
         val prefs = app.getSharedPreferences("move-fixture", Context.MODE_PRIVATE)
         val fixture = OfflineStore.Store(phone, DownloadArt(folders.newFolder("art")),
             PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {}, prefs, database, {}, {})
@@ -531,12 +534,48 @@ class DownloadMoveCharacterizationTest {
         assertEquals("2 copies couldn't be moved. Their saved entries were kept.", ShadowToast.getTextOfLatestToast())
     }
 
+    /**
+     * #230: the song is removed while its copy is being written. The removal is made from the card's
+     * availability check, counted: before the copy, move() and the batch loop each check once and the copy
+     * once more, so the sixth check falls after the writer has cached at least one 128 KiB block of this
+     * multi-block payload. Asserted from bytes, not from the count: some but not all were written.
+     */
+    @Test fun removalDuringTheCopyStopsWritingKeepsWrittenBytesAndARetryResumesThem() {
+        val payload = ByteArray(8 * 128 * 1024 + 17) { (it * 7 % 251).toByte() }
+        completeSource(payload)
+        val ownership = ownershipField.get(null) as DownloadMoveOwnership
+        var checks = 0
+        onCardCheck = { if (++checks == 6) ownership.remove(listOf(id)) }
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        onCardCheck = {}
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertNull(targetIndex.getDownload(id))
+        val written = targetBytes()
+        assertTrue("Writing stopped before the end: ${written.size} of ${payload.size}", written.size < payload.size)
+        assertTrue("Some bytes were written before the removal", written.isNotEmpty())
+        // Kept exactly as written: a prefix of the source, neither removed, truncated nor relabelled.
+        assertArrayEquals(payload.copyOf(written.size), written)
+        assertArrayEquals(payload, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+
+        // A later, separate move owns the song again: it checks the kept prefix against the source and
+        // fills only the rest, then hands the exact copy over once.
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertArrayEquals(payload, targetBytes())
+        assertEquals(request, addRequest(startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }))
+        assertArrayEquals(payload, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+    }
+
     private fun shelf(name: String, index: DefaultDownloadIndex,
-        service: Class<out DownloadService>): Shelf {
+        service: Class<out DownloadService>, present: () -> Boolean = { true }): Shelf {
         val cache = SimpleCache(folders.newFolder(name), NoOpCacheEvictor(), database)
         cache.checkInitialization()
         val neverDownload = DownloaderFactory { error("Fixture must not start a downloader/network") }
-        return Shelf(cache, DownloadManager(app, index, neverDownload), service)
+        return Shelf(cache, DownloadManager(app, index, neverDownload), service, present)
     }
 
     private fun completeSource(payload: ByteArray) {

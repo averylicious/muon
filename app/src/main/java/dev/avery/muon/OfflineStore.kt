@@ -603,7 +603,12 @@ internal object OfflineStore {
                     val safe = targetRows != null && movable(download, sourceRows, targetRows)
                     if (!safe) kept++
                     val attempted = safe && moveOwnership.permits(batch, download.request.id)
-                    val copied = attempted && runCatching { copy(download, from, to) }.isSuccess
+                    // The copy stops writing as soon as the move no longer owns this song (removed, or
+                    // Remove all, #234) or either shelf goes (#179 S1), rather than finishing a copy no one
+                    // will hand over (#230).
+                    val copied = attempted && runCatching {
+                        copy(download, from, to) { canMove(from, to) && moveOwnership.permits(batch, download.request.id) }
+                    }.isSuccess
                     if (attempted && !copied) failed++
                     if (copied)
                         // Hand-over needs both shelves still available (#179 S1) and the move still owning
@@ -635,8 +640,17 @@ internal object OfflineStore {
         }
     }
 
-    /** Writes one finished download's bytes from [from]'s cache into [to]'s, under the same key. */
-    private fun copy(download: Download, from: Shelf, to: Shelf) {
+    /** Thrown from the copy's progress callback once [copy]'s owner no longer wants it; see [copy]. */
+    private class MoveCopyStopped : java.io.IOException("The move stopped owning this copy")
+
+    /**
+     * Writes one finished download's bytes from [from]'s cache into [to]'s, under the same key. [keepGoing]
+     * is asked before the first write and after every block the writer caches; once it says no, writing
+     * stops there (#230). Nothing already written is removed, truncated or relabelled: those bytes stay
+     * unindexed on [to], where a later attempt compares them with the source before filling the rest, and
+     * refuses them if they differ. Stopping is a check between blocks, not exclusion of other writers.
+     */
+    private fun copy(download: Download, from: Shelf, to: Shelf, keepGoing: () -> Boolean = { canMove(from, to) }) {
         val id = download.request.id
         val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(id))
         require(length > 0 && from.cache.isCached(id, 0, length) && spansWithin(from.cache, id, length)) { "Not fully downloaded within the expected length" }
@@ -675,7 +689,12 @@ internal object OfflineStore {
         // No upstream: a byte missing from the source fails the copy rather than reaching the network.
         val reader = CacheDataSource.Factory().setCache(from.cache).setCacheWriteDataSinkFactory(null)
         val writer = CacheDataSource.Factory().setCache(to.cache).setUpstreamDataSourceFactory(reader).createDataSourceForDownloading()
-        CacheWriter(writer, DataSpec.Builder().setUri(download.request.uri).setKey(id).build(), null, null).cache()
+        if (!keepGoing()) throw MoveCopyStopped()
+        // Throwing from the progress callback ends cache(), which closes its source and releases its hole
+        // lock first, as PlayedCopy's budget check relies on; the bytes committed so far are kept.
+        CacheWriter(writer, DataSpec.Builder().setUri(download.request.uri).setKey(id).build(), null) { _, _, _ ->
+            if (!keepGoing()) throw MoveCopyStopped()
+        }.cache()
         // CacheWriter keeps whatever the target already held for this key, so only an exact copy counts (#230).
         require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id).setLength(length).build(), from, to)) {
             "Copy differs from its source"
