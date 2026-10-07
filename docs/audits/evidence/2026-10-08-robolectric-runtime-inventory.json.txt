@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "commit": "17e0486308e49efe73c767c7a66494b5427fbbb3",
+  "configured_repository": "https://repo1.maven.org/maven2",
+  "publisher_authenticated": false,
+  "records": [
+    {
+      "coordinate": "org.robolectric:android-all-instrumented:14-robolectric-10818077-i7",
+      "file": "android-all-instrumented-14-robolectric-10818077-i7.jar",
+      "bytes": 151142227,
+      "sha256": "3fdac2d463f431c6b8d83b9d0ca739e795de75fffedee648c6761bd4bd864701",
+      "sha512": "7cdc0b1306e7865f1acd25a363073149654caee5b8e278c5ae37ff4724185724eff39f0b0111800b521e640bb28698d9d2e655134a801569a0f07470e7b5f455",
+      "same_repository_sha512_match": true
+    },
+    {
+      "coordinate": "org.robolectric:android-all-instrumented:14-robolectric-10818077-i7",
+      "file": "android-all-instrumented-14-robolectric-10818077-i7.jar.sha512",
+      "bytes": 128,
+      "sha256": "ba4635da15dc30870ef831d17cea8c37fdea11d3b524f7fbb81d537c8ef87c92",
+      "sha512": "62a29bfa40bf696868f4e716f2c2da37785a93051360f31dc5ea84038078316ae6886dc449bc84af820323ba829ca2833618d9e25a2231670dcfefff70e0a137"
+    },
+    {
+      "coordinate": "org.robolectric:android-all-instrumented:14-robolectric-10818077-i7",
+      "file": "android-all-instrumented-14-robolectric-10818077-i7.pom",
+      "bytes": 1391,
+      "sha256": "66fd972dda30382c94afc84414cdb62bfdd7a43ddd558ccda0f04a92ab9aea1a",
+      "sha512": "fb97a3028bb1eb4c4b3d1ab9c23c8b6b245842139f76194afc16afe002a212c2f93baff400a83cb6f35e525d0753e5b13aeda172fbdf0f628b25d21aa4a065d6",
+      "same_repository_sha512_match": true
+    },
+    {
+      "coordinate": "org.robolectric:android-all-instrumented:14-robolectric-10818077-i7",
+      "file": "android-all-instrumented-14-robolectric-10818077-i7.pom.sha512",
+      "bytes": 128,
+      "sha256": "909240c18f7e88f134f52e995d25ffc995a9ee8508b557a145e2a86ef92d27eb",
+      "sha512": "17080a8cb095ff7693452121408ef3e06596b67d7695d916ed3f795bf976bd9f9aa61010e342cda4550cba03931529e4b800c68c41734b1f5f3299dc39b8ed4d"
+    }
+  ]
+}
