@@ -27,6 +27,7 @@ import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.atomic.AtomicReference
@@ -596,6 +597,8 @@ internal object OfflineStore {
     /** Moves one download at a time, behind everything else. */
     private val mover = Executors.newSingleThreadExecutor()
     private val moveOwnership = DownloadMoveOwnership()
+    /** How a move's destination files are opened ([StrictMoveSink]); replaced only by fixtures injecting failures. */
+    @Volatile internal var moveOutputs: MoveFileOutputs = MoveFileOutputs.Real
     /** Held from a move's admission until its copies are handed over (#230); see [MoveExclusion]. */
     private val moveExclusion = MoveExclusion()
 
@@ -864,13 +867,22 @@ internal object OfflineStore {
         }
         // No upstream: a byte missing from the source fails the copy rather than reaching the network.
         val reader = CacheDataSource.Factory().setCache(from.cache).setCacheWriteDataSinkFactory(null)
-        val writer = CacheDataSource.Factory().setCache(to.cache).setUpstreamDataSourceFactory(reader).createDataSourceForDownloading()
+        // Destination files go through a strict sink (#230): each is committed only after its own flush,
+        // sync and close succeed, and any failure is kept even where Media3 closes quietly.
+        val sinks = ArrayList<StrictMoveSink>()
+        val writer = CacheDataSource.Factory().setCache(to.cache).setUpstreamDataSourceFactory(reader)
+            .setCacheWriteDataSinkFactory { StrictMoveSink(to.cache, moveOutputs).also(sinks::add) }
+            .createDataSourceForDownloading()
         if (!keepGoing()) throw MoveCopyStopped()
         // Throwing from the progress callback ends cache(), which closes its source and releases its hole
         // lock first, as PlayedCopy's budget check relies on; the bytes committed so far are kept.
         CacheWriter(writer, DataSpec.Builder().setUri(download.request.uri).setKey(id).build(), null) { _, _, _ ->
             if (!keepGoing()) throw MoveCopyStopped()
         }.cache()
+        // CacheWriter returning is not evidence its output was written out: require each destination file
+        // this copy opened to have been flushed, synced, closed and committed without a failure.
+        sinks.firstOrNull { it.failure != null }?.let { throw IOException("A moved file wasn't written out", it.failure) }
+        require(sinks.all { it.clean }) { "A moved file wasn't fully written out" }
         // CacheWriter keeps whatever the target already held for this key, so only an exact copy counts (#230).
         require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id).setLength(length).build(), from, to)) {
             "Copy differs from its source"

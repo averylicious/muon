@@ -101,6 +101,7 @@ class DownloadMoveCharacterizationTest {
             awaitMover()
             awaitSaver()
             shadowOf(Looper.getMainLooper()).idle()
+            OfflineStore.moveOutputs = MoveFileOutputs.Real
             storeField.set(null, previousStore)
             DownloadMarks.moving = null
             phone.manager.release()
@@ -110,6 +111,67 @@ class DownloadMoveCharacterizationTest {
         } finally {
             database.close()
         }
+    }
+
+    /**
+     * #230: the production move writes its destination through the strict sink, around the real file output
+     * (counted here, not replaced): every file it opened was flushed, synced and closed before the Add.
+     */
+    @Test fun aHealthyMoveWritesItsFileThroughTheStrictSinkBeforeHandingOver() {
+        var flushes = 0; var syncs = 0; var closes = 0; var opens = 0
+        OfflineStore.moveOutputs = MoveFileOutputs { file ->
+            val real = MoveFileOutputs.Real.open(file)
+            opens++
+            object : MoveFileOutput {
+                override fun write(buffer: ByteArray, offset: Int, length: Int) = real.write(buffer, offset, length)
+                override fun flush() { real.flush(); flushes++ }
+                override fun sync() { real.sync(); syncs++ }
+                override fun close() { real.close(); closes++ }
+            }
+        }
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, opens)
+        assertEquals(listOf(1, 1, 1), listOf(flushes, syncs, closes))
+        assertArrayEquals(bytes, targetBytes())
+        assertEquals(request, addRequest(startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }))
+    }
+
+    /**
+     * #230: a destination file whose sync or close fails is not committed, the copy is not handed over and
+     * the source stays; a later move with a healthy output still completes. Only the output is injected:
+     * the move, CacheDataSource, CacheWriter, caches and indexes are real.
+     */
+    @Test fun aDestinationFileThatIsNotWrittenOutIsNeitherCommittedNorHandedOver() {
+        for (failing in listOf("sync", "close")) {
+            OfflineStore.moveOutputs = MoveFileOutputs { file ->
+                val real = MoveFileOutputs.Real.open(file)
+                object : MoveFileOutput {
+                    override fun write(buffer: ByteArray, offset: Int, length: Int) = real.write(buffer, offset, length)
+                    override fun flush() = real.flush()
+                    override fun sync() { if (failing == "sync") throw java.io.IOException("Injected sync failure"); real.sync() }
+                    override fun close() { real.close(); if (failing == "close") throw java.io.IOException("Injected close failure") }
+                }
+            }
+            if (failing == "sync") completeSource(bytes)
+            OfflineStore.move(app, toCard = true)
+            awaitMover()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(failing, startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+            assertNull(failing, targetIndex.getDownload(id))
+            assertTrue("$failing: nothing was committed to the destination", card.cache.getCachedSpans(id).isEmpty())
+            assertEquals("1 copy couldn't be moved. Its saved entry was kept.", ShadowToast.getTextOfLatestToast())
+            assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+            assertNotNull(sourceIndex.getDownload(id))
+        }
+        OfflineStore.moveOutputs = MoveFileOutputs.Real
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertArrayEquals(bytes, targetBytes())
+        assertEquals(request, addRequest(startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }))
     }
 
     @Test fun normalMoveCopiesExactBytesThenPostsOneAddWhileSourceRemains() {
