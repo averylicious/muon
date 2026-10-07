@@ -117,3 +117,7 @@ For workstream names versus APK versions, see [workstream names and release vers
 ### Disposable media-entry QA helper
 
 An explicit manual diagnostic branch run also builds `mediaentryprobe`, a separate ordinary-app UID fixture for private-service denial checks. It has no network/storage/elevated permissions and refuses an exported target. The helper is compiled before Muon signing-key restoration with its own default temporary debug key, uploaded separately as `media-entry-probe-<full-SHA>`, and never published. Normal builds do not configure this module. See [the probe boundaries and operation](audits/2026-10-06-media-entry-device-probe.md). This does not replace the Canary acceptance app or establish headset/controller compatibility.
+
+## Packaged component access
+
+The APK verifier checks both variants, including the opt-in diagnostic application, after manifest merging and release shrinking. It requires the Muon playback/download services to be private and rejects unreviewed exported components. The launcher and explicitly permission-protected Media3 Bluetooth/profile-installer components are the only allowed exports. `tools/apk_manifest.py` records the policy; `tools/test_ci_manifest.py` exercises failures. It decodes APK manifests with the SDK command-line tools, so a missing analyzer or unexpected manifest fails CI. This is a static package check; notification/headset compatibility still needs user QA.
