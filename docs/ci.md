@@ -123,3 +123,17 @@ An explicit manual diagnostic branch run also builds `mediaentryprobe`, a separa
 The **Dependency inventory** workflow accepts `verification_candidate=true` only for manual dispatch. The default is false. This runs actual unsigned compile/test/lint tasks and baseline-generator compilation, then uploads `untrusted-verification-candidate-<full-SHA>` containing bounded public `verification-metadata.xml` and `RECEIPT.json`. It does not publish an APK, restore real signing keys or enable dependency verification. These are observed checksums requiring independent publisher/repository review, not an approved allowlist. Artifact retention is 14 days. See [the candidate scope and trust limits](audits/2026-10-07-verification-candidate.md).
 
 The candidate also excludes non-Gradle test-runtime fetches (including Robolectric); executing unit tests does not make Gradle authenticate runtime jars fetched by another client.
+
+### Isolated Robolectric runtime inventory
+
+The unsigned Dependency inventory workflow has a manual `runtime_inventory` flag, default false.
+It executes both unit-test variants with a new empty per-run Maven repository and the explicitly
+configured public Robolectric repository `https://repo1.maven.org/maven2`. A dispatch-only init
+script passes these properties to test JVMs; ordinary builds do not import it. Existing host
+repositories are not moved, deleted or uploaded. The job uses no real signing keys or publication.
+
+Only the bounded public `runtime-inventory-<full-SHA>` JSON receipt is uploaded for14 days:
+coordinates, filenames, sizes and hashes, plus checked same-repository SHA512 companions.
+The fetched jars/POMs and local host paths are excluded. This captures runtime framework artifacts
+outside Gradle's selected graph. Cold fetch and matching server checksums do **not** authenticate
+the publisher, prove all native/executable dependencies, or harden ordinary build cache reuse.
