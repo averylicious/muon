@@ -215,7 +215,7 @@ class SavedOwnershipCensusTest {
     }
 
     @Test fun streamedIndexInventoryIncludesHiddenOwnersAndClosesOneRewoundCursor() {
-        val index = DefaultDownloadIndex(database, "streamed-census")
+        val index = DefaultDownloadIndex(database, "streamed_census")
         val cache = cache(PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
         val owner = put(index, "saved/owner", "saved/owner")
         seed(cache, owner.request.id)
@@ -252,7 +252,7 @@ class SavedOwnershipCensusTest {
     }
 
     @Test fun streamedInventoryClosesCursorOnProjectionFailureWithoutChangingIndexOrAudio() {
-        val index = DefaultDownloadIndex(database, "streamed-failure")
+        val index = DefaultDownloadIndex(database, "streamed_failure")
         val cache = cache(PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {})
         val row = put(index, "saved/kept", "saved/kept")
         seed(cache, row.request.id)
