@@ -42,6 +42,11 @@ def validate(data, commit):
         raise ValueError('Metadata checks required; checksum-only generation expected')
     if any(e.attrib or len(e) for e in config):
         raise ValueError('Unexpected configuration content')
+    for node in root.iter():
+        if node.tag not in (f'{{{NS}}}verify-metadata', f'{{{NS}}}verify-signatures') and (node.text or '').strip():
+            raise ValueError('Unexpected XML text')
+        if (node.tail or '').strip():
+            raise ValueError('Unexpected XML tail')
     artifacts = checksums = metadata = 0
     names = set()
     for component in components:
@@ -94,13 +99,21 @@ def export(source, commit, destination):
     with source.open('rb') as stream:
         data = stream.read(MAX_BYTES + 1)
     receipt = validate(data, commit)
+    # Emit the validated public tree only: comments/PIs from input are never uploaded.
+    ET.register_namespace('', NS)
+    ET.register_namespace('xsi', XSI)
+    public = ET.tostring(ET.fromstring(data), encoding='utf-8', xml_declaration=True)
+    receipt['source_sha256'] = receipt['sha256']
+    receipt['source_bytes'] = receipt['bytes']
+    receipt['sha256'] = hashlib.sha256(public).hexdigest()
+    receipt['bytes'] = len(public)
     destination = Path(destination)
     if destination.is_symlink():
         raise ValueError('Output directory must not be a symlink')
     destination.mkdir(parents=True, exist_ok=True)
     # Fixed files only, exclusive creation: no recursive upload or secret/cache glob.
     with (destination / 'verification-metadata.xml').open('xb') as stream:
-        stream.write(data)
+        stream.write(public)
     with (destination / 'RECEIPT.json').open('x') as stream:
         json.dump(receipt, stream, sort_keys=True, indent=2)
         stream.write('\n')
