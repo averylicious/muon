@@ -36,8 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Actual OfflineStore.watch + Media3 manager/index, with only the bootstrap cursor close gated.
- * Tests document the CURRENT obsolete callback publication. They do not render Compose UI or
- * instantiate a DownloadService, and do not imply real-device timing or actual download resurrection.
+ * Regressions reject obsolete callback publication without changing real index/cache behavior.
+ * They do not render Compose UI, instantiate a DownloadService or imply real-device timing.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
@@ -101,7 +101,7 @@ class DownloadBootstrapCharacterizationTest {
         assertTrue(cache.isCached(control, 0, payload.size.toLong()))
     }
 
-    @Test fun oldSnapshotPublishesCompletedAfterActualManagerRemoval() {
+    @Test fun oldSnapshotCannotPublishCompletedAfterActualManagerRemoval() {
         startSnapshot()
         manager.removeDownload(victim)
         pumpUntil { events.any { it == Event(victim, null) } }
@@ -110,24 +110,38 @@ class DownloadBootstrapCharacterizationTest {
         val removalPosition = events.indexOfLast { it == Event(victim, null) }
         index.release.countDown()
         awaitSnapshot()
-        assertTrue("Current bug: obsolete completed record follows newer removal",
-            events.indexOfLast { it == Event(victim, Download.STATE_COMPLETED) } > removalPosition)
+        assertFalse("Obsolete completed records must not follow newer removal",
+            events.drop(removalPosition + 1).any { it.id == victim })
         assertNull("The actual index is still removed: this is stale UI publication", index.getDownload(victim))
         assertTrue(cache.getCachedSpans(victim).isEmpty())
         assertEquals(Download.STATE_COMPLETED, index.getDownload(control)?.state)
         assertTrue(cache.isCached(control, 0, payload.size.toLong()))
     }
 
-    @Test fun oldSnapshotPublishesCompletedAfterActualManagerStateChange() {
+    @Test fun oldSnapshotCannotPublishCompletedAfterActualManagerStateChange() {
         startSnapshot()
         manager.addDownload(request(victim), 42)
         pumpUntil { events.any { it == Event(victim, Download.STATE_STOPPED) } }
         assertEquals(Download.STATE_STOPPED, index.getDownload(victim)?.state)
         index.release.countDown()
         awaitSnapshot()
-        assertEquals("Current bug: snapshot replaces the newer callback state",
-            Event(victim, Download.STATE_COMPLETED), events.last { it.id == victim })
+        assertEquals("Newer live state must survive bootstrap publication",
+            Event(victim, Download.STATE_STOPPED), events.last { it.id == victim })
         assertEquals(Download.STATE_STOPPED, index.getDownload(victim)?.state)
+        assertEquals(42, index.getDownload(victim)?.stopReason)
+        assertTrue(cache.isCached(control, 0, payload.size.toLong()))
+    }
+
+    @Test fun liveEventsStillPublishAfterBootstrapTrackingEnds() {
+        startSnapshot()
+        index.release.countDown()
+        awaitSnapshot()
+        manager.removeDownload(victim)
+        pumpUntil { events.any { it == Event(victim, null) } }
+        assertEquals(Event(victim, null), events.last { it.id == victim })
+        assertNull(index.getDownload(victim))
+        manager.addDownload(request(victim), 42)
+        pumpUntil { events.lastOrNull { it.id == victim } == Event(victim, Download.STATE_STOPPED) }
         assertEquals(42, index.getDownload(victim)?.stopReason)
         assertTrue(cache.isCached(control, 0, payload.size.toLong()))
     }
