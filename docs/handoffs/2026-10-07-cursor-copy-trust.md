@@ -41,4 +41,4 @@ Next trust slice: identify the actual resolved runtime artifacts/repository and 
 
 Usage snapshots are USED: coordinator tool40% five-hour/6% weekly at latest checkpoint boundary; Claude final runtime42% five-hour/52% weekly, idle. Refresh live; neither hit limits. All owned app/workflow branches clean and pushed; documentation draft belongs coordinator. Durable commits/PRs/reports are sufficient without local CLI session or /tmp files.
 
-Checkpoint publication note: initial e235ca4 push accidentally retained a JSON evidence suffix, conservatively selecting full CI. The refreshed head stores both inert evidence snapshots as .txt and is verified separately; the initial run is superseded, not a pass.
+Checkpoint publication note: initial e235ca4 push accidentally retained a JSON evidence suffix, conservatively selecting full CI. The refreshed head stores both inert evidence snapshots as .txt and is verified separately; the initial run is superseded, not a latest-head pass. The immediate correction push also conservatively selected full CI because it removed the unknown JSON path; a subsequent text-only checkpoint update is checked independently.
