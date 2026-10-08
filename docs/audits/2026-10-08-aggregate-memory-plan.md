@@ -22,7 +22,7 @@ Inspected application baseline: #390 d0df73a64b3758375424293fca9638dad2b5dee4, i
 | TauonApi.json / TauonJson | #391 limits array slots and total lexical values before DOM, preserving existing resource-refusal/load behavior | Original bounded bytes/String and token allocations, DOM inside structural budget, and retained live library still coexist |
 | ConnectScreen playable-copy count | #393 streams/counts without song decode, ownership maps, display list or sorting | Native row allocation and cache key/span snapshots remain; actual saved screen still full-list |
 | SavedCopies.playable and MuonApp.playSaved | Verified #394/.750 removes full complete-entry filter, prevalidates count/text, full queue or explicit smaller selection | Initial saved display list remains O(N); bounded preparation synchronous on tap pending paging; actual heap overhead unmeasured |
-| LibraryModel.saved / OfflineStore.savedEntries / sortSaved | Full decoded list plus sort still retained | **Paging engineering not implemented** |
+| LibraryModel.saved / OfflineStore.savedEntries / sortSaved | Full decoded list plus sort still retained | **#398 derived catalog/streaming foundation only; runtime paging NOT wired** |
 | Player/session/controllers | Pinned-source verified full list conversions, window/period and source per item | Chunked IPC does not bound resident queue; live-library queue costs still need disposition/guards |
 | Cache keys/content metadata/spans and DownloadMarks bootstrap | Some streaming raw-record projections exist | **Cardinality/aggregate budget work remains**; no automatic eviction of protected saved data |
 
@@ -32,7 +32,7 @@ Existing live-load limits remain:2,048 playlists,50,000 occurrences,16MiB encode
 
 ### 1. Exact disk-backed saved catalog, then bounded page hydration
 
-A complete in-memory catalog of clipped titles is insufficient. Build a **derived Muon-owned disk catalog** through supported Media3 cursor reads, one projected record at a time; do not query/rewrite Media3's private schema. Justify and document any new derived schema, use private non-backed-up storage, version/rebuild derived data safely, and preserve originals on failure.
+A complete in-memory catalog of clipped titles is insufficient. The #398 foundation provides a **derived Muon-owned disk catalog** through supported Media3 cursor reads, one projected record at a time, without querying/rewriting Media3's private schema. It stores exact UTF-16 BLOB order keys and canonical locators in its own noBackupFilesDir SQLite database with atomic generations/bounded page reads. Runtime UI integration remains: this unused data layer alone does not reduce runtime memory. Verify latest #398 native-index/cache/rollback/order tests and carry forward private-storage/schema/version/original-preservation requirements.
 
 Keep exact ordering: unknown titles last, full lowercase title and full canonical handle tie-breaker as sortSaved currently uses. Native SQLite text collation is not automatically Kotlin UTF-16 String ordering; verify supplementary Unicode and use an equivalent sortable representation/comparator. No clipped sort keys. All copies remain reachable through count/page queries; no permanent row ceiling that hides data.
 
@@ -66,7 +66,7 @@ Review SimpleCache content-index lifetime, played-record metadata and span/key s
 
 ### 5. Explicit legacy command and live-queue budgets
 
-Move legacy requests now have a4MiB logical batch-retention budget, plus a768KiB command admission limit with4KiB envelope (#397): logical preflight avoids unbounded Parcel allocation, then actual request Parcel size is checked before target output. Oversized entries are kept with an explanation; retryable remainder remains untouched. Verify latest-head tests measuring actual tagged Intent envelopes and native-index/cache preservation. This is conservative admission, not guaranteed Binder delivery under concurrent load. Other live/service queues still need review; no metadata rewriting.
+Move legacy requests now have a4MiB logical batch-retention budget, plus a768KiB command admission limit with4KiB envelope (#397): logical preflight avoids unbounded Parcel allocation, then actual request Parcel size is checked before target output. Oversized entries are kept with an explanation; retryable remainder remains untouched. Final-head #397/.755 actual reports/APK verified777 tests per variant, including tagged Intent envelopes/native-index/cache preservation. This is conservative admission, not guaranteed Binder delivery under concurrent load. Other live/service queues still need review; no metadata rewriting.
 
 Review live queue duplication/retention against its existing aggregate load budget and establish explicit admission limits where needed. All remaining logical budgets must have real boundary/failure tests; device measurements qualify them but do not replace source preservation rules.
 
