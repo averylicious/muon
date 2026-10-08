@@ -11,9 +11,9 @@ internal data class LibraryLoadLimits(
 
 private val LIBRARY_LOAD_LIMITS = LibraryLoadLimits()
 
-internal class LibraryResourceLimit : IOException(
+internal class LibraryResourceLimit(message: String =
     "Library exceeds Muon's resource limits (2,048 playlists, 50,000 playlist entries or " +
-        "16 MiB encoded metadata). Reduce the server library and retry.")
+        "16 MiB encoded metadata). Reduce the server library and retry.") : IOException(message)
 
 internal fun requireLibraryPlaylistCount(count: Int, limits: LibraryLoadLimits = LIBRARY_LOAD_LIMITS) {
     if (count > limits.playlists) throw LibraryResourceLimit()
