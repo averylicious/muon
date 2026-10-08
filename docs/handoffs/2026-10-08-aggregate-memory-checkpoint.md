@@ -22,7 +22,7 @@ Every app PR targets main but includes its predecessors, starting with the prece
 | #394 explicit saved queue budget/single-copy offer | 91cf8540bccbf03d9b08feccf6f8314b6aa12592 | 37748460595 / .750 | 768 | 11537485154 |
 | #395 native cursor failure containment | 558a0357567a71283adfb303fe45e491327ef1e1 | 37750435179 / .751 | 770 | 11538151704 |
 | #397 move retained-payload and command admission | 2ac45207b5e9e1437e3c091a3f2e1be87a944427 | 37752098846 / .755 | 777 | 11539220105 |
-| #398 exact saved-catalog/streaming foundation (UI not wired) | 7785d0e0caa486062955c4fa8d86698d365e5c92 | 37753683023 / pending | pending | pending |
+| #398 exact saved-catalog/streaming foundation (UI not wired) | ac5d46cf7172719911f3cf581ee6ff2b35a04253 | 37755735793 / pending | pending | pending |
 
 For .745–.751 and .755, actual downloaded XML reports verify zero failures/errors/skips for both variants, lint zero errors / 46 existing warnings each. Actual Canary APK BUILD.txt head/run/version, SHA256SUMS, unchanged signer/package, non-debuggable flag and three private services verified. Run URL format: https://github.com/averylicious/muon/actions/runs/RUN; artifact adds /artifacts/ARTIFACT. Artifact name `app-debug-FULL_SHA`; ZIP contains app-debug.apk, SHA256SUMS and BUILD.txt. Branch artifacts expire in 14 days and are not Obtainium releases.
 
@@ -47,3 +47,5 @@ Main protection was read back this cycle: strict required Build, test and sign p
 5. Application UAT remains: saved/Unverified playback, copy/move/remove/refusal, duplicate queue/Undo, scroll/sheet interactions, TalkBack and Bluetooth hardware controls. SD recovery and Pixel lockscreen limitation remain separately documented; this engineering cycle did not perform them.
 
 These are engineering requirements, not a percentage or a claim that the remaining gate is only UAT. Follow [the finite plan](../audits/2026-10-08-aggregate-memory-plan.md) and the per-slice handoffs on their PR branches. Do not close #253 from these preparatory fixes.
+
+Catalog verification chronology: the7785d0e run failed2 fixtures on invalid SQL index names;54cb9c9 corrected them and passed CI. Author review then tightened two-connection/read generation consistency, reentrant operations and escaped/cross-thread callback boundaries. Final head ac5d46cf7172719911f3cf581ee6ff2b35a04253 / run37755735793 is required;11catalog controls are expected from source, not an actual pass until final reports are checked. No further feature writes planned before verifying and closing this evidence boundary.
