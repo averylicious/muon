@@ -29,7 +29,7 @@ class PlayedClaimDiskTest {
     private lateinit var index: DefaultDownloadIndex
     @Before fun setup() {
         database = StandaloneDatabaseProvider(RuntimeEnvironment.getApplication())
-        index = DefaultDownloadIndex(database, "played-claims")
+        index = DefaultDownloadIndex(database, "played_claims")
     }
     @After fun cleanup() { database.close() }
     private fun put(id: String, key: String, state: Int = Download.STATE_COMPLETED) {
