@@ -187,6 +187,40 @@ internal class IndexCensus(val rows: List<IndexRow>) {
 }
 
 /**
+ * Complete ownership evidence for one candidate name (#253), without retaining a whole-index map.
+ * Every row/state/hidden alias is still read; only saturated counts and the one matching ID row survive.
+ * One raw row/name can still be large, and IO remains linear in the full index. This is the same snapshot
+ * rule as [IndexCensus], not a new authority to rebind a key or skip the final exact-request checks.
+ * A failed scan/close returns no probe. No original record or audio is written.
+ */
+internal class IndexNameProbe private constructor(val row: IndexRow?, private val ids: Int, private val keys: Int) {
+    val soleOwner: Boolean get() = row?.let {
+        ids == 1 && keys == 1 && it.ownKey && it.key == it.id && !it.id.startsWith(PLAYED_PREFIX)
+    } == true
+
+    companion object {
+        fun read(index: DownloadIndex, name: String): IndexNameProbe =
+            readFrom(name) { emit -> forEachIndexRow(index, emit) }
+
+        /** Complete streaming source; a displayed page is never sufficient. */
+        internal fun readFrom(name: String, read: ((IndexRow) -> Unit) -> Unit): IndexNameProbe {
+            var ids = 0
+            var keys = 0
+            var row: IndexRow? = null
+            read { next ->
+                if (next.id == name) {
+                    ids = minOf(2, ids + 1)
+                    row = if (ids == 1) next else null
+                }
+                if (next.key == name) keys = minOf(2, keys + 1)
+                // Never finish early: even an already-shared name must not mask a later read failure.
+            }
+            return IndexNameProbe(row, ids, keys)
+        }
+    }
+}
+
+/**
  * Each row of [index], in every state, as an [IndexRow]: one full record at a time, dropped once projected
  * (#253). The cursor is closed however this ends; a failed read is thrown, never a partial census.
  */

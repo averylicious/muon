@@ -568,9 +568,11 @@ internal object OfflineStore {
         }
         val shelf = (if (ref.shelf == SavedShelf.Card) store.card else store.phone)
             ?.takeIf { it.available() } ?: return SavedRemoval.Unavailable
-        val census = runCatching { readCensus(shelf) }.getOrNull() ?: return SavedRemoval.NotOwned
-        val row = census.row(ref.requestId)
-        if (row == null || row.key != ref.key || !census.soleOwner(row)) return SavedRemoval.NotOwned
+        // One candidate, every index row: do not retain unrelated names just to remove this copy (#253).
+        val owner = runCatching { IndexNameProbe.read(shelf.manager.downloadIndex, ref.requestId) }
+            .getOrNull() ?: return SavedRemoval.NotOwned
+        val row = owner.row
+        if (row == null || row.key != ref.key || !owner.soleOwner) return SavedRemoval.NotOwned
         // Its own move, if one is under way, loses its hand-over too (#234).
         moveOwnership.remove(listOf(ref.requestId))
         DownloadService.sendRemoveDownload(context, shelf.service, ref.requestId, false)
@@ -592,10 +594,10 @@ internal object OfflineStore {
             val from = receipt.from
             if (receipt.to !== to || completed.request != receipt.request || !canMove(from, to)) return false
             val id = receipt.request.id
-            val sourceCensus = readCensus(from)
-            val targetCensus = readCensus(to)
-            if (sourceCensus.row(id)?.state != Download.STATE_COMPLETED || targetCensus.row(id)?.state != Download.STATE_COMPLETED ||
-                !sourceCensus.soleOwner(id) || !targetCensus.soleOwner(id)) return false
+            val sourceOwner = IndexNameProbe.read(from.manager.downloadIndex, id)
+            val targetOwner = IndexNameProbe.read(to.manager.downloadIndex, id)
+            if (sourceOwner.row?.state != Download.STATE_COMPLETED || targetOwner.row?.state != Download.STATE_COMPLETED ||
+                !sourceOwner.soleOwner || !targetOwner.soleOwner) return false
             // Only this song's two full records, read again by ID, for the exact request (#253).
             val source = from.manager.downloadIndex.getDownload(id) ?: return false
             val target = to.manager.downloadIndex.getDownload(id) ?: return false
