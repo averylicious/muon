@@ -404,6 +404,7 @@ class MoveCommandAdmissionTest {
             service.get().onStartCommand(DownloadService.buildRemoveDownloadIntent(app,
                 MuonDownloadService::class.java, id, false), 0, i + 1)
         }
+        shadowOf(Looper.getMainLooper()).idle() // Publish the refusal without waiting for held tasks.
         assertTrue(ShadowToast.getTextOfLatestToast().contains("wasn't queued"))
         assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(ids.last())?.state)
         assertTrue(phone.cache.isCached(ids.last(), 0, payload.size.toLong()))
