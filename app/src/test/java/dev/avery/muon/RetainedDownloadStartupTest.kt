@@ -207,15 +207,184 @@ class RetainedDownloadStartupTest {
         assertNotNull(index.getDownload(fresh.id))
     }
 
+    // ---- #253: the startup scan keeps only IDs; each row is read again alone just before its write ----
+
+    private val largeTags = ByteArray(256 * 1024) { (it % 251).toByte() }
+
+    @Test fun manyLargeRetainedRowsAreEachReadAgainAloneAfterTheScanClosesAndKeepEveryRecord() {
+        val song = TauonTrack(42, "Kept title", "Artist", "Album", 1000, true, false)
+        val states = listOf(Download.STATE_QUEUED, Download.STATE_DOWNLOADING, Download.STATE_REMOVING,
+            Download.STATE_RESTARTING, Download.STATE_QUEUED)
+        val originals = states.mapIndexed { i, state ->
+            // One valid displayable record; the others large raw tags, each different.
+            put("entry-$i", "entry-$i", state, if (i == 0) encodeSong(song) else largeTags + byteArrayOf(i.toByte()),
+                start = 100L + i, update = 200L + i)
+        }
+        originals.forEach { seed(it.request.id, partial = true) }
+        val finished = put("finished", "finished", Download.STATE_COMPLETED, largeTags, start = 7, update = 8)
+        seed("finished")
+        val observed = Observed(index)
+        val creations = AtomicInteger()
+        val never = DownloaderFactory { creations.incrementAndGet(); error("Retained tasks must not start") }
+        start(RetainedDownloadIndex(observed), never)
+        requireNotNull(manager).resumeDownloads()
+        pumpUntil { requireNotNull(manager).isIdle }
+        assertEquals(0, creations.get())
+        assertTrue(requireNotNull(manager).currentDownloads.all { it.state == Download.STATE_STOPPED })
+        // Before the manager's own startup step: one closed scan, then each ID read and written in turn.
+        val guarded = observed.events.takeWhile { it != "queued" }
+        assertEquals("scan", guarded.first())
+        val pairs = guarded.drop(1).chunked(2)
+        assertTrue(guarded.toString(), pairs.all { it.size == 2 && it[0] == "read:" + it[1].removePrefix("put:") })
+        assertEquals(originals.map { it.request.id }.toSet(), pairs.map { it[0].removePrefix("read:") }.toSet())
+        assertEquals(originals.size, pairs.size)
+        assertEquals("No read or write while a scan was open", 0, observed.duringScan)
+        assertTrue(observed.retainedCursors.single().isClosed)
+        for (old in originals) {
+            val held = requireNotNull(index.getDownload(old.request.id))
+            assertEquals(old.request, held.request) // Address, key and the stored tags, byte for byte.
+            assertEquals(old.startTimeMs, held.startTimeMs)
+            assertEquals(old.updateTimeMs, held.updateTimeMs)
+            assertEquals(old.contentLength, held.contentLength)
+            assertEquals(old.bytesDownloaded, held.bytesDownloaded)
+            assertEquals(old.percentDownloaded, held.percentDownloaded, 0f)
+            assertEquals(Download.STATE_STOPPED, held.state)
+            assertEquals(RETAINED_STOP_REASON, held.stopReason)
+            assertTrue(cache.isCached(old.request.id, 0, 2))
+        }
+        val done = requireNotNull(index.getDownload("finished"))
+        assertEquals(finished.request, done.request)
+        assertEquals(Download.STATE_COMPLETED, done.state)
+        assertEquals(finished.updateTimeMs, done.updateTimeMs)
+        assertTrue(cache.isCached("finished", 0, 4))
+        val shown = savedInventory(SavedShelf.Phone, rows(), cache, PlayedClaims.none()) { false }
+            .single { it.ref.requestId == "entry-0" }
+        assertEquals(song, shown.displaySong)
+        assertTrue(shown.stoppedAfterRestart)
+    }
+
+    @Test fun aRowThatCannotBeReadAgainLatchesTheFailureStartsNoTaskAndNeverRescans() {
+        val first = put("a", "shared", Download.STATE_REMOVING, largeTags)
+        val second = put("b", "b", Download.STATE_REMOVING, largeTags)
+        val other = put("other", "shared", Download.STATE_COMPLETED)
+        seed("shared"); seed("b")
+        val observed = Observed(index) { id -> if (id == "b") throw IOException("Injected row read failure") }
+        val guard = RetainedDownloadIndex(observed)
+        val creations = AtomicInteger()
+        start(guard, DownloaderFactory { creations.incrementAndGet(); error("A failed startup must start no task") })
+        assertEquals(0, creations.get())
+        assertTrue(requireNotNull(manager).currentDownloads.isEmpty())
+        assertEquals(Download.STATE_REMOVING, index.getDownload("b")?.state)
+        assertEquals(second.request, index.getDownload("b")?.request)
+        // "a" was stopped or not yet reached, depending on the scan's order; never removed or rewritten.
+        val a = requireNotNull(index.getDownload("a"))
+        assertEquals(first.request, a.request)
+        assertTrue(a.state == Download.STATE_REMOVING || (a.state == Download.STATE_STOPPED && a.stopReason == RETAINED_STOP_REASON))
+        assertEquals(other.request, index.getDownload("other")?.request)
+        assertTrue(cache.isCached("shared", 0, 4))
+        assertTrue(cache.isCached("b", 0, 4))
+        assertTrue(observed.retainedCursors.single().isClosed)
+        // A newer command in this process works, and the latched guard never rescans or stops it.
+        val fresh = DownloadRequest.Builder("saved/new", Uri.parse("http://127.0.0.1:7814/9"))
+            .setCustomCacheKey("saved/new").build()
+        requireNotNull(manager).addDownload(fresh, 7)
+        pumpUntil { index.getDownload(fresh.id)?.stopReason == 7 }
+        val thrown = assertThrows(IOException::class.java) { guard.getDownloads().close() }
+        assertEquals("Injected row read failure", thrown.message)
+        assertEquals(1, observed.retainedCursors.size)
+        assertEquals(7, index.getDownload(fresh.id)?.stopReason)
+        assertEquals(0, creations.get())
+    }
+
+    @Test fun aRowGoneBeforeItsWriteIsNotRecreatedAndNothingStarts() {
+        val kept = changedDuringStartup { id -> if (id == "changing") index.removeDownload(id) }
+        assertNull("A missing row is never recreated", index.getDownload("changing"))
+        assertEquals(kept.request, index.getDownload("kept")?.request)
+    }
+
+    @Test fun aRowFinishedBeforeItsWriteIsNotOverwrittenAndNothingStarts() {
+        val kept = changedDuringStartup { id ->
+            if (id == "changing") index.putDownload(Download(requireNotNull(index.getDownload(id)).request,
+                Download.STATE_COMPLETED, 123, 999, 4, Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        }
+        val newer = requireNotNull(index.getDownload("changing"))
+        assertEquals(Download.STATE_COMPLETED, newer.state)
+        assertEquals(999L, newer.updateTimeMs)
+        assertEquals(kept.request, index.getDownload("kept")?.request)
+    }
+
+    /**
+     * Starts a guarded manager over two unfinished rows whose "changing" row is changed by [change] the
+     * moment it is read again: the guard refuses (latched), no task starts, and bytes stay.
+     */
+    private fun changedDuringStartup(change: (String) -> Unit): Download {
+        put("changing", "changing", Download.STATE_REMOVING, largeTags)
+        val kept = put("kept", "kept", Download.STATE_QUEUED, largeTags)
+        seed("changing"); seed("kept", partial = true)
+        val observed = Observed(index, change)
+        val guard = RetainedDownloadIndex(observed)
+        val creations = AtomicInteger()
+        start(guard, DownloaderFactory { creations.incrementAndGet(); error("A refused startup must start no task") })
+        requireNotNull(manager).resumeDownloads()
+        pumpUntil { requireNotNull(manager).isIdle }
+        assertEquals(0, creations.get())
+        assertTrue(requireNotNull(manager).currentDownloads.isEmpty())
+        assertThrows(IOException::class.java) { guard.getDownloads().close() }
+        assertEquals(1, observed.retainedCursors.size)
+        assertTrue(observed.retainedCursors.single().isClosed)
+        assertTrue(cache.isCached("changing", 0, 4))
+        assertTrue(cache.isCached("kept", 0, 2))
+        val held = requireNotNull(index.getDownload("kept"))
+        assertTrue(held.state == Download.STATE_QUEUED || (held.state == Download.STATE_STOPPED && held.stopReason == RETAINED_STOP_REASON))
+        return kept
+    }
+
+    /**
+     * Delegates to the real index and records the guard's work: its state-filtered scan (the only one before
+     * the manager's own startup step, which the guard runs after inspecting), each single-row read and write,
+     * and anything done while that scan is open.
+     */
+    private class Observed(private val actual: DefaultDownloadIndex, private val onRead: (String) -> Unit = {}) :
+        WritableDownloadIndex by actual {
+        val events: MutableList<String> = java.util.Collections.synchronizedList(ArrayList())
+        val retainedCursors = java.util.concurrent.CopyOnWriteArrayList<DownloadCursor>()
+        @Volatile private var scanning = 0
+        @Volatile private var queued = false
+        @Volatile var duringScan = 0
+        override fun getDownloads(vararg states: Int): DownloadCursor {
+            val cursor = actual.getDownloads(*states)
+            if (states.isEmpty() || queued) return cursor
+            events += "scan"
+            retainedCursors += cursor
+            scanning++
+            return object : DownloadCursor by cursor {
+                override fun close() { if (!cursor.isClosed) scanning--; cursor.close() }
+            }
+        }
+        override fun getDownload(id: String): Download? {
+            if (scanning > 0) duringScan++
+            events += "read:$id"
+            onRead(id)
+            return actual.getDownload(id)
+        }
+        override fun putDownload(download: Download) {
+            if (scanning > 0) duringScan++
+            events += "put:${download.request.id}"
+            actual.putDownload(download)
+        }
+        override fun setDownloadingStatesToQueued() { queued = true; events += "queued"; actual.setDownloadingStatesToQueued() }
+    }
+
     private fun start(downloadIndex: WritableDownloadIndex, factory: DownloaderFactory) {
         manager = DownloadManager(RuntimeEnvironment.getApplication(), downloadIndex, factory)
         pumpUntil { requireNotNull(manager).isInitialized && requireNotNull(manager).isIdle }
     }
-    private fun put(id: String, key: String, state: Int): Download {
+    private fun put(id: String, key: String, state: Int, data: ByteArray = byteArrayOf(9, 0, 8),
+        start: Long = 123, update: Long = 456): Download {
         val request = DownloadRequest.Builder(id, Uri.parse("http://127.0.0.1:7814/api1/file/$id"))
-            .setCustomCacheKey(key).setData(byteArrayOf(9, 0, 8)).build()
+            .setCustomCacheKey(key).setData(data).build()
         val progress = DownloadProgress().apply { bytesDownloaded = 2; percentDownloaded = 50f }
-        return Download(request, state, 123, 456, 4, Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE, progress)
+        return Download(request, state, start, update, 4, Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE, progress)
             .also(index::putDownload)
     }
     private fun rows(): List<Download> = ArrayList<Download>().also { result ->

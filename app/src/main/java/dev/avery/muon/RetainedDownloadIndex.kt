@@ -45,14 +45,21 @@ internal class RetainedDownloadIndex(private val actual: WritableDownloadIndex) 
             // onto the UI thread; the caller reports not ready and the manager's worker initializes.
             if (Looper.myLooper() == Looper.getMainLooper()) throw IOException("Saved copies are still initializing")
             try {
-                val unfinished = ArrayList<Download>()
-                actual.getDownloads(Download.STATE_QUEUED, Download.STATE_DOWNLOADING,
-                    Download.STATE_REMOVING, Download.STATE_RESTARTING).use { cursor ->
-                    while (cursor.moveToNext()) unfinished += cursor.download
+                // Only the IDs wait while the cursor is open (#253), not each row's request and stored tags.
+                val pending = ArrayList<String>()
+                actual.getDownloads(*UNFINISHED).use { cursor ->
+                    while (cursor.moveToNext()) pending += cursor.download.request.id
                 }
                 // Close the cursor before updating; an IO failure propagates to Media3's initialization,
                 // which loads no tasks. Partial state updates still preserve the requests and their bytes.
-                for (row in unfinished) {
+                for (id in pending) {
+                    // One full record at a time, read again just before its write. In supported startup no
+                    // other writer runs before this finishes: Media3's worker is waiting in this call, and its
+                    // commands wait for initialization. A row gone or no longer unfinished means one did, so
+                    // nothing is written for it (no row recreated, no newer record overwritten) and the rest
+                    // is refused like any failed read.
+                    val row = actual.getDownload(id)
+                    if (row == null || row.state !in UNFINISHED) throw IOException("A retained download changed during startup")
                     val progress = DownloadProgress().apply {
                         bytesDownloaded = row.bytesDownloaded
                         percentDownloaded = row.percentDownloaded
@@ -68,5 +75,11 @@ internal class RetainedDownloadIndex(private val actual: WritableDownloadIndex) 
                 throw failure
             }
         }
+    }
+
+    private companion object {
+        /** The states of an operation a manager would start or continue: what startup stops. */
+        val UNFINISHED = intArrayOf(Download.STATE_QUEUED, Download.STATE_DOWNLOADING,
+            Download.STATE_REMOVING, Download.STATE_RESTARTING)
     }
 }
