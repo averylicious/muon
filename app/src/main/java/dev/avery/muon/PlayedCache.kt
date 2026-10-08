@@ -39,10 +39,13 @@ internal object PlayedCacheState {
 /**
  * Least-recently-played eviction for the played-song cache alone, whole songs at a time. Spans under
  * any other key (downloads) are ignored: they neither count towards the limit nor are ever removed.
+ * A played-copy key that [removable] refuses, one a download row names or any before the phone index
+ * has been read (#213, [PlayedClaims]), is never evicted; the cache may then stay over its limit.
  * Called by the cache under its own lock; [resize] takes that same lock.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class PlayedSongEvictor(limit: Long, private val report: (Long) -> Unit) : CacheEvictor {
+internal class PlayedSongEvictor(limit: Long, private val removable: (String) -> Boolean = { true },
+    private val report: (Long) -> Unit) : CacheEvictor {
     @Volatile private var limit = limit
     private val spans = TreeSet<CacheSpan> { a, b ->
         if (a.lastTouchTimestamp != b.lastTouchTimestamp) a.lastTouchTimestamp.compareTo(b.lastTouchTimestamp) else a.compareTo(b)
@@ -53,7 +56,11 @@ internal class PlayedSongEvictor(limit: Long, private val report: (Long) -> Unit
     private fun played(span: CacheSpan) = span.key.startsWith(PLAYED_PREFIX)
 
     override fun requiresCacheSpanTouches() = true
-    override fun onCacheInitialized() = Unit
+    override fun onCacheInitialized() {
+        // Loading spans protects each key as if it were being written. Once startup is complete,
+        // there is no writer to protect; trim an oversized played resource left by an older app.
+        cache?.let { evict(it, 0, keep = null) }
+    }
     override fun onStartFile(cache: Cache, key: String, position: Long, length: Long) {
         this.cache = cache
         if (key.startsWith(PLAYED_PREFIX) && length != C.LENGTH_UNSET.toLong()) evict(cache, length, keep = key)
@@ -86,7 +93,7 @@ internal class PlayedSongEvictor(limit: Long, private val report: (Long) -> Unit
     private fun evict(cache: Cache, required: Long, keep: String?) {
         var guard = spans.size
         while (size + required > limit && guard-- > 0) {
-            val oldest = spans.firstOrNull { it.key != keep } ?: return
+            val oldest = spans.firstOrNull { it.key != keep && removable(it.key) } ?: return
             cache.removeResource(oldest.key)
         }
     }

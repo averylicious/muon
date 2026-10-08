@@ -41,8 +41,8 @@ import kotlin.concurrent.withLock
 /**
  * #179 characterization, not a production gate: actual routeOfflineRequest and OfflineDataSource over two
  * disposable shelves (phone, card) with real caches, native-SQLite DefaultDownloadIndexes and FileDataSource
- * reads. Routing consults the phone index before choosing the card, so a per-shelf reader lease must cover
- * every consulted generation, not only the selected one. The admission bundle below is TEST-LOCAL and
+ * reads. Since #213 a saved copy is routed by its own handle and routing reads no index; the test-local
+ * leases still cover both generations, conservatively. The admission bundle below is TEST-LOCAL and
  * deliberately conservative; it is not a production design. Each index is wrapped only to record which
  * generation leases were held at every getDownload; upstreams fail if ever reached, so nothing touches a
  * network. Injected faults are synthetic.
@@ -117,12 +117,12 @@ class ReaderRouteCompositionTest {
         assertEquals("The upstream must never be reached", 0, upstreamOpens.get())
     }
 
-    @Test fun aCardHitConsultsThePhoneIndexAndTheCardIndexUnderBothLeases() {
+    @Test fun aCardCopyIsRoutedByItsHandleUnderBothLeasesWithoutAnyIndexQuery() {
         val source = admitted()
         source.open(stream())
         assertArrayEquals(payload, readAll(source))
-        // Actual routing asked the phone first (a miss), then the card (a completed hit).
-        assertEquals(listOf("phone_index" to true, "card_index" to true), queries)
+        // A saved copy's handle names its shelf and key (#213): routing reads no index at all.
+        assertTrue(queries.isEmpty())
         assertEquals("The bytes came from the card's cache", "card", wrappers.single().shelf)
         assertEquals(1, phoneGate.active())
         assertEquals(1, cardGate.active())
@@ -151,7 +151,7 @@ class ReaderRouteCompositionTest {
         source.open(stream())
         assertArrayEquals(payload, readAll(source))
         phoneGate.close(); cardGate.close()
-        assertFalse("The phone index was consulted for this open", phoneGate.drained())
+        assertFalse("The phone lease is still held for this open", phoneGate.drained())
         assertFalse("The card copy is still open", cardGate.drained())
         source.close()
         assertEquals(1, wrappers.single().delegateCloses.get())
@@ -212,7 +212,7 @@ class ReaderRouteCompositionTest {
         assertTrue(cardGate.uncertain())
         assertThrows(GenerationClosed::class.java) { source.open(stream()) }
         assertEquals("The refused reopen did no routing", 1, routeCalls.get())
-        assertEquals("Nor any index query", 2, queries.size)
+        assertTrue("Nor any index query", queries.isEmpty())
         source.close() // A no-op close must not clear the uncertainty.
         phoneGate.close(); cardGate.close()
         assertFalse(phoneGate.drained())
@@ -230,7 +230,7 @@ class ReaderRouteCompositionTest {
         assertEquals(1, phoneGate.active())
         assertEquals(1, cardGate.active())
         assertEquals(2, wrappers.size)
-        assertEquals(List(2) { listOf("phone_index" to true, "card_index" to true) }.flatten(), queries)
+        assertTrue(queries.isEmpty())
         assertArrayEquals(payload, readAll(source))
         source.close()
         cardGate.close()
@@ -317,7 +317,7 @@ class ReaderRouteCompositionTest {
     /** The actual production routing over both shelves, in the store's order (phone, then card). */
     private fun offlineSource() = OfflineDataSource { request ->
         routeCalls.incrementAndGet()
-        routeOfflineRequest(request, phone, listOf(phone, card), false)
+        routeOfflineRequest(request, phone, card)
     }.also { sources.add(it) }
 
     // ---- Fixture ----
@@ -348,8 +348,9 @@ class ReaderRouteCompositionTest {
         return Shelf(cache, manager, MuonDownloadService::class.java).also { shelf ->
             // The only seams: the cache-read source (a real FileDataSource, wrapped) and an upstream
             // that fails if ever reached, replacing the OkHttp one before any source is created.
-            shelf.source.setCacheReadDataSourceFactory { Wrapper(folder, FileDataSource()).also { wrappers.add(it) } }
-            shelf.source.setUpstreamDataSourceFactory { FailingUpstream() }
+            // Saved copies read through savedSource, which has no upstream at all (#213).
+            shelf.savedSource.setCacheReadDataSourceFactory { Wrapper(folder, FileDataSource()).also { wrappers.add(it) } }
+            shelf.stream = DataSource.Factory { FailingUpstream() }
         }
     }
 
@@ -372,8 +373,9 @@ class ReaderRouteCompositionTest {
             payload.size.toLong(), Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
     }
 
-    private fun stream(): DataSpec =
-        DataSpec.Builder().setUri(requireNotNull(track.mediaItem(endpoint).localConfiguration).uri).build()
+    /** The card copy's saved handle (#213): the only way a request reaches its bytes. */
+    private fun stream(): DataSpec = DataSpec.Builder()
+        .setUri(Uri.parse(requireNotNull(SavedRef.download(SavedShelf.Card, id, id)).handle)).build()
 
     /** Bounded to the tiny payload: a source that returns zero forever or too many bytes fails, not hangs. */
     private fun readAll(source: DataSource): ByteArray {
