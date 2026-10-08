@@ -922,6 +922,25 @@ class DownloadMoveCharacterizationTest {
         assertFalse(store.moves.hasPending)
     }
 
+    @Test fun anOversizedSingleMoveCommandIsKeptWithoutTargetOutputAndOtherCopiesStillMove() {
+        val (small, payload) = completeKeyed("saved/oversized")
+        val oversized = DownloadRequest.Builder(small.id, small.uri).setCustomCacheKey(small.id)
+            .setData(ByteArray(MOVE_COMMAND_BYTES.toInt()) { 9 }).build()
+        sourceIndex.putDownload(Download(oversized, Download.STATE_COMPLETED, 0, 0, payload.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        val valid = completeKeyed("saved/valid")
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(listOf(valid.first), startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
+            .map(::addRequest))
+        assertEquals(oversized, sourceIndex.getDownload(oversized.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, oversized.id))
+        assertTrue(card.cache.getCachedSpans(oversized.id).isEmpty())
+        assertTrue(ShadowToast.getTextOfLatestToast().toString().contains("too much stored metadata"))
+        assertNotNull(sourceIndex.getDownload(valid.first.id))
+        assertArrayEquals(valid.second, keyedBytes(card.cache, valid.first.id))
+    }
+
     @Test fun largeExactRequestsStopBeforeTheBatchMetadataLimitWithoutWritingTheRemainder() {
         val sources = (0 until 9).associate { n ->
             val key = "saved/large-$n"
