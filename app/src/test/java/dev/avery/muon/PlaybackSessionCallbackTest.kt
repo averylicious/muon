@@ -249,4 +249,24 @@ class PlaybackSessionCallbackTest {
         val failure = assertThrows(ExecutionException::class.java) { future.get(1, TimeUnit.SECONDS) }
         assertTrue("Expected ${cause.simpleName}, got ${failure.cause}", cause.isInstance(failure.cause))
     }
+    @Test fun diagnosticAdmissionTimesTheRealWorkerAndItsCancelledOrRefusedResult() {
+        var now = 0L
+        val events = ArrayList<SavedStartupTiming.Event>()
+        val timing = SavedStartupTiming(true, { ++now }, events::add)
+        val own = controller(uid = Process.myUid())
+        val accepted = PlaybackSessionCallback({ true }, java.util.concurrent.Executor { it.run() }, timing)
+        assertEquals(1, accepted.onAddMediaItems(session, own, mutableListOf(saved())).get().size)
+        assertEquals(SavedStartupTiming.Outcome.OK, events.last().outcome)
+        val refused = PlaybackSessionCallback({ false }, java.util.concurrent.Executor { it.run() }, timing)
+        assertFailure(refused.onAddMediaItems(session, own, mutableListOf(saved())), IllegalArgumentException::class.java)
+        assertEquals(SavedStartupTiming.Outcome.FAILED, events.last().outcome)
+        val held = HeldAdmission()
+        val cancelled = PlaybackSessionCallback({ fail("Cancelled read must not run"); false }, held, timing)
+        val future = cancelled.onAddMediaItems(session, own, mutableListOf(saved()))
+        future.cancel(false); held.next()
+        assertEquals(SavedStartupTiming.Outcome.CANCELLED, events.last().outcome)
+        assertEquals(3, events.size)
+        assertTrue(events.all { it.phase == SavedStartupTiming.Phase.ADMISSION && it.milliseconds >= 0 })
+    }
+
 }
