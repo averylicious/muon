@@ -379,7 +379,8 @@ internal object OfflineStore {
      * Every row of a shelf's index, in every state: what a key census reads, as names and states only
      * (#253). A failed read throws. Off the main thread.
      */
-    private fun readCensus(shelf: Shelf): IndexCensus = indexCensus(shelf.manager.downloadIndex)
+    private fun readCensus(context: Context, shelf: Shelf): DiskOwnershipCensus =
+        DiskOwnershipCensus.read(context, shelf.manager.downloadIndex)
 
     /** Runs saved-copy requests and their checks off the main thread, one at a time. */
     private val saver = Executors.newSingleThreadExecutor()
@@ -961,76 +962,84 @@ internal object OfflineStore {
                 // writer can add a row naming a key another row owns (see [soleOwner]), and this move adds
                 // only rows that pass [movable]. Names and states only (#253): each song's full record is
                 // read again when its turn comes, and dropped after its copy.
-                val sourceCensus = runCatching { readCensus(from) }.getOrNull()
-                val targetCensus = runCatching { readCensus(to) }.getOrNull()
-                val ids = sourceCensus?.rows.orEmpty().filter { it.state == Download.STATE_COMPLETED }.map { it.id }
-                main.post { DownloadMarks.moving = 0 to ids.size }
-                // Hand-over can publish only as many copies as there are free receipts (#253), so no more are
-                // copied: a copy past that would leave unindexed bytes on the target and never be added. Read
-                // once: only this batch's hand-over remembers receipts while the move holds its exclusion.
-                val room = store.moves.available()
-                val metadata = DownloadMoveBudget()
-                var oversized = 0
-                var kept = 0
-                var failed = 0
-                var deferred = 0
-                for ((index, id) in ids.withIndex()) {
-                    // Only successful copies take a place; the rest stay where they are, untouched, for a
-                    // later move.
-                    if (copiedRequests.size >= room) {
-                        deferred = ids.size - index
-                        break
-                    }
-                    if (!canMove(from, to)) {
-                        notice(context, "The SD card isn't available any more, so the rest weren't moved.")
-                        break
-                    }
-                    // A copy whose bytes another row may share, or one the target already names otherwise,
-                    // stays where it is, untouched; an unread target index moves nothing. So does a row that
-                    // is no longer the finished one counted, or can't be read again.
-                    val download = runCatching { from.manager.downloadIndex.getDownload(id) }.getOrNull()
-                        ?.takeIf { it.state == Download.STATE_COMPLETED }
-                    val safe = sourceCensus != null && targetCensus != null && download != null && runCatching {
-                        movable(download, sourceCensus, targetCensus) { to.manager.downloadIndex.getDownload(it) }
-                    }.getOrDefault(false)
-                    if (!safe) kept++
-                    // Count the exact preserved request before copying any target output (#253).
-                    // Count alone does not bound the legacy raw tags retained until hand-over.
-                    if (safe && download != null && !metadata.fits(download.request)) {
-                        if (!metadata.fitsAlone(download.request)) {
-                            oversized++ // A later move cannot fit it either; explain without a retry loop.
-                            main.post { DownloadMarks.moving = index + 1 to ids.size }
-                            continue
+                val sourceCensus = runCatching { readCensus(context, from) }.getOrNull()
+                val targetCensus = runCatching { readCensus(context, to) }.getOrNull()
+                try {
+                    val total = sourceCensus?.countCompleted() ?: 0
+                    main.post { DownloadMarks.moving = 0 to total }
+                    // Hand-over can publish only as many copies as there are free receipts (#253), so no more are
+                    // copied: a copy past that would leave unindexed bytes on the target and never be added. Read
+                    // once: only this batch's hand-over remembers receipts while the move holds its exclusion.
+                    val room = store.moves.available()
+                    val metadata = DownloadMoveBudget()
+                    var oversized = 0
+                    var kept = 0
+                    var failed = 0
+                    var deferred = 0
+                    var ordinal = 0
+                    sourceCensus?.forEachRow(completedOnly = true) { row ->
+                        val index = ordinal++
+                        val id = row.id
+                        // Only successful copies take a place; the rest stay where they are, untouched, for a
+                        // later move.
+                        if (copiedRequests.size >= room) {
+                            deferred = total - index
+                            return@forEachRow false
                         }
-                        deferred = ids.size - index
-                        break // Successful requests consume budget; failed/unsafe ones do not.
+                        if (!canMove(from, to)) {
+                            notice(context, "The SD card isn't available any more, so the rest weren't moved.")
+                            return@forEachRow false
+                        }
+                        // A copy whose bytes another row may share, or one the target already names otherwise,
+                        // stays where it is, untouched; an unread target index moves nothing. So does a row that
+                        // is no longer the finished one counted, or can't be read again.
+                        val download = runCatching { from.manager.downloadIndex.getDownload(id) }.getOrNull()
+                            ?.takeIf { it.state == Download.STATE_COMPLETED }
+                        val safe = sourceCensus != null && targetCensus != null && download != null && runCatching {
+                            movable(download, sourceCensus, targetCensus) { to.manager.downloadIndex.getDownload(it) }
+                        }.getOrDefault(false)
+                        if (!safe) kept++
+                        // Count the exact preserved request before copying any target output (#253).
+                        // Count alone does not bound the legacy raw tags retained until hand-over.
+                        if (safe && download != null && !metadata.fits(download.request)) {
+                            if (!metadata.fitsAlone(download.request)) {
+                                oversized++ // A later move cannot fit it either; explain without a retry loop.
+                                main.post { DownloadMarks.moving = index + 1 to total }
+                                return@forEachRow true
+                            }
+                            deferred = total - index
+                            return@forEachRow false // Successful requests consume budget; failed/unsafe ones do not.
+                        }
+                        val attempted = safe && moveOwnership.permits(batch, id)
+                        // The copy stops writing as soon as the move no longer owns this song (removed, or
+                        // Remove all, #234) or either shelf goes (#179 S1), rather than finishing a copy no one
+                        // will hand over (#230).
+                        val copied = attempted && download != null && runCatching {
+                            copy(download, from, to) { canMove(from, to) && moveOwnership.permits(batch, id) }
+                        }.isSuccess
+                        if (attempted && !copied) failed++
+                        // Handed over only after the last copy, when the exclusion is released (#230). Each handed
+                        // over request, with its stored record, is kept until then.
+                        if (copied && download != null) {
+                            metadata.commit(download.request)
+                            copiedRequests += download.request
+                        }
+                        main.post { DownloadMarks.moving = index + 1 to total }
+                        true
                     }
-                    val attempted = safe && moveOwnership.permits(batch, id)
-                    // The copy stops writing as soon as the move no longer owns this song (removed, or
-                    // Remove all, #234) or either shelf goes (#179 S1), rather than finishing a copy no one
-                    // will hand over (#230).
-                    val copied = attempted && download != null && runCatching {
-                        copy(download, from, to) { canMove(from, to) && moveOwnership.permits(batch, id) }
-                    }.isSuccess
-                    if (attempted && !copied) failed++
-                    // Handed over only after the last copy, when the exclusion is released (#230). Each handed
-                    // over request, with its stored record, is kept until then.
-                    if (copied && download != null) {
-                        metadata.commit(download.request)
-                        copiedRequests += download.request
-                    }
-                    main.post { DownloadMarks.moving = index + 1 to ids.size }
+                    if (kept > 0) notice(context, "$kept ${if (kept == 1) "copy was" else "copies were"} kept where " +
+                        "${if (kept == 1) "it was" else "they were"}: Muon can't tell their bytes belong to them alone.")
+                    if (failed > 0) notice(context, if (failed == 1)
+                        "1 copy couldn't be moved. Its saved entry was kept."
+                    else "$failed copies couldn't be moved. Their saved entries were kept.")
+                    if (oversized > 0) notice(context, "$oversized saved ${if (oversized == 1) "copy has" else "copies have"} " +
+                        "too much stored metadata to move safely. The original records and audio were kept.")
+                    if (deferred > 0) notice(context, if (deferred == 1)
+                        "1 more copy stays where it is. Move again once this move finishes."
+                    else "$deferred more copies stay where they are. Move again once this move finishes.")
+                } finally {
+                    try { targetCensus?.close() } finally { sourceCensus?.close() }
                 }
-                if (kept > 0) notice(context, "$kept ${if (kept == 1) "copy was" else "copies were"} kept where " +
-                    "${if (kept == 1) "it was" else "they were"}: Muon can't tell their bytes belong to them alone.")
-                if (failed > 0) notice(context, if (failed == 1)
-                    "1 copy couldn't be moved. Its saved entry was kept."
-                else "$failed copies couldn't be moved. Their saved entries were kept.")
-                if (oversized > 0) notice(context, "$oversized saved ${if (oversized == 1) "copy has" else "copies have"} " +
-                    "too much stored metadata to move safely. The original records and audio were kept.")
-                if (deferred > 0) notice(context, if (deferred == 1)
-                    "1 more copy stays where it is. Move again once this move finishes."
-                else "$deferred more copies stay where they are. Move again once this move finishes.")
             } finally {
                 // One main-thread step, after the mover has stopped reading and writing the copies: release
                 // the exclusion, then hand over. Nothing runs between the two, so a command refused during
@@ -1243,13 +1252,25 @@ internal object OfflineStore {
         var kept = 0
         var later = 0
         for (shelf in availableShelves(store.shelves)) {
-            // The whole census is read before any command, so a removal cannot change the rows being judged.
-            val census = runCatching { readCensus(shelf) }.getOrNull() ?: continue
-            for (row in census.rows) {
-                if (row.state == Download.STATE_REMOVING) continue
-                if (!census.soleOwner(row)) kept++
-                else if (!selection.take(shelf, row.id)) later++
-            }
+            // A whole, closed disk census is required; a partial read/close sends nothing from this shelf.
+            val local = RemovalSelection()
+            var localKept = 0
+            var localLater = 0
+            val complete = runCatching {
+                readCensus(context, shelf).use { census ->
+                    census.forEachRow { row ->
+                        if (row.state != Download.STATE_REMOVING) {
+                            if (!census.soleOwner(row.id)) localKept++
+                            else if (!local.take(shelf, row.id)) localLater++
+                        }
+                        true
+                    }
+                }
+            }.isSuccess
+            if (!complete) continue
+            kept += localKept
+            later += localLater
+            for (target in local.targets) if (!selection.take(target.shelf, target.id)) later++
         }
         if (selection.targets.isEmpty()) return RemoveAllPlan(0, kept, later)
         val app = context.applicationContext
