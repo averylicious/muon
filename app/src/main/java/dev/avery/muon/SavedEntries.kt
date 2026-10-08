@@ -364,11 +364,11 @@ internal fun savedInventory(shelf: SavedShelf, index: DownloadIndex, cache: Cach
 internal fun forEachSavedEntry(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
     ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
     checkpoint: () -> Unit = {}, ownership: ((Download) -> Boolean)? = null,
-    emit: (SavedEntry) -> Unit) = index.getDownloads().use { cursor ->
+    playedKeys: (((String) -> Boolean) -> Unit)? = null, emit: (SavedEntry) -> Unit) = index.getDownloads().use { cursor ->
     projectSavedInventory(shelf, {
         cursor.moveToPosition(-1)
         sequence { while (cursor.moveToNext()) { checkpoint(); yield(cursor.download) } }
-    }, cache, played, ownsCover, include, checkpoint, ownership, emit)
+    }, cache, played, ownsCover, include, checkpoint, ownership, playedKeys, emit)
 }
 
 private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
@@ -379,7 +379,7 @@ private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download
 private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
     ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
     checkpoint: () -> Unit = {}, ownership: ((Download) -> Boolean)? = null,
-    emit: (SavedEntry) -> Unit) {
+    playedKeys: (((String) -> Boolean) -> Unit)? = null, emit: (SavedEntry) -> Unit) {
     val removableIds = if (ownership == null) soleOwners(downloads()) else emptySet()
     for (download in downloads()) {
         if (download.state == Download.STATE_REMOVING) continue
@@ -396,19 +396,24 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
             storedMetadataTooLarge = request.data.size > TRACK_METADATA_MAX_BYTES))
     }
     // Played copies live only in the phone's cache; [played] is null for any other shelf.
-    if (played != null) for (key in cache.keys.sorted()) {
-        if (!key.startsWith(PLAYED_PREFIX)) continue
-        checkpoint()
-        val ref = SavedRef.played(key) ?: continue
-        if (!include(ref)) continue
-        val (coverage, bytes) = savedCoverage(cache, key)
-        if (coverage != SavedCoverage.Full) continue
-        val metadata = cache.getContentMetadata(key)
-        val from = metadata.get(SAVED_FROM_METADATA, null as String?) ?: key.removePrefix(PLAYED_PREFIX)
-        val songData = metadata.get(SONG_METADATA, null as ByteArray?)
-        emit(SavedEntry(ref, songData?.let(::decodeSavedSong),
-            savedOrigin(from), null, coverage, bytes, ownCover = false, removable = played.removable(key),
-            storedMetadataTooLarge = songData != null && songData.size > TRACK_METADATA_MAX_BYTES))
+    if (played != null) {
+        fun projectPlayed(key: String): Boolean {
+            if (!key.startsWith(PLAYED_PREFIX)) return true
+            checkpoint()
+            val ref = SavedRef.played(key) ?: return true
+            if (!include(ref)) return true
+            val (coverage, bytes) = savedCoverage(cache, key)
+            if (coverage != SavedCoverage.Full) return true
+            val metadata = cache.getContentMetadata(key)
+            val from = metadata.get(SAVED_FROM_METADATA, null as String?) ?: key.removePrefix(PLAYED_PREFIX)
+            val songData = metadata.get(SONG_METADATA, null as ByteArray?)
+            emit(SavedEntry(ref, songData?.let(::decodeSavedSong),
+                savedOrigin(from), null, coverage, bytes, ownCover = false, removable = played.removable(key),
+                storedMetadataTooLarge = songData != null && songData.size > TRACK_METADATA_MAX_BYTES))
+            return true
+        }
+        if (playedKeys != null) playedKeys(::projectPlayed)
+        else for (key in cache.keys.sorted()) projectPlayed(key)
     }
 }
 
@@ -416,10 +421,12 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
  * Count playable copies without decoding stored song tags, building display entries, sorting or reading
  * covers (#253). Visibility and completeness match [savedInventory]. No ownership is granted by this
  * count: removal still needs a complete fresh census. A failed scan throws; never return a partial count.
- * The index cursor still decodes one full row at a time. Cache key/span snapshots are not bounded here.
+ * The index cursor still decodes one full row at a time. Runtime played names can use the complete
+ * derived disk census; the default enumeration remains a small fixture/legacy seam. Native cache
+ * content/metadata/span residency is separate.
  */
 internal fun countCompleteSavedCopies(shelf: SavedShelf, index: DownloadIndex, cache: Cache,
-    includePlayed: Boolean): Long {
+    includePlayed: Boolean, playedKeys: (((String) -> Boolean) -> Unit)? = null): Long {
     var count = 0L
     index.getDownloads().use { cursor ->
         while (cursor.moveToNext()) {
@@ -432,8 +439,12 @@ internal fun countCompleteSavedCopies(shelf: SavedShelf, index: DownloadIndex, c
             if (canPlay && coverage == SavedCoverage.Full) count++
         }
     }
-    if (includePlayed && shelf == SavedShelf.Phone) for (key in cache.keys) {
-        if (SavedRef.played(key) != null && savedCoverage(cache, key).first == SavedCoverage.Full) count++
+    if (includePlayed && shelf == SavedShelf.Phone) {
+        fun countPlayed(key: String): Boolean {
+            if (SavedRef.played(key) != null && savedCoverage(cache, key).first == SavedCoverage.Full) count++
+            return true
+        }
+        if (playedKeys != null) playedKeys(::countPlayed) else for (key in cache.keys) countPlayed(key)
     }
     return count
 }

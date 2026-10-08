@@ -304,7 +304,7 @@ internal object OfflineStore {
         playedWork.copy(id) { owner ->
             runCatching {
                 // Not before the phone index has been read: a fresh key must be one no row names (#213).
-                if (owner.isCancelled || !store.playedClaims.known || hasPlayedCopyFrom(store.cache, id, song)) return@runCatching
+                if (owner.isCancelled || !store.playedClaims.known || hasPlayedCopyFrom(store, id, song)) return@runCatching
                 val call = AtomicReference<Call?>()
                 val writer = AtomicReference<CacheWriter?>()
                 owner.onCancel { writer.get()?.cancel(); call.get()?.cancel() }
@@ -343,16 +343,16 @@ internal object OfflineStore {
     }
 
     /** Whether a complete new-style played copy saved from [id] with these same details is kept. */
-    private fun hasPlayedCopyFrom(cache: androidx.media3.datasource.cache.Cache, id: String, song: ByteArray): Boolean =
-        runCatching {
-            cache.keys.any { key ->
-                if (!key.startsWith(playedKey(NEW_SAVE_PREFIX))) return@any false
-                val metadata = cache.getContentMetadata(key)
-                metadata.get(SAVED_FROM_METADATA, null as String?) == id &&
-                    metadata.get(SONG_METADATA, null as ByteArray?)?.contentEquals(song) == true &&
-                    savedCoverage(cache, key).first == SavedCoverage.Full
-            }
-        }.getOrDefault(false)
+    private fun hasPlayedCopyFrom(store: Store, id: String, song: ByteArray): Boolean = runCatching {
+        fun matches(key: String): Boolean {
+            if (!key.startsWith(playedKey(NEW_SAVE_PREFIX))) return false
+            val metadata = store.cache.getContentMetadata(key)
+            return metadata.get(SAVED_FROM_METADATA, null as String?) == id &&
+                metadata.get(SONG_METADATA, null as ByteArray?)?.contentEquals(song) == true &&
+                savedCoverage(store.cache, key).first == SavedCoverage.Full
+        }
+        if (store.played.hasDiskOrder) store.played.anyKey(::matches) else store.cache.keys.any(::matches)
+    }.getOrDefault(false)
 
     /** A new cache limit, kept for next time; lowering it makes room at once. */
     fun setCacheLimit(context: Context, limit: Long) {
@@ -371,7 +371,8 @@ internal object OfflineStore {
         val cache = store.cache
         playedWork.clear {
             runCatching {
-                cache.keys.filter { it.startsWith(PLAYED_PREFIX) && store.playedClaims.removable(it) }.forEach(cache::removeResource)
+                if (store.played.hasDiskOrder) store.played.clear()
+                else cache.keys.filter { it.startsWith(PLAYED_PREFIX) && store.playedClaims.removable(it) }.forEach(cache::removeResource)
             }
         }
     }
@@ -530,7 +531,9 @@ internal object OfflineStore {
             SavedOwnerProjection.open(context, shelf.manager.downloadIndex, checkpoint).use { owners ->
                 forEachSavedEntry(name, shelf.manager.downloadIndex, shelf.cache,
                     if (name == SavedShelf.Phone) store.playedClaims else null,
-                    { store.art.hasEntry(it) }, include, checkpoint, ownership = owners::soleOwner, emit = emit)
+                    { store.art.hasEntry(it) }, include, checkpoint, ownership = owners::soleOwner,
+                    playedKeys = if (name == SavedShelf.Phone && store.played.hasDiskOrder) store.played::forEachKey else null,
+                    emit = emit)
             }
             if (!shelf.available()) throw java.io.IOException("Saved storage changed; refresh your copies")
         }
@@ -544,7 +547,8 @@ internal object OfflineStore {
         return shelves.sumOf { (name, shelf) ->
             // Match savedEntries: a failed shelf contributes nothing, never its partial scan.
             runCatching { countCompleteSavedCopies(name, shelf.manager.downloadIndex, shelf.cache,
-                includePlayed = name == SavedShelf.Phone) }.getOrDefault(0L)
+                includePlayed = name == SavedShelf.Phone,
+                playedKeys = if (name == SavedShelf.Phone && store.played.hasDiskOrder) store.played::forEachKey else null) }.getOrDefault(0L)
         }
     }
 

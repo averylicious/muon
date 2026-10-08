@@ -16,6 +16,7 @@ internal interface PlayedSpanOrder {
     fun remove(span: CacheSpan)
     fun oldest(keep: String?, removable: (String) -> Boolean): String?
     fun initialized() {}
+    fun forEachKey(emit: (String) -> Boolean)
 }
 
 /** Small fixture/legacy constructor seam; production explicitly supplies the disk order. */
@@ -28,6 +29,9 @@ internal class MemoryPlayedSpanOrder : PlayedSpanOrder {
     override fun remove(span: CacheSpan) { spans.remove(span) }
     override fun oldest(keep: String?, removable: (String) -> Boolean): String? =
         spans.firstOrNull { it.key != keep && removable(it.key) }?.key
+    override fun forEachKey(emit: (String) -> Boolean) {
+        for (key in spans.map { it.key }.distinct().sorted()) if (!emit(key)) break
+    }
 }
 
 /**
@@ -38,6 +42,7 @@ internal class MemoryPlayedSpanOrder : PlayedSpanOrder {
 internal class DiskPlayedSpanOrder(private val file: File) : PlayedSpanOrder, Closeable {
     private var database: SQLiteDatabase? = null
     private var failed = false
+    private var complete = false
     private fun db(): SQLiteDatabase? {
         if (failed) return null
         return database ?: try {
@@ -53,7 +58,7 @@ internal class DiskPlayedSpanOrder(private val file: File) : PlayedSpanOrder, Cl
             }
         } catch (_: Exception) { failed = true; null }
     }
-    override fun initialized() { db() }
+    override fun initialized() { complete = db() != null && !failed }
     override val count: Long get() {
         val db = db() ?: return 0
         return try { db.compileStatement("SELECT COUNT(*) FROM spans").use { it.simpleQueryForLong() } }
@@ -87,6 +92,16 @@ internal class DiskPlayedSpanOrder(private val file: File) : PlayedSpanOrder, Cl
             }
         } catch (_: Exception) { failed = true; null }
     }
+    override fun forEachKey(emit: (String) -> Boolean) {
+        // Absence in a partial/failed startup must never publish an incomplete display catalog.
+        if (!complete || failed) throw java.io.IOException("Played span census is unavailable")
+        val db = db() ?: throw java.io.IOException("Played span census is unavailable")
+        db.rawQuery("SELECT DISTINCT key FROM spans ORDER BY key", null).use { cursor ->
+            while (cursor.moveToNext()) if (!emit(savedCatalogText(cursor.getBlob(0)))) break
+        }
+        if (failed) throw java.io.IOException("Played span census changed")
+    }
+
     override fun close() {
         failed = true
         try { database?.close() } finally { database = null }

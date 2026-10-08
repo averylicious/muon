@@ -79,6 +79,32 @@ internal class PlayedSongEvictor(limit: Long, private val removable: (String) ->
         onSpanAdded(cache, newSpan)
     }
 
+    val hasDiskOrder: Boolean get() = order is DiskPlayedSpanOrder
+
+    /** Complete distinct names, streamed while native-cache mutations are excluded. */
+    fun forEachKey(emit: (String) -> Boolean) {
+        val active = cache
+        if (active == null) order.forEachKey(emit) else synchronized(active) { order.forEachKey(emit) }
+    }
+
+    fun anyKey(predicate: (String) -> Boolean): Boolean {
+        var found = false
+        forEachKey { key -> found = predicate(key); !found }
+        return found
+    }
+
+    /** Re-query one eligible resource after each removal; never mutate an open key cursor. */
+    fun clear() {
+        val active = cache ?: return
+        synchronized(active) {
+            var guard = order.count
+            while (guard-- > 0) {
+                val key = order.oldest(null, removable) ?: return
+                active.removeResource(key)
+            }
+        }
+    }
+
     /** A new limit; a lower one makes room at once. */
     fun resize(newLimit: Long) {
         limit = newLimit
