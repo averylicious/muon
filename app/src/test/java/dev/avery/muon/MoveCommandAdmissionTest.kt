@@ -255,7 +255,7 @@ class MoveCommandAdmissionTest {
         val service = service()
         awaitSettled(phone.manager)
         startedServices() // Ignore setup starts.
-        assertEquals("One sole-owned row sent, none kept", 1 to 0, OfflineStore.removeAllNow(app))
+        assertEquals("One sole-owned row sent, none kept", OfflineStore.RemoveAllPlan(1, 0), OfflineStore.removeAllNow(app))
         val commands = startedServices().filter { it.component?.className == MuonDownloadService::class.java.name }
         assertEquals(listOf(kept), commands.map {
             assertEquals(DownloadService.ACTION_REMOVE_DOWNLOAD, it.action)

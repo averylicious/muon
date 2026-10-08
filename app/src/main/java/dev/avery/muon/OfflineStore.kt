@@ -107,6 +107,8 @@ internal object OfflineStore {
         val savePreparation = java.util.concurrent.atomic.AtomicBoolean()
         /** At most one bounded new-save batch awaiting exact service delivery. */
         val saveDelivery = DownloadSaveDelivery()
+        /** At most one bounded batch of checked removals awaiting exact service delivery (#253). */
+        val removalDelivery = DownloadRemovalDelivery()
         @Volatile var card: Shelf? = null
         /** The app's folder on [card], for its name and free space; null without a card. */
         @Volatile var cardFolder: File? = null
@@ -586,7 +588,11 @@ internal object OfflineStore {
     fun removeSaved(context: Context, ref: SavedRef) {
         saver.execute {
             when (removeSavedNow(context, ref)) {
+                // Its outcome is said once the service has answered ([removalDeliveryMessage]).
                 SavedRemoval.Sent -> Unit
+                SavedRemoval.Waiting ->
+                    notice(context, "Saved copies are still being removed, so that copy wasn't. " +
+                        "Try again when that finishes.")
                 SavedRemoval.Unavailable ->
                     notice(context, "That copy is on the SD card, which isn't available, so it wasn't removed.")
                 SavedRemoval.NotOwned ->
@@ -598,7 +604,8 @@ internal object OfflineStore {
         }
     }
 
-    internal enum class SavedRemoval { Sent, Unavailable, NotOwned, Busy }
+    /** [Sent]: handed to the service for acknowledgement, not yet removed. [Waiting]: another removal batch pending. */
+    internal enum class SavedRemoval { Sent, Unavailable, NotOwned, Busy, Waiting }
 
     /** [removeSaved]'s checks and command, on the calling thread; reads one index row. */
     internal fun removeSavedNow(context: Context, ref: SavedRef): SavedRemoval {
@@ -625,10 +632,21 @@ internal object OfflineStore {
             .getOrNull() ?: return SavedRemoval.NotOwned
         val row = owner.row
         if (row == null || row.key != ref.key || !owner.soleOwner) return SavedRemoval.NotOwned
+        if (store.removalDelivery.busy) return SavedRemoval.Waiting
         // Its own move, if one is under way, loses its hand-over too (#234).
         moveOwnership.remove(listOf(ref.requestId))
-        DownloadService.sendRemoveDownload(context, shelf.service, ref.requestId, false)
-        return SavedRemoval.Sent
+        val app = context.applicationContext
+        val begun = store.removalDelivery.begin(listOf(RemovalTarget(shelf, ref.requestId)), sendRemoval(context)) { result ->
+            removalDeliveryMessage(result, single = true)?.let { notice(app, it) }
+        }
+        return if (begun) SavedRemoval.Sent else SavedRemoval.Waiting
+    }
+
+    /** One tagged removal for the delivery batch; true only when Android accepted the start request. */
+    private fun sendRemoval(context: Context): (RemovalTarget, String) -> Boolean = { target, token ->
+        val intent = DownloadService.buildRemoveDownloadIntent(context, target.shelf.service, target.id, false)
+            .putExtra(REMOVAL_DELIVERY_TOKEN, token)
+        context.startService(intent) != null
     }
 
     /**
@@ -706,6 +724,7 @@ internal object OfflineStore {
      * Unknown/expired/replayed or wrong-shelf requests never touch command budgets or move ownership.
      */
     internal fun deliverCommand(context: Context, intent: Intent?, shelf: Shelf?, start: (Intent?) -> Int): Int {
+        if (intent?.hasExtra(REMOVAL_DELIVERY_TOKEN) == true) return deliverRemoval(context, intent, shelf, start)
         if (intent?.hasExtra(SAVE_DELIVERY_TOKEN) != true)
             return start(admitCommand(context, intent, shelf))
         val token = intent.getStringExtra(SAVE_DELIVERY_TOKEN)
@@ -732,9 +751,43 @@ internal object OfflineStore {
         }
     }
 
+    /**
+     * A checked removal from [DownloadRemovalDelivery]: the token must name this exact shelf and ID, once,
+     * before admission. It then passes the same admission as any removal (budget, move exclusion, epoch and
+     * receipt invalidation); source removals of a move keep their own receipts and never carry this token.
+     * Acknowledged only after the real Media3 onStartCommand returned with the removal admitted.
+     */
+    private fun deliverRemoval(context: Context, intent: Intent, shelf: Shelf?, start: (Intent?) -> Int): Int {
+        val token = intent.getStringExtra(REMOVAL_DELIVERY_TOKEN)
+        val current = current()
+        if (token == null || current == null || intent.action != DownloadService.ACTION_REMOVE_DOWNLOAD ||
+            intent.hasExtra(MOVE_COMMAND_TOKEN) || intent.hasExtra(SAVE_DELIVERY_TOKEN) ||
+            !current.removalDelivery.claim(token, shelf, intent.getStringExtra(DownloadService.KEY_CONTENT_ID))) {
+            // A malformed, replayed or retired copy must not consume a valid removal or change anything.
+            return start(Intent(intent).setAction(DownloadService.ACTION_INIT))
+        }
+        var accepted = false
+        var forwarding = false
+        try {
+            val admitted = admitCommand(context, intent, shelf)
+            forwarding = admitted?.action == DownloadService.ACTION_REMOVE_DOWNLOAD
+            val result = start(admitted)
+            accepted = forwarding
+            return result
+        } finally {
+            // A service can throw after manager.removeDownload: never report that row as unchanged.
+            current.removalDelivery.complete(token, accepted, unconfirmed = forwarding && !accepted)
+        }
+    }
+
     /** A card service bound to a different manager cannot acknowledge the new save. */
     internal fun refusedSaveCommand(intent: Intent) {
         intent.getStringExtra(SAVE_DELIVERY_TOKEN)?.let { current()?.saveDelivery?.complete(it, false) }
+    }
+
+    /** A card service bound to a different manager refused this removal before Media3; the row is unchanged. */
+    internal fun refusedRemovalCommand(intent: Intent, shelf: Shelf?) {
+        intent.getStringExtra(REMOVAL_DELIVERY_TOKEN)?.let { current()?.removalDelivery?.refused(it, shelf) }
     }
 
     /**
@@ -879,7 +932,9 @@ internal object OfflineStore {
         }
         // #230: only with both managers quiet, and no other move in flight, does a move start; then no
         // command can reach either manager until its copies are handed over. Otherwise nothing is moved.
-        if (store.moves.hasPending || !quiet(from.manager) || !quiet(to.manager) || !moveExclusion.tryAcquire()) {
+        // A checked removal batch still sending its later windows also keeps a move out (#253).
+        if (store.moves.hasPending || store.removalDelivery.busy || !quiet(from.manager) || !quiet(to.manager) ||
+            !moveExclusion.tryAcquire()) {
             notice(context, "Saved copies are still being saved, removed or moved, so nothing was moved. " +
                 "Try again when that has finished.")
             return
@@ -1140,6 +1195,10 @@ internal object OfflineStore {
             notice(context, "A move is finishing, so nothing was removed. Try again when it finishes.")
             return
         }
+        if (get(context).removalDelivery.busy) {
+            notice(context, "Saved copies are still being removed, so nothing more was. Try again when that finishes.")
+            return
+        }
         // Every move in flight loses its publication, whichever shelves receive the commands (#234).
         moveOwnership.removeAll()
         get(context).moves.invalidateAll()
@@ -1151,34 +1210,54 @@ internal object OfflineStore {
             return
         }
         saver.execute {
-            val (_, kept) = removeAllNow(context)
+            val plan = removeAllNow(context)
+            if (plan.busy) notice(context, "Saved copies are still being removed, so nothing more was. " +
+                "Try again when that finishes.")
             if (get(context).shelves.any { !it.available() })
                 notice(context, "The SD card isn't available, so its saved copies weren't removed.")
-            if (kept > 0) notice(context, "$kept saved ${if (kept == 1) "copy was" else "copies were"} kept: " +
+            if (plan.kept > 0) notice(context, "${plan.kept} saved ${if (plan.kept == 1) "copy was" else "copies were"} kept: " +
                 "Muon can't tell their bytes belong to them alone.")
+            if (plan.later > 0 && plan.sent == 0) notice(context, "${plan.later} saved " +
+                "${if (plan.later == 1) "copy wasn't" else "copies weren't"} removed and " +
+                "${if (plan.later == 1) "is" else "are"} unchanged. Try again later.")
         }
     }
 
     /**
-     * [removeAll]'s commands, on the calling thread: every row on each available shelf that a census finds
-     * the sole owner of its bytes ([soleOwner]) is removed, one by one. Media3's own Remove all would also
-     * delete bytes a kept played copy or an unknown row shares (#213). Returns how many were sent and kept.
+     * What [removeAllNow] did. [sent]: checked removals handed to one acknowledged delivery batch, not yet
+     * removed; [kept]: rows not the sole owner of their bytes; [later]: sole owners beyond the batch's bounds,
+     * unchanged and left for another Remove all; [busy]: another removal batch was pending, nothing sent.
      */
-    internal fun removeAllNow(context: Context): Pair<Int, Int> {
-        var sent = 0
+    internal data class RemoveAllPlan(val sent: Int, val kept: Int, val later: Int = 0, val busy: Boolean = false)
+
+    /**
+     * [removeAll]'s commands, on the calling thread: every row on each available shelf that a census finds
+     * the sole owner of its bytes ([soleOwner]) is selected, up to one bounded batch, and handed to
+     * [DownloadRemovalDelivery], which sends them a few at a time and reports what each came to. Media3's
+     * own Remove all would also delete bytes a kept played copy or an unknown row shares (#213).
+     */
+    internal fun removeAllNow(context: Context): RemoveAllPlan {
+        val store = get(context)
+        if (store.removalDelivery.busy) return RemoveAllPlan(0, 0, busy = true)
+        val selection = RemovalSelection()
         var kept = 0
-        for (shelf in availableShelves(get(context).shelves)) {
+        var later = 0
+        for (shelf in availableShelves(store.shelves)) {
             // The whole census is read before any command, so a removal cannot change the rows being judged.
             val census = runCatching { readCensus(shelf) }.getOrNull() ?: continue
             for (row in census.rows) {
                 if (row.state == Download.STATE_REMOVING) continue
-                if (census.soleOwner(row)) {
-                    DownloadService.sendRemoveDownload(context, shelf.service, row.id, false)
-                    sent++
-                } else kept++
+                if (!census.soleOwner(row)) kept++
+                else if (!selection.take(shelf, row.id)) later++
             }
         }
-        return sent to kept
+        if (selection.targets.isEmpty()) return RemoveAllPlan(0, kept, later)
+        val app = context.applicationContext
+        val count = selection.targets.size
+        val begun = store.removalDelivery.begin(selection.targets, sendRemoval(context)) { result ->
+            removalDeliveryMessage(result, single = false, later = later)?.let { notice(app, it) }
+        }
+        return if (begun) RemoveAllPlan(count, kept, later) else RemoveAllPlan(0, kept, later + count, busy = true)
     }
 }
 
