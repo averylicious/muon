@@ -139,6 +139,15 @@ class SavedPagingTest {
         assertThrows(SavedCatalogStale::class.java) { paging.playback(snapshot, entry(1).ref, false) {} }
     }
 
+    @Test fun mostCommonOriginTiesPreserveSortedDisplayOrderNotInputOrHashOrder(): Unit = io {
+        val earlier = entry(1).copy(from = "http://192.168.1.9:7814")
+        val later = entry(2).copy(from = "http://192.168.1.2:7814")
+        entries = listOf(later, earlier)
+        assertEquals(earlier.from, paging.reload(0) {}.origin)
+        entries = listOf(later, entry(3).copy(from = later.from), earlier)
+        assertEquals(later.from, paging.reload(0) {}.origin)
+    }
+
     private fun entry(id: Int) = SavedEntry(requireNotNull(SavedRef.download(SavedShelf.Phone,
         "saved/$id", "saved/$id")), TauonTrack(id.toLong(), "Song ${id.toString().padStart(5, '0')}",
         "Artist", "Album", 1000, true, false), "http://192.168.1.2:7814", Download.STATE_COMPLETED,

@@ -30,12 +30,14 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     internal var savedOffset by mutableStateOf(0L); private set
     internal var savedBusy by mutableStateOf(false); private set
     internal var savedError by mutableStateOf<String?>(null); private set
+    internal var savedPreparing by mutableStateOf(false); private set
     private val savedPages = SavedPageCache()
     private val savedRepository = SavedPaging(app)
     private val savedMutex = Mutex()
     private var savedLoad: kotlinx.coroutines.Job? = null
     private var savedQueue: kotlinx.coroutines.Job? = null
     private var savedRevision = 0L
+    private var savedQueueRevision = 0L
 
     private fun publishSaved(page: SavedPage) {
         savedPages.put(page)
@@ -84,21 +86,25 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    internal fun cancelSavedPlayback() { savedQueue?.cancel(); savedQueue = null }
+    internal fun cancelSavedPlayback() {
+        savedQueueRevision++; savedQueue?.cancel(); savedQueue = null; savedPreparing = false
+    }
     internal fun prepareSavedPlayback(ref: SavedRef, single: Boolean = false,
         ready: (SavedPlaybackResult) -> Unit) {
         val snapshot = savedSnapshot ?: return
         if (savedBusy || savedError != null) return
         cancelSavedPlayback()
+        val revision = savedQueueRevision; savedPreparing = true
         savedQueue = viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
                     val job = currentCoroutineContext()
                     savedMutex.withLock { savedRepository.playback(snapshot, ref, single) { job.ensureActive() } }
                 }
-                if (savedSnapshot == snapshot) ready(result)
+                if (revision == savedQueueRevision && savedSnapshot == snapshot) ready(result)
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { savedError = "This saved copy changed or couldn't be queued. Refresh to try again." }
+            catch (_: Exception) { if (revision == savedQueueRevision) savedError = "This saved copy changed or couldn't be queued. Refresh to try again." }
+            finally { if (revision == savedQueueRevision) savedPreparing = false }
         }
     }
     private val loads = LibraryLoads(viewModelScope) { busy = it }
@@ -182,7 +188,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      */
     private fun showOffline(server: ServerEndpoint?, entries: SavedReload) {
         endpoint = server; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = true
-        savedPages.clear(); publishSaved(entries.page)
+        savedPages.clear(); savedError = null; savedBusy = false; publishSaved(entries.page)
         OfflineStore.offline = true
         error = OFFLINE_NOTE
         progress = "Offline · ${entries.page.snapshot.count} saved ${if (entries.page.snapshot.count == 1L) "copy" else "copies"}"

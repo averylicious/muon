@@ -26,7 +26,7 @@ import androidx.media3.exoplayer.offline.Download
 @Composable
 internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boolean, cardUnavailable: Boolean,
     play: (SavedEntry) -> Unit, remove: (SavedEntry) -> Unit, count: Long, offset: Long, busy: Boolean,
-    error: String?, page: (Long) -> Unit, refresh: () -> Unit, back: (() -> Unit)? = null) {
+    error: String?, page: (Long) -> Unit, refresh: () -> Unit, preparing: Boolean, cancelPlayback: () -> Unit, back: (() -> Unit)? = null) {
     val colors = MaterialTheme.colorScheme
     val scroll = rememberLazyListState()
     LaunchedEffect(offset) { scroll.scrollToItem(0) }
@@ -43,6 +43,11 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
             "has, so each is marked $UNVERIFIED and plays only from here.",
             style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        if (preparing) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("Preparing saved playback…", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = cancelPlayback) { Text("Cancel") }
+        }
         if (cardUnavailable) Text("The SD card isn't available, so its copies aren't shown or changed.",
             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
@@ -67,7 +72,7 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
         }
         LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(bottom = 24.dp)) {
             items(entries, key = { it.ref.handle }, contentType = { "saved" }) { entry ->
-                SavedRow(entry, current == entry.ref.handle, ready && !busy && error == null,
+                SavedRow(entry, current == entry.ref.handle, ready && !busy && !preparing && error == null,
                     play = { play(entry) }, remove = { if (!busy && error == null) confirm = entry })
             }
         }

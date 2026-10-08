@@ -177,6 +177,24 @@ class SavedLibraryModelTest {
         assertTrue(cache.isCached("saved/page_0", 0, bytes.size.toLong()))
     }
 
+    @Test fun newerPlaybackRequestsAndRefreshRevokePendingSavedQueueCallbacks() {
+        unknownCopy()
+        model.listenOffline(); pumpUntil { !model.busy && model.offline }
+        val ref = model.saved.single().ref
+        var applied = 0
+        model.prepareSavedPlayback(ref) { applied++; assertTrue(it is SavedPlaybackResult.Ready) }
+        model.cancelSavedPlayback()
+        model.prepareSavedPlayback(ref) { applied++; assertTrue(it is SavedPlaybackResult.Ready) }
+        pumpUntil { !model.savedPreparing }
+        assertEquals(1, applied)
+        model.prepareSavedPlayback(ref) { applied++ }
+        model.refreshSaved()
+        pumpUntil { !model.savedBusy }
+        assertFalse(model.savedPreparing)
+        assertEquals(1, applied)
+        assertNull(model.savedError)
+    }
+
     private fun unknownCopy(): DownloadRequest {
         val request = DownloadRequest.Builder("legacy", Uri.parse("opaque:old-source"))
             .setCustomCacheKey("legacy-key").setData(byteArrayOf(3, 4)).build()

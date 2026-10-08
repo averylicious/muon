@@ -52,7 +52,21 @@ internal class SavedPaging(private val context: Context,
             emit(entry)
         } }, { checkpoint(); false })
         val page = hydrate(catalog, snapshot, savedPageOffset(offset, snapshot.count), checkpoint)
-        SavedReload(page, playable, origins.maxByOrNull { it.value }?.key)
+        val maximum = origins.values.maxOrNull()
+        val candidates = origins.filterValues { it == maximum }.keys
+        // Old savedLibrary chose the first known origin in sorted display order on a count tie.
+        // Resolve ties in bounded pages rather than letting HashMap/native-index order choose it.
+        var origin = candidates.singleOrNull()
+        if (candidates.size > 1) {
+            var next = 0L
+            while (origin == null && next < snapshot.count) {
+                val read = if (next == page.offset) page else hydrate(catalog, snapshot, next, checkpoint)
+                origin = read.entries.firstOrNull { it.from in candidates }?.from
+                if (read.entries.isEmpty()) throw SavedCatalogStale()
+                next += read.entries.size
+            }
+        }
+        SavedReload(page, playable, origin)
     }
 
     fun page(expected: SavedCatalogSnapshot, offset: Long, checkpoint: () -> Unit): SavedPage =

@@ -73,7 +73,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var savedQueueTooLarge by remember { mutableStateOf<SavedEntry?>(null) }
         var savedQueueStamp by remember { mutableStateOf<QueueActionStamp?>(null) }
         val latestPlayer by rememberUpdatedState(player)
-        val savedScreenCurrent by rememberUpdatedState(model.offline || (savedOpen && tab == Tab.Settings))
+        val savedScreenCurrent by rememberUpdatedState((model.offline && tab == Tab.Library) || (savedOpen && tab == Tab.Settings))
         val library = rememberLibrarySettings()
         val context = LocalContext.current
         // Downloads are read in at launch, so rows can mark them, and any left unfinished carry on.
@@ -332,11 +332,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         fun removeSaved(entry: SavedEntry) = OfflineStore.removeSaved(context, entry.ref)
         // The list follows what is kept: a copy finishing, being removed, or a played copy coming or going.
-        val savedShown = model.offline || (savedOpen && tab == Tab.Settings)
+        val savedShown = (model.offline && tab == Tab.Library) || (savedOpen && tab == Tab.Settings)
         LaunchedEffect(savedShown, DownloadMarks.revision, DownloadMarks.bytes, PlayedCacheState.used) {
             savedQueueTooLarge = null; savedQueueStamp = null
             if (savedShown) model.refreshSaved() else model.cancelSavedPlayback()
         }
+        LaunchedEffect(model.savedSnapshot) { savedQueueTooLarge = null; savedQueueStamp = null }
         val savedCardUnavailable = remember(savedShown, model.saved) { OfflineStore.current()?.card?.available() == false }
         // The song a long press chose (#46), while its actions sheet is open. Not saved: a sheet is a
         // passing choice, and a rotation that closes it loses nothing.
@@ -505,7 +506,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 Tab.Settings -> if (savedOpen) {
                                     SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
                                         ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
-                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, back = { savedOpen = false })
+                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, model.savedPreparing, model::cancelSavedPlayback, back = { savedOpen = false })
                                 } else SettingsScreen(model, appearance, openSaved = { savedOpen = true }) {
                                     player?.stop(); player?.clearMediaItems(); model.disconnect()
                                     // Nothing from the server just left is shown again or kept on disk.
@@ -522,7 +523,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 Tab.Library -> if (model.offline) {
                                     SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
                                         ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
-                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved)
+                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, model.savedPreparing, model::cancelSavedPlayback)
                                 } else {
                                     val page = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey)
                                     val shift = with(LocalDensity.current) { LIBRARY_PAGE_SHIFT.roundToPx() }
