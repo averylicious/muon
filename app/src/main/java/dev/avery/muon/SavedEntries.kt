@@ -319,11 +319,13 @@ internal class PlayedClaims private constructor(@Volatile private var claimed: S
 
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun savedCoverage(cache: Cache, key: String): Pair<SavedCoverage, Long> {
-    val spans = cache.getCachedSpans(key)
-    val bytes = spans.sumOf { it.length }
+    // Supported scalar query: SimpleCache sums its native spans without cloning a TreeSet.
+    // All cached bytes still count, including spans beyond an unknown/declared content length.
+    val bytes = cache.getCachedBytes(key, 0, Long.MAX_VALUE)
+    check(bytes >= 0) { "Invalid cached byte total" }
     val length = ContentMetadata.getContentLength(cache.getContentMetadata(key))
     val coverage = when {
-        spans.isEmpty() -> SavedCoverage.Missing
+        bytes == 0L -> SavedCoverage.Missing
         length == C.LENGTH_UNSET.toLong() || length <= 0 -> SavedCoverage.UnknownLength
         cache.isCached(key, 0, length) -> SavedCoverage.Full
         else -> SavedCoverage.Partial
