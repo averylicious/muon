@@ -1,5 +1,7 @@
 # #253 aggregate memory redesign: finite engineering plan — 2026-10-08
 
+Continuation: [October9 cover/name/admission checkpoint](../handoffs/2026-10-09-cover-name-admission-checkpoint.md). Saved-cover work and new-save naming now have bounded/operation-scoped holders; incoming playback/pending validation is verified at #412/.790, with final receipts there. This does not complete native-cache/played/full destructive inventories or UI/final aggregate queue limits.
+
 Current continuation: [October9 admission/startup/preparation checkpoint](../handoffs/2026-10-09-download-memory-checkpoint.md). #406 service request/removal budgets and #407 disk-spooled startup IDs are verified/open; #408 preparation budgets are verified/open with832tests per variant and actual signed .784 artifact. Remaining required producer/artwork, full inventory/name/native-cache/played/origin and live/service queue holders are itemized there.
 
 The user explicitly **requires broader saved-library paging and Media3/cache retention memory redesign before Stable**. It is not a post-release deferral or just UAT. Other release-trust deferrals and separate SD-recovery #179 remain unchanged. Source acceptance PRs stay open; this document does not land app changes or authorize Stable.
