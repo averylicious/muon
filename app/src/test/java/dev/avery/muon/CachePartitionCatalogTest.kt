@@ -72,6 +72,23 @@ class CachePartitionCatalogTest {
         }
         assertThrows(IOException::class.java) { CachePartitionCatalog(foreign).close() }
     }
+    @Test fun matchingVersionCannotAdoptAnUnknownTableOrTriggerSchema() {
+        val foreign=folders.newFolder()
+        SQLiteDatabase.openOrCreateDatabase(File(foreign,"partition-locators-v1.db"),null).use {
+            it.execSQL("CREATE TABLE partitions(key BLOB, directory TEXT)"); it.version=1
+        }
+        assertThrows(IOException::class.java) { CachePartitionCatalog(foreign).close() }
+        val root=folders.newFolder()
+        CachePartitionCatalog(root).use { it.reserve("kept") }
+        SQLiteDatabase.openOrCreateDatabase(File(root,"partition-locators-v1.db"),null).use {
+            it.execSQL("CREATE TRIGGER foreign_write AFTER INSERT ON partitions BEGIN DELETE FROM partitions; END")
+        }
+        assertThrows(IOException::class.java) { CachePartitionCatalog(root).close() }
+        // Refusal never executes the unknown trigger or erases the retained routing row.
+        SQLiteDatabase.openOrCreateDatabase(File(root,"partition-locators-v1.db"),null).use {
+            it.rawQuery("SELECT COUNT(*) FROM partitions",null).use { rows -> assertTrue(rows.moveToFirst()); assertEquals(1L,rows.getLong(0)) }
+        }
+    }
     @Test fun symbolicLinksCannotChangeThePrivateRootOrAnExactReservedResourceIdentity() {
         val outside=folders.newFolder()
         val original=File(outside,"original").apply { writeBytes(byteArrayOf(3,4)) }

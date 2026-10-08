@@ -12,6 +12,7 @@ internal data class CachePartitionAllocation(val key:String, val directory:Strin
 
 /** Persistent exact reservations for opt-in migration; no readiness/publish/delete authority. */
 internal class CachePartitionCatalog(private val root:File, private val newDirectory:()->String={ UUID.randomUUID().toString() }) : Closeable {
+    private val schema="CREATE TABLE partitions(key BLOB PRIMARY KEY NOT NULL, directory TEXT UNIQUE NOT NULL)"
     private val resources=File(root,"resources")
     private val database:SQLiteDatabase
     init {
@@ -28,10 +29,13 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
                             it.getLong(0)
                         }
                         if (existing!=0L) throw IOException("Unrecognized partition schema")
-                        database.execSQL("CREATE TABLE partitions(key BLOB PRIMARY KEY NOT NULL, directory TEXT UNIQUE NOT NULL)")
+                        database.execSQL(schema)
                         database.version=1
                     }
-                    1 -> Unit
+                    1 -> database.rawQuery("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name!='android_metadata'",null).use {
+                        if (!it.moveToFirst() || it.getString(0)!="table" || it.getString(1)!="partitions" ||
+                            it.getString(2)!=schema || it.moveToNext()) throw IOException("Unrecognized partition schema")
+                    }
                     else -> throw IOException("Unsupported partition schema")
                 }
                 database.setTransactionSuccessful()
