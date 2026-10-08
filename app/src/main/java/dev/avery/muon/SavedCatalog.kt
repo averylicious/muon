@@ -81,7 +81,10 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
             if (old.generation == Long.MAX_VALUE) throw IOException("Saved catalog generation exhausted")
             database.delete("copies", null, null)
             var count = 0L
-            project { entry ->
+            val writer = Thread.currentThread()
+            var collecting = true
+            try { project { entry ->
+                check(Thread.currentThread() === writer && collecting) { "Saved catalog projection has ended or changed threads" }
                 if (cancelled()) throw CancellationException("Saved catalog rebuild cancelled")
                 val song = entry.displaySong
                 val values = ContentValues().apply {
@@ -93,7 +96,7 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
                 database.insertOrThrow("copies", null, values) // Duplicate locators fail, never silently vanish.
                 if (count == Long.MAX_VALUE) throw IOException("Saved catalog count exhausted")
                 count++
-            }
+            } } finally { collecting = false }
             if (cancelled()) throw CancellationException("Saved catalog rebuild cancelled")
             val next = SavedCatalogSnapshot(old.generation + 1, count)
             database.execSQL("UPDATE catalog_state SET generation=?,entry_count=? WHERE singleton=1",

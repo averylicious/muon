@@ -240,6 +240,21 @@ class SavedCatalogTest {
         } finally { other.close() }
     }
 
+    @Test fun anEscapedProjectionCannotWriteOutsideItsTransactionOrFromAnotherThread(): Unit = io {
+        var escaped: ((SavedEntry) -> Unit)? = null
+        val generation = catalog.rebuildFrom({ emit ->
+            escaped = emit
+            java.util.concurrent.CompletableFuture.runAsync {
+                assertThrows(IllegalStateException::class.java) { emit(entry("saved/wrong-thread", "Wrong thread")) }
+            }.get(5, TimeUnit.SECONDS)
+            emit(entry("saved/kept", "Kept"))
+        })
+        assertThrows(IllegalStateException::class.java) { requireNotNull(escaped)(entry("saved/late", "Late")) }
+        assertEquals(generation, catalog.snapshot())
+        assertEquals(1L, generation.count)
+        assertEquals(listOf(entry("saved/kept", "Kept").ref), catalog.page(generation, 0))
+    }
+
     private fun seed(cache: SimpleCache, key: String, size: Int = 4) {
         val hole = requireNotNull(cache.startReadWrite(key, 0, size.toLong()))
         try {
