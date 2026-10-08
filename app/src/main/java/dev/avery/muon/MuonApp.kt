@@ -333,7 +333,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         fun removeSaved(entry: SavedEntry) = OfflineStore.removeSaved(context, entry.ref)
         // The list follows what is kept: a copy finishing, being removed, or a played copy coming or going.
         val savedShown = model.offline || (savedOpen && tab == Tab.Settings)
-        LaunchedEffect(savedShown, DownloadMarks.marks.toMap(), DownloadMarks.bytes, PlayedCacheState.used) {
+        LaunchedEffect(savedShown, DownloadMarks.revision, DownloadMarks.bytes, PlayedCacheState.used) {
             savedQueueTooLarge = null; savedQueueStamp = null
             if (savedShown) model.refreshSaved() else model.cancelSavedPlayback()
         }

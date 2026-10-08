@@ -161,6 +161,7 @@ internal object OfflineStore {
                 Download.STATE_DOWNLOADING -> DownloadMark.Downloading
                 else -> null
             }
+            DownloadMarks.revision++
             // While a song moves between shelves, one shelf is still queuing or removing it while the
             // other holds it complete: it stays downloaded throughout.
             if (mark != DownloadMark.Done && listOfNotNull(phone, store?.card).any { it.completed(id) }) return
@@ -171,6 +172,7 @@ internal object OfflineStore {
             DownloadMarks.bytes = sizes.total
         }
         fun removed(download: Download) {
+            DownloadMarks.revision++
             // Moved rather than removed: the song is still kept, on the other shelf.
             if (listOfNotNull(phone, store?.card).any { it.completed(download.request.id) }) return
             // Only a cover this entry owns goes with it, and only once no row of its ID is left anywhere.

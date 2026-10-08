@@ -52,6 +52,8 @@ internal fun formatBytes(bytes: Long): String = when {
  */
 internal object DownloadMarks {
     val marks = mutableStateMapOf<String, DownloadMark>()
+    /** State/removal signal without copying every mark into a Compose effect key. */
+    var revision by mutableLongStateOf(0L)
     /** Bytes the finished downloads take. */
     var bytes by mutableLongStateOf(0L)
     /** Songs moved so far and how many are moving, while downloads move between phone and card. */
