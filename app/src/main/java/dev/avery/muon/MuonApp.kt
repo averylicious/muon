@@ -80,6 +80,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Downloads are read in at launch, so rows can mark them, and any left unfinished carry on.
         LaunchedEffect(Unit) { OfflineStore.get(context); OfflineStore.resume(context) }
         val scope = rememberCoroutineScope()
+        val snackbar = remember { SnackbarHostState() }
         // Which playlist is open is about this sitting, not a preference. It is saved with the
         // server it was chosen on, so it survives rotation but never crosses servers, and a
         // refresh that removes or empties it forgets it rather than leaving it to reappear.
@@ -374,7 +375,6 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // The song a long press chose (#46), while its actions sheet is open. Not saved: a sheet is a
         // passing choice, and a rotation that closes it loses nothing.
         var actionTrack by remember { mutableStateOf<TauonTrack?>(null) }
-        val snackbar = remember { SnackbarHostState() }
         // Android 17's local network permission (LocalNetwork.kt): asked for in context, from Connect or
         // the library's card. Once Android stops showing the prompt, the same button opens Settings;
         // coming back with access granted connects.
