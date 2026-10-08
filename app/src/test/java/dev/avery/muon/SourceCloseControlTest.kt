@@ -38,10 +38,11 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /**
- * #179 characterization, not a production gate: the actual OfflineDataSource -> Shelf.source
- * CacheDataSource -> real FileDataSource over disposable, fully cached bytes and native SQLite. The only
- * test seam is Shelf.source's cache-read factory, wrapped to inject faults or hold close; its upstream
- * fails if ever reached, so nothing touches a network. The manager stays idle with no downloads.
+ * #179 characterization, not a production gate: the actual OfflineDataSource -> Shelf.savedSource
+ * CacheDataSource -> real FileDataSource over disposable, fully cached bytes and native SQLite, opened by
+ * the saved copy's handle (#213). The only test seam is savedSource's cache-read factory, wrapped to inject
+ * faults or hold close; it has no upstream, and the live source's upstream fails if ever reached, so
+ * nothing touches a network. The manager stays idle with no downloads.
  * Injected faults are synthetic: they do not show how real file, cache or network failures behave.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -80,8 +81,9 @@ class SourceCloseControlTest {
         shelf = Shelf(cache, manager, MuonDownloadService::class.java)
         // The only seams: the cache-read source (a real FileDataSource, wrapped) and an upstream that
         // fails if ever reached, replacing the OkHttp one before any source is created.
-        shelf.source.setCacheReadDataSourceFactory { Wrapper(FileDataSource()).also { wrappers.add(it) } }
-        shelf.source.setUpstreamDataSourceFactory { FailingUpstream() }
+        // Saved copies read through savedSource, which has no upstream at all (#213).
+        shelf.savedSource.setCacheReadDataSourceFactory { Wrapper(FileDataSource()).also { wrappers.add(it) } }
+        shelf.stream = DataSource.Factory { FailingUpstream() }
         seedCompletedDownload()
     }
 
@@ -356,11 +358,12 @@ class SourceCloseControlTest {
     /** Every source a test makes is tracked, so teardown can close it after a failure. */
     private fun offlineSource() = OfflineDataSource { request ->
         routeCalls.incrementAndGet()
-        routeOfflineRequest(request, shelf, listOf(shelf), false)
+        routeOfflineRequest(request, shelf, null)
     }.also { sources.add(it) }
 
-    private fun stream(): DataSpec =
-        DataSpec.Builder().setUri(requireNotNull(track.mediaItem(endpoint).localConfiguration).uri).build()
+    /** The phone copy's saved handle (#213): the only way a request reaches its bytes. */
+    private fun stream(): DataSpec = DataSpec.Builder()
+        .setUri(Uri.parse(requireNotNull(SavedRef.download(SavedShelf.Phone, id, id)).handle)).build()
 
     /** Bounded to the tiny payload: a source that returns zero forever or too many bytes fails, not hangs. */
     private fun readAll(source: DataSource): ByteArray {
