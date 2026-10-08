@@ -161,8 +161,8 @@ class SavedCatalogTest {
             val expected = sortSaved(savedInventory(SavedShelf.Phone, index, phone, claims) { false } +
                 savedInventory(SavedShelf.Card, cardIndex, card, null) { false })
             val generation = catalog.rebuildFrom({ emit ->
-                forEachSavedEntry(SavedShelf.Phone, index, phone, claims, { false }, emit)
-                forEachSavedEntry(SavedShelf.Card, cardIndex, card, null, { false }, emit)
+                forEachSavedEntry(SavedShelf.Phone, index, phone, claims, { false }, emit = emit)
+                forEachSavedEntry(SavedShelf.Card, cardIndex, card, null, { false }, emit = emit)
             })
             assertEquals(expected.map { it.ref }, catalog.page(generation, 0))
             assertFalse(expected.single { it.ref.requestId == "saved/complete" && it.ref.shelf == SavedShelf.Phone }.removable)
