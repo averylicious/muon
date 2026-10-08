@@ -35,7 +35,8 @@ class PlayedClaimDiskTest {
     private fun put(id: String, key: String, state: Int = Download.STATE_COMPLETED) {
         val request = DownloadRequest.Builder(id, Uri.parse("http://h/api1/file/1"))
             .setCustomCacheKey(key).setData(byteArrayOf(0, 1, 2)).build()
-        index.putDownload(Download(request, state, 1, 2, 3, 0, 0))
+        index.putDownload(Download(request, state, 1, 2, 3, if (state == Download.STATE_STOPPED) 7 else 0,
+            if (state == Download.STATE_FAILED) Download.FAILURE_REASON_UNKNOWN else Download.FAILURE_REASON_NONE))
     }
     @Test fun hiddenAliasesEveryStateAndExactUnicodeNamesRemainProtected() {
         val keys = listOf("played:A", "played:a", "played:é😀\u0000", "played:" + "x".repeat(5000))
