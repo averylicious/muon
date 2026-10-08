@@ -1,5 +1,11 @@
 # Build/dependency trust: current disposition — October 7
 
+## October8 release decision supersedes the pending gate below
+
+The user explicitly deferred BOTH reviewed dependency verification and remaining runner/SDK/generated-cache provenance for this release. This is planned maintenance after the current main release and mature M3 Expressive integration, not abandonment or a security clearance. Keep existing pins, wrapper/distribution/JDK guards, inventory/advisory evidence, publication safeguards and main protection. Generated hashes remain observations, not independently trusted authentication. Native Kotlin/Compose still has Gradle/Maven/plugin/SDK/runner supply-chain exposure. Resume the concrete work below and review changed dependencies after integration. See [final October8 checkpoint](../handoffs/2026-10-08-move-engineering-completion.md). No Stable release/tag authorization follows from this decision.
+
+The rest of this report preserves its dated October7 evidence and earlier next-work proposals; those pending release-gate statements are superseded by the explicit disposition above.
+
 Inspected main `89bb29acc098d98250b33f062284ea0b48012c96`. GPT-6 / Codex desktop, exact variant/effort not reported: focused source investigation and documentation self-review, not independent review or supply-chain clearance. No app/dependency-version/settings/cache/phone/experimental changes; the unsigned inventory workflow now retains its single public JSON report as an artifact after validation; no keys, credentials or raw logs published.
 
 ## Concrete current status

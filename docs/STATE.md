@@ -1,10 +1,12 @@
 # Muon: current state
 
-Latest completed boundary: [October8 command admission/runtime checkpoint](handoffs/2026-10-08-command-runtime-checkpoint.md). #384/.735 passed718tests per variant and actual artifact checks, OPEN for application acceptance. #383 runtime inventory merged; main.734 published without the app stack. Actual cold runtime receipt is evidence, not publisher authentication. Main required-check protection was restored with user authorization and verified. Claude Opus5.5 High idle; no device commands used. #230 remains partial; writer/generation/source-removal/restart/cleanup work and #253/trust questions remain.
+Latest completed boundary: [October8 move engineering completion and trust disposition](handoffs/2026-10-08-move-engineering-completion.md). #387/.742 passed 734 tests per variant with actual APK/report verification; #386/.740 passed 727. #230 defined engineering scope complete, app stack OPEN for UAT. #253 engineering remains; full #179 deferred. Both remaining dependency-verification and hosted-tool/cache provenance reviews explicitly deferred for this release, planned after current main ships and mature M3 integration; protections remain. Claude exhausted first during automatic compaction before an optional review (not completed), audit session idle. No device or experiment commands.
+
+Previous completed boundary: [October8 command admission/runtime checkpoint](handoffs/2026-10-08-command-runtime-checkpoint.md). #384/.735 passed718tests per variant and actual artifact checks, OPEN for application acceptance. #383 runtime inventory merged; main.734 published without the app stack. Actual cold runtime receipt is evidence, not publisher authentication. Main required-check protection was restored with user authorization and verified. Claude Opus5.5 High idle; no device commands used. #230 remains partial; writer/generation/source-removal/restart/cleanup work and #253/trust questions remain.
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-10-07, cursor/copy/trust continuation and limited POCO accessibility QA, by GPT-6 (Codex desktop; exact variant/effort not exposed). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
+_Last updated: 2026-10-08, move engineering completion and explicit release-trust deferral, by GPT-6 (Codex desktop; exact variant/effort not exposed). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
 
