@@ -43,7 +43,7 @@ class SavedCatalogTest {
         try { io { catalog.close() } } finally { worker.shutdownNow() }
     }
 
-    @Test fun everyCopyPaginatesExactlyOnceInTheExistingExactReadingOrder() = io {
+    @Test fun everyCopyPaginatesExactlyOnceInTheExistingExactReadingOrder(): Unit = io {
         val entries = (0 until 237).map { n -> entry("saved/$n", "Title ${n % 9}",
             if (n % 2 == 0) SavedShelf.Card else SavedShelf.Phone) }.reversed()
         val expected = sortSaved(entries).map { it.ref }
@@ -57,7 +57,7 @@ class SavedCatalogTest {
         assertThrows(IllegalArgumentException::class.java) { catalog.page(generation, -1) }
     }
 
-    @Test fun unicodeLongPrefixesUnknownTitlesAndHandleTiesMatchKotlinNotSqliteTextOrder() = io {
+    @Test fun unicodeLongPrefixesUnknownTitlesAndHandleTiesMatchKotlinNotSqliteTextOrder(): Unit = io {
         val prefix = "a".repeat(256)
         val entries = listOf(entry("saved/z", prefix + "B"), entry("saved/a", prefix + "a"),
             entry("saved/emoji", "\uD83D\uDE00"), entry("saved/bmp", "\uE000"),
@@ -72,7 +72,7 @@ class SavedCatalogTest {
         assertTrue("\uD83D\uDE00" < "\uE000")
     }
 
-    @Test fun aFailedEnumerationNeverPublishesAPrefixOrChangesThePreviousGeneration() = io {
+    @Test fun aFailedEnumerationNeverPublishesAPrefixOrChangesThePreviousGeneration(): Unit = io {
         val kept = catalog.rebuild(listOf(entry("saved/kept", "Kept")))
         val failing = Iterable { sequence {
             yield(entry("saved/new", "New"))
@@ -83,7 +83,7 @@ class SavedCatalogTest {
         assertEquals(listOf(entry("saved/kept", "Kept").ref), catalog.page(kept, 0))
     }
 
-    @Test fun cancellationAndDuplicateLocatorsRollBackWithoutChangingOriginalEntries() = io {
+    @Test fun cancellationAndDuplicateLocatorsRollBackWithoutChangingOriginalEntries(): Unit = io {
         val original = entry("saved/original", "Original")
         val kept = catalog.rebuild(listOf(original))
         var checks = 0
@@ -96,7 +96,7 @@ class SavedCatalogTest {
         assertEquals("Original", original.song?.title)
     }
 
-    @Test fun staleGenerationIsRefusedAndTheCommittedGenerationSurvivesReopening() = io {
+    @Test fun staleGenerationIsRefusedAndTheCommittedGenerationSurvivesReopening(): Unit = io {
         val old = catalog.rebuild(listOf(entry("saved/old", "Old")))
         val newer = catalog.rebuild(listOf(entry("saved/new", "New")))
         assertThrows(SavedCatalogStale::class.java) { catalog.page(old, 0) }
