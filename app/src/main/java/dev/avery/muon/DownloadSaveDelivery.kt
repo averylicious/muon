@@ -37,6 +37,7 @@ internal class DownloadSaveDelivery(
         val total = items.size
         var accepted = 0
         var missingCovers = 0
+        var unconfirmed = 0
         lateinit var deadline: Runnable
     }
     private var batch: Batch? = null
@@ -81,7 +82,7 @@ internal class DownloadSaveDelivery(
     }
 
     /** Called after the service returned, or on a send/admission failure. Unknown/retired tokens do nothing. */
-    @Synchronized fun complete(token: String, accepted: Boolean) {
+    @Synchronized fun complete(token: String, accepted: Boolean, unconfirmed: Boolean = false) {
         val current = batch ?: return
         val item = current.items.remove(token) ?: return
         if (accepted && item.claimed) {
@@ -89,6 +90,7 @@ internal class DownloadSaveDelivery(
             if (!runCatching { current.cover(item.request.id, item.cover) }.getOrDefault(false))
                 current.missingCovers++
         }
+        if (unconfirmed) current.unconfirmed++
         if (current.items.isEmpty()) finish(current, 0)
     }
 
@@ -107,7 +109,7 @@ internal class DownloadSaveDelivery(
         current.items.clear()
         // Clear the producer's slot before notifying, even if a notification callback fails.
         runCatching { current.finished(SaveDeliveryResult(current.total, current.accepted,
-            current.missingCovers, unconfirmed)) }
+            current.missingCovers, unconfirmed + current.unconfirmed)) }
     }
 }
 
@@ -121,8 +123,8 @@ internal fun saveDeliveryMessage(result: SaveDeliveryResult): String {
         " ${result.refused} ${if (result.refused == 1) "copy couldn't" else "copies couldn't"} be queued. " +
             "Retry when current work finishes, or select fewer songs."
     val late = if (result.unconfirmed == 0) "" else
-        " ${result.unconfirmed} save ${if (result.unconfirmed == 1) "request wasn't" else "requests weren't"} confirmed; " +
-            "delayed requests won't be applied. Check Saved copies before retrying missing songs."
+        " ${result.unconfirmed} save ${if (result.unconfirmed == 1) "request couldn't" else "requests couldn't"} be confirmed. " +
+            "Check Saved copies before retrying missing songs."
     val covers = if (result.missingCovers == 0) "" else
         " Some covers weren't queued because artwork is busy; the audio requests were accepted."
     return queued + refused + late + covers

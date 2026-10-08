@@ -719,12 +719,17 @@ internal object OfflineStore {
             return start(Intent(intent).setAction(DownloadService.ACTION_INIT))
         }
         var accepted = false
+        var forwarding = false
         try {
             val admitted = admitCommand(context, intent, shelf)
+            forwarding = admitted?.action == DownloadService.ACTION_ADD_DOWNLOAD
             val result = start(admitted)
-            accepted = admitted?.action == DownloadService.ACTION_ADD_DOWNLOAD
+            accepted = forwarding
             return result
-        } finally { current.saveDelivery.complete(token, accepted) }
+        } finally {
+            // A service can throw after manager.addDownload: do not claim its audio was refused.
+            current.saveDelivery.complete(token, accepted, unconfirmed = forwarding && !accepted)
+        }
     }
 
     /** A card service bound to a different manager cannot acknowledge the new save. */

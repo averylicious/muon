@@ -597,13 +597,36 @@ class MoveCommandAdmissionTest {
         assertThrows(IllegalStateException::class.java) {
             OfflineStore.deliverCommand(app, saveIntent(request, token), phone) { error("Injected service failure") }
         }
-        assertEquals(SaveDeliveryResult(1, 0, 0, 0), result)
+        assertEquals(SaveDeliveryResult(1, 0, 0, 1), result)
         token = requireNotNull(store.saveDelivery.begin(phone, listOf(request to "cover"),
             { _, _ -> error("Optional cover failure") }, { result = it })).single()
         assertTrue(store.saveDelivery.claim(token, phone, request))
         store.saveDelivery.complete(token, true)
         assertEquals(SaveDeliveryResult(1, 1, 1, 0), result)
         assertNull(phone.manager.downloadIndex.getDownload(request.id))
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+    }
+
+    @Test fun exceptionAfterManagerAcceptsIsUnconfirmedRatherThanClaimingNothingWasQueued() {
+        pausedSaveService()
+        val store = OfflineStore.get(app)
+        val request = request("new/uncertain")
+        var result: SaveDeliveryResult? = null
+        val token = requireNotNull(store.saveDelivery.begin(phone, listOf(request to "cover"),
+            { _, _ -> fail("No confirmed delivery, no cover work"); false }, { result = it })).single()
+        assertThrows(IllegalStateException::class.java) {
+            OfflineStore.deliverCommand(app, saveIntent(request, token), phone) { admitted ->
+                assertEquals(DownloadService.ACTION_ADD_DOWNLOAD, admitted?.action)
+                phone.manager.addDownload(request, Download.STOP_REASON_NONE)
+                error("Injected failure after the actual manager call")
+            }
+        }
+        awaitSettled(phone.manager)
+        assertEquals(request, phone.manager.downloadIndex.getDownload(request.id)?.request)
+        assertEquals(SaveDeliveryResult(1, 0, 0, 1), result)
+        assertEquals(0, result!!.refused)
+        assertTrue(saveDeliveryMessage(result!!).contains("Check Saved copies before retrying"))
+        assertFalse(saveDeliveryMessage(result!!).contains("couldn't be queued"))
         assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
     }
 
