@@ -71,6 +71,11 @@ class CachePartitionCatalogTest {
             it.execSQL("CREATE TABLE sqliteXunrelated(value INTEGER)"); it.execSQL("INSERT INTO sqliteXunrelated VALUES(7)")
         }
         assertThrows(IOException::class.java) { CachePartitionCatalog(foreign).close() }
+        val view=folders.newFolder()
+        SQLiteDatabase.openOrCreateDatabase(File(view,"partition-locators-v1.db"),null).use {
+            it.execSQL("CREATE VIEW foreign_view AS SELECT 7 AS value")
+        }
+        assertThrows(IOException::class.java) { CachePartitionCatalog(view).close() }
     }
     @Test fun matchingVersionCannotAdoptAnUnknownTableOrTriggerSchema() {
         val foreign=folders.newFolder()
