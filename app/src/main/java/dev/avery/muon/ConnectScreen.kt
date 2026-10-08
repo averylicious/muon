@@ -26,25 +26,39 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     // is not advertising itself. Null while the probe is still asking.
     var probe by remember { mutableStateOf<List<DiscoveredServer>?>(null) }
     var round by remember { mutableIntStateOf(0) }
-    val scan = combineDiscovery(nsd, probe)
+    // Check the actual grant as well as the observable resume/prompt snapshot.
+    val allowed = LocalNetworkState.granted && localNetworkGranted(context)
+    val scan = combineDiscovery(nsd, probe, allowed)
     // Downloads open without a server (#112): offered whenever any are on the phone.
     LaunchedEffect(Unit) { OfflineStore.get(context) }
-    val downloaded = DownloadMarks.marks.values.count { it == DownloadMark.Done }
+    // Every playable saved copy counts, played copies and ones from an unknown server included (#213).
+    var downloaded by remember { mutableStateOf(0L) }
+    LaunchedEffect(DownloadMarks.marks.size, PlayedCacheState.used) {
+        downloaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { OfflineStore.savedCompleteCount(context) }.getOrDefault(0L)
+        }
+    }
     // Looks for Tauon as soon as there is nothing to show (#39): first run, after Disconnect, or when
     // the saved address stopped answering. Exactly one answer is connected to without asking, once
     // per visit, and not over an address the user is typing; several are listed to choose from.
     var autoTried by rememberSaveable { mutableStateOf(false) }
     var typed by rememberSaveable { mutableStateOf(false) }
     // Nothing is looked for until Android 17 allows it; granting access starts the scan.
-    val allowed = LocalNetworkState.granted
     LaunchedEffect(discovery, round, allowed) {
-        if (!allowed) return@LaunchedEffect
+        val granted = localNetworkGranted(context)
+        if (!allowed || !granted) {
+            discovery.stop()
+            nsd = DiscoverySnapshot(DiscoveryStatus.IDLE)
+            probe = null
+            if (!granted) LocalNetworkState.granted = false
+            return@LaunchedEffect
+        }
         discovery.start()
         probe = null
         probe = LanProbe.find(context)
     }
-    LaunchedEffect(scan, model.busy) {
-        if (model.busy) return@LaunchedEffect
+    LaunchedEffect(scan, model.busy, allowed) {
+        if (!allowed || model.busy) return@LaunchedEffect
         autoConnectTarget(scan, autoTried, typed)?.let { server ->
             autoTried = true
             model.address = server.origin
@@ -111,14 +125,17 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
             }
         }
         val searching = scan.status == DiscoveryStatus.SEARCHING
-        GroupRow(groupShape(rows - 1, rows), onClick = { round++ }, enabled = !searching && !model.busy, label = "Scan again") {
+        GroupRow(groupShape(rows - 1, rows), onClick = { round++ }, enabled = allowed && !searching && !model.busy, label = "Scan again") {
             if (searching) {
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 Text("Looking for Tauon…", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp))
             } else Column {
-                Text("Scan again", style = MaterialTheme.typography.titleMedium, color = colors.primary)
-                if (found.isEmpty()) Text("Nothing found. Check that Tauon's remote control is on, or type its address.",
+                Text(if (allowed) "Scan again" else "Network access needed",
+                    style = MaterialTheme.typography.titleMedium, color = colors.primary)
+                if (!allowed) Text("Allow local network access above to look for Tauon.",
+                    style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                else if (found.isEmpty()) Text("Nothing found. Check that Tauon's remote control is on, or type its address.",
                     style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
             }
         }
@@ -126,10 +143,10 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
         // Downloads open without a server (#112).
         if (downloaded > 0) {
             GroupHeading("On this phone")
-            GroupRow(groupShape(0, 1), onClick = { model.listenOffline() }, enabled = !model.busy, label = "Open my downloads") {
+            GroupRow(groupShape(0, 1), onClick = { model.listenOffline() }, enabled = !model.busy, label = "Open saved copies") {
                 Column(Modifier.weight(1f)) {
-                    Text("My downloads", style = MaterialTheme.typography.titleMedium)
-                    Text("$downloaded ${if (downloaded == 1) "song plays" else "songs play"} without Tauon",
+                    Text("Saved copies", style = MaterialTheme.typography.titleMedium)
+                    Text("$downloaded ${if (downloaded == 1L) "copy plays" else "copies play"} without Tauon · $UNVERIFIED",
                         style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                 }
                 Text("Open", style = MaterialTheme.typography.labelLarge, color = colors.primary)
