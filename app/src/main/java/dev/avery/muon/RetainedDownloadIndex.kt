@@ -1,6 +1,7 @@
 package dev.avery.muon
 
 import android.os.Looper
+import android.database.sqlite.SQLiteException
 import androidx.media3.common.util.UnstableApi
 import java.io.IOException
 import androidx.media3.exoplayer.offline.Download
@@ -35,8 +36,20 @@ internal class RetainedDownloadIndex(private val actual: WritableDownloadIndex) 
 
     override fun getDownloads(vararg states: Int): DownloadCursor {
         inspect() // A UI inventory/bootstrap must not observe the pre-preservation states first.
-        return actual.getDownloads(*states)
+        // DefaultDownloadIndex wraps single-row reads, but its lazy cursor does not wrap SQLite
+        // window/row failures. Media3 initialization catches IOException, not SQLiteException.
+        val cursor = readIndex { actual.getDownloads(*states) }
+        return object : DownloadCursor by cursor {
+            override fun getDownload(): Download = readIndex { cursor.download }
+            override fun getCount(): Int = readIndex { cursor.count }
+            override fun getPosition(): Int = readIndex { cursor.position }
+            override fun moveToPosition(position: Int): Boolean = readIndex { cursor.moveToPosition(position) }
+            override fun close() = readIndex { cursor.close() }
+        }
     }
+
+    private inline fun <T> readIndex(read: () -> T): T = try { read() }
+        catch (failure: SQLiteException) { throw IOException("Saved-copy database read failed", failure) }
 
     @Synchronized private fun inspect() {
         inspectionFailure?.let { throw it }
@@ -68,6 +81,10 @@ internal class RetainedDownloadIndex(private val actual: WritableDownloadIndex) 
                         row.updateTimeMs, row.contentLength, RETAINED_STOP_REASON, Download.FAILURE_REASON_NONE, progress))
                 }
                 inspected = true
+            } catch (failure: SQLiteException) {
+                val refused = IOException("Saved-copy database read failed", failure)
+                inspectionFailure = refused
+                throw refused
             } catch (failure: IOException) {
                 // Once initialization fails, a later rescan could include current-process commands.
                 // Keep this instance closed; a new process retries before its manager starts tasks.

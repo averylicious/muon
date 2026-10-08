@@ -2,6 +2,9 @@ package dev.avery.muon
 
 import android.net.Uri
 import android.os.Looper
+import android.database.CursorWindow
+import android.database.sqlite.SQLiteCursor
+import android.database.sqlite.SQLiteBlobTooBigException
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.NoOpCacheEvictor
@@ -205,6 +208,64 @@ class RetainedDownloadStartupTest {
         pumpUntil { index.getDownload("finished") == null }
         assertTrue(cache.getCachedSpans("finished").isEmpty())
         assertNotNull(index.getDownload(fresh.id))
+    }
+
+    // Use a deliberately small native window; this is a real SQLite fill failure, not a mocked throw.
+    // The pinned Media3 cursor exposes no window option, so test-only reflection reaches its Cursor.
+    private class SmallWindowIndex(private val actual: DefaultDownloadIndex) : WritableDownloadIndex by actual {
+        val cursors = java.util.concurrent.CopyOnWriteArrayList<DownloadCursor>()
+        override fun getDownloads(vararg states: Int): DownloadCursor {
+            val cursor = actual.getDownloads(*states)
+            val field = cursor.javaClass.getDeclaredField("cursor").apply { isAccessible = true }
+            val sqlite = field.get(cursor) as SQLiteCursor
+            sqlite.setWindow(CursorWindow("retained-small-window", 32L * 1024))
+            cursors += cursor
+            return cursor
+        }
+    }
+
+    @Test fun nativeWindowCannotReadALargeRowAndTheStartupGuardRefusesWithoutChangingIt() {
+        val original = put("oversized", "shared", Download.STATE_REMOVING, ByteArray(256 * 1024) { 9 })
+        seed("shared")
+        val small = SmallWindowIndex(index)
+        small.getDownloads().use { cursor ->
+            assertThrows(SQLiteBlobTooBigException::class.java) { cursor.moveToNext() }
+        }
+        val guard = RetainedDownloadIndex(small)
+        val creations = AtomicInteger()
+        start(guard, DownloaderFactory { creations.incrementAndGet(); error("No task may start") })
+        assertTrue(requireNotNull(manager).currentDownloads.isEmpty())
+        assertEquals(0, creations.get())
+        val after = requireNotNull(index.getDownload("oversized")) // Normal window: preserve original row.
+        assertEquals(original.request, after.request)
+        assertEquals(original.state, after.state)
+        assertEquals(original.updateTimeMs, after.updateTimeMs)
+        assertTrue(cache.isCached("shared", 0, 4))
+        val count = small.cursors.size
+        val refused = assertThrows(IOException::class.java) { guard.getDownloads().close() }
+        assertTrue(refused.cause is SQLiteBlobTooBigException)
+        assertEquals("Latched refusal never rescans", count, small.cursors.size)
+        assertTrue(small.cursors.all { it.isClosed })
+    }
+
+    @Test fun nativeWindowFailureInTheManagersStoppedRowScanBecomesAnIoRefusalToo() {
+        val original = put("stopped", "stopped", Download.STATE_STOPPED, ByteArray(256 * 1024) { 8 })
+        seed("stopped", partial = true)
+        val small = SmallWindowIndex(index)
+        val guard = RetainedDownloadIndex(small)
+        val creations = AtomicInteger()
+        start(guard, DownloaderFactory { creations.incrementAndGet(); error("No task may start") })
+        assertTrue(requireNotNull(manager).currentDownloads.isEmpty())
+        assertEquals(0, creations.get())
+        assertEquals(original.request, index.getDownload("stopped")?.request)
+        assertEquals(original.state, index.getDownload("stopped")?.state)
+        assertTrue(cache.isCached("stopped", 0, 2))
+        assertTrue(small.cursors.all { it.isClosed })
+        // Preservation completed; subsequent lazy reads fail as IO rather than a worker-killing runtime error.
+        guard.getDownloads().use { cursor ->
+            val refused = assertThrows(IOException::class.java) { cursor.moveToNext() }
+            assertTrue(refused.cause is SQLiteBlobTooBigException)
+        }
     }
 
     // ---- #253: the startup scan keeps only IDs; each row is read again alone just before its write ----
