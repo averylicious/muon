@@ -99,9 +99,12 @@ class SavedOwnerProjectionTest {
                 ByteArray(256 * 1024)).also(index::putDownload)
             val sole = row("saved/sole", data = tags).also(index::putDownload)
             for (key in listOf(original.request.id, sole.request.id)) {
-                val file = cache.startFile(key, 0, 4); file.writeBytes(byteArrayOf(1,2,3,4))
-                cache.commitFile(file, 4)
-                cache.applyContentMetadataMutations(key, ContentMetadataMutations.setContentLength(ContentMetadataMutations(), 4L))
+                val hole = requireNotNull(cache.startReadWrite(key, 0, 4))
+                try {
+                    val file = cache.startFile(key, 0, 4); file.writeBytes(byteArrayOf(1,2,3,4))
+                    cache.commitFile(file, 4)
+                    cache.applyContentMetadataMutations(key, ContentMetadataMutations.setContentLength(ContentMetadataMutations(), 4L))
+                } finally { cache.releaseHoleSpan(hole) }
             }
             val expected = savedInventory(SavedShelf.Phone, index, cache, null) { false }
             val actual = mutableListOf<SavedEntry>()
