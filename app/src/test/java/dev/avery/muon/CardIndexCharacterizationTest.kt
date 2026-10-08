@@ -64,9 +64,11 @@ class CardIndexCharacterizationTest {
         val reopened = shelf(folder, "card")
         attach(reopened)
         assertEquals(uid, reopened.cache.uid)
-        assertTrue(OfflineStore.downloaded(RuntimeEnvironment.getApplication(), id))
+        val entry = OfflineStore.savedEntries(RuntimeEnvironment.getApplication()).single()
+        assertEquals(track, entry.song)
+        assertEquals(SavedShelf.Card, entry.ref.shelf)
+        assertTrue(entry.complete)
         assertArrayEquals(bytes, requireNotNull(reopened.cache.getCachedSpans(id).first().file).readBytes())
-        assertEquals(listOf(track), OfflineStore.downloadedSongs(RuntimeEnvironment.getApplication(), endpoint.origin))
     }
 
     @Test fun differentEmptyCardInheritsCompletionAndOfflineMetadataFromSharedIndex() {
@@ -77,13 +79,22 @@ class CardIndexCharacterizationTest {
         attach(b)
         assertTrue(b.completed(id))
         assertFalse(b.cache.isCached(id, 0, bytes.size.toLong()))
-        assertSame(b, OfflineStore.downloadedOn(RuntimeEnvironment.getApplication(), id))
-        assertEquals(listOf(track), OfflineStore.downloadedSongs(RuntimeEnvironment.getApplication(), endpoint.origin))
-        val spec = DataSpec.Builder().setUri(Uri.parse(endpoint.url("/api1/file/7"))).build()
-        val route = routeOfflineRequest(spec, phone, listOf(phone, b), offline = true)
-        assertSame(b, route.first)
-        assertEquals(id, route.second.key)
-        assertEquals(endpoint.url("/api1/fileopus/7"), route.second.uri.toString())
+        // Still listed, as its own entry, but not as a playable copy: its bytes are not on this card (#213).
+        val entry = OfflineStore.savedEntries(RuntimeEnvironment.getApplication()).single()
+        assertEquals(track, entry.song)
+        assertEquals(SavedCoverage.Missing, entry.coverage)
+        assertFalse(entry.complete)
+        // Its handle reads only this card's cache, with no upstream: the missing bytes fail, nothing is fetched.
+        val source = OfflineDataSource { routeOfflineRequest(it, phone, b) }
+        try {
+            assertThrows(java.io.IOException::class.java) {
+                source.open(DataSpec.Builder().setUri(Uri.parse(entry.ref.handle)).build())
+                source.read(ByteArray(4), 0, 4)
+            }
+        } finally { source.close() }
+        // A live request for the same track number streams; it is never sent to the card's record.
+        val live = DataSpec.Builder().setUri(Uri.parse(endpoint.url("/api1/file/7"))).build()
+        assertSame(phone, routeOfflineRequest(live, phone, b).first)
         assertFalse("Phone's default index is independent", phone.completed(id))
     }
 
@@ -95,8 +106,7 @@ class CardIndexCharacterizationTest {
         val b = shelf(folders.newFolder("card_b"), "card_b_fixture")
         attach(b)
         assertFalse(b.completed(id))
-        assertNull(OfflineStore.downloadedOn(RuntimeEnvironment.getApplication(), id))
-        assertTrue(OfflineStore.downloadedSongs(RuntimeEnvironment.getApplication(), endpoint.origin).isEmpty())
+        assertTrue(OfflineStore.savedEntries(RuntimeEnvironment.getApplication()).isEmpty())
         val reopenedA = shelf(aFolder, "card")
         assertTrue(reopenedA.completed(id))
         assertArrayEquals(bytes, requireNotNull(reopenedA.cache.getCachedSpans(id).first().file).readBytes())
