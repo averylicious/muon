@@ -8,7 +8,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheEvictor
 import androidx.media3.datasource.cache.CacheSpan
-import java.util.TreeSet
 
 /**
  * The played-song cache (#112, mockup 01): an Opus copy of each song as it plays, kept up to a limit so
@@ -45,11 +44,8 @@ internal object PlayedCacheState {
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class PlayedSongEvictor(limit: Long, private val removable: (String) -> Boolean = { true },
-    private val report: (Long) -> Unit) : CacheEvictor {
+    private val order: PlayedSpanOrder = MemoryPlayedSpanOrder(), private val report: (Long) -> Unit) : CacheEvictor {
     @Volatile private var limit = limit
-    private val spans = TreeSet<CacheSpan> { a, b ->
-        if (a.lastTouchTimestamp != b.lastTouchTimestamp) a.lastTouchTimestamp.compareTo(b.lastTouchTimestamp) else a.compareTo(b)
-    }
     private var size = 0L
     private var cache: Cache? = null
 
@@ -57,6 +53,7 @@ internal class PlayedSongEvictor(limit: Long, private val removable: (String) ->
 
     override fun requiresCacheSpanTouches() = true
     override fun onCacheInitialized() {
+        order.initialized()
         // Loading spans protects each key as if it were being written. Once startup is complete,
         // there is no writer to protect; trim an oversized played resource left by an older app.
         cache?.let { evict(it, 0, keep = null) }
@@ -68,13 +65,13 @@ internal class PlayedSongEvictor(limit: Long, private val removable: (String) ->
     override fun onSpanAdded(cache: Cache, span: CacheSpan) {
         this.cache = cache
         if (!played(span)) return
-        spans.add(span); size += span.length
+        order.add(span); size += span.length
         evict(cache, 0, keep = span.key)
         report(size)
     }
     override fun onSpanRemoved(cache: Cache, span: CacheSpan) {
         if (!played(span)) return
-        if (spans.remove(span)) size -= span.length
+        order.remove(span); size = (size - span.length).coerceAtLeast(0)
         report(size)
     }
     override fun onSpanTouched(cache: Cache, oldSpan: CacheSpan, newSpan: CacheSpan) {
@@ -91,10 +88,10 @@ internal class PlayedSongEvictor(limit: Long, private val removable: (String) ->
 
     /** Oldest songs first, never the one being written. */
     private fun evict(cache: Cache, required: Long, keep: String?) {
-        var guard = spans.size
+        var guard = order.count
         while (size + required > limit && guard-- > 0) {
-            val oldest = spans.firstOrNull { it.key != keep && removable(it.key) } ?: return
-            cache.removeResource(oldest.key)
+            val oldest = order.oldest(keep, removable) ?: return
+            cache.removeResource(oldest)
         }
     }
 }

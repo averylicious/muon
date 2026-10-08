@@ -153,7 +153,8 @@ internal object OfflineStore {
         // Downloads stay until removed: only played-song copies are ever evicted, oldest first, and none that
         // a download row names, nor any until the phone's index has been read (#213).
         val claims = PlayedClaims(context)
-        val played = PlayedSongEvictor(limit, claims::removable) { used -> main.post { PlayedCacheState.used = used } }
+        val played = PlayedSongEvictor(limit, claims::removable,
+            DiskPlayedSpanOrder(File(context.noBackupFilesDir, "played-span-order-v1.db"))) { used -> main.post { PlayedCacheState.used = used } }
         val phone = shelf(context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java)
         saver.execute {
             // If the index cannot be read, the claims stay unknown and no played copy is ever removed.
