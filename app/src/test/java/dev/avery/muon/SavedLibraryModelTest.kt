@@ -152,6 +152,31 @@ class SavedLibraryModelTest {
         } finally { socket.close(); worker.shutdownNow(); worker.awaitTermination(5, TimeUnit.SECONDS) }
     }
 
+    @Test fun offlineModelPublishesBoundedPagesAndClampsAfterRefreshWithoutLosingSavedRows() {
+        for (i in 0..74) {
+            val id = "saved/page_$i"
+            val request = DownloadRequest.Builder(id, Uri.parse("opaque:old-source")).setCustomCacheKey(id)
+                .setData(encodeSong(TauonTrack(i.toLong(), "Song ${i.toString().padStart(3, '0')}", "Artist", "Album", 1000, true, false))).build()
+            seed(id)
+            index.putDownload(Download(request, Download.STATE_COMPLETED, 1, 1, bytes.size.toLong(), 0, 0))
+        }
+        model.listenOffline(); pumpUntil { !model.busy && model.offline }
+        assertEquals(75L, model.savedSnapshot?.count)
+        assertEquals(50, model.saved.size)
+        model.showSavedPage(50); pumpUntil { !model.savedBusy && model.savedOffset == 50L }
+        assertEquals(25, model.saved.size)
+        assertTrue(model.saved.first().title().contains("050"))
+        for (i in 0..39) index.removeDownload("saved/page_$i") // Fixture alters rows, not production deletion.
+        model.refreshSaved(); pumpUntil { !model.savedBusy }
+        assertNull(model.savedError)
+        assertEquals(35L, model.savedSnapshot?.count)
+        assertEquals(0L, model.savedOffset)
+        assertEquals(35, model.saved.size)
+        assertTrue(model.saved.first().title().contains("040"))
+        index.getDownloads().use { assertEquals(35, it.count) }
+        assertTrue(cache.isCached("saved/page_0", 0, bytes.size.toLong()))
+    }
+
     private fun unknownCopy(): DownloadRequest {
         val request = DownloadRequest.Builder("legacy", Uri.parse("opaque:old-source"))
             .setCustomCacheKey("legacy-key").setData(byteArrayOf(3, 4)).build()

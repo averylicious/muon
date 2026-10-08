@@ -314,11 +314,12 @@ internal fun savedInventory(shelf: SavedShelf, index: DownloadIndex, cache: Cach
 
 /** Streaming projection for a transactional consumer; a failed scan must never publish a prefix. */
 internal fun forEachSavedEntry(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
-    ownsCover: (String) -> Boolean, emit: (SavedEntry) -> Unit) = index.getDownloads().use { cursor ->
+    ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
+    checkpoint: () -> Unit = {}, emit: (SavedEntry) -> Unit) = index.getDownloads().use { cursor ->
     projectSavedInventory(shelf, {
         cursor.moveToPosition(-1)
-        sequence { while (cursor.moveToNext()) yield(cursor.download) }
-    }, cache, played, ownsCover, emit)
+        sequence { while (cursor.moveToNext()) { checkpoint(); yield(cursor.download) } }
+    }, cache, played, ownsCover, include, checkpoint, emit)
 }
 
 private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
@@ -327,13 +328,15 @@ private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download
 }
 
 private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
-    ownsCover: (String) -> Boolean, emit: (SavedEntry) -> Unit) {
+    ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
+    checkpoint: () -> Unit = {}, emit: (SavedEntry) -> Unit) {
     val removableIds = soleOwners(downloads())
     for (download in downloads()) {
         if (download.state == Download.STATE_REMOVING) continue
         val request = download.request
         val key = keyOf(download)
         val ref = SavedRef.download(shelf, request.id, key) ?: continue
+        if (!include(ref)) continue
         val (coverage, bytes) = savedCoverage(cache, key)
         // Only a new save's own cover is shown, and only for the row it was fetched for (see DownloadArt).
         val newSave = request.id.startsWith(NEW_SAVE_PREFIX) && request.customCacheKey == request.id
@@ -345,7 +348,9 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
     // Played copies live only in the phone's cache; [played] is null for any other shelf.
     if (played != null) for (key in cache.keys.sorted()) {
         if (!key.startsWith(PLAYED_PREFIX)) continue
+        checkpoint()
         val ref = SavedRef.played(key) ?: continue
+        if (!include(ref)) continue
         val (coverage, bytes) = savedCoverage(cache, key)
         if (coverage != SavedCoverage.Full) continue
         val metadata = cache.getContentMetadata(key)

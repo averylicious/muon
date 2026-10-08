@@ -458,6 +458,24 @@ internal object OfflineStore {
         return sortSaved(entries)
     }
 
+    /** Stream the current display inventory, optionally hydrating only a bounded locator set. Off main.
+     * Failure propagates so a catalog rebuild/page never publishes a partial shelf as success.
+     * Full hidden-owner scans remain separate from display-page residency (#253).
+     */
+    internal fun projectSavedEntries(context: Context, include: (SavedRef) -> Boolean = { true },
+        checkpoint: () -> Unit = {}, emit: (SavedEntry) -> Unit) {
+        val store = get(context)
+        val shelves = listOfNotNull(SavedShelf.Phone to store.phone,
+            store.card?.takeIf { it.available() }?.let { SavedShelf.Card to it })
+        for ((name, shelf) in shelves) {
+            checkpoint()
+            forEachSavedEntry(name, shelf.manager.downloadIndex, shelf.cache,
+                if (name == SavedShelf.Phone) store.playedClaims else null,
+                { store.art.hasEntry(it) }, include, checkpoint, emit)
+            if (!shelf.available()) throw java.io.IOException("Saved storage changed; refresh your copies")
+        }
+    }
+
     /** Connect's playable-copy count, without constructing a sorted saved library (#253). Off main. */
     fun savedCompleteCount(context: Context): Long {
         val store = get(context)

@@ -71,6 +71,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // Saved copies (#213), opened from Settings while Tauon is reachable; offline, they are the library.
         var savedOpen by rememberSaveable { mutableStateOf(false) }
         var savedQueueTooLarge by remember { mutableStateOf<SavedEntry?>(null) }
+        var savedQueueStamp by remember { mutableStateOf<QueueActionStamp?>(null) }
+        val latestPlayer by rememberUpdatedState(player)
+        val savedScreenCurrent by rememberUpdatedState(model.offline || (savedOpen && tab == Tab.Settings))
         val library = rememberLibrarySettings()
         val context = LocalContext.current
         // Downloads are read in at launch, so rows can mark them, and any left unfinished carry on.
@@ -296,29 +299,43 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             player.setMediaItems(plan.items, plan.startIndex, 0L)
             player.prepare(); player.play()
         }
-        fun playSaved(list: List<SavedEntry>, entry: SavedEntry) {
-            if (player == null) return
-            savedQueueTooLarge = null
-            val plan = try { prepareSavedQueue(list, entry.ref) }
-                catch (_: SavedQueueLimit) { savedQueueTooLarge = entry; return }
-            plan?.let(::applySavedQueue)
+        // Preparing an ordered saved queue reads bounded catalog pages off main. Never replace a
+        // queue changed while this request/dialog was pending, or after this screen disappears.
+        fun savedQueueCurrent(stamp: QueueActionStamp?, original: MediaController?): Boolean =
+            original != null && savedScreenCurrent && latestPlayer === original && stamp != null &&
+                original.currentTimeline === stamp.timeline && original.currentMediaItemIndex == stamp.current &&
+                original.shuffleModeEnabled == stamp.shuffle
+        fun playSaved(entry: SavedEntry) {
+            val original = player ?: return
+            val stamp = QueueActionStamp(0, original.currentTimeline, original.currentMediaItemIndex, original.shuffleModeEnabled)
+            savedQueueTooLarge = null; savedQueueStamp = null
+            model.prepareSavedPlayback(entry.ref) { result ->
+                if (savedQueueCurrent(stamp, original)) when (result) {
+                    is SavedPlaybackResult.Ready -> applySavedQueue(result.plan)
+                    is SavedPlaybackResult.TooLarge -> { savedQueueStamp = stamp; savedQueueTooLarge = result.entry }
+                }
+            }
         }
         savedQueueTooLarge?.let { entry ->
-            AlertDialog(onDismissRequest = { savedQueueTooLarge = null },
+            AlertDialog(onDismissRequest = { savedQueueTooLarge = null; savedQueueStamp = null },
                 title = { Text("Saved library too large to queue") },
                 text = { Text("The full saved library has too many copies or too much metadata to play at once. " +
                     "You can play only “${entry.title()}” instead. All saved copies stay available.") },
                 confirmButton = { TextButton(enabled = player != null, onClick = {
-                    savedQueueTooLarge = null
-                    prepareSavedQueue(listOf(entry), entry.ref)?.let(::applySavedQueue)
+                    val original = player; val stamp = savedQueueStamp
+                    savedQueueTooLarge = null; savedQueueStamp = null
+                    if (savedQueueCurrent(stamp, original)) model.prepareSavedPlayback(entry.ref, single = true) { result ->
+                        if (result is SavedPlaybackResult.Ready && savedQueueCurrent(stamp, original)) applySavedQueue(result.plan)
+                    }
                 }) { Text("Play this copy") } },
-                dismissButton = { TextButton(onClick = { savedQueueTooLarge = null }) { Text("Cancel") } })
+                dismissButton = { TextButton(onClick = { savedQueueTooLarge = null; savedQueueStamp = null }) { Text("Cancel") } })
         }
         fun removeSaved(entry: SavedEntry) = OfflineStore.removeSaved(context, entry.ref)
         // The list follows what is kept: a copy finishing, being removed, or a played copy coming or going.
         val savedShown = model.offline || (savedOpen && tab == Tab.Settings)
-        LaunchedEffect(savedShown, DownloadMarks.marks.size, DownloadMarks.bytes, PlayedCacheState.used) {
-            if (savedShown) model.refreshSaved()
+        LaunchedEffect(savedShown, DownloadMarks.marks.toMap(), DownloadMarks.bytes, PlayedCacheState.used) {
+            savedQueueTooLarge = null; savedQueueStamp = null
+            if (savedShown) model.refreshSaved() else model.cancelSavedPlayback()
         }
         val savedCardUnavailable = remember(savedShown, model.saved) { OfflineStore.current()?.card?.available() == false }
         // The song a long press chose (#46), while its actions sheet is open. Not saved: a sheet is a
@@ -487,7 +504,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 null -> ConnectScreen(model, ::allowLocalNetwork)
                                 Tab.Settings -> if (savedOpen) {
                                     SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
-                                        ::playSaved, ::removeSaved, back = { savedOpen = false })
+                                        ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
+                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, back = { savedOpen = false })
                                 } else SettingsScreen(model, appearance, openSaved = { savedOpen = true }) {
                                     player?.stop(); player?.clearMediaItems(); model.disconnect()
                                     // Nothing from the server just left is shown again or kept on disk.
@@ -503,7 +521,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 // Offline, the library is the saved copies, each its own Unverified entry (#213).
                                 Tab.Library -> if (model.offline) {
                                     SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
-                                        ::playSaved, ::removeSaved)
+                                        ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
+                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved)
                                 } else {
                                     val page = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey)
                                     val shift = with(LocalDensity.current) { LIBRARY_PAGE_SHIFT.roundToPx() }

@@ -8,6 +8,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class LibraryModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("connection", 0)
@@ -20,20 +24,81 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     var progress by mutableStateOf(""); private set
     /** Tauon could not be reached, so the library is only the saved copies (#112, #213). */
     var offline by mutableStateOf(false); private set
-    /** Every saved copy, each its own Unverified entry (#213); read by [refreshSaved], off the main thread. */
+    /** Current bounded display page; never the whole saved inventory (#253). */
     internal var saved by mutableStateOf<List<SavedEntry>>(emptyList()); private set
+    internal var savedSnapshot by mutableStateOf<SavedCatalogSnapshot?>(null); private set
+    internal var savedOffset by mutableStateOf(0L); private set
+    internal var savedBusy by mutableStateOf(false); private set
+    internal var savedError by mutableStateOf<String?>(null); private set
+    private val savedPages = SavedPageCache()
+    private val savedRepository = SavedPaging(app)
+    private val savedMutex = Mutex()
     private var savedLoad: kotlinx.coroutines.Job? = null
+    private var savedQueue: kotlinx.coroutines.Job? = null
+    private var savedRevision = 0L
 
-    /** Reads the saved copies again, as when Saved copies opens or one is added or removed. */
+    private fun publishSaved(page: SavedPage) {
+        savedPages.put(page)
+        savedSnapshot = page.snapshot; savedOffset = page.offset; saved = page.entries
+    }
+
+    private suspend fun reloadSaved(): SavedReload = withContext(Dispatchers.IO) {
+        val job = currentCoroutineContext()
+        savedMutex.withLock { savedRepository.reload(savedOffset) { job.ensureActive() } }
+    }
+
+    /** Rebuild atomically, retain the last good page on error, invalidate all cached pages on success. */
     fun refreshSaved() {
-        savedLoad?.cancel()
+        if (busy) return
+        savedLoad?.cancel(); cancelSavedPlayback(); val revision = ++savedRevision
+        savedBusy = true; savedError = null
         savedLoad = viewModelScope.launch {
-            val found = withContext(Dispatchers.IO) {
-                try { OfflineStore.savedEntries(getApplication<Application>()) }
-                catch (failure: CancellationException) { throw failure }
-                catch (_: Exception) { null }
-            }
-            if (found != null) saved = found
+            try {
+                val found = reloadSaved()
+                if (revision != savedRevision) return@launch
+                savedPages.clear(); publishSaved(found.page)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (revision == savedRevision) savedError = "Saved copies changed or couldn't be read. Refresh to try again." }
+            finally { if (revision == savedRevision) savedBusy = false }
+        }
+    }
+
+    internal fun showSavedPage(offset: Long) {
+        val snapshot = savedSnapshot ?: return
+        if (savedBusy) return
+        cancelSavedPlayback()
+        val wanted = savedPageOffset(offset, snapshot.count)
+        savedPages.get(snapshot, wanted)?.let { publishSaved(it); return }
+        savedLoad?.cancel(); val revision = ++savedRevision
+        savedBusy = true; savedError = null
+        savedLoad = viewModelScope.launch {
+            try {
+                val page = withContext(Dispatchers.IO) {
+                    val job = currentCoroutineContext()
+                    savedMutex.withLock { savedRepository.page(snapshot, wanted) { job.ensureActive() } }
+                }
+                if (revision == savedRevision) publishSaved(page)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (revision == savedRevision) savedError = "Saved copies changed or couldn't be read. Refresh to try again." }
+            finally { if (revision == savedRevision) savedBusy = false }
+        }
+    }
+
+    internal fun cancelSavedPlayback() { savedQueue?.cancel(); savedQueue = null }
+    internal fun prepareSavedPlayback(ref: SavedRef, single: Boolean = false,
+        ready: (SavedPlaybackResult) -> Unit) {
+        val snapshot = savedSnapshot ?: return
+        if (savedBusy || savedError != null) return
+        cancelSavedPlayback()
+        savedQueue = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val job = currentCoroutineContext()
+                    savedMutex.withLock { savedRepository.playback(snapshot, ref, single) { job.ensureActive() } }
+                }
+                if (savedSnapshot == snapshot) ready(result)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { savedError = "This saved copy changed or couldn't be queued. Refresh to try again." }
         }
     }
     private val loads = LibraryLoads(viewModelScope) { busy = it }
@@ -41,6 +106,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     init { if (address.isNotBlank()) connect() }
     fun connect() {
         if (busy) return
+        savedLoad?.cancel(); cancelSavedPlayback(); savedRevision++; savedBusy = false
         // The download store reports to the main thread, so it is made here before anything reads it.
         OfflineStore.get(getApplication<Application>())
         loads.start {
@@ -92,9 +158,13 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 // With no library from this sitting, the saved copies still play, so they are shown
                 // rather than the connect screen. A library already loaded stays as it was.
                 val server = if (endpoint == null || offline) runCatching { ServerEndpoint.parse(address) }.getOrNull() else null
-                val kept = server?.let { withContext(Dispatchers.IO) { OfflineStore.savedEntries(getApplication<Application>()) } }.orEmpty()
+                val kept = server?.let {
+                    try { reloadSaved() }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { null }
+                }
                 ensureCurrent()
-                if (server != null && kept.any { it.complete }) {
+                if (server != null && kept != null && kept.playable > 0) {
                     showOffline(server, kept)
                     if (e is LocalNetworkDenied) error = "Muon needs your permission to reach Tauon. Your saved copies still play."
                     else if (e is LibraryResourceLimit) error = friendlyError(e) + " Your saved copies still play."
@@ -110,12 +180,12 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      * The saved copies in place of the library (#213). No live song is listed: none could be streamed, and
      * a copy kept under a track number is not shown as that song. Each copy is its own Unverified entry.
      */
-    private fun showOffline(server: ServerEndpoint?, entries: List<SavedEntry>) {
+    private fun showOffline(server: ServerEndpoint?, entries: SavedReload) {
         endpoint = server; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = true
-        saved = entries
+        savedPages.clear(); publishSaved(entries.page)
         OfflineStore.offline = true
         error = OFFLINE_NOTE
-        progress = "Offline · ${entries.size} saved ${if (entries.size == 1) "copy" else "copies"}"
+        progress = "Offline · ${entries.page.snapshot.count} saved ${if (entries.page.snapshot.count == 1L) "copy" else "copies"}"
     }
 
     /**
@@ -125,12 +195,13 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      */
     fun listenOffline() {
         if (busy) return
+        savedLoad?.cancel(); cancelSavedPlayback(); savedRevision++; savedBusy = false
         OfflineStore.get(getApplication<Application>())
         loads.start {
             try {
-                val (origin, entries) = withContext(Dispatchers.IO) {
-                    OfflineStore.savedLibrary(getApplication<Application>())
-                } ?: return@start
+                val entries = reloadSaved()
+                if (entries.playable == 0L) return@start
+                val origin = entries.origin
                 ensureCurrent()
                 // A copy with no known origin still opens: no server is needed to play it (#213).
                 val server = origin?.let { runCatching { ServerEndpoint.parse(it) }.getOrNull() }
@@ -142,6 +213,8 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun disconnect() {
+        savedLoad?.cancel(); cancelSavedPlayback(); savedRevision++; savedBusy = false
+        savedPages.clear(); saved = emptyList(); savedSnapshot = null; savedOffset = 0; savedError = null
         loads.cancel(); endpoint = null; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = false
         OfflineStore.offline = false
         prefs.edit().clear().apply(); address = ""; error = null; progress = ""
