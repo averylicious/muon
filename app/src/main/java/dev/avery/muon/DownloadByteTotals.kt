@@ -1,23 +1,24 @@
 package dev.avery.muon
 
-/**
- * Each finished download's size by id, and their total, kept up to date as each one changes rather than
- * summed again on every change (#253). One entry per id, whichever shelf it was recorded from.
- */
-internal class DownloadByteTotals {
-    private val sizes = HashMap<String, Long>()
+import android.content.Context
+import java.io.Closeable
+import java.io.File
 
-    /** The sum of every recorded size; it wraps on overflow exactly as summing them all would. */
-    var total = 0L
-        private set
-
-    /** Records [id]'s size, replacing any earlier one. */
+/** Exact incremental accounting; production keeps per-ID sizes on derived private disk. */
+internal class DownloadByteTotals private constructor(private val disk: DownloadByteLedger?) : Closeable {
+    constructor() : this(null) // Existing pure fixture seam.
+    constructor(context: Context) : this(DownloadByteLedger(File(context.noBackupFilesDir,"download-byte-totals-v1.db")))
+    private val sizes = if (disk == null) HashMap<String,Long>() else null
+    private var memoryTotal = 0L
+    val known: Boolean get() = disk?.known ?: true
+    val total: Long get() = disk?.total ?: memoryTotal
     fun put(id: String, bytes: Long) {
-        total += bytes - (sizes.put(id, bytes) ?: 0L)
+        if (disk != null) disk.put(id,bytes)
+        else memoryTotal += bytes - (requireNotNull(sizes).put(id,bytes) ?: 0L)
     }
-
-    /** Forgets [id]'s size; nothing happens for an id never recorded. */
     fun remove(id: String) {
-        sizes.remove(id)?.let { total -= it }
+        if (disk != null) disk.remove(id)
+        else requireNotNull(sizes).remove(id)?.let { memoryTotal -= it }
     }
+    override fun close() { disk?.close() }
 }

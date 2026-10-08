@@ -56,6 +56,8 @@ internal object DownloadMarks {
     var revision by mutableLongStateOf(0L)
     /** Bytes the finished downloads take. */
     var bytes by mutableLongStateOf(0L)
+    /** A derived tally failure hides stale sizes; original audio/index records remain available. */
+    var bytesKnown by mutableStateOf(true)
     /** Songs moved so far and how many are moving, while downloads move between phone and card. */
     var moving by mutableStateOf<Pair<Int, Int>?>(null)
 }

@@ -164,7 +164,7 @@ internal object OfflineStore {
         val art = DownloadArt(File(context.filesDir, "downloads-art"))
         // Covers are fetched one at a time, beside the downloads rather than in their way.
         val artwork = DownloadArtworkWork(Executors.newSingleThreadExecutor(), art::fetchEntry, art::removeEntry)
-        val sizes = DownloadByteTotals()
+        val sizes = DownloadByteTotals(context)
         fun record(download: DownloadStatus) {
             val id = download.id
             val mark = when (download.state) {
@@ -182,6 +182,7 @@ internal object OfflineStore {
             // No cover is fetched here for an older download (#213): one fetched now by its track number
             // could be another song's. A new save fetches its own when it is asked for (see [add]).
             DownloadMarks.bytes = sizes.total
+            DownloadMarks.bytesKnown = sizes.known
         }
         fun removed(download: Download) {
             DownloadMarks.revision++
@@ -196,6 +197,7 @@ internal object OfflineStore {
             DownloadMarks.marks.remove(id)
             sizes.remove(id)
             DownloadMarks.bytes = sizes.total
+            DownloadMarks.bytesKnown = sizes.known
         }
         val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims)
         watch(context, phone, made, main)
