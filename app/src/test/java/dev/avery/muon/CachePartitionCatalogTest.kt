@@ -72,6 +72,24 @@ class CachePartitionCatalogTest {
         }
         assertThrows(IOException::class.java) { CachePartitionCatalog(foreign).close() }
     }
+    @Test fun symbolicLinksCannotChangeThePrivateRootOrAnExactReservedResourceIdentity() {
+        val outside=folders.newFolder()
+        val original=File(outside,"original").apply { writeBytes(byteArrayOf(3,4)) }
+        val root=folders.newFolder()
+        java.nio.file.Files.createSymbolicLink(File(root,"resources").toPath(),outside.toPath())
+        CachePartitionCatalog(root).use { catalog ->
+            assertThrows(IOException::class.java) { catalog.reserve("unknown") }; assertEquals(0L,catalog.count())
+        }
+        val next=folders.newFolder()
+        CachePartitionCatalog(next).use { catalog ->
+            val candidate=catalog.reserve("kept")
+            val resources=File(next,"resources").apply { mkdirs() }
+            val other=File(resources,UUID.randomUUID().toString()).apply { mkdirs() }
+            java.nio.file.Files.createSymbolicLink(File(resources,candidate.directory).toPath(),other.toPath())
+            assertThrows(IOException::class.java) { catalog.directory(candidate) }
+        }
+        assertArrayEquals(byteArrayOf(3,4),original.readBytes())
+    }
     @Test fun corruptedDirectoryAndClosedLedgerCannotReturnAnInventedEmptyCatalog() {
         val root=folders.newFolder(); val catalog=CachePartitionCatalog(root)
         catalog.reserve("kept"); catalog.close()

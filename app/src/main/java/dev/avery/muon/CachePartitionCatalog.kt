@@ -42,6 +42,7 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
         if (key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Partition key exceeds migration budget")
     }
     private fun allocation(key:String,directory:String):CachePartitionAllocation {
+        requireKey(key)
         val parsed=try { UUID.fromString(directory) } catch (_:IllegalArgumentException) { throw IOException("Partition locator malformed") }
         if (parsed.toString()!=directory) throw IOException("Partition locator not canonical")
         return CachePartitionAllocation(key,directory)
@@ -77,7 +78,9 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
         allocation(candidate.key,candidate.directory)
         val parent=resources.canonicalFile
         val target=File(resources,candidate.directory).canonicalFile
-        if (target.parentFile!=parent) throw IOException("Partition directory leaves its private root")
+        if (parent.parentFile!=root.canonicalFile || parent.name!="resources" ||
+            target.parentFile!=parent || target.name!=candidate.directory)
+            throw IOException("Partition directory leaves its private identity/root")
         return target
     }
     @Synchronized fun count():Long = database.rawQuery("SELECT COUNT(*) FROM partitions",null).use {
