@@ -922,6 +922,34 @@ class DownloadMoveCharacterizationTest {
         assertFalse(store.moves.hasPending)
     }
 
+    @Test fun largeExactRequestsStopBeforeTheBatchMetadataLimitWithoutWritingTheRemainder() {
+        val sources = (0 until 9).associate { n ->
+            val key = "saved/large-$n"
+            val (small, payload) = completeKeyed(key)
+            val original = DownloadRequest.Builder(key, small.uri).setCustomCacheKey(key).setData(large).build()
+            sourceIndex.putDownload(Download(original, Download.STATE_COMPLETED, n.toLong(), n.toLong(),
+                payload.size.toLong(), Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+            key to (original to payload)
+        }
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        val added = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }.map(::addRequest)
+        assertTrue("The byte limit, not the 128-receipt limit, stops this batch", added.size in 1..8)
+        assertTrue(added.sumOf(::moveRequestBytes) <= MOVE_METADATA_BYTES)
+        val left = sources.keys - added.map { it.id }.toSet()
+        assertTrue(left.isNotEmpty())
+        assertTrue(deferredNotice.matches(ShadowToast.getTextOfLatestToast().toString()))
+        for ((key, source) in sources) {
+            assertEquals("Original exact request retained", source.first, sourceIndex.getDownload(key)?.request)
+            assertArrayEquals(source.second, keyedBytes(phone.cache, key))
+            if (key in left) assertTrue("No deferred target output", card.cache.getCachedSpans(key).isEmpty())
+            else {
+                assertEquals(source.first, added.single { it.id == key })
+                assertArrayEquals(source.second, keyedBytes(card.cache, key))
+            }
+        }
+    }
+
     /** Replaces the fixture's store with one whose move receipts hold at most [capacity]. */
     private fun withReceiptCapacity(capacity: Int): OfflineStore.Store {
         val fixture = OfflineStore.Store(phone, DownloadArt(folders.newFolder("art-$capacity")),

@@ -775,6 +775,8 @@ internal object OfflineStore {
                 // copied: a copy past that would leave unindexed bytes on the target and never be added. Read
                 // once: only this batch's hand-over remembers receipts while the move holds its exclusion.
                 val room = store.moves.available()
+                val metadata = DownloadMoveBudget()
+                var oversized = 0
                 var kept = 0
                 var failed = 0
                 var deferred = 0
@@ -798,6 +800,17 @@ internal object OfflineStore {
                         movable(download, sourceCensus, targetCensus) { to.manager.downloadIndex.getDownload(it) }
                     }.getOrDefault(false)
                     if (!safe) kept++
+                    // Count the exact preserved request before copying any target output (#253).
+                    // Count alone does not bound the legacy raw tags retained until hand-over.
+                    if (safe && download != null && !metadata.fits(download.request)) {
+                        if (!metadata.fitsAlone(download.request)) {
+                            oversized++ // A later move cannot fit it either; explain without a retry loop.
+                            main.post { DownloadMarks.moving = index + 1 to ids.size }
+                            continue
+                        }
+                        deferred = ids.size - index
+                        break // Successful requests consume budget; failed/unsafe ones do not.
+                    }
                     val attempted = safe && moveOwnership.permits(batch, id)
                     // The copy stops writing as soon as the move no longer owns this song (removed, or
                     // Remove all, #234) or either shelf goes (#179 S1), rather than finishing a copy no one
@@ -808,7 +821,10 @@ internal object OfflineStore {
                     if (attempted && !copied) failed++
                     // Handed over only after the last copy, when the exclusion is released (#230). Each handed
                     // over request, with its stored record, is kept until then.
-                    if (copied && download != null) copiedRequests += download.request
+                    if (copied && download != null) {
+                        metadata.commit(download.request)
+                        copiedRequests += download.request
+                    }
                     main.post { DownloadMarks.moving = index + 1 to ids.size }
                 }
                 if (kept > 0) notice(context, "$kept ${if (kept == 1) "copy was" else "copies were"} kept where " +
@@ -816,6 +832,8 @@ internal object OfflineStore {
                 if (failed > 0) notice(context, if (failed == 1)
                     "1 copy couldn't be moved. Its saved entry was kept."
                 else "$failed copies couldn't be moved. Their saved entries were kept.")
+                if (oversized > 0) notice(context, "$oversized saved ${if (oversized == 1) "copy has" else "copies have"} " +
+                    "too much stored metadata to move safely. The original records and audio were kept.")
                 if (deferred > 0) notice(context, if (deferred == 1)
                     "1 more copy stays where it is. Move again once this move finishes."
                 else "$deferred more copies stay where they are. Move again once this move finishes.")
