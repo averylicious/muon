@@ -417,12 +417,13 @@ internal object OfflineStore {
             saver.execute {
                 try {
                     val requests = runCatching {
-                        val taken = takenNames(store)
                         val budget = DownloadMoveBudget(DOWNLOAD_REQUEST_BYTES)
-                        playable.map { track ->
-                            newSaveRequest(taken, endpoint, track).also { (request, _) ->
-                                check(budget.fits(request)) { "Save request budget exceeded" }
-                                budget.commit(request)
+                        takenNames(context, store).use { taken ->
+                            playable.map { track ->
+                                newSaveRequest(taken, endpoint, track).also { (request, _) ->
+                                    check(budget.fits(request)) { "Save request budget exceeded" }
+                                    budget.commit(request)
+                                }
                             }
                         }
                     }.getOrNull()
@@ -452,22 +453,29 @@ internal object OfflineStore {
      * card's index (both kept in the app's own database, read even while the card is out), and each key in
      * either cache. Off the main thread. A failed read fails the save rather than guessing.
      */
-    internal fun takenNames(store: Store): MutableSet<String> {
-        val taken = HashSet<String>()
-        for (shelf in store.shelves) {
-            forEachIndexRow(shelf.manager.downloadIndex) { taken += it.id; taken += it.key }
-            taken += shelf.cache.keys
+    internal fun takenNames(context: Context, store: Store): SavedNameRegistry {
+        val taken = SavedNameRegistry.open(context)
+        try {
+            for (shelf in store.shelves) {
+                forEachIndexRow(shelf.manager.downloadIndex) { taken.add(it.id); taken.add(it.key) }
+                // Media3 still copies its native key set here. Insert one name at a time rather than
+                // unioning that snapshot with every other shelf's names in a second Java HashSet.
+                for (key in shelf.cache.keys) taken.add(key)
+            }
+            return taken
+        } catch (failure: Throwable) {
+            taken.close()
+            throw failure
         }
-        return taken
     }
 
     /**
      * A new save's request, under a fresh request ID and key that is in [taken] nowhere (and is then added
      * to it), and the cover address it is saved from. The name says nothing about the audio.
      */
-    internal fun newSaveRequest(taken: MutableSet<String>, endpoint: ServerEndpoint, track: TauonTrack): Pair<DownloadRequest, String> {
+    internal fun newSaveRequest(taken: SavedNameRegistry, endpoint: ServerEndpoint, track: TauonTrack): Pair<DownloadRequest, String> {
         val id = newSaveId { it in taken }
-        taken += id
+        taken.add(id)
         val request = DownloadRequest.Builder(id, Uri.parse(endpoint.url("/api1/fileopus/${track.id}")))
             .setCustomCacheKey(id).setData(encodeSong(track)).build()
         return request to endpoint.url("/api1/pic/medium/${track.id}")

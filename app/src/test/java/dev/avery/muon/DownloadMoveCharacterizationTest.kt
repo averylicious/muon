@@ -788,7 +788,12 @@ class DownloadMoveCharacterizationTest {
         assertEquals(OfflineStore.SavedRemoval.NotOwned, OfflineStore.removeSavedNow(app,
             requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
         assertEquals("The card's census still runs; the phone's sends nothing", 0 to 0, OfflineStore.removeAllNow(app))
-        assertThrows(IllegalStateException::class.java) { OfflineStore.takenNames(OfflineStore.get(app)) }
+        val namingFailure = assertThrows(java.util.concurrent.ExecutionException::class.java) {
+            (saverField.get(null) as ExecutorService).submit {
+                OfflineStore.takenNames(app, OfflineStore.get(app)).use { }
+            }.get(10, TimeUnit.SECONDS)
+        }
+        assertTrue(namingFailure.cause is IllegalStateException)
         val claims = PlayedClaims().apply { read(phoneIndex) }
         assertFalse("A partial read leaves played copies unremovable", claims.known)
         OfflineStore.move(app, toCard = true)
@@ -1197,6 +1202,56 @@ class DownloadMoveCharacterizationTest {
         assertEquals(1, workerTasks.size)
         assertTrue(ShadowToast.getTextOfLatestToast().orEmpty().contains("covers weren't queued"))
         assertFalse(fixture.savePreparation.get())
+        assertEquals(old, sourceIndex.getDownload(old.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, old.customCacheKey!!))
+    }
+
+    @Test fun saveNamingIncludesAllStatesHiddenAliasesAndMetadataOnlyCacheKeys() {
+        val (original, payload) = completeKeyed("saved/original")
+        val store = OfflineStore.get(app)
+        val emptyKey = "metadata-only/\u0000😀"
+        card.cache.applyContentMetadataMutations(emptyKey, ContentMetadataMutations().set("preserve", "yes"))
+        val kept = ArrayList<DownloadRequest>()
+        listOf(Download.STATE_COMPLETED, Download.STATE_FAILED, Download.STATE_STOPPED,
+            Download.STATE_REMOVING).forEachIndexed { n, state ->
+            val request = DownloadRequest.Builder("hidden/$n", request.uri)
+                .setCustomCacheKey("alias/$n").setData(byteArrayOf(n.toByte())).build()
+            targetIndex.putDownload(Download(request, state, 1, 1, 0,
+                if (state == Download.STATE_STOPPED) RETAINED_STOP_REASON else Download.STOP_REASON_NONE,
+                if (state == Download.STATE_FAILED) Download.FAILURE_REASON_UNKNOWN else Download.FAILURE_REASON_NONE))
+            kept += request
+        }
+        (saverField.get(null) as ExecutorService).submit {
+            // Naming deliberately never checks shelf.available(): unavailable copies still reserve names.
+            val unavailableCard = Shelf(card.cache, card.manager, card.service) { false }
+            store.card = unavailableCard
+            OfflineStore.takenNames(app, store).use { names ->
+                assertTrue(original.id in names)
+                kept.forEach { assertTrue(it.id in names); assertTrue(it.customCacheKey!! in names) }
+                assertTrue(emptyKey in names)
+                val track = TauonTrack(42, "Title", "Artist", "Album", 1000, true, false)
+                val (fresh, _) = OfflineStore.newSaveRequest(names, ServerEndpoint.parse("192.168.1.20"), track)
+                assertTrue(fresh.id in names); assertEquals(fresh.id, fresh.customCacheKey)
+                assertArrayEquals(encodeSong(track), fresh.data)
+            }
+        }.get(10, TimeUnit.SECONDS)
+        assertEquals(original, sourceIndex.getDownload(original.id)?.request)
+        kept.forEach { assertEquals(it, targetIndex.getDownload(it.id)?.request) }
+        assertEquals("yes", card.cache.getContentMetadata(emptyKey).get("preserve", ""))
+        assertArrayEquals(payload, keyedBytes(phone.cache, original.customCacheKey!!))
+    }
+
+    @Test fun failedPrivateNamingScratchRefusesTheWholeSaveAndKeepsOriginalAudio() {
+        val (old, payload) = completeKeyed("saved/original")
+        val unavailable = object : android.content.ContextWrapper(app) {
+            override fun getNoBackupFilesDir(): File = folders.newFile("not-a-directory")
+        }
+        val track = TauonTrack(42, "Title", "Artist", "Album", 1000, true, false)
+        OfflineStore.add(unavailable, ServerEndpoint.parse("192.168.1.20"), listOf(track))
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertFalse(OfflineStore.get(app).savePreparation.get())
+        assertTrue(ShadowToast.getTextOfLatestToast().orEmpty().contains("Nothing was queued"))
         assertEquals(old, sourceIndex.getDownload(old.id)?.request)
         assertArrayEquals(payload, keyedBytes(phone.cache, old.customCacheKey!!))
     }
