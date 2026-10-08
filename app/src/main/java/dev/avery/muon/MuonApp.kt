@@ -72,6 +72,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var savedOpen by rememberSaveable { mutableStateOf(false) }
         var savedQueueTooLarge by remember { mutableStateOf<SavedEntry?>(null) }
         var savedQueueStamp by remember { mutableStateOf<QueueActionStamp?>(null) }
+        var liveQueueChoice by remember { mutableStateOf<LiveQueueChoice?>(null) }
         val latestPlayer by rememberUpdatedState(player)
         val savedScreenCurrent by rememberUpdatedState((model.offline && tab == Tab.Library) || (savedOpen && tab == Tab.Settings))
         val library = rememberLibrarySettings()
@@ -274,23 +275,54 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // library underneath is hidden by the rising player and must not be navigated. Registered
         // after the app's own handler, so the dispatcher gives it the press while it is enabled.
         BackHandler(sheet.previewing) { sheet.endPreview() }
+        fun liveQueueRefused(track: TauonTrack, endpoint: ServerEndpoint, shuffle: Boolean?) {
+            val original = player ?: return
+            liveQueueChoice = LiveQueueChoice(track, endpoint, original,
+                QueueActionStamp(0, original.currentTimeline, original.currentMediaItemIndex, original.shuffleModeEnabled),
+                original.repeatMode, shuffle)
+        }
         fun startQueue(list: List<TauonTrack>, track: TauonTrack) {
             val endpoint = model.endpoint ?: return
-            val queue = list.filter { it.playable }
-            val index = queue.indexOfFirst { it.id == track.id }
-            if (index < 0 || player == null) return
-            player.setMediaItems(queue.map { it.mediaItem(endpoint) }, index, 0L)
-            player.prepare(); player.play()
+            val original = player ?: return
+            val plan = try { prepareLiveQueue(list, endpoint, track.id) }
+            catch (_: PlaybackQueueLimit) { liveQueueRefused(track, endpoint, null); return } ?: return
+            original.setMediaItems(plan.items, plan.startIndex, 0L)
+            original.prepare(); original.play()
         }
-        // An album's Play and Shuffle: in order from the first song, or shuffled from a random one.
-        // Both set shuffle to match, as the buttons promise.
+        // An album's Play and Shuffle: only change the mode after the full selection fits.
         fun playAll(list: List<TauonTrack>, shuffle: Boolean) {
             val endpoint = model.endpoint ?: return
-            val queue = list.filter { it.playable }
-            if (queue.isEmpty() || player == null) return
-            player.shuffleModeEnabled = shuffle
-            player.setMediaItems(queue.map { it.mediaItem(endpoint) }, if (shuffle) queue.indices.random() else 0, 0L)
-            player.prepare(); player.play()
+            val original = player ?: return
+            val plan = try { prepareLiveQueue(list, endpoint) }
+            catch (_: PlaybackQueueLimit) {
+                list.firstOrNull { it.playable }?.let { liveQueueRefused(it, endpoint, shuffle) }
+                return
+            } ?: return
+            original.shuffleModeEnabled = shuffle
+            original.setMediaItems(plan.items, if (shuffle) plan.items.indices.random() else 0, 0L)
+            original.prepare(); original.play()
+        }
+        liveQueueChoice?.let { choice ->
+            AlertDialog(onDismissRequest = { liveQueueChoice = null },
+                title = { Text("Selection too large to queue") },
+                text = { Text("This selection has too many songs or too much metadata to play at once. " +
+                    "You can play only “${choice.track.title}” instead, or choose a smaller collection. All songs stay available.") },
+                confirmButton = { TextButton(onClick = {
+                    liveQueueChoice = null
+                    val original = player
+                    if (original != null && original === choice.player && model.endpoint?.origin == choice.endpoint.origin &&
+                        original.currentTimeline === choice.stamp.timeline &&
+                        original.currentMediaItemIndex == choice.stamp.current &&
+                        original.shuffleModeEnabled == choice.stamp.shuffle && original.repeatMode == choice.repeat) {
+                        val plan = try { prepareLiveQueue(listOf(choice.track), choice.endpoint, choice.track.id) }
+                        catch (_: PlaybackQueueLimit) { null }
+                        if (plan != null) {
+                            choice.shuffle?.let { original.shuffleModeEnabled = it }
+                            original.setMediaItems(plan.items, 0, 0L); original.prepare(); original.play()
+                        } else scope.launch { snackbar.showSnackbar("This song has too much metadata to queue.") }
+                    }
+                }) { Text("Play this song") } },
+                dismissButton = { TextButton(onClick = { liveQueueChoice = null }) { Text("Cancel") } })
         }
         // Saved copies (#213) play from their own list, each by its exact handle, cache-only; the queue is
         // the complete copies in the order shown, starting from the one chosen.
@@ -388,9 +420,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             val endpoint = model.endpoint ?: return
             val p = player ?: return
             val item = track.mediaItem(endpoint)
-            if (p.mediaItemCount == 0) { p.setMediaItems(listOf(item)); p.prepare(); p.play(); return }
+            if (p.mediaItemCount == 0) {
+                if (!playbackInputFits(listOf(item))) {
+                    liveQueueRefused(track, endpoint, null); return
+                }
+                p.setMediaItems(listOf(item)); p.prepare(); p.play(); return
+            }
             val at = if (next) p.currentMediaItemIndex + 1 else p.mediaItemCount
             val insertion = queueInsertion(item)
+            if (!playbackEditFits(p, 0, 0, listOf(insertion.item))) {
+                scope.launch { snackbar.showSnackbar("The queue is full. Remove some queued songs or choose fewer songs.") }
+                return
+            }
             p.addMediaItem(at, insertion.item)
             snackbar.currentSnackbarData?.dismiss()
             scope.launch {
@@ -844,3 +885,7 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean,
         }
     }
 }
+
+/** A deferred explicit smaller choice cannot replace a newer queue/server/mode decision. */
+private data class LiveQueueChoice(val track: TauonTrack, val endpoint: ServerEndpoint,
+    val player: MediaController, val stamp: QueueActionStamp, val repeat: Int, val shuffle: Boolean?)
