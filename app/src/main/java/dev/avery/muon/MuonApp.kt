@@ -70,6 +70,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var queueOpen by rememberSaveable { mutableStateOf(false) }
         // Saved copies (#213), opened from Settings while Tauon is reachable; offline, they are the library.
         var savedOpen by rememberSaveable { mutableStateOf(false) }
+        var savedQueueTooLarge by remember { mutableStateOf<SavedEntry?>(null) }
         val library = rememberLibrarySettings()
         val context = LocalContext.current
         // Downloads are read in at launch, so rows can mark them, and any left unfinished carry on.
@@ -290,11 +291,28 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         // Saved copies (#213) play from their own list, each by its exact handle, cache-only; the queue is
         // the complete copies in the order shown, starting from the one chosen.
-        fun playSaved(list: List<SavedEntry>, entry: SavedEntry) {
-            val index = list.indexOf(entry)
-            if (index < 0 || player == null) return
-            player.setMediaItems(list.map { it.mediaItem() }, index, 0L)
+        fun applySavedQueue(plan: SavedQueuePlan) {
+            if (player == null) return
+            player.setMediaItems(plan.items, plan.startIndex, 0L)
             player.prepare(); player.play()
+        }
+        fun playSaved(list: List<SavedEntry>, entry: SavedEntry) {
+            if (player == null) return
+            savedQueueTooLarge = null
+            val plan = try { prepareSavedQueue(list, entry.ref) }
+                catch (_: SavedQueueLimit) { savedQueueTooLarge = entry; return }
+            plan?.let(::applySavedQueue)
+        }
+        savedQueueTooLarge?.let { entry ->
+            AlertDialog(onDismissRequest = { savedQueueTooLarge = null },
+                title = { Text("Saved library too large to queue") },
+                text = { Text("The full saved library has too many copies or too much metadata to play at once. " +
+                    "You can play only “${entry.title()}” instead. All saved copies stay available.") },
+                confirmButton = { TextButton(enabled = player != null, onClick = {
+                    savedQueueTooLarge = null
+                    prepareSavedQueue(listOf(entry), entry.ref)?.let(::applySavedQueue)
+                }) { Text("Play this copy") } },
+                dismissButton = { TextButton(onClick = { savedQueueTooLarge = null }) { Text("Cancel") } })
         }
         fun removeSaved(entry: SavedEntry) = OfflineStore.removeSaved(context, entry.ref)
         // The list follows what is kept: a copy finishing, being removed, or a played copy coming or going.

@@ -27,7 +27,6 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
     play: (List<SavedEntry>, SavedEntry) -> Unit, remove: (SavedEntry) -> Unit, back: (() -> Unit)? = null) {
     val colors = MaterialTheme.colorScheme
     var confirm by remember { mutableStateOf<SavedEntry?>(null) }
-    val playable = remember(entries) { entries.filter { it.complete } }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = if (back != null) 4.dp else 20.dp, end = 20.dp, top = 8.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -52,7 +51,7 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             items(entries, key = { it.ref.handle }, contentType = { "saved" }) { entry ->
                 SavedRow(entry, current == entry.ref.handle, ready,
-                    play = { play(playable, entry) }, remove = { confirm = entry })
+                    play = { play(entries, entry) }, remove = { confirm = entry })
             }
         }
     }
