@@ -4,8 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,12 +44,18 @@ internal fun queuedMessage(title: String, next: Boolean): String {
 internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQueue: Boolean,
     album: LibraryAlbum?, artists: List<LibraryArtist>, dismiss: () -> Unit,
     queue: (next: Boolean) -> Unit, goToAlbum: (LibraryAlbum) -> Unit, goToArtist: (LibraryArtist) -> Unit,
-    download: DownloadMark? = null, canDownload: Boolean = false, toggleDownload: () -> Unit = {}) {
+    canSave: Boolean = false, save: () -> Unit = {}) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
+    var choosing by remember { mutableStateOf(false) }
     fun choose(action: () -> Unit) {
-        scope.launch { sheet.hide() }.invokeOnCompletion { dismiss(); action() }
+        if (choosing) return
+        choosing = true
+        scope.launch {
+            try { completeSheetAction({ sheet.hide() }, { !sheet.isVisible }, dismiss, action) }
+            finally { choosing = false }
+        }
     }
     ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet) {
         Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -74,12 +79,9 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
                 SheetAction("play-next", "Play next") { choose { queue(true) } }
                 SheetAction("add-queue", "Add to queue") { choose { queue(false) } }
             }
-            // Keep on the phone, or stop keeping it (#112).
-            when (download) {
-                DownloadMark.Done -> SheetAction("delete", "Remove download") { choose(toggleDownload) }
-                DownloadMark.Queued, DownloadMark.Downloading -> SheetAction("close", "Cancel download") { choose(toggleDownload) }
-                null -> if (canDownload) SheetAction("download", "Download") { choose(toggleDownload) }
-            }
+            // Keeps a new copy on the phone (#112). A live song never removes or claims a copy saved
+            // earlier under its track number (#213): those are managed in Saved copies.
+            if (canSave) SheetAction("download", "Save a copy") { choose(save) }
             album?.let { a -> SheetAction("album", "Go to album") { choose { goToAlbum(a) } } }
             artists.forEach { a ->
                 SheetAction("artist", "Go to artist", if (artists.size > 1) artistLabel(a.name) else null) { choose { goToArtist(a) } }
