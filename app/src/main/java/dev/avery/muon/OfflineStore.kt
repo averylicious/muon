@@ -146,7 +146,7 @@ internal object OfflineStore {
         val phone = shelf(context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java)
         saver.execute {
             // If the index cannot be read, the claims stay unknown and no played copy is ever removed.
-            runCatching { claims.ready(PlayedClaims.keysIn(rows(phone))) }
+            claims.read(phone.manager.downloadIndex)
             if (claims.known) playedWork.resize { played.resize(limit) }
         }
         val art = DownloadArt(File(context.filesDir, "downloads-art"))
@@ -362,12 +362,11 @@ internal object OfflineStore {
         }
     }
 
-    /** Every row of a shelf's index, in every state: what a key census reads. Off the main thread. */
-    private fun rows(shelf: Shelf): List<Download> {
-        val rows = ArrayList<Download>()
-        shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) rows += it.download }
-        return rows
-    }
+    /**
+     * Every row of a shelf's index, in every state: what a key census reads, as names and states only
+     * (#253). A failed read throws. Off the main thread.
+     */
+    private fun readCensus(shelf: Shelf): IndexCensus = indexCensus(shelf.manager.downloadIndex)
 
     /** Runs saved-copy requests and their checks off the main thread, one at a time. */
     private val saver = Executors.newSingleThreadExecutor()
@@ -423,7 +422,7 @@ internal object OfflineStore {
     internal fun takenNames(store: Store): MutableSet<String> {
         val taken = HashSet<String>()
         for (shelf in store.shelves) {
-            rows(shelf).forEach { taken += it.request.id; taken += keyOf(it) }
+            forEachIndexRow(shelf.manager.downloadIndex) { taken += it.id; taken += it.key }
             taken += shelf.cache.keys
         }
         return taken
@@ -535,9 +534,9 @@ internal object OfflineStore {
         }
         val shelf = (if (ref.shelf == SavedShelf.Card) store.card else store.phone)
             ?.takeIf { it.available() } ?: return SavedRemoval.Unavailable
-        val census = runCatching { rows(shelf) }.getOrNull() ?: return SavedRemoval.NotOwned
-        val row = census.singleOrNull { it.request.id == ref.requestId }
-        if (row == null || keyOf(row) != ref.key || !soleOwner(census, ref.requestId)) return SavedRemoval.NotOwned
+        val census = runCatching { readCensus(shelf) }.getOrNull() ?: return SavedRemoval.NotOwned
+        val row = census.row(ref.requestId)
+        if (row == null || row.key != ref.key || !census.soleOwner(row)) return SavedRemoval.NotOwned
         // Its own move, if one is under way, loses its hand-over too (#234).
         moveOwnership.remove(listOf(ref.requestId))
         DownloadService.sendRemoveDownload(context, shelf.service, ref.requestId, false)
@@ -558,13 +557,16 @@ internal object OfflineStore {
         try {
             val from = receipt.from
             if (receipt.to !== to || completed.request != receipt.request || !canMove(from, to)) return false
-            val sourceRows = rows(from)
-            val targetRows = rows(to)
-            val source = sourceRows.singleOrNull { it.request.id == receipt.request.id } ?: return false
-            val target = targetRows.singleOrNull { it.request.id == receipt.request.id } ?: return false
+            val id = receipt.request.id
+            val sourceCensus = readCensus(from)
+            val targetCensus = readCensus(to)
+            if (sourceCensus.row(id)?.state != Download.STATE_COMPLETED || targetCensus.row(id)?.state != Download.STATE_COMPLETED ||
+                !sourceCensus.soleOwner(id) || !targetCensus.soleOwner(id)) return false
+            // Only this song's two full records, read again by ID, for the exact request (#253).
+            val source = from.manager.downloadIndex.getDownload(id) ?: return false
+            val target = to.manager.downloadIndex.getDownload(id) ?: return false
             if (source.request != receipt.request || target.request != receipt.request ||
-                source.state != Download.STATE_COMPLETED || target.state != Download.STATE_COMPLETED ||
-                !soleOwner(sourceRows, receipt.request.id) || !soleOwner(targetRows, receipt.request.id)) return false
+                source.state != Download.STATE_COMPLETED || target.state != Download.STATE_COMPLETED) return false
             val key = receipt.request.customCacheKey ?: return false
             val length = ContentMetadata.getContentLength(from.cache.getContentMetadata(key))
             if (length <= 0 || ContentMetadata.getContentLength(to.cache.getContentMetadata(key)) != length ||
@@ -751,33 +753,40 @@ internal object OfflineStore {
             try {
                 // One census of both indexes for the batch (#213). It stays valid for each song: neither
                 // writer can add a row naming a key another row owns (see [soleOwner]), and this move adds
-                // only rows that pass [movable].
-                val sourceRows = runCatching { rows(from) }.getOrDefault(emptyList())
-                val targetRows = runCatching { rows(to) }.getOrNull()
-                val downloads = sourceRows.filter { it.state == Download.STATE_COMPLETED }
-                main.post { DownloadMarks.moving = 0 to downloads.size }
+                // only rows that pass [movable]. Names and states only (#253): each song's full record is
+                // read again when its turn comes, and dropped after its copy.
+                val sourceCensus = runCatching { readCensus(from) }.getOrNull()
+                val targetCensus = runCatching { readCensus(to) }.getOrNull()
+                val ids = sourceCensus?.rows.orEmpty().filter { it.state == Download.STATE_COMPLETED }.map { it.id }
+                main.post { DownloadMarks.moving = 0 to ids.size }
                 var kept = 0
                 var failed = 0
-                for ((index, download) in downloads.withIndex()) {
+                for ((index, id) in ids.withIndex()) {
                     if (!canMove(from, to)) {
                         notice(context, "The SD card isn't available any more, so the rest weren't moved.")
                         break
                     }
                     // A copy whose bytes another row may share, or one the target already names otherwise,
-                    // stays where it is, untouched; an unread target index moves nothing.
-                    val safe = targetRows != null && movable(download, sourceRows, targetRows)
+                    // stays where it is, untouched; an unread target index moves nothing. So does a row that
+                    // is no longer the finished one counted, or can't be read again.
+                    val download = runCatching { from.manager.downloadIndex.getDownload(id) }.getOrNull()
+                        ?.takeIf { it.state == Download.STATE_COMPLETED }
+                    val safe = sourceCensus != null && targetCensus != null && download != null && runCatching {
+                        movable(download, sourceCensus, targetCensus) { to.manager.downloadIndex.getDownload(it) }
+                    }.getOrDefault(false)
                     if (!safe) kept++
-                    val attempted = safe && moveOwnership.permits(batch, download.request.id)
+                    val attempted = safe && moveOwnership.permits(batch, id)
                     // The copy stops writing as soon as the move no longer owns this song (removed, or
                     // Remove all, #234) or either shelf goes (#179 S1), rather than finishing a copy no one
                     // will hand over (#230).
-                    val copied = attempted && runCatching {
-                        copy(download, from, to) { canMove(from, to) && moveOwnership.permits(batch, download.request.id) }
+                    val copied = attempted && download != null && runCatching {
+                        copy(download, from, to) { canMove(from, to) && moveOwnership.permits(batch, id) }
                     }.isSuccess
                     if (attempted && !copied) failed++
-                    // Handed over only after the last copy, when the exclusion is released (#230).
-                    if (copied) copiedRequests += download.request
-                    main.post { DownloadMarks.moving = index + 1 to downloads.size }
+                    // Handed over only after the last copy, when the exclusion is released (#230). Each handed
+                    // over request, with its stored record, is kept until then.
+                    if (copied && download != null) copiedRequests += download.request
+                    main.post { DownloadMarks.moving = index + 1 to ids.size }
                 }
                 if (kept > 0) notice(context, "$kept ${if (kept == 1) "copy was" else "copies were"} kept where " +
                     "${if (kept == 1) "it was" else "they were"}: Muon can't tell their bytes belong to them alone.")
@@ -976,11 +985,12 @@ internal object OfflineStore {
         var sent = 0
         var kept = 0
         for (shelf in availableShelves(get(context).shelves)) {
-            val census = runCatching { rows(shelf) }.getOrNull() ?: continue
-            for (row in census) {
+            // The whole census is read before any command, so a removal cannot change the rows being judged.
+            val census = runCatching { readCensus(shelf) }.getOrNull() ?: continue
+            for (row in census.rows) {
                 if (row.state == Download.STATE_REMOVING) continue
-                if (soleOwner(census, row.request.id)) {
-                    DownloadService.sendRemoveDownload(context, shelf.service, row.request.id, false)
+                if (census.soleOwner(row)) {
+                    DownloadService.sendRemoveDownload(context, shelf.service, row.id, false)
                     sent++
                 } else kept++
             }

@@ -134,12 +134,69 @@ internal fun keyOf(download: Download): String = download.request.customCacheKey
  * move hands over only a row whose key is its own ID and that no other row on the target names
  * ([movable]), so a second row naming the key would have to carry the same ID, which merges into this one.
  */
-internal fun soleOwner(rows: List<Download>, requestId: String): Boolean {
-    val row = rows.singleOrNull { it.request.id == requestId } ?: return false
-    val key = row.request.customCacheKey ?: return false
-    if (key != requestId || key.startsWith(PLAYED_PREFIX)) return false
-    return rows.count { keyOf(it) == key } == 1
+internal fun soleOwner(rows: List<Download>, requestId: String): Boolean = IndexCensus.of(rows).soleOwner(requestId)
+
+/**
+ * One index row as a census needs it (#253): its request ID, the key its bytes are under, whether that key
+ * is its own custom key equal to its ID, and its state. Not its address or stored song record.
+ */
+internal class IndexRow(val id: String, val key: String, val ownKey: Boolean, val state: Int) {
+    companion object {
+        fun of(download: Download) = IndexRow(download.request.id, keyOf(download),
+            download.request.customCacheKey == download.request.id, download.state)
+    }
 }
+
+/**
+ * Every row of one index, in every state, shown or not, as an [IndexRow], with how many rows carry each ID
+ * and key; two is enough to know a name is shared. The [soleOwner] rule without each row's raw request data.
+ * A snapshot: the full record of a row being acted on is read again from its index.
+ */
+internal class IndexCensus(val rows: List<IndexRow>) {
+    // Null means more than one row carries the ID. Keep one reference, not a per-lookup full scan.
+    private val singles = HashMap<String, IndexRow?>()
+    private val keys = HashMap<String, Int>()
+
+    init {
+        for (row in rows) {
+            singles[row.id] = if (singles.containsKey(row.id)) null else row
+            keys[row.key] = minOf(2, (keys[row.key] ?: 0) + 1)
+        }
+    }
+
+    /** The one row with this ID; null with none or several. */
+    fun row(id: String): IndexRow? = singles[id]
+
+    /** Whether [row] alone claims its bytes: see [soleOwner]. */
+    fun soleOwner(row: IndexRow): Boolean =
+        singles[row.id] === row && row.ownKey && row.key == row.id &&
+            !row.id.startsWith(PLAYED_PREFIX) && keys[row.key] == 1
+
+    fun soleOwner(id: String): Boolean = row(id)?.let { soleOwner(it) } == true
+
+    /** Whether any row has [name] as its ID or its key. */
+    fun names(name: String): Boolean = name in singles || name in keys
+
+    /** The row with [name] as both ID and key, when no other row has it as either. */
+    fun onlyNaming(name: String): IndexRow? = row(name)?.takeIf { it.key == name && keys[name] == 1 }
+
+    companion object {
+        /** For fixtures holding full rows; production reads [indexCensus]. */
+        fun of(downloads: List<Download>) = IndexCensus(downloads.map(IndexRow::of))
+    }
+}
+
+/**
+ * Each row of [index], in every state, as an [IndexRow]: one full record at a time, dropped once projected
+ * (#253). The cursor is closed however this ends; a failed read is thrown, never a partial census.
+ */
+internal fun forEachIndexRow(index: DownloadIndex, action: (IndexRow) -> Unit) {
+    index.getDownloads().use { cursor -> while (cursor.moveToNext()) action(IndexRow.of(cursor.download)) }
+}
+
+/** A whole index's [IndexCensus], read by [forEachIndexRow]. Off the main thread. */
+internal fun indexCensus(index: DownloadIndex): IndexCensus =
+    IndexCensus(ArrayList<IndexRow>().also { rows -> forEachIndexRow(index) { rows += it } })
 
 /** Same sole-owner rule for one inventory, without rescanning all rows for every listed copy. */
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -165,11 +222,19 @@ private fun soleOwners(rows: Sequence<Download>): Set<String> {
  * own its key on the source (so its leftover can go once the move completes) and the target may hold no
  * row naming that key, except an exactly equal request (including address and saved metadata).
  */
-internal fun movable(download: Download, sourceRows: List<Download>, targetRows: List<Download>): Boolean {
+internal fun movable(download: Download, sourceRows: List<Download>, targetRows: List<Download>): Boolean =
+    movable(download, IndexCensus.of(sourceRows), IndexCensus.of(targetRows)) { id -> targetRows.singleOrNull { it.request.id == id } }
+
+/**
+ * [movable] over two censuses (#253). [download] is the source row's full record, read again; a target row
+ * there must be the only one naming the key, and its full record, read by [targetRecord], the exact request.
+ */
+internal fun movable(download: Download, source: IndexCensus, target: IndexCensus, targetRecord: (String) -> Download?): Boolean {
     val id = download.request.id
-    if (!soleOwner(sourceRows, id)) return false
-    val there = targetRows.filter { keyOf(it) == id || it.request.id == id }
-    return there.isEmpty() || (there.size == 1 && there[0].request == download.request)
+    if (download.request.customCacheKey != id || !source.soleOwner(id)) return false
+    if (!target.names(id)) return true
+    if (target.onlyNaming(id) == null) return false
+    return targetRecord(id)?.request == download.request
 }
 
 /**
@@ -187,6 +252,9 @@ internal class PlayedClaims private constructor(@Volatile private var claimed: S
 
     fun ready(keys: Set<String>) { claimed = keys }
 
+    /** Reads every row of the phone's [index], names only (#253); a failed read leaves the claims as they were. */
+    fun read(index: DownloadIndex) { runCatching { ready(keysIn(index)) } }
+
     /** Whether the played cache may remove [key]: the index has been read and no row names it. */
     fun removable(key: String): Boolean = claimed?.let { key !in it } ?: false
 
@@ -196,6 +264,10 @@ internal class PlayedClaims private constructor(@Volatile private var claimed: S
 
         /** The played-copy keys named by [rows]. */
         fun keysIn(rows: List<Download>): Set<String> = rows.map(::keyOf).filterTo(HashSet()) { it.startsWith(PLAYED_PREFIX) }
+
+        /** The played-copy keys any row of [index] names, read one row at a time; a failed read throws. */
+        fun keysIn(index: DownloadIndex): Set<String> =
+            HashSet<String>().also { keys -> forEachIndexRow(index) { if (it.key.startsWith(PLAYED_PREFIX)) keys += it.key } }
     }
 }
 
