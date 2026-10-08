@@ -105,6 +105,8 @@ internal object OfflineStore {
         val moveCommandEpoch = java.util.concurrent.atomic.AtomicLong()
         /** Only one bounded new-save preparation may wait on/run in the saver at a time. */
         val savePreparation = java.util.concurrent.atomic.AtomicBoolean()
+        /** At most one bounded new-save batch awaiting exact service delivery. */
+        val saveDelivery = DownloadSaveDelivery()
         @Volatile var card: Shelf? = null
         /** The app's folder on [card], for its name and free space; null without a card. */
         @Volatile var cardFolder: File? = null
@@ -410,11 +412,12 @@ internal object OfflineStore {
             return
         }
         if (!store.savePreparation.compareAndSet(false, true)) {
-            notice(context, "Muon is preparing saved copies. That selection wasn't queued. Retry when it finishes.")
+            notice(context, "Muon is preparing or queuing saved copies. That selection wasn't queued. Retry when it finishes.")
             return
         }
         try {
             saver.execute {
+                var handedOff = false
                 try {
                     val requests = runCatching {
                         val budget = DownloadMoveBudget(DOWNLOAD_REQUEST_BYTES)
@@ -431,16 +434,26 @@ internal object OfflineStore {
                         notice(context, "Muon couldn't prepare these copies. Nothing was queued. Try again or select fewer songs.")
                         return@execute
                     }
-                    var missingCovers = 0
-                    requests.forEach { (request, cover) ->
-                        DownloadService.sendAddDownload(context, shelf.service, request, false)
-                        if (!store.artwork.fetch(request.id, cover)) missingCovers++
+                    val app = context.applicationContext
+                    val tokens = store.saveDelivery.begin(shelf, requests, store.artwork::fetch) { result ->
+                        store.savePreparation.set(false)
+                        notice(app, saveDeliveryMessage(result))
                     }
-                    val saving = if (requests.size == 1) "Saving a copy. It's under Saved copies."
-                        else "Saving ${requests.size} copies. They're under Saved copies."
-                    notice(context, saving + if (missingCovers == 0) "" else
-                        " Some covers weren't queued because artwork is busy; the audio save requests were still sent.")
-                } finally { store.savePreparation.set(false) }
+                    if (tokens == null) {
+                        notice(context, "Muon couldn't queue this save selection. Nothing was queued. Select fewer songs or retry later.")
+                        return@execute
+                    }
+                    handedOff = true
+                    requests.forEachIndexed { index, (request, _) ->
+                        val token = tokens[index]
+                        if (store.saveDelivery.pending(token)) {
+                            val intent = DownloadService.buildAddDownloadIntent(context, shelf.service, request, false)
+                                .putExtra(SAVE_DELIVERY_TOKEN, token)
+                            if (runCatching { context.startService(intent) != null }.getOrDefault(false).not())
+                                store.saveDelivery.complete(token, false)
+                        }
+                    }
+                } finally { if (!handedOff) store.savePreparation.set(false) }
             }
         } catch (failure: Exception) {
             store.savePreparation.set(false)
@@ -686,6 +699,38 @@ internal object OfflineStore {
 
     /** Media3 commands Muon never passes on: they would reach only the rows the manager holds (#253). */
     private val unsupportedActions = setOf(DownloadService.ACTION_REMOVE_ALL_DOWNLOADS, DownloadService.ACTION_SET_STOP_REASON)
+
+    /**
+     * New saves are acknowledged only after the actual service passes the admitted request to Media3.
+     * Untagged commands retain their existing policy; moves have a separate source-removal receipt.
+     * Unknown/expired/replayed or wrong-shelf requests never touch command budgets or move ownership.
+     */
+    internal fun deliverCommand(context: Context, intent: Intent?, shelf: Shelf?, start: (Intent?) -> Int): Int {
+        if (intent?.hasExtra(SAVE_DELIVERY_TOKEN) != true)
+            return start(admitCommand(context, intent, shelf))
+        val token = intent.getStringExtra(SAVE_DELIVERY_TOKEN)
+        val current = current()
+        val request = if (intent.action == DownloadService.ACTION_ADD_DOWNLOAD)
+            intent.getParcelableExtra<DownloadRequest>(DownloadService.KEY_DOWNLOAD_REQUEST) else null
+        if (token == null || current == null || intent.hasExtra(MOVE_COMMAND_TOKEN) ||
+            intent.getIntExtra(DownloadService.KEY_STOP_REASON, Download.STOP_REASON_NONE) != Download.STOP_REASON_NONE ||
+            !current.saveDelivery.claim(token, shelf, request)) {
+            // A malformed copy must not consume a valid request or claim it was saved.
+            return start(Intent(intent).setAction(DownloadService.ACTION_INIT))
+        }
+        var accepted = false
+        try {
+            val admitted = admitCommand(context, intent, shelf)
+            val result = start(admitted)
+            accepted = admitted?.action == DownloadService.ACTION_ADD_DOWNLOAD
+            return result
+        } finally { current.saveDelivery.complete(token, accepted) }
+    }
+
+    /** A card service bound to a different manager cannot acknowledge the new save. */
+    internal fun refusedSaveCommand(intent: Intent) {
+        intent.getStringExtra(SAVE_DELIVERY_TOKEN)?.let { current()?.saveDelivery?.complete(it, false) }
+    }
 
     /**
      * The command a download service may pass on to Media3 now (#230). While a move holds [moveExclusion],

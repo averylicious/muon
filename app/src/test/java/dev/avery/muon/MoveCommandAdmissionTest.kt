@@ -448,6 +448,216 @@ class MoveCommandAdmissionTest {
 
     private fun removal() = DownloadService.buildRemoveDownloadIntent(app, MuonDownloadService::class.java, kept, false)
 
+    // New-save delivery: actual producer/receipt and real service/Media3 admission. Managers are paused
+    // after service creation so accepted requests reach the real index without starting network work.
+    @Test fun newSaveWaitsForActualServiceBeforeReleasingProducerAndReplayDoesNothing() {
+        val service = pausedSaveService()
+        val store = OfflineStore.get(app)
+        val original = phone.manager.downloadIndex.getDownload(kept)!!.request
+        drainStarts()
+        val track = TauonTrack(42, "A\u0000B😀", "Artist", "Album", 1000, true, false)
+        OfflineStore.add(app, ServerEndpoint.parse("192.168.1.20"), listOf(track))
+        awaitSaver()
+        val command = drainStarts().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
+        val request = command.getParcelableExtra<DownloadRequest>(DownloadService.KEY_DOWNLOAD_REQUEST)!!
+        assertTrue(store.savePreparation.get())
+        assertNull(phone.manager.downloadIndex.getDownload(request.id))
+        OfflineStore.add(app, ServerEndpoint.parse("192.168.1.20"), listOf(track.copy(id = 43)))
+        awaitSaver()
+        assertTrue(drainStarts().isEmpty())
+        service.get().onStartCommand(command, 0, 1)
+        awaitSettled(phone.manager)
+        assertFalse(store.savePreparation.get())
+        assertEquals(request, phone.manager.downloadIndex.getDownload(request.id)?.request)
+        assertArrayEquals(encodeSong(track), request.data)
+        assertTrue(ShadowToast.getTextOfLatestToast().orEmpty().contains("Queued one saved copy"))
+        val epoch = store.moveCommandEpoch.get()
+        service.get().onStartCommand(command, 0, 2)
+        awaitSettled(phone.manager)
+        assertEquals("Replay never touches ownership or budget", epoch, store.moveCommandEpoch.get())
+        assertEquals(original, phone.manager.downloadIndex.getDownload(kept)?.request)
+        assertArrayEquals(payload, phone.cache.getCachedSpans(kept).single().file!!.readBytes())
+    }
+
+    @Test fun partialRealServiceRefusalCountsOnlyAcceptedCopiesAndCovers() {
+        val service = pausedSaveService()
+        phone.commands = DownloadCommandBudget(capacity = 1)
+        val store = OfflineStore.get(app)
+        val requests = listOf(request("new/one"), request("new/two"))
+        val covers = ArrayList<String>()
+        var result: SaveDeliveryResult? = null
+        val tokens = requireNotNull(store.saveDelivery.begin(phone, requests.map { it to "cover" },
+            { id, _ -> covers += id; true }, { result = it }))
+        requests.forEachIndexed { n, request ->
+            service.get().onStartCommand(saveIntent(request, tokens[n]), 0, n + 1)
+        }
+        awaitSettled(phone.manager)
+        assertEquals(SaveDeliveryResult(2, 1, 0, 0), result)
+        assertEquals(listOf("new/one"), covers)
+        assertEquals(requests[0], phone.manager.downloadIndex.getDownload("new/one")?.request)
+        assertNull(phone.manager.downloadIndex.getDownload("new/two"))
+        assertTrue(saveDeliveryMessage(result!!).contains("copy couldn't be queued"))
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+    }
+
+    @Test fun timedOutAndPriorProcessTokensNeverReachTheManagerAndRetryCanBeAccepted() {
+        val service = pausedSaveService()
+        val store = OfflineStore.get(app)
+        phone.commands = DownloadCommandBudget(capacity = 1)
+        val old = request("new/late")
+        var result: SaveDeliveryResult? = null
+        val token = requireNotNull(store.saveDelivery.begin(phone, listOf(old to "cover"),
+            { _, _ -> fail("Retired saves cannot queue covers"); false }, { result = it })).single()
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(SAVE_DELIVERY_TIMEOUT_MS))
+        assertEquals(SaveDeliveryResult(1, 0, 0, 1), result)
+        val epoch = store.moveCommandEpoch.get()
+        service.get().onStartCommand(saveIntent(old, token), 0, 1)
+        service.get().onStartCommand(saveIntent(old, "a-token-from-a-prior-process"), 0, 2)
+        awaitSettled(phone.manager)
+        assertEquals(epoch, store.moveCommandEpoch.get())
+        assertNull(phone.manager.downloadIndex.getDownload(old.id))
+        val retry = request("new/retry")
+        val fresh = requireNotNull(store.saveDelivery.begin(phone, listOf(retry to "cover"),
+            { _, _ -> true }, { result = it })).single()
+        service.get().onStartCommand(saveIntent(retry, fresh), 0, 3)
+        awaitSettled(phone.manager)
+        assertEquals(SaveDeliveryResult(1, 1, 0, 0), result)
+        assertEquals(retry, phone.manager.downloadIndex.getDownload(retry.id)?.request)
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+    }
+
+    @Test fun changedRequestShelfOrStopReasonCannotConsumeAValidReceipt() {
+        val service = pausedSaveService()
+        val store = OfflineStore.get(app)
+        val request = request("new/exact", byteArrayOf(1, 2, 3))
+        var result: SaveDeliveryResult? = null
+        val token = requireNotNull(store.saveDelivery.begin(phone, listOf(request to "cover"),
+            { _, _ -> true }, { result = it })).single()
+        service.get().onStartCommand(saveIntent(request("new/exact", byteArrayOf(9)), token), 0, 1)
+        service.get().onStartCommand(saveIntent(request, token).putExtra(DownloadService.KEY_STOP_REASON, 7), 0, 2)
+        assertFalse(store.saveDelivery.claim(token, card, request))
+        awaitSettled(phone.manager)
+        assertNull(result)
+        assertNull(phone.manager.downloadIndex.getDownload(request.id))
+        service.get().onStartCommand(saveIntent(request, token), 0, 3)
+        awaitSettled(phone.manager)
+        assertEquals(SaveDeliveryResult(1, 1, 0, 0), result)
+        assertEquals(request, phone.manager.downloadIndex.getDownload(request.id)?.request)
+    }
+
+    @Test fun savePreparedBeforeAMoveReportsTheDeliveryRefusalWithoutFetchingACover() {
+        val service = pausedSaveService()
+        val store = OfflineStore.get(app)
+        val request = request("new/move-race")
+        var result: SaveDeliveryResult? = null
+        val token = requireNotNull(store.saveDelivery.begin(phone, listOf(request to "cover"),
+            { _, _ -> fail("Refused requests have no cover work"); false }, { result = it })).single()
+        val hold = holdMover()
+        OfflineStore.move(app, toCard = true)
+        service.get().onStartCommand(saveIntent(request, token), 0, 1)
+        awaitSettled(phone.manager)
+        assertEquals(SaveDeliveryResult(1, 0, 0, 0), result)
+        assertNull(phone.manager.downloadIndex.getDownload(request.id))
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+        hold.countDown()
+        awaitMover()
+    }
+
+    @Test fun receiptCapacityPayloadAndDeadlineAreWholeBatchBoundsWithNoLostRetry() {
+        var now = 10L
+        val request = request("new/bounded")
+        val exact = moveRequestBytes(request) + 2L * "cover".length + 256L
+        val delivery = DownloadSaveDelivery(clock = { now }, capacity = 2, maximum = exact * 2, timeout = 100)
+        var result: SaveDeliveryResult? = null
+        assertNull(delivery.begin(phone, List(3) { request to "cover" }, { _, _ -> true }, {}))
+        assertNull(delivery.begin(phone, listOf(request to "cover", request to "cover!"), { _, _ -> true }, {}))
+        val tokens = requireNotNull(delivery.begin(phone, List(2) { request to "cover" },
+            { _, _ -> true }, { result = it }))
+        repeat(100) { assertNull(delivery.begin(phone, listOf(request to "cover"), { _, _ -> true }, {})) }
+        now = 109
+        assertTrue(delivery.pending(tokens[0]))
+        now = 110
+        assertFalse(delivery.claim(tokens[0], phone, request)) // Exact deadline, before timer delivery.
+        assertEquals(SaveDeliveryResult(2, 0, 0, 2), result)
+        val fresh = requireNotNull(delivery.begin(phone, listOf(request to "cover"),
+            { _, _ -> true }, { result = it })).single()
+        assertTrue(delivery.claim(fresh, phone, request))
+        assertFalse(delivery.claim(fresh, phone, request))
+        delivery.complete(fresh, true)
+        delivery.complete(tokens[1], true)
+        assertEquals(SaveDeliveryResult(1, 1, 0, 0), result)
+    }
+
+    @Test fun failedServiceCallAndOptionalCoverFailureReleaseReceiptsForRetry() {
+        val store = OfflineStore.get(app)
+        val request = request("new/exception")
+        var result: SaveDeliveryResult? = null
+        var token = requireNotNull(store.saveDelivery.begin(phone, listOf(request to "cover"),
+            { _, _ -> fail("Failed service calls cannot queue covers"); false }, { result = it })).single()
+        assertThrows(IllegalStateException::class.java) {
+            OfflineStore.deliverCommand(app, saveIntent(request, token), phone) { error("Injected service failure") }
+        }
+        assertEquals(SaveDeliveryResult(1, 0, 0, 0), result)
+        token = requireNotNull(store.saveDelivery.begin(phone, listOf(request to "cover"),
+            { _, _ -> error("Optional cover failure") }, { result = it })).single()
+        assertTrue(store.saveDelivery.claim(token, phone, request))
+        store.saveDelivery.complete(token, true)
+        assertEquals(SaveDeliveryResult(1, 1, 1, 0), result)
+        assertNull(phone.manager.downloadIndex.getDownload(request.id))
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+    }
+
+    @Test fun producerSendNullOrExceptionIsNotReportedAsSavingAndValidRetryStillWorks() {
+        val service = pausedSaveService()
+        val track = TauonTrack(42, "Title", "Artist", "Album", 1000, true, false)
+        val endpoint = ServerEndpoint.parse("192.168.1.20")
+        drainStarts()
+        for (throwing in listOf(false, true)) {
+            val context = object : android.content.ContextWrapper(app) {
+                override fun startService(intent: android.content.Intent): android.content.ComponentName? {
+                    if (throwing) throw IllegalStateException("Injected start refusal")
+                    return null
+                }
+            }
+            OfflineStore.add(context, endpoint, listOf(track, track.copy(id = 43)))
+            awaitSaver()
+            assertFalse(OfflineStore.get(app).savePreparation.get())
+            assertTrue(drainStarts().isEmpty())
+            val message = ShadowToast.getTextOfLatestToast().orEmpty()
+            assertTrue(message.contains("No new saved copies were confirmed"))
+            assertTrue(message.contains("2 copies couldn't be queued"))
+            assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+        }
+        OfflineStore.add(app, endpoint, listOf(track))
+        awaitSaver()
+        val command = drainStarts().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
+        service.get().onStartCommand(command, 0, 1)
+        awaitSettled(phone.manager)
+        assertFalse(OfflineStore.get(app).savePreparation.get())
+        assertTrue(ShadowToast.getTextOfLatestToast().orEmpty().contains("Queued one saved copy"))
+    }
+
+    private fun pausedSaveService(): ServiceController<MuonDownloadService> = service().also {
+        awaitSettled(phone.manager)
+        phone.manager.pauseDownloads()
+        awaitSettled(phone.manager)
+    }
+
+    private fun saveIntent(request: DownloadRequest, token: String) =
+        DownloadService.buildAddDownloadIntent(app, MuonDownloadService::class.java, request, false)
+            .putExtra(SAVE_DELIVERY_TOKEN, token)
+
+    private fun drainStarts(): List<android.content.Intent> = buildList {
+        val shadow = shadowOf(app as android.app.Application)
+        while (true) add(shadow.nextStartedService ?: break)
+    }
+
+    private fun awaitSaver() {
+        val field = OfflineStore::class.java.getDeclaredField("saver").apply { isAccessible = true }
+        (field.get(null) as ExecutorService).submit {}.get(10, TimeUnit.SECONDS)
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
     private fun service(): ServiceController<MuonDownloadService> =
         Robolectric.buildService(MuonDownloadService::class.java).create().also(services::add)
 

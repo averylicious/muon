@@ -26,7 +26,9 @@ class MuonDownloadService : DownloadService(DOWNLOAD_NOTIFICATION, DownloadServi
 
     // #230: a command that could change downloads is refused while a move is in flight, before Media3 sees it.
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
-        super.onStartCommand(OfflineStore.admitCommand(this, intent, OfflineStore.get(this).phone), flags, startId)
+        OfflineStore.deliverCommand(this, intent, OfflineStore.get(this).phone) { admitted ->
+            super.onStartCommand(admitted, flags, startId)
+        }
 
     override fun getScheduler(): Scheduler? = null
 
@@ -66,9 +68,12 @@ class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadServi
         val action = intent?.action
         // A command this binding may carry out still passes the move's admission (#230), as the phone's does.
         if (intent == null || action == null || action !in CHANGING_ACTIONS || isCardManager(bound))
-            return super.onStartCommand(OfflineStore.admitCommand(this, intent, OfflineStore.current()?.card), flags, startId)
+            return OfflineStore.deliverCommand(this, intent, OfflineStore.current()?.card) { admitted ->
+                super.onStartCommand(admitted, flags, startId)
+            }
         // A refused owned move must not leave a pending receipt blocking every later retry.
         OfflineStore.refusedMoveCommand(intent)
+        OfflineStore.refusedSaveCommand(intent)
         // A copy that changes nothing, with the same extras, so a foreground start still shows its notification.
         return super.onStartCommand(Intent(intent).setAction(DownloadService.ACTION_INIT), flags, startId)
     }

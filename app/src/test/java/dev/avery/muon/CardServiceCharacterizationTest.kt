@@ -68,6 +68,23 @@ class CardServiceCharacterizationTest {
         } finally { database.close() }
     }
 
+    @Test fun saveReceiptOnALateCardIsRefusedByTheRetainedPhoneBinding() {
+        val fallback = service()
+        assertSame(store.phone.manager, selected(fallback.get()))
+        val card = shelf("save_late_card", "save_late_card_fixture")
+        store.card = card
+        val request = request("new/card")
+        var result: SaveDeliveryResult? = null
+        val token = requireNotNull(store.saveDelivery.begin(card, listOf(request to "cover"),
+            { _, _ -> fail("A refused card save cannot queue cover work"); false }, { result = it })).single()
+        fallback.get().onStartCommand(DownloadService.buildAddDownloadIntent(RuntimeEnvironment.getApplication(),
+            MuonCardDownloadService::class.java, request, false).putExtra(SAVE_DELIVERY_TOKEN, token), 0, 1)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(SaveDeliveryResult(1, 0, 0, 0), result)
+        assertNull(store.phone.manager.downloadIndex.getDownload(request.id))
+        assertNull(card.manager.downloadIndex.getDownload(request.id))
+    }
+
     @Test fun missingCardInitiallySelectsPhoneAndLateInsertionDoesNotChangeHelper() {
         val first = service()
         assertSame(store.phone.manager, selected(first.get()))

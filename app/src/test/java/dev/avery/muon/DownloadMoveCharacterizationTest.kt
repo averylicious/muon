@@ -106,7 +106,7 @@ class DownloadMoveCharacterizationTest {
         try {
             awaitMover()
             awaitSaver()
-            shadowOf(Looper.getMainLooper()).idle()
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(SAVE_DELIVERY_TIMEOUT_MS))
             OfflineStore.moveOutputs = MoveFileOutputs.Real
             storeField.set(null, previousStore)
             DownloadMarks.moving = null
@@ -1134,7 +1134,7 @@ class DownloadMoveCharacterizationTest {
         assertEquals(requests.size, requests.map { it.id }.toSet().size)
         assertTrue(requests.all { it.id.startsWith(NEW_SAVE_PREFIX) && it.id == it.customCacheKey })
         requests.forEach { assertArrayEquals(encodeSong(track), it.data) }
-        assertFalse(OfflineStore.get(app).savePreparation.get())
+        assertTrue("Preparation remains reserved until delivery or timeout", OfflineStore.get(app).savePreparation.get())
         assertEquals(old, sourceIndex.getDownload(old.id)?.request)
         assertArrayEquals(payload, keyedBytes(phone.cache, old.customCacheKey!!))
     }
@@ -1159,6 +1159,9 @@ class DownloadMoveCharacterizationTest {
         val first = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }.map(::addRequest)
         assertEquals(1, first.size)
         assertArrayEquals(encodeSong(track), first.single().data)
+        assertTrue(OfflineStore.get(app).savePreparation.get())
+        // Captured-command fixture: no Android service delivered these. Timeout retires the receipt.
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(SAVE_DELIVERY_TIMEOUT_MS))
         assertFalse(OfflineStore.get(app).savePreparation.get())
         OfflineStore.add(app, endpoint, listOf(track.copy(id = 43)))
         awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
@@ -1182,7 +1185,7 @@ class DownloadMoveCharacterizationTest {
         OfflineStore.add(app, endpoint, listOf(track))
         awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
         assertEquals(1, startedCommands().count { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
-        assertFalse(OfflineStore.get(app).savePreparation.get())
+        assertTrue(OfflineStore.get(app).savePreparation.get())
     }
 
     @Test fun saturatedCoverWorkDoesNotStopAudioSaveRequestsOrChangeOriginals() {
@@ -1198,7 +1201,17 @@ class DownloadMoveCharacterizationTest {
         val track = TauonTrack(42, "Title", "Artist", "Album", 1000, true, false)
         OfflineStore.add(app, ServerEndpoint.parse("192.168.1.20"), listOf(track, track.copy(id = 43)))
         awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
-        assertEquals(2, startedCommands().count { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        val commands = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
+        assertEquals(2, commands.size)
+        assertEquals("No cover work before service acknowledgement", 0, workerTasks.size)
+        // This suite captures starts only. Simulate acknowledgement to exercise producer cover feedback;
+        // MoveCommandAdmissionTest separately delivers to the real service/Media3 manager.
+        commands.forEach { intent ->
+            val token = requireNotNull(intent.getStringExtra(SAVE_DELIVERY_TOKEN))
+            assertTrue(fixture.saveDelivery.claim(token, phone, addRequest(intent)))
+            fixture.saveDelivery.complete(token, true)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
         assertEquals(1, workerTasks.size)
         assertTrue(ShadowToast.getTextOfLatestToast().orEmpty().contains("covers weren't queued"))
         assertFalse(fixture.savePreparation.get())
