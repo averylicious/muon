@@ -348,6 +348,32 @@ private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download
     return entries
 }
 
+/**
+ * Count playable copies without decoding stored song tags, building display entries, sorting or reading
+ * covers (#253). Visibility and completeness match [savedInventory]. No ownership is granted by this
+ * count: removal still needs a complete fresh census. A failed scan throws; never return a partial count.
+ * The index cursor still decodes one full row at a time. Cache key/span snapshots are not bounded here.
+ */
+internal fun countCompleteSavedCopies(shelf: SavedShelf, index: DownloadIndex, cache: Cache,
+    includePlayed: Boolean): Long {
+    var count = 0L
+    index.getDownloads().use { cursor ->
+        while (cursor.moveToNext()) {
+            val download = cursor.download
+            if (download.state == Download.STATE_REMOVING ||
+                SavedRef.download(shelf, download.request.id, keyOf(download)) == null) continue
+            val canPlay = download.state == Download.STATE_COMPLETED ||
+                (download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON)
+            val coverage = savedCoverage(cache, keyOf(download)).first
+            if (canPlay && coverage == SavedCoverage.Full) count++
+        }
+    }
+    if (includePlayed && shelf == SavedShelf.Phone) for (key in cache.keys) {
+        if (SavedRef.played(key) != null && savedCoverage(cache, key).first == SavedCoverage.Full) count++
+    }
+    return count
+}
+
 /** Refuse oversized retained tags before String/split/Base64 expansion; never change stored data. */
 private fun decodeSavedSong(data: ByteArray): TauonTrack? =
     if (data.size > TRACK_METADATA_MAX_BYTES) null else decodeSong(data)

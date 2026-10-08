@@ -458,6 +458,18 @@ internal object OfflineStore {
         return sortSaved(entries)
     }
 
+    /** Connect's playable-copy count, without constructing a sorted saved library (#253). Off main. */
+    fun savedCompleteCount(context: Context): Long {
+        val store = get(context)
+        val shelves = listOfNotNull(SavedShelf.Phone to store.phone,
+            store.card?.takeIf { it.available() }?.let { SavedShelf.Card to it })
+        return shelves.sumOf { (name, shelf) ->
+            // Match savedEntries: a failed shelf contributes nothing, never its partial scan.
+            runCatching { countCompleteSavedCopies(name, shelf.manager.downloadIndex, shelf.cache,
+                includePlayed = name == SavedShelf.Phone) }.getOrDefault(0L)
+        }
+    }
+
     /**
      * The server most saved copies came from, if any names one, and every saved copy: what "Listen offline"
      * opens when there is no saved server, as after Disconnect. Copies with no known origin, played copies

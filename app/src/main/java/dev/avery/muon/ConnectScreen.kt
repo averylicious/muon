@@ -32,10 +32,10 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     // Downloads open without a server (#112): offered whenever any are on the phone.
     LaunchedEffect(Unit) { OfflineStore.get(context) }
     // Every playable saved copy counts, played copies and ones from an unknown server included (#213).
-    var downloaded by remember { mutableIntStateOf(0) }
+    var downloaded by remember { mutableStateOf(0L) }
     LaunchedEffect(DownloadMarks.marks.size, PlayedCacheState.used) {
         downloaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { OfflineStore.savedEntries(context).count { it.complete } }.getOrDefault(0)
+            runCatching { OfflineStore.savedCompleteCount(context) }.getOrDefault(0L)
         }
     }
     // Looks for Tauon as soon as there is nothing to show (#39): first run, after Disconnect, or when
@@ -146,7 +146,7 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
             GroupRow(groupShape(0, 1), onClick = { model.listenOffline() }, enabled = !model.busy, label = "Open saved copies") {
                 Column(Modifier.weight(1f)) {
                     Text("Saved copies", style = MaterialTheme.typography.titleMedium)
-                    Text("$downloaded ${if (downloaded == 1) "copy plays" else "copies play"} without Tauon · $UNVERIFIED",
+                    Text("$downloaded ${if (downloaded == 1L) "copy plays" else "copies play"} without Tauon · $UNVERIFIED",
                         style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                 }
                 Text("Open", style = MaterialTheme.typography.labelLarge, color = colors.primary)
