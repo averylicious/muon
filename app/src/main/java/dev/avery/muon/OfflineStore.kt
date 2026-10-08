@@ -42,6 +42,9 @@ import okhttp3.Request
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val service: Class<out DownloadService>,
     private val present: () -> Boolean = { true }) : ShelfState {
+    /** Current-process service command/request retention; main-thread use only (#253). */
+    internal var commands = DownloadCommandBudget()
+
     /**
      * Streams a live song straight from Tauon (#213): no cache is read or written at all, so no kept copy,
      * even one whose key is exactly the live address, can answer for it. Replaceable only by fixtures.
@@ -654,7 +657,7 @@ internal object OfflineStore {
      * a command that could add, remove, start or restart a download becomes a copy that changes nothing, with
      * the same extras (so a foreground start still shows its notification), and the refusal is said; it is
      * not kept to run later. Called on the main thread, before DownloadService.onStartCommand; never makes a
-     * store. Pausing, and everything when no move is in flight, passes unchanged.
+     * store. Pausing passes unchanged; Add/Remove also require initialized, bounded manager admission.
      */
     internal const val MOVE_COMMAND_TOKEN = "dev.avery.muon.move-command-token"
 
@@ -678,6 +681,24 @@ internal object OfflineStore {
         // index. Muon sends neither; its Remove all sends a checked removal per row.
         if (action in unsupportedActions)
             return refused("Muon doesn't support that download command, so nothing was changed.")
+        // Before token admission/invalidation: a refusal must not authorize an original's removal.
+        // Read the old row as well: Media3 Add/Remove can hydrate a row omitted at startup. Failure
+        // refuses the command, rather than accounting only the small new Add or the Remove's ID.
+        if (action == DownloadService.ACTION_ADD_DOWNLOAD || action == DownloadService.ACTION_REMOVE_DOWNLOAD) {
+            val incoming = if (action == DownloadService.ACTION_ADD_DOWNLOAD)
+                intent.getParcelableExtra<DownloadRequest>(DownloadService.KEY_DOWNLOAD_REQUEST) else null
+            val id = incoming?.id ?: intent.getStringExtra(DownloadService.KEY_CONTENT_ID)
+            val admitted = shelf != null && shelf.manager.isInitialized && id != null &&
+                (action != DownloadService.ACTION_ADD_DOWNLOAD || incoming != null) && runCatching {
+                    val previous = shelf.manager.downloadIndex.getDownload(id)?.request
+                    shelf.commands.admit(shelf.manager, incoming, previous)
+                }.getOrDefault(false)
+            if (!admitted) {
+                refusedMoveCommand(intent)
+                return refused("Saved-copy work is initializing or at its limit. That change wasn't queued; " +
+                    "existing copies were kept. Retry when current work finishes, or select fewer songs.")
+            }
+        }
         if (intent.hasExtra(MOVE_COMMAND_TOKEN)) {
             val token = intent.getStringExtra(MOVE_COMMAND_TOKEN)
             val adding = action == DownloadService.ACTION_ADD_DOWNLOAD

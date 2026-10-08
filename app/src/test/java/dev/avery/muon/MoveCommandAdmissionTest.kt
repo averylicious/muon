@@ -303,6 +303,114 @@ class MoveCommandAdmissionTest {
         assertTrue(phone.cache.getCachedSpans(raw.id).isEmpty())
     }
 
+    @Test fun rapidAddsAreBoundedBeforeCallbacksAndStoppedRowsStillCountAfterIdle() {
+        phone.commands = DownloadCommandBudget(capacity = 2)
+        val service = service()
+        awaitSettled(phone.manager)
+        fun add(id: String, start: Int) = service.get().onStartCommand(
+            DownloadService.buildAddDownloadIntent(app, MuonDownloadService::class.java, request(id), 7, false), 0, start)
+        add("first", 1)
+        add("second", 2)
+        add("third", 3) // No main callbacks pumped between deliveries: currentDownloads is stale.
+        awaitSettled(phone.manager)
+        assertEquals(setOf("first", "second"), phone.manager.currentDownloads.map { it.request.id }.toSet())
+        assertTrue(phone.manager.currentDownloads.all { it.state == Download.STATE_STOPPED })
+        assertNull(phone.manager.downloadIndex.getDownload("third"))
+        assertTrue(ShadowToast.getTextOfLatestToast().contains("wasn't queued"))
+        add("third", 4) // Idle is not empty: STOPPED requests still occupy the budget.
+        awaitSettled(phone.manager)
+        assertNull(phone.manager.downloadIndex.getDownload("third"))
+
+        // A full budget must not trap its own residents: removal is allowed, then room is reclaimed.
+        service.get().onStartCommand(DownloadService.buildRemoveDownloadIntent(app,
+            MuonDownloadService::class.java, "first", false), 0, 5)
+        awaitSettled(phone.manager)
+        assertNull(phone.manager.downloadIndex.getDownload("first"))
+        add("third", 6)
+        awaitSettled(phone.manager)
+        assertEquals(setOf("second", "third"), phone.manager.currentDownloads.map { it.request.id }.toSet())
+        assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(kept)?.state)
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+    }
+
+    @Test fun removalRehydrationOverBudgetKeepsTheExactStoredRequestAndBytesThenRetryWorks() {
+        val raw = request(kept, ByteArray(32 * 1024) { 91 })
+        val original = Download(raw, Download.STATE_COMPLETED, 19, 23, payload.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
+        (phone.manager.downloadIndex as DefaultDownloadIndex).putDownload(original)
+        phone.commands = DownloadCommandBudget(maximum = moveRequestBytes(raw) - 1)
+        val service = service()
+        awaitSettled(phone.manager)
+        service.get().onStartCommand(removal(), 0, 1)
+        awaitSettled(phone.manager)
+        val keptRow = requireNotNull(phone.manager.downloadIndex.getDownload(kept))
+        assertEquals(raw, keptRow.request)
+        assertEquals(original.startTimeMs, keptRow.startTimeMs)
+        assertEquals(original.updateTimeMs, keptRow.updateTimeMs)
+        assertEquals(Download.STATE_COMPLETED, keptRow.state)
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+        phone.commands = DownloadCommandBudget(maximum = moveRequestBytes(raw))
+        service.get().onStartCommand(removal(), 0, 2)
+        awaitSettled(phone.manager)
+        assertNull(phone.manager.downloadIndex.getDownload(kept))
+        assertTrue(phone.cache.getCachedSpans(kept).isEmpty())
+    }
+
+    @Test fun addAccountsForOldRawDataEvenWhenTheIncomingRequestIsSmall() {
+        val raw = request(kept, ByteArray(32 * 1024) { 17 })
+        (phone.manager.downloadIndex as DefaultDownloadIndex).putDownload(Download(raw, Download.STATE_COMPLETED,
+            1, 2, payload.size.toLong(), Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        val small = request(kept)
+        phone.commands = DownloadCommandBudget(maximum = moveRequestBytes(raw) + moveRequestBytes(small) - 1)
+        val service = service()
+        awaitSettled(phone.manager)
+        service.get().onStartCommand(DownloadService.buildAddDownloadIntent(app,
+            MuonDownloadService::class.java, small, 7, false), 0, 1)
+        awaitSettled(phone.manager)
+        assertEquals(raw, phone.manager.downloadIndex.getDownload(kept)?.request)
+        assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(kept)?.state)
+        assertTrue(phone.manager.currentDownloads.isEmpty())
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+    }
+
+    @Test fun repeatedSameIdAddsAreChargedAsCommandsBeforeTheManagerAcknowledgesThem() {
+        phone.commands = DownloadCommandBudget(capacity = 2)
+        val service = service()
+        awaitSettled(phone.manager)
+        val requests = (1..3).map { request("repeat", byteArrayOf(it.toByte())) }
+        requests.forEachIndexed { i, request ->
+            service.get().onStartCommand(DownloadService.buildAddDownloadIntent(app,
+                MuonDownloadService::class.java, request, 7, false), 0, i + 1)
+        }
+        awaitSettled(phone.manager)
+        assertArrayEquals(byteArrayOf(2), phone.manager.downloadIndex.getDownload("repeat")?.request?.data)
+        assertEquals(1, phone.manager.currentDownloads.size)
+        // Once settled, the retained row consumes one slot and a normal update is possible again.
+        service.get().onStartCommand(DownloadService.buildAddDownloadIntent(app,
+            MuonDownloadService::class.java, requests.last(), 7, false), 0, 4)
+        awaitSettled(phone.manager)
+        assertArrayEquals(byteArrayOf(3), phone.manager.downloadIndex.getDownload("repeat")?.request?.data)
+    }
+
+    @Test fun aBudgetRefusedMoveTokenReleasesTheReceiptWithoutRemovingEitherCopy() {
+        complete(card, kept)
+        val store = requireNotNull(OfflineStore.current())
+        assertTrue(store.moves.remember(card, phone, request(kept)))
+        val receipt = requireNotNull(store.moves.find(phone, kept))
+        phone.commands = DownloadCommandBudget(capacity = 0)
+        val service = service()
+        awaitSettled(phone.manager)
+        service.get().onStartCommand(DownloadService.buildAddDownloadIntent(app,
+            MuonDownloadService::class.java, receipt.request, false)
+            .putExtra(OfflineStore.MOVE_COMMAND_TOKEN, receipt.token), 0, 1)
+        awaitSettled(phone.manager)
+        assertFalse(store.moves.hasPending)
+        assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(kept)?.state)
+        assertEquals(Download.STATE_COMPLETED, card.manager.downloadIndex.getDownload(kept)?.state)
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+        assertTrue(card.cache.isCached(kept, 0, payload.size.toLong()))
+    }
+
     private fun startedServices(): List<android.content.Intent> = buildList {
         val shadow = shadowOf(app)
         while (true) add(shadow.nextStartedService ?: break)
@@ -357,8 +465,8 @@ class MoveCommandAdmissionTest {
         return Shelf(cache, DownloadManager(app, index, downloaders), service).also(shelves::add)
     }
 
-    private fun request(id: String): DownloadRequest =
-        DownloadRequest.Builder(id, Uri.parse("http://192.168.1.20:7814/api1/fileopus/7")).setCustomCacheKey(id).build()
+    private fun request(id: String, data: ByteArray = byteArrayOf()): DownloadRequest =
+        DownloadRequest.Builder(id, Uri.parse("http://192.168.1.20:7814/api1/fileopus/7")).setCustomCacheKey(id).setData(data).build()
 
     private fun complete(shelf: Shelf, id: String) {
         val hole = requireNotNull(shelf.cache.startReadWrite(id, 0, payload.size.toLong()))
