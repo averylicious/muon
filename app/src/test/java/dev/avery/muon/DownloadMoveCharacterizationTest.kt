@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Looper
+import android.os.Parcel
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
@@ -952,7 +953,20 @@ class DownloadMoveCharacterizationTest {
         }
         OfflineStore.move(app, toCard = true)
         awaitMover(); shadowOf(Looper.getMainLooper()).idle()
-        val added = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }.map(::addRequest)
+        val commands = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
+        val added = commands.map(::addRequest)
+        // Measure the actual captured, receipt-tagged service Intent, not just its request. This is
+        // serialization evidence on API34, not successful Binder/service delivery on a phone.
+        for (command in commands) {
+            val parcel = Parcel.obtain()
+            val commandBytes = try { command.writeToParcel(parcel, 0); parcel.dataSize().toLong() }
+                finally { parcel.recycle() }
+            val raw = Parcel.obtain()
+            val requestBytes = try { addRequest(command).writeToParcel(raw, 0); raw.dataSize().toLong() }
+                finally { raw.recycle() }
+            assertTrue("The fixed envelope fits its allowance", commandBytes - requestBytes <= 4096L)
+            assertTrue("Whole tagged command within admission cap", commandBytes <= MOVE_COMMAND_BYTES)
+        }
         assertTrue("The byte limit, not the 128-receipt limit, stops this batch", added.size in 1..8)
         assertTrue(added.sumOf(::moveRequestBytes) <= MOVE_METADATA_BYTES)
         val left = sources.keys - added.map { it.id }.toSet()
