@@ -30,7 +30,8 @@ class DiskOwnershipCensusTest {
     private fun put(id: String, key: String?, state: Int = Download.STATE_COMPLETED) {
         val request = DownloadRequest.Builder(id, Uri.parse("http://h/api1/file/1"))
             .setCustomCacheKey(key).setData(byteArrayOf(1, 2, 3)).build()
-        index.putDownload(Download(request, state, 1, 2, 3, 0, 0))
+        index.putDownload(Download(request, state, 1, 2, 3, if (state == Download.STATE_STOPPED) 7 else 0,
+            if (state == Download.STATE_FAILED) Download.FAILURE_REASON_UNKNOWN else Download.FAILURE_REASON_NONE))
     }
     private fun rows() = ArrayList<Download>().also { all -> index.getDownloads().use { while(it.moveToNext()) all += it.download } }
     @Test fun matchesCompleteMemoryRulesForHiddenAliasesEveryStateAndExactNames() {
