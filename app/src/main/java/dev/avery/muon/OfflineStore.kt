@@ -98,7 +98,8 @@ internal object OfflineStore {
         val artwork: DownloadArtworkWork = DownloadArtworkWork(java.util.concurrent.Executor { it.run() }, { _, _ -> }, {}),
         /** Played-copy keys a phone index row names, which the played cache never removes (#213). */
         val playedClaims: PlayedClaims = PlayedClaims.none(),
-        val moves: DownloadMoveReceipts = DownloadMoveReceipts()) {
+        val moves: DownloadMoveReceipts = DownloadMoveReceipts(),
+        val marks: DownloadMarkLedger? = null) {
         /** The phone's cache, which also holds the played-song copies. */
         var bootstrapPending = 0 // Application looper only.
         var bootstrapFailed = false
@@ -167,6 +168,7 @@ internal object OfflineStore {
         // Covers are fetched one at a time, beside the downloads rather than in their way.
         val artwork = DownloadArtworkWork(Executors.newSingleThreadExecutor(), art::fetchEntry, art::removeEntry)
         val sizes = DownloadByteTotals(context)
+        val marks = DownloadMarkLedger(File(context.noBackupFilesDir, "download-marks-v1.db"))
         fun record(download: DownloadStatus) {
             val id = download.id
             val mark = when (download.state) {
@@ -179,7 +181,9 @@ internal object OfflineStore {
             // While a song moves between shelves, one shelf is still queuing or removing it while the
             // other holds it complete: it stays downloaded throughout.
             if (mark != DownloadMark.Done && listOfNotNull(phone, store?.card).any { it.completed(id) }) return
-            if (mark == null) DownloadMarks.marks.remove(id) else DownloadMarks.marks[id] = mark
+            marks.put(id, mark)
+            DownloadMarks.done = marks.done
+            DownloadMarks.countsKnown = marks.known
             if (mark == DownloadMark.Done) sizes.put(id, download.bytesDownloaded) else sizes.remove(id)
             // No cover is fetched here for an older download (#213): one fetched now by its track number
             // could be another song's. A new save fetches its own when it is asked for (see [add]).
@@ -196,12 +200,14 @@ internal object OfflineStore {
             val id = download.request.id
             if (id.startsWith(NEW_SAVE_PREFIX) && listOfNotNull(phone, store?.card).none { it.holds(id) })
                 artwork.remove(id)
-            DownloadMarks.marks.remove(id)
+            marks.put(id, null)
+            DownloadMarks.done = marks.done
+            DownloadMarks.countsKnown = marks.known
             sizes.remove(id)
             DownloadMarks.bytes = sizes.total
             DownloadMarks.bytesKnown = sizes.known
         }
-        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims)
+        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims, marks = marks)
         watch(context, phone, made, main)
         cardFolder(context)?.let { folder ->
             // The card found now; later its availability is only ever this folder's, never another card's.
@@ -558,7 +564,8 @@ internal object OfflineStore {
                     if (name == SavedShelf.Phone) store.playedClaims else null,
                     { store.art.hasEntry(it) }, include, checkpoint, ownership = owners::soleOwner,
                     playedKeys = if (name == SavedShelf.Phone && store.played.hasDiskOrder) store.played::forEachKey else null,
-                    emit = emit)
+                    emit = { entry -> emit(if (entry.ref.source == SavedSource.Download)
+                        entry.copy(mark = store.marks?.get(entry.ref.requestId)) else entry) })
             }
             if (!shelf.available()) throw java.io.IOException("Saved storage changed; refresh your copies")
         }

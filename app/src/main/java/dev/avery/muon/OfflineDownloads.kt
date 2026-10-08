@@ -2,7 +2,6 @@ package dev.avery.muon
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
@@ -47,12 +46,12 @@ internal fun formatBytes(bytes: Long): String = when {
 }
 
 /**
- * Every download's state, for Compose to read. Written only on the main thread, by the store's
- * listener; state transitions only, never byte-by-byte progress, so rows do not recompose while a
- * song downloads.
+ * Scalar download summaries for Compose. Per-ID badges live on private disk and are hydrated
+ * with the bounded saved page; these signals are written by the application-looper listener.
  */
 internal object DownloadMarks {
-    val marks = mutableStateMapOf<String, DownloadMark>()
+    var done by mutableLongStateOf(0L)
+    var countsKnown by mutableStateOf(true)
     var summary by mutableStateOf(DownloadSummaryStatus.Loading)
     /** State/removal signal without copying every mark into a Compose effect key. */
     var revision by mutableLongStateOf(0L)

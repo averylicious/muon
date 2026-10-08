@@ -117,7 +117,7 @@ private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, play: 
         },
         trailingContent = {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                if (entry.ref.source == SavedSource.Download) DownloadBadge(DownloadMarks.marks[entry.ref.requestId])
+                if (entry.ref.source == SavedSource.Download) DownloadBadge(entry.mark)
                 if (entry.removable) IconButton(onClick = remove,
                     modifier = Modifier.semantics { contentDescription = "Remove saved copy ${entry.title()}" }) {
                     MuonIcon("delete")

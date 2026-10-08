@@ -109,7 +109,9 @@ internal data class SavedEntry(val ref: SavedRef, val song: TauonTrack?, val fro
     /** Whether Remove may delete its bytes now: they are claimed by it alone ([soleOwner], [PlayedClaims]). */
     val removable: Boolean, val stoppedAfterRestart: Boolean = false,
     /** The retained encoded record exceeded the display budget, so it was never decoded. */
-    val storedMetadataTooLarge: Boolean = false) {
+    val storedMetadataTooLarge: Boolean = false,
+    /** Combined-shelf badge hydrated with this page, never retained for the entire library. */
+    val mark: DownloadMark? = null) {
     /** Whether every byte is held and its download, if any, finished: what can be played. */
     val complete: Boolean get() = coverage == SavedCoverage.Full && (state == null || state == Download.STATE_COMPLETED || stoppedAfterRestart)
     // Old index/cache metadata predates incoming tag limits. Keep its record, but never put unsafe

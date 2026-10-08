@@ -33,7 +33,7 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     LaunchedEffect(Unit) { OfflineStore.get(context) }
     // Every playable saved copy counts, played copies and ones from an unknown server included (#213).
     var downloaded by remember { mutableStateOf(0L) }
-    LaunchedEffect(DownloadMarks.marks.size, PlayedCacheState.used) {
+    LaunchedEffect(DownloadMarks.revision, PlayedCacheState.used) {
         downloaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { OfflineStore.savedCompleteCount(context) }.getOrDefault(0L)
         }

@@ -111,7 +111,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
 private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
-    val songs = DownloadMarks.marks.values.count { it == DownloadMark.Done }
+    val songs = DownloadMarks.done
     val used = PlayedCacheState.used
     val limit = PlayedCacheState.limit
     val full = cacheFull(used, limit)
@@ -131,16 +131,16 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val rows = if (card != null || cardUnavailable) 5 else 4
     // Free space where new downloads go: the card's when they go there (#16 QA).
     val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
-    StorageBar(if (DownloadMarks.bytesKnown && DownloadMarks.summary == DownloadSummaryStatus.Ready) DownloadMarks.bytes else 0L, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
+    StorageBar(if (DownloadMarks.bytesKnown && DownloadMarks.countsKnown && DownloadMarks.summary == DownloadSummaryStatus.Ready) DownloadMarks.bytes else 0L, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
         // Opens Saved copies (#213), where each copy is listed, played and removed on its own.
         SettingsRow(shape = rowShape(0, rows), headline = "Saved copies",
             supporting = if (moving != null) "Moving ${moving.first} of ${moving.second}…"
                 else if (DownloadMarks.summary == DownloadSummaryStatus.Loading) "Loading saved copy totals…"
-                else if (DownloadMarks.summary == DownloadSummaryStatus.Unavailable) "Saved copy totals unavailable. Open to see your copies."
-                else if (songs == 0) "None yet. Long-press a song, or use Save copies on an album, artist or playlist."
-                else "$songs ${if (songs == 1) "copy" else "copies"} · ${if (DownloadMarks.bytesKnown) formatBytes(DownloadMarks.bytes) else "Size unavailable"} · $UNVERIFIED",
-            trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } },
+                else if (DownloadMarks.summary == DownloadSummaryStatus.Unavailable || !DownloadMarks.countsKnown) "Saved copy totals unavailable. Open to see your copies."
+                else if (songs == 0L) "None yet. Long-press a song, or use Save copies on an album, artist or playlist."
+                else "$songs ${if (songs == 1L) "copy" else "copies"} · ${if (DownloadMarks.bytesKnown) formatBytes(DownloadMarks.bytes) else "Size unavailable"} · $UNVERIFIED",
+            trailing = { if (DownloadMarks.countsKnown && songs > 0) TextButton(onClick = clear) { Text("Clear") } },
             modifier = Modifier.clickable(onClickLabel = "Open saved copies", onClick = openSaved))
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
         SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
