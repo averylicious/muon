@@ -28,17 +28,25 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
             check(directory.isDirectory || directory.mkdirs()) { "No private saved catalog directory" }
             val database = SQLiteDatabase.openOrCreateDatabase(File(directory, "saved-catalog-v1.db"), null)
             try {
+                database.execSQL("PRAGMA cache_size=-256")
+                database.execSQL("PRAGMA temp_store=FILE")
                 database.beginTransaction()
                 try {
                     if (database.version == 0) {
                         database.execSQL("CREATE TABLE copies(handle TEXT PRIMARY KEY NOT NULL, unknown_title INTEGER NOT NULL, " +
-                            "sort_title BLOB NOT NULL, sort_handle BLOB NOT NULL)")
+                            "sort_title BLOB NOT NULL, sort_handle BLOB NOT NULL, origin BLOB)")
                         database.execSQL("CREATE INDEX reading_order ON copies(unknown_title,sort_title,sort_handle)")
                         database.execSQL("CREATE TABLE catalog_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1), " +
                             "generation INTEGER NOT NULL, entry_count INTEGER NOT NULL)")
                         database.execSQL("INSERT INTO catalog_state VALUES(1,0,0)")
-                        database.version = 1
-                    } else if (database.version != 1) throw IOException("Unsupported derived saved catalog version")
+                        database.version = 2
+                    } else if (database.version == 1) {
+                        // Private derived schema only. Existing order/pages survive migration; origin
+                        // is populated by the next complete atomic rebuild, never inferred from IDs.
+                        database.execSQL("ALTER TABLE copies ADD COLUMN origin BLOB")
+                        database.version = 2
+                    } else if (database.version != 2) throw IOException("Unsupported derived saved catalog version")
+                    database.execSQL("CREATE INDEX IF NOT EXISTS origin_order ON copies(origin)")
                     database.setTransactionSuccessful()
                 } finally { database.endTransaction() }
                 return SavedCatalog(database)
@@ -92,6 +100,7 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
                     put("unknown_title", if (song == null) 1 else 0)
                     put("sort_title", savedCatalogSortKey(song?.title?.lowercase().orEmpty()))
                     put("sort_handle", savedCatalogSortKey(entry.ref.handle))
+                    entry.from?.let { put("origin", savedCatalogSortKey(it)) } ?: putNull("origin")
                 }
                 database.insertOrThrow("copies", null, values) // Duplicate locators fail, never silently vanish.
                 if (count == Long.MAX_VALUE) throw IOException("Saved catalog count exhausted")
@@ -130,6 +139,22 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
         } finally { database.endTransaction() }
     }
 
+    /** Same most-common origin and exact display-order tie as savedLibrary; no full JVM map. */
+    @Synchronized fun preferredOrigin(expected: SavedCatalogSnapshot): String? {
+        requireWorker()
+        check(!rebuilding) { "Saved catalog generation is being rebuilt" }
+        database.beginTransactionNonExclusive()
+        try {
+            if (state() != expected) throw SavedCatalogStale()
+            val origin = database.rawQuery("SELECT c.origin FROM copies c JOIN " +
+                "(SELECT origin,COUNT(*) AS n FROM copies WHERE origin IS NOT NULL GROUP BY origin) counts " +
+                "ON c.origin=counts.origin ORDER BY counts.n DESC,c.unknown_title,c.sort_title,c.sort_handle LIMIT 1",
+                null).use { cursor -> if (cursor.moveToFirst()) savedCatalogText(cursor.getBlob(0)) else null }
+            database.setTransactionSuccessful()
+            return origin
+        } finally { database.endTransaction() }
+    }
+
     @Synchronized override fun close() {
         requireWorker()
         check(!rebuilding) { "Saved catalog generation is being rebuilt" }
@@ -150,4 +175,12 @@ internal fun savedCatalogSortKey(text: String): ByteArray {
         bytes[2 * i + 1] = unit.toByte()
     }
     return bytes
+}
+
+/** Inverse of the exact UTF-16 BLOB encoding, including NUL and unpaired surrogates. */
+internal fun savedCatalogText(bytes: ByteArray): String {
+    if (bytes.size % 2 != 0) throw IOException("Invalid derived saved text")
+    return String(CharArray(bytes.size / 2) { i ->
+        (((bytes[2 * i].toInt() and 255) shl 8) or (bytes[2 * i + 1].toInt() and 255)).toChar()
+    })
 }

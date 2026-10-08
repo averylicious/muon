@@ -42,30 +42,15 @@ internal class SavedPaging(private val context: Context,
     }) {
     fun reload(offset: Long, checkpoint: () -> Unit): SavedReload = SavedCatalog.open(context).use { catalog ->
         var playable = 0L
-        // Preserve existing most-common known origin choice; this compact origin census is not a
-        // whole-process bound and remains part of the independent cardinality workstream.
-        val origins = HashMap<String, Long>()
         val snapshot = catalog.rebuildFrom({ emit -> project({ true }, checkpoint) { entry ->
             checkpoint()
             if (entry.complete) playable++
-            entry.from?.let { origins[it] = (origins[it] ?: 0) + 1 }
             emit(entry)
         } }, { checkpoint(); false })
         val page = hydrate(catalog, snapshot, savedPageOffset(offset, snapshot.count), checkpoint)
-        val maximum = origins.values.maxOrNull()
-        val candidates = origins.filterValues { it == maximum }.keys
-        // Old savedLibrary chose the first known origin in sorted display order on a count tie.
-        // Resolve ties in bounded pages rather than letting HashMap/native-index order choose it.
-        var origin = candidates.singleOrNull()
-        if (candidates.size > 1) {
-            var next = 0L
-            while (origin == null && next < snapshot.count) {
-                val read = if (next == page.offset) page else hydrate(catalog, snapshot, next, checkpoint)
-                origin = read.entries.firstOrNull { it.from in candidates }?.from
-                if (read.entries.isEmpty()) throw SavedCatalogStale()
-                next += read.entries.size
-            }
-        }
+        checkpoint()
+        val origin = catalog.preferredOrigin(snapshot)
+        checkpoint()
         SavedReload(page, playable, origin)
     }
 

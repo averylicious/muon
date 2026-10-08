@@ -12,6 +12,7 @@ import androidx.media3.datasource.cache.ContentMetadataMutations
 import android.content.Context
 import android.content.ContextWrapper
 import android.database.sqlite.SQLiteConstraintException
+import android.database.sqlite.SQLiteDatabase
 import androidx.media3.exoplayer.offline.Download
 import org.junit.After
 import org.junit.Assert.*
@@ -253,6 +254,70 @@ class SavedCatalogTest {
         assertEquals(generation, catalog.snapshot())
         assertEquals(1L, generation.count)
         assertEquals(listOf(entry("saved/kept", "Kept").ref), catalog.page(generation, 0))
+    }
+
+    @Test fun originCountsAndExactDisplayTiesUseDiskWithoutClippingText(): Unit = io {
+        val a = "http://host/" + "x".repeat(1400) + "\u0000\uD800"
+        val b = "http://host/" + "x".repeat(1400) + "\u0000\uD801"
+        val earlier = entry("saved/earlier", "A").copy(from = a)
+        val later = entry("saved/later", "Z").copy(from = b)
+        val unknown = entry("saved/unknown", "ignored").copy(song = null, from = b)
+        val incomplete = entry("saved/incomplete", "B").copy(coverage = SavedCoverage.Partial, from = a)
+        val tie = catalog.rebuild(listOf(later, unknown, incomplete, earlier))
+        assertEquals(a, catalog.preferredOrigin(tie)) // Counts include incomplete/unknown entries.
+        val more = catalog.rebuild(listOf(later, unknown, entry("saved/third", "C").copy(from = b), earlier))
+        assertEquals(b, catalog.preferredOrigin(more))
+        assertThrows(SavedCatalogStale::class.java) { catalog.preferredOrigin(tie) }
+        val noOrigins = catalog.rebuild(listOf(earlier.copy(from = null)))
+        assertNull(catalog.preferredOrigin(noOrigins))
+        for (text in listOf(a, b, "", "\uD83D\uDE00", "\uE000"))
+            assertEquals(text, savedCatalogText(savedCatalogSortKey(text)))
+        assertThrows(IOException::class.java) { savedCatalogText(byteArrayOf(0)) }
+    }
+
+    @Test fun failedRebuildAndAnotherConnectionNeverPublishPartialOriginCounts(): Unit = io {
+        val prior = entry("saved/prior", "Z").copy(from = "old")
+        val kept = catalog.rebuild(listOf(prior))
+        assertThrows(IOException::class.java) { catalog.rebuildFrom({ emit ->
+            emit(entry("saved/new", "A").copy(from = "new"))
+            assertThrows(IllegalStateException::class.java) { catalog.preferredOrigin(kept) }
+            throw IOException("Incomplete origin census")
+        }) }
+        assertEquals("old", catalog.preferredOrigin(kept))
+        SavedCatalog.open(context).use { other ->
+            val next = other.rebuild(listOf(prior.copy(from = "new")))
+            assertThrows(SavedCatalogStale::class.java) { catalog.preferredOrigin(kept) }
+            assertEquals("new", catalog.preferredOrigin(next))
+        }
+    }
+
+    @Test fun previousPrivateSchemaMigratesWithoutChangingItsCommittedPage(): Unit = io {
+        val directory = folders.newFolder()
+        val oldContext = object : ContextWrapper(context) {
+            override fun getNoBackupFilesDir(): File = directory
+        }
+        val original = entry("saved/v1", "Original")
+        SQLiteDatabase.openOrCreateDatabase(File(directory, "saved-catalog-v1.db"), null).use { db ->
+            db.execSQL("CREATE TABLE copies(handle TEXT PRIMARY KEY NOT NULL, unknown_title INTEGER NOT NULL, " +
+                "sort_title BLOB NOT NULL, sort_handle BLOB NOT NULL)")
+            db.execSQL("CREATE INDEX reading_order ON copies(unknown_title,sort_title,sort_handle)")
+            db.execSQL("CREATE TABLE catalog_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1), " +
+                "generation INTEGER NOT NULL, entry_count INTEGER NOT NULL)")
+            db.execSQL("INSERT INTO catalog_state VALUES(1,17,1)")
+            db.execSQL("INSERT INTO copies VALUES(?,0,?,?)", arrayOf<Any>(original.ref.handle,
+                savedCatalogSortKey("original"), savedCatalogSortKey(original.ref.handle)))
+            db.version = 1
+        }
+        SavedCatalog.open(oldContext).use { migrated ->
+            val old = SavedCatalogSnapshot(17,1)
+            assertEquals(old, migrated.snapshot())
+            assertEquals(listOf(original.ref), migrated.page(old,0))
+            assertNull(migrated.preferredOrigin(old))
+            val next = migrated.rebuild(listOf(original))
+            assertEquals(18L, next.generation)
+            assertEquals(original.from, migrated.preferredOrigin(next))
+            assertEquals(listOf(original.ref), migrated.page(next,0))
+        }
     }
 
     private fun seed(cache: SimpleCache, key: String, size: Int = 4) {
