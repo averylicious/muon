@@ -819,6 +819,140 @@ class DownloadMoveCharacterizationTest {
         assertTrue("Read whole, the claims are known", claims.known)
     }
 
+    // ---- #253: a batch copies no more than its free move receipts can hand over ----
+
+    private val deferredNotice = Regex("(1 more copy stays where it is|[0-9]+ more copies stay where they are)\\. " +
+        "Move again once this move finishes\\.")
+
+    @Test fun aBatchCopiesOnlyAsManyAsItsReceiptsCanHandOverAndTheRestMoveLater() {
+        val store = withReceiptCapacity(2)
+        val sources = listOf("saved/a", "saved/b", "saved/c").associateWith { completeKeyed(it) }
+        val beforeToasts = ShadowToast.shownToastCount()
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        val added = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }.map(::addRequest)
+        assertEquals(2, added.size)
+        assertTrue("Each Add is a source's exact request", added.all { it == sources[it.id]?.first })
+        val left = (sources.keys - added.map { it.id }.toSet()).single()
+        assertEquals("1 more copy stays where it is. Move again once this move finishes.", ShadowToast.getTextOfLatestToast())
+        assertEquals("One aggregate deferral, no per-copy pending warnings", beforeToasts + 1, ShadowToast.shownToastCount())
+        for ((key, source) in sources) {
+            assertEquals("$key's source record is kept", source.first, sourceIndex.getDownload(key)?.request)
+            assertArrayEquals(source.second, keyedBytes(phone.cache, key))
+            assertNull(targetIndex.getDownload(key))
+        }
+        for (request in added) assertArrayEquals(sources.getValue(request.id).second, keyedBytes(card.cache, request.id))
+        assertTrue("The deferred copy wrote nothing on the target", card.cache.getCachedSpans(left).isEmpty())
+        assertEquals(0, store.moves.available())
+        assertNull(store.moves.find(card, left))
+        assertTrue(added.all { store.moves.find(card, it.id)?.request == it })
+
+        // Those two finish (their target rows recorded, originals gone); their receipts end. A new move
+        // then takes the one left behind, with nothing deferred.
+        for (request in added) {
+            targetIndex.putDownload(Download(request, Download.STATE_COMPLETED, 0, 0, bytes.size.toLong(),
+                Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+            sourceIndex.removeDownload(request.id)
+            store.moves.finish(requireNotNull(store.moves.find(card, request.id)))
+        }
+        assertEquals(2, store.moves.available())
+        val toasts = ShadowToast.shownToastCount()
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(sources.getValue(left).first,
+            addRequest(startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }))
+        assertArrayEquals(sources.getValue(left).second, keyedBytes(card.cache, left))
+        assertEquals("Nothing deferred, kept or failed this time", toasts, ShadowToast.shownToastCount())
+    }
+
+    @Test fun keptAndFailedRowsTakeNoPlaceAndNothingPastTheBudgetIsCopied() {
+        withReceiptCapacity(2)
+        val valid = listOf("saved/v1", "saved/v2", "saved/v3").onEach { completeKeyed(it, start = 10) }
+        // Earlier start times force kept/failed rows before valid ones in the actual index's order.
+        // Shares its key with another row: kept, never copied.
+        val shared = completeKeyed("saved/shared").second
+        val alias = DownloadRequest.Builder("unknown-alias", Uri.parse("http://192.168.1.20:7814/api1/fileopus/9"))
+            .setCustomCacheKey("saved/shared").build()
+        sourceIndex.putDownload(Download(alias, Download.STATE_COMPLETED, 1, 1, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        // A finished row with no bytes: its copy fails before writing.
+        val empty = DownloadRequest.Builder("saved/empty", Uri.parse("http://192.168.1.20:7814/api1/fileopus/8"))
+            .setCustomCacheKey("saved/empty").build()
+        sourceIndex.putDownload(Download(empty, Download.STATE_COMPLETED, 1, 1, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        val added = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }.map { addRequest(it).id }
+        // Whatever the scan order, only successful copies count: two of the three valid ones, never more.
+        assertEquals(2, added.size)
+        assertTrue(valid.containsAll(added))
+        val written = (valid + listOf("saved/shared", "saved/empty")).filter { card.cache.getCachedSpans(it).isNotEmpty() }
+        assertEquals(added.toSet(), written.toSet())
+        assertTrue(deferredNotice.matches(ShadowToast.getTextOfLatestToast().orEmpty()))
+        for (key in valid + listOf("saved/shared", "unknown-alias", "saved/empty")) assertNotNull(key, sourceIndex.getDownload(key))
+        assertArrayEquals(shared, keyedBytes(phone.cache, "saved/shared"))
+    }
+
+    @Test fun aCopyRevokedBeforeHandOverFreesNoExtraCopyAndIsNotAdded() {
+        withReceiptCapacity(2)
+        listOf("saved/a", "saved/b", "saved/c").forEach { completeKeyed(it) }
+        OfflineStore.move(app, toCard = true)
+        awaitMover()
+        val copied = listOf("saved/a", "saved/b", "saved/c").filter { card.cache.getCachedSpans(it).isNotEmpty() }
+        assertEquals(2, copied.size)
+        // Removed while the move still holds its exclusion: refused, and its hand-over revoked (#234).
+        assertEquals(OfflineStore.SavedRemoval.Busy, OfflineStore.removeSavedNow(app,
+            requireNotNull(SavedRef.download(SavedShelf.Phone, copied[0], copied[0]))))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(listOf(copied[1]), startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }
+            .map { addRequest(it).id })
+        assertEquals(1, OfflineStore.get(app).moves.available())
+        listOf("saved/a", "saved/b", "saved/c").forEach { assertNotNull(sourceIndex.getDownload(it)) }
+    }
+
+    @Test fun noFreeReceiptMeansNoCopyAndNoCommand() {
+        val store = withReceiptCapacity(0)
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertTrue(card.cache.keys.isEmpty())
+        assertEquals(request, sourceIndex.getDownload(id)?.request)
+        assertEquals("1 more copy stays where it is. Move again once this move finishes.", ShadowToast.getTextOfLatestToast())
+        assertFalse(store.moves.hasPending)
+    }
+
+    /** Replaces the fixture's store with one whose move receipts hold at most [capacity]. */
+    private fun withReceiptCapacity(capacity: Int): OfflineStore.Store {
+        val fixture = OfflineStore.Store(phone, DownloadArt(folders.newFolder("art-$capacity")),
+            PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {}, app.getSharedPreferences("move-fixture", Context.MODE_PRIVATE),
+            database, {}, {}, moves = DownloadMoveReceipts(capacity))
+        fixture.card = card
+        storeField.set(null, fixture)
+        return fixture
+    }
+
+    /** A finished, sole-owned source copy under its own key, with its own bytes: its request and bytes. */
+    private fun completeKeyed(key: String, start: Long = 1): Pair<DownloadRequest, ByteArray> {
+        val payload = ByteArray(bytes.size) { (it + key.hashCode()).toByte() }
+        val made = DownloadRequest.Builder(key, Uri.parse("http://192.168.1.20:7814/api1/fileopus/${key.length}"))
+            .setCustomCacheKey(key).setData(key.toByteArray()).build()
+        val hole = requireNotNull(phone.cache.startReadWrite(key, 0, payload.size.toLong()))
+        try {
+            val file = phone.cache.startFile(key, 0, payload.size.toLong())
+            file.writeBytes(payload)
+            phone.cache.commitFile(file, payload.size.toLong())
+        } finally { phone.cache.releaseHoleSpan(hole) }
+        phone.cache.applyContentMetadataMutations(key,
+            ContentMetadataMutations.setContentLength(ContentMetadataMutations(), payload.size.toLong()))
+        sourceIndex.putDownload(Download(made, Download.STATE_COMPLETED, start, start, payload.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        return made to payload
+    }
+
+    private fun keyedBytes(cache: SimpleCache, key: String): ByteArray = cache.getCachedSpans(key)
+        .sortedBy { it.position }.fold(byteArrayOf()) { acc, span -> acc + requireNotNull(span.file).readBytes() }
+
     private fun largeRequest() = DownloadRequest.Builder(id, request.uri).setCustomCacheKey(id).setData(large).build()
 
     /** Delegates to [actual]; while [failAtRow] is set, a whole-index read fails at that row. */

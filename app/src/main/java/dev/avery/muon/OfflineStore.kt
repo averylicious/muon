@@ -759,9 +759,20 @@ internal object OfflineStore {
                 val targetCensus = runCatching { readCensus(to) }.getOrNull()
                 val ids = sourceCensus?.rows.orEmpty().filter { it.state == Download.STATE_COMPLETED }.map { it.id }
                 main.post { DownloadMarks.moving = 0 to ids.size }
+                // Hand-over can publish only as many copies as there are free receipts (#253), so no more are
+                // copied: a copy past that would leave unindexed bytes on the target and never be added. Read
+                // once: only this batch's hand-over remembers receipts while the move holds its exclusion.
+                val room = store.moves.available()
                 var kept = 0
                 var failed = 0
+                var deferred = 0
                 for ((index, id) in ids.withIndex()) {
+                    // Only successful copies take a place; the rest stay where they are, untouched, for a
+                    // later move.
+                    if (copiedRequests.size >= room) {
+                        deferred = ids.size - index
+                        break
+                    }
                     if (!canMove(from, to)) {
                         notice(context, "The SD card isn't available any more, so the rest weren't moved.")
                         break
@@ -793,6 +804,9 @@ internal object OfflineStore {
                 if (failed > 0) notice(context, if (failed == 1)
                     "1 copy couldn't be moved. Its saved entry was kept."
                 else "$failed copies couldn't be moved. Their saved entries were kept.")
+                if (deferred > 0) notice(context, if (deferred == 1)
+                    "1 more copy stays where it is. Move again once this move finishes."
+                else "$deferred more copies stay where they are. Move again once this move finishes.")
             } finally {
                 // One main-thread step, after the mover has stopped reading and writing the copies: release
                 // the exclusion, then hand over. Nothing runs between the two, so a command refused during

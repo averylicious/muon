@@ -12,6 +12,7 @@ import java.util.UUID
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class DownloadMoveReceipts(private val capacity: Int = 128) {
+    init { require(capacity >= 0) }
     private enum class Stage { AddQueued, Added, RemoveQueued, Removing }
     class Receipt internal constructor(val from: Shelf, val to: Shelf, val request: DownloadRequest) {
         val token: String = UUID.randomUUID().toString()
@@ -32,6 +33,8 @@ internal class DownloadMoveReceipts(private val capacity: Int = 128) {
     val hasPending: Boolean @Synchronized get() = pending.isNotEmpty()
     /** Once removal reaches Media3, cancellation cannot undo it: keep the barrier until acknowledgment. */
     val removalInFlight: Boolean @Synchronized get() = pending.values.any { it.removing() }
+    /** How many more receipts [remember] can hold now; pending ones are never evicted to make room. */
+    @Synchronized fun available(): Int = (capacity - pending.size).coerceAtLeast(0)
 
     @Synchronized fun remember(from: Shelf, to: Shelf, request: DownloadRequest): Boolean {
         val key = to to request.id
