@@ -1090,6 +1090,96 @@ class DownloadMoveCharacterizationTest {
         while (true) add(shadow.nextStartedService ?: break)
     }
 
+    @Test fun oversizedSaveCountIsRefusedBeforeCensusAndKeepsTheOriginal() {
+        val (old, payload) = completeKeyed("saved/original")
+        phoneIndex.failAtRow = 1
+        val track = TauonTrack(42, "Title", "Artist", "Album", 1000, true, false)
+        OfflineStore.add(app, ServerEndpoint.parse("192.168.1.20"), List(DOWNLOAD_COMMAND_COUNT + 1) { track })
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertTrue("No census or encoding preparation for a refused selection", phoneIndex.failing.isEmpty())
+        assertFalse(OfflineStore.get(app).savePreparation.get())
+        assertEquals(old, sourceIndex.getDownload(old.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, old.customCacheKey!!))
+        assertTrue(ShadowToast.getTextOfLatestToast().orEmpty().contains("Nothing was queued"))
+    }
+
+    @Test fun oversizedSingleTagsAndAggregatePreparationAreRefusedWithoutSavingAPrefix() {
+        val (old, payload) = completeKeyed("saved/original")
+        phoneIndex.failAtRow = 1
+        val endpoint = ServerEndpoint.parse("192.168.1.20")
+        val huge = TauonTrack(42, "x".repeat(MOVE_COMMAND_BYTES.toInt()), "", "", 1000, true, false)
+        OfflineStore.add(app, endpoint, listOf(huge))
+        val aggregate = huge.copy(title = "x".repeat(32 * 1024))
+        OfflineStore.add(app, endpoint, List(32) { aggregate })
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertTrue(phoneIndex.failing.isEmpty())
+        assertEquals(old, sourceIndex.getDownload(old.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, old.customCacheKey!!))
+    }
+
+    @Test fun aCountBoundarySavePreservesEveryRecordAndUsesFreshIndependentNames() {
+        val (old, payload) = completeKeyed("saved/original")
+        val track = TauonTrack(42, "A\u0000B😀", "Artist", "Album", 1000, true, false)
+        OfflineStore.add(app, ServerEndpoint.parse("192.168.1.20"), List(DOWNLOAD_COMMAND_COUNT) { track })
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        val requests = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }.map(::addRequest)
+        assertEquals(DOWNLOAD_COMMAND_COUNT, requests.size)
+        assertEquals(requests.size, requests.map { it.id }.toSet().size)
+        assertTrue(requests.all { it.id.startsWith(NEW_SAVE_PREFIX) && it.id == it.customCacheKey })
+        requests.forEach { assertArrayEquals(encodeSong(track), it.data) }
+        assertFalse(OfflineStore.get(app).savePreparation.get())
+        assertEquals(old, sourceIndex.getDownload(old.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, old.customCacheKey!!))
+    }
+
+    @Test fun repeatedTapsCannotQueueAnotherPreparationAndRetryWorksAfterTheFirstFinishes() {
+        val saver = saverField.get(null) as ExecutorService
+        val running = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        saver.execute { running.countDown(); check(release.await(10, TimeUnit.SECONDS)) }
+        assertTrue(running.await(5, TimeUnit.SECONDS))
+        val track = TauonTrack(42, "Title", "Artist", "Album", 1000, true, false)
+        val endpoint = ServerEndpoint.parse("192.168.1.20")
+        try {
+            OfflineStore.add(app, endpoint, listOf(track))
+            assertTrue(OfflineStore.get(app).savePreparation.get())
+            OfflineStore.add(app, endpoint, listOf(track.copy(id = 43)))
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(startedCommands().isEmpty())
+            assertTrue(ShadowToast.getTextOfLatestToast().orEmpty().contains("wasn't queued"))
+        } finally { release.countDown() }
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        val first = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }.map(::addRequest)
+        assertEquals(1, first.size)
+        assertArrayEquals(encodeSong(track), first.single().data)
+        assertFalse(OfflineStore.get(app).savePreparation.get())
+        OfflineStore.add(app, endpoint, listOf(track.copy(id = 43)))
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        val retried = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }.map(::addRequest)
+        assertEquals(1, retried.size)
+        assertArrayEquals(encodeSong(track.copy(id = 43)), retried.single().data)
+    }
+
+    @Test fun failedPreparationReleasesTheSlotAndLeavesOriginalsForAValidRetry() {
+        val (old, payload) = completeKeyed("saved/original")
+        phoneIndex.failAtRow = 1
+        val track = TauonTrack(42, "Title", "Artist", "Album", 1000, true, false)
+        val endpoint = ServerEndpoint.parse("192.168.1.20")
+        OfflineStore.add(app, endpoint, listOf(track))
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertFalse(OfflineStore.get(app).savePreparation.get())
+        assertEquals(old, sourceIndex.getDownload(old.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, old.customCacheKey!!))
+        phoneIndex.failAtRow = 0
+        OfflineStore.add(app, endpoint, listOf(track))
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, startedCommands().count { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertFalse(OfflineStore.get(app).savePreparation.get())
+    }
+
     private fun awaitSaver() {
         val saver = saverField.get(null) as ExecutorService
         saver.submit {}.get(10, TimeUnit.SECONDS)

@@ -103,6 +103,8 @@ internal object OfflineStore {
         val cache: SimpleCache get() = phone.cache
         /** Commands admitted by the services since a completion census; no snapshot survives a mutation. */
         val moveCommandEpoch = java.util.concurrent.atomic.AtomicLong()
+        /** Only one bounded new-save preparation may wait on/run in the saver at a time. */
+        val savePreparation = java.util.concurrent.atomic.AtomicBoolean()
         @Volatile var card: Shelf? = null
         /** The app's folder on [card], for its name and free space; null without a card. */
         @Volatile var cardFolder: File? = null
@@ -396,28 +398,49 @@ internal object OfflineStore {
                 return
             }
         }
-        val playable = tracks.filter { it.playable }
+        val playable = newSaveBatch(tracks)
+        if (playable == null) {
+            notice(context, "That save selection or its metadata is too large. Nothing was queued. Select fewer songs.")
+            return
+        }
         if (playable.isEmpty()) return
         // #230: nothing is queued while a move is in flight; the service would refuse it anyway.
         if (moveExclusion.held || store.moves.removalInFlight) {
             notice(context, "A move is under way, so nothing was saved. Try again when it finishes.")
             return
         }
-        saver.execute {
-            val requests = runCatching {
-                val taken = takenNames(store)
-                playable.map { track -> newSaveRequest(taken, endpoint, track) }
-            }.getOrNull()
-            if (requests == null) {
-                notice(context, "Muon couldn't save these copies. Nothing was changed.")
-                return@execute
+        if (!store.savePreparation.compareAndSet(false, true)) {
+            notice(context, "Muon is preparing saved copies. That selection wasn't queued. Retry when it finishes.")
+            return
+        }
+        try {
+            saver.execute {
+                try {
+                    val requests = runCatching {
+                        val taken = takenNames(store)
+                        val budget = DownloadMoveBudget(DOWNLOAD_REQUEST_BYTES)
+                        playable.map { track ->
+                            newSaveRequest(taken, endpoint, track).also { (request, _) ->
+                                check(budget.fits(request)) { "Save request budget exceeded" }
+                                budget.commit(request)
+                            }
+                        }
+                    }.getOrNull()
+                    if (requests == null) {
+                        notice(context, "Muon couldn't prepare these copies. Nothing was queued. Try again or select fewer songs.")
+                        return@execute
+                    }
+                    requests.forEach { (request, cover) ->
+                        DownloadService.sendAddDownload(context, shelf.service, request, false)
+                        store.artwork.execute { store.art.fetchEntry(request.id, cover) }
+                    }
+                    notice(context, if (requests.size == 1) "Saving a copy. It's under Saved copies."
+                        else "Saving ${requests.size} copies. They're under Saved copies.")
+                } finally { store.savePreparation.set(false) }
             }
-            requests.forEach { (request, cover) ->
-                DownloadService.sendAddDownload(context, shelf.service, request, false)
-                store.artwork.execute { store.art.fetchEntry(request.id, cover) }
-            }
-            notice(context, if (requests.size == 1) "Saving a copy. It's under Saved copies."
-                else "Saving ${requests.size} copies. They're under Saved copies.")
+        } catch (failure: Exception) {
+            store.savePreparation.set(false)
+            notice(context, "Muon couldn't queue this save selection. Try again later.")
         }
     }
 
