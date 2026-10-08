@@ -33,6 +33,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     internal var savedPreparing by mutableStateOf(false); private set
     private val savedPages = SavedPageCache()
     private val savedRepository = SavedPaging(app)
+    private val savedTiming = SavedStartupTiming.forContext(app)
     private val savedMutex = Mutex()
     private var savedLoad: kotlinx.coroutines.Job? = null
     private var savedQueue: kotlinx.coroutines.Job? = null
@@ -95,16 +96,19 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         if (savedBusy || savedError != null) return
         cancelSavedPlayback()
         val revision = savedQueueRevision; savedPreparing = true
+        val measured = savedTiming.begin(SavedStartupTiming.Phase.PREPARATION)
         savedQueue = viewModelScope.launch {
+            var outcome = SavedStartupTiming.Outcome.FAILED
             try {
                 val result = withContext(Dispatchers.IO) {
                     val job = currentCoroutineContext()
                     savedMutex.withLock { savedRepository.playback(snapshot, ref, single) { job.ensureActive() } }
                 }
+                outcome = if (result is SavedPlaybackResult.TooLarge) SavedStartupTiming.Outcome.REFUSED else SavedStartupTiming.Outcome.OK
                 if (revision == savedQueueRevision && savedSnapshot == snapshot) ready(result)
-            } catch (e: CancellationException) { throw e }
+            } catch (e: CancellationException) { outcome = SavedStartupTiming.Outcome.CANCELLED; throw e }
             catch (_: Exception) { if (revision == savedQueueRevision) savedError = "This saved copy changed or couldn't be queued. Refresh to try again." }
-            finally { if (revision == savedQueueRevision) savedPreparing = false }
+            finally { savedTiming.end(measured, outcome); if (revision == savedQueueRevision) savedPreparing = false }
         }
     }
     private val loads = LibraryLoads(viewModelScope) { busy = it }

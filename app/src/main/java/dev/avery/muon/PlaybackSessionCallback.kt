@@ -20,6 +20,7 @@ import java.util.concurrent.Executor
 internal class PlaybackSessionCallback(
     private val admitSaved: (SavedRef) -> Boolean = { false },
     private val background: Executor = Executor { it.run() },
+    private val timing: SavedStartupTiming = SavedStartupTiming.DISABLED,
 ) : MediaSession.Callback {
     // Cancellation does not free a task that is still queued/running on the admission worker.
     private val savedAdmissionPending = java.util.concurrent.atomic.AtomicBoolean()
@@ -74,8 +75,10 @@ internal class PlaybackSessionCallback(
                 "Muon is checking another saved queue. Retry after it finishes"
             }
             val admitted = SettableFuture.create<MutableList<MediaItem>>()
+            val measured = timing.begin(SavedStartupTiming.Phase.ADMISSION)
             try {
                 background.execute {
+                    var outcome = SavedStartupTiming.Outcome.CANCELLED
                     try {
                         if (admitted.isCancelled) return@execute
                         for (ref in saved) {
@@ -83,10 +86,12 @@ internal class PlaybackSessionCallback(
                             require(admitSaved(ref)) { "That saved copy isn't here any more" }
                         }
                         admitted.set(items)
-                    } catch (e: Exception) { admitted.setException(e) }
-                    finally { savedAdmissionPending.set(false) }
+                        outcome = SavedStartupTiming.Outcome.OK
+                    } catch (e: Exception) { outcome = SavedStartupTiming.Outcome.FAILED; admitted.setException(e) }
+                    finally { timing.end(measured, outcome); savedAdmissionPending.set(false) }
                 }
             } catch (e: Exception) {
+                timing.end(measured, SavedStartupTiming.Outcome.FAILED)
                 savedAdmissionPending.set(false)
                 admitted.setException(e)
             }

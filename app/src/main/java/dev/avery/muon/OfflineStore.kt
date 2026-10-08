@@ -289,7 +289,7 @@ internal object OfflineStore {
      */
     @Suppress("UNUSED_PARAMETER")
     fun playbackSource(context: Context, upstream: DataSource.Factory): DataSource.Factory =
-        DataSource.Factory { OfflineDataSource { spec -> get(context).let { routeOfflineRequest(spec, it.phone, it.card) } } }
+        DataSource.Factory { OfflineDataSource(SavedStartupTiming.forContext(context)) { spec -> get(context).let { routeOfflineRequest(spec, it.phone, it.card) } } }
 
     /**
      * Keeps an Opus copy of a live song that has started playing, as a new played copy under its own

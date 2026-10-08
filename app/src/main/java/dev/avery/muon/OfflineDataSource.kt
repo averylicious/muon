@@ -21,36 +21,51 @@ import java.io.IOException
  * the read after it, and nothing here closes or releases a cache or manager.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class OfflineDataSource(private val route: (DataSpec) -> Pair<Shelf, DataSpec>) : DataSource {
+internal class OfflineDataSource(private val timing: SavedStartupTiming = SavedStartupTiming.DISABLED,
+    private val route: (DataSpec) -> Pair<Shelf, DataSpec>) : DataSource {
     private val listeners = ArrayList<TransferListener>()
     private var active: DataSource? = null
     private var shelf: Shelf? = null
     // Sticky until close: a card that reappears is not read through the reader opened before it went.
     private var lost = false
+    private var firstRead: SavedStartupTiming.Phase? = null
 
     override fun addTransferListener(transferListener: TransferListener) { listeners += transferListener }
 
     override fun open(dataSpec: DataSpec): Long {
-        val (shelf, spec) = route(dataSpec)
-        // The card can go between the route's decision and here; nothing has been made or opened yet.
-        if (!shelf.available()) throw IOException("Storage became unavailable before opening")
-        val factory = if (spec.uri.scheme == SAVED_SCHEME) shelf.savedSource else shelf.stream
-        val source = factory.createDataSource().also { source -> listeners.forEach(source::addTransferListener) }
-        active = source
-        this.shelf = shelf
-        lost = false
-        return source.open(spec)
+        val saved = if (timing.enabled) SavedRef.parse(dataSpec.uri.toString()) else null
+        val card = saved?.shelf == SavedShelf.Card
+        val routeToken = if (saved != null) timing.begin(if (card) SavedStartupTiming.Phase.ROUTE_CARD else SavedStartupTiming.Phase.ROUTE_PHONE) else null
+        val selected = try { route(dataSpec).also { timing.end(routeToken) } }
+        catch (failure: Exception) { timing.end(routeToken, SavedStartupTiming.Outcome.FAILED); throw failure }
+        val (shelf, spec) = selected
+        val openToken = if (saved != null) timing.begin(if (card) SavedStartupTiming.Phase.OPEN_CARD else SavedStartupTiming.Phase.OPEN_PHONE) else null
+        try {
+            if (!shelf.available()) throw IOException("Storage became unavailable before opening")
+            val factory = if (spec.uri.scheme == SAVED_SCHEME) shelf.savedSource else shelf.stream
+            val source = factory.createDataSource().also { source -> listeners.forEach(source::addTransferListener) }
+            active = source
+            this.shelf = shelf
+            lost = false
+            firstRead = if (saved != null) {
+                if (card) SavedStartupTiming.Phase.FIRST_READ_CARD else SavedStartupTiming.Phase.FIRST_READ_PHONE
+            } else null
+            return source.open(spec).also { timing.end(openToken) }
+        } catch (failure: Exception) { timing.end(openToken, SavedStartupTiming.Outcome.FAILED); throw failure }
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         val source = checkNotNull(active) { "Read before open" }
-        // Media3 DataReader requires a zero-length read to return zero without I/O.
         if (length == 0) return 0
-        if (lost || !checkNotNull(shelf).available()) {
-            lost = true
-            throw IOException("Storage became unavailable while reading")
-        }
-        return source.read(buffer, offset, length)
+        val token = firstRead?.let(timing::begin)
+        firstRead = null // At most one read timing per open, including failures; no per-buffer log.
+        try {
+            if (lost || !checkNotNull(shelf).available()) {
+                lost = true
+                throw IOException("Storage became unavailable while reading")
+            }
+            return source.read(buffer, offset, length).also { timing.end(token) }
+        } catch (failure: Exception) { timing.end(token, SavedStartupTiming.Outcome.FAILED); throw failure }
     }
 
     override fun getUri(): Uri? = active?.uri
@@ -63,6 +78,7 @@ internal class OfflineDataSource(private val route: (DataSpec) -> Pair<Shelf, Da
             active = null
             shelf = null
             lost = false
+            firstRead = null
         }
     }
 }

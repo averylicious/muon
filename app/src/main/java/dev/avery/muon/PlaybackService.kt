@@ -52,6 +52,21 @@ class PlaybackService : MediaSessionService() {
                     player.setShuffleOrder(QueueShuffleOrder.startingWith(player.mediaItemCount, player.currentMediaItemIndex))
             }
         })
+        val diagnosticTiming = SavedStartupTiming.forContext(this)
+        var savedReady: SavedStartupTiming.Token? = null
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                diagnosticTiming.end(savedReady, SavedStartupTiming.Outcome.CANCELLED)
+                savedReady = if (mediaItem != null && isSavedHandle(mediaItem.mediaId))
+                    diagnosticTiming.begin(SavedStartupTiming.Phase.READY) else null
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) { diagnosticTiming.end(savedReady); savedReady = null }
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                diagnosticTiming.end(savedReady, SavedStartupTiming.Outcome.FAILED); savedReady = null
+            }
+        })
         // Volume normalization (#97): each song at its ReplayGain level, set as the player's volume.
         val loudnessPrefs = getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
         val loudness = ReplayGainSettings(loudnessPrefs)
@@ -100,7 +115,7 @@ class PlaybackService : MediaSessionService() {
                 OkHttpDataSource.Factory(Transport.metadataClient))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            .setCallback(PlaybackSessionCallback({ OfflineStore.admitsSaved(this, it) }, admission)).build()
+            .setCallback(PlaybackSessionCallback({ OfflineStore.admitsSaved(this, it) }, admission, diagnosticTiming)).build()
     }
     // Saved-copy admission reads an index row, so it is kept off the session's main thread (#213).
     private val admission = java.util.concurrent.Executors.newSingleThreadExecutor()
