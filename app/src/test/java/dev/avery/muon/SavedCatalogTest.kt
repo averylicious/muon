@@ -1,5 +1,14 @@
 package dev.avery.muon
 
+import android.net.Uri
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.exoplayer.offline.DefaultDownloadIndex
+import androidx.media3.exoplayer.offline.DownloadCursor
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.WritableDownloadIndex
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.cache.NoOpCacheEvictor
+import androidx.media3.datasource.cache.ContentMetadataMutations
 import android.content.Context
 import android.content.ContextWrapper
 import android.database.sqlite.SQLiteConstraintException
@@ -114,6 +123,106 @@ class SavedCatalogTest {
         assertThrows(IllegalStateException::class.java) { catalog.rebuild(emptyList()) }
         assertThrows(IllegalStateException::class.java) { SavedCatalog.open(context) }
         assertEquals(expected, io { catalog.snapshot() })
+    }
+
+    @Test fun streamingRealNativeIndexesAndCacheMatchesInventoryAcrossHiddenUnknownAndPlayedCopies(): Unit = io {
+        val database = StandaloneDatabaseProvider(context)
+        val phone = SimpleCache(folders.newFolder(), NoOpCacheEvictor(), database)
+        val card = SimpleCache(folders.newFolder(), NoOpCacheEvictor(), database)
+        try {
+            phone.checkInitialization(); card.checkInitialization()
+            val index = DefaultDownloadIndex(database, "catalog-phone")
+            val cardIndex = DefaultDownloadIndex(database, "catalog-card")
+            fun put(target: DefaultDownloadIndex, id: String, key: String, state: Int, data: ByteArray): Download {
+                val request = DownloadRequest.Builder(id, Uri.parse("http://127.0.0.1:7814/api1/file/42"))
+                    .setCustomCacheKey(key).setData(data).build()
+                return Download(request, state, 1, 2, 4,
+                    if (state == Download.STATE_STOPPED) RETAINED_STOP_REASON else Download.STOP_REASON_NONE,
+                    if (state == Download.STATE_FAILED) Download.FAILURE_REASON_UNKNOWN else Download.FAILURE_REASON_NONE)
+                    .also(target::putDownload)
+            }
+            val song = encodeSong(requireNotNull(entry("saved/sample", "Same song").song))
+            val original = put(index, "saved/complete", "saved/complete", Download.STATE_COMPLETED, song)
+            seed(phone, original.request.id)
+            put(index, "hidden/" + "x".repeat(1400), original.request.id, Download.STATE_FAILED, ByteArray(256 * 1024))
+            put(index, "saved/queued", "saved/queued", Download.STATE_QUEUED, song); seed(phone, "saved/queued", 2)
+            put(index, "saved/failed", "saved/failed", Download.STATE_FAILED, song)
+            put(index, "saved/removing", "saved/removing", Download.STATE_REMOVING, song)
+            put(index, "saved/retained", "saved/retained", Download.STATE_STOPPED, song); seed(phone, "saved/retained")
+            put(index, "saved/oversized", "saved/oversized", Download.STATE_COMPLETED, ByteArray(256 * 1024))
+            seed(phone, "saved/oversized")
+            put(cardIndex, "saved/complete", "saved/complete", Download.STATE_COMPLETED, song); seed(card, "saved/complete")
+            val played = PLAYED_PREFIX + "http://127.0.0.1:7814/99"
+            seed(phone, played)
+            phone.applyContentMetadataMutations(played, ContentMetadataMutations().set(SONG_METADATA, song))
+            val partial = PLAYED_PREFIX + "http://127.0.0.1:7814/100"
+            seed(phone, partial, 2)
+            val claims = PlayedClaims.none()
+            val expected = sortSaved(savedInventory(SavedShelf.Phone, index, phone, claims) { false } +
+                savedInventory(SavedShelf.Card, cardIndex, card, null) { false })
+            val generation = catalog.rebuildFrom({ emit ->
+                forEachSavedEntry(SavedShelf.Phone, index, phone, claims, { false }, emit)
+                forEachSavedEntry(SavedShelf.Card, cardIndex, card, null, { false }, emit)
+            })
+            assertEquals(expected.map { it.ref }, catalog.page(generation, 0))
+            assertFalse(expected.single { it.ref.requestId == "saved/complete" && it.ref.shelf == SavedShelf.Phone }.removable)
+            assertTrue(expected.any { it.storedMetadataTooLarge && it.displaySong == null })
+            assertEquals(original.request, index.getDownload(original.request.id)?.request)
+            assertTrue(phone.isCached(original.request.id, 0, 4))
+            assertEquals(expected.size.toLong(), generation.count)
+        } finally { try { phone.release(); card.release() } finally { database.close() } }
+    }
+
+    @Test fun aRealStreamingIndexFailureClosesItsCursorAndKeepsThePriorCatalog(): Unit = io {
+        val database = StandaloneDatabaseProvider(context)
+        val cache = SimpleCache(folders.newFolder(), NoOpCacheEvictor(), database)
+        try {
+            cache.checkInitialization()
+            val index = DefaultDownloadIndex(database, "catalog-fault")
+            for (n in 0..2) {
+                val id = "saved/$n"
+                val request = DownloadRequest.Builder(id, Uri.parse("http://127.0.0.1:7814/42"))
+                    .setCustomCacheKey(id).setData(encodeSong(requireNotNull(entry(id, "Song$n").song))).build()
+                index.putDownload(Download(request, Download.STATE_COMPLETED, 1, 2, 4,
+                    Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+                seed(cache, id)
+            }
+            val good = catalog.rebuild(listOf(entry("saved/kept", "Kept")))
+            val opened = ArrayList<DownloadCursor>()
+            var projected = 0
+            val bad = object : WritableDownloadIndex by index {
+                override fun getDownloads(vararg states: Int): DownloadCursor {
+                    val actual = index.getDownloads(*states); opened += actual
+                    var reads = 0
+                    return object : DownloadCursor by actual {
+                        override fun getDownload(): Download {
+                            if (++reads == 5) throw IOException("Fixture projection failed after a row")
+                            return actual.download
+                        }
+                    }
+                }
+            }
+            assertThrows(IOException::class.java) {
+                catalog.rebuildFrom({ emit -> forEachSavedEntry(SavedShelf.Phone, bad, cache, null, { false }) {
+                    projected++; emit(it)
+                } })
+            }
+            assertEquals(1, projected) // First three reads build ownership, fourth projects, fifth fails.
+            assertTrue(opened.single().isClosed)
+            assertEquals(good, catalog.snapshot())
+            assertEquals(listOf(entry("saved/kept", "Kept").ref), catalog.page(good, 0))
+            assertTrue((0..2).all { cache.isCached("saved/$it", 0, 4) && index.getDownload("saved/$it") != null })
+        } finally { try { cache.release() } finally { database.close() } }
+    }
+
+    private fun seed(cache: SimpleCache, key: String, size: Int = 4) {
+        val hole = requireNotNull(cache.startReadWrite(key, 0, size.toLong()))
+        try {
+            val file = cache.startFile(key, 0, size.toLong()); file.writeBytes(ByteArray(size) { 7 })
+            cache.commitFile(file, size.toLong())
+            cache.applyContentMetadataMutations(key,
+                ContentMetadataMutations.setContentLength(ContentMetadataMutations(), 4L))
+        } finally { cache.releaseHoleSpan(hole) }
     }
 
     private fun entry(id: String, title: String, shelf: SavedShelf = SavedShelf.Phone): SavedEntry =

@@ -64,7 +64,12 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
     }
 
     /** Failed/cancelled enumeration leaves the previous complete generation visible, not a prefix. */
-    @Synchronized fun rebuild(entries: Iterable<SavedEntry>, cancelled: () -> Boolean = { false }): SavedCatalogSnapshot {
+    fun rebuild(entries: Iterable<SavedEntry>, cancelled: () -> Boolean = { false }): SavedCatalogSnapshot =
+        rebuildFrom({ emit -> entries.forEach(emit) }, cancelled)
+
+    /** Project directly from native indexes/caches without first collecting the full display list. */
+    @Synchronized fun rebuildFrom(project: ((SavedEntry) -> Unit) -> Unit,
+        cancelled: () -> Boolean = { false }): SavedCatalogSnapshot {
         requireWorker()
         database.beginTransaction()
         try {
@@ -72,7 +77,7 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
             if (old.generation == Long.MAX_VALUE) throw IOException("Saved catalog generation exhausted")
             database.delete("copies", null, null)
             var count = 0L
-            for (entry in entries) {
+            project { entry ->
                 if (cancelled()) throw CancellationException("Saved catalog rebuild cancelled")
                 val song = entry.displaySong
                 val values = ContentValues().apply {

@@ -308,16 +308,26 @@ internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache:
  * This does not bound native cursor windows, key names, cache metadata or the final display list.
  */
 internal fun savedInventory(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
-    ownsCover: (String) -> Boolean): List<SavedEntry> = index.getDownloads().use { cursor ->
-    savedInventory(shelf, {
+    ownsCover: (String) -> Boolean): List<SavedEntry> = ArrayList<SavedEntry>().also { entries ->
+    forEachSavedEntry(shelf, index, cache, played, ownsCover) { entries += it }
+}
+
+/** Streaming projection for a transactional consumer; a failed scan must never publish a prefix. */
+internal fun forEachSavedEntry(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
+    ownsCover: (String) -> Boolean, emit: (SavedEntry) -> Unit) = index.getDownloads().use { cursor ->
+    projectSavedInventory(shelf, {
         cursor.moveToPosition(-1)
         sequence { while (cursor.moveToNext()) yield(cursor.download) }
-    }, cache, played, ownsCover)
+    }, cache, played, ownsCover, emit)
 }
 
 private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
-    ownsCover: (String) -> Boolean): List<SavedEntry> {
-    val entries = ArrayList<SavedEntry>()
+    ownsCover: (String) -> Boolean): List<SavedEntry> = ArrayList<SavedEntry>().also { entries ->
+    projectSavedInventory(shelf, downloads, cache, played, ownsCover) { entries += it }
+}
+
+private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
+    ownsCover: (String) -> Boolean, emit: (SavedEntry) -> Unit) {
     val removableIds = soleOwners(downloads())
     for (download in downloads()) {
         if (download.state == Download.STATE_REMOVING) continue
@@ -327,10 +337,10 @@ private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download
         val (coverage, bytes) = savedCoverage(cache, key)
         // Only a new save's own cover is shown, and only for the row it was fetched for (see DownloadArt).
         val newSave = request.id.startsWith(NEW_SAVE_PREFIX) && request.customCacheKey == request.id
-        entries += SavedEntry(ref, decodeSavedSong(request.data), savedOrigin(request.uri.toString()), download.state,
+        emit(SavedEntry(ref, decodeSavedSong(request.data), savedOrigin(request.uri.toString()), download.state,
             coverage, bytes, newSave && ownsCover(request.id), request.id in removableIds,
             stoppedAfterRestart = download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON,
-            storedMetadataTooLarge = request.data.size > TRACK_METADATA_MAX_BYTES)
+            storedMetadataTooLarge = request.data.size > TRACK_METADATA_MAX_BYTES))
     }
     // Played copies live only in the phone's cache; [played] is null for any other shelf.
     if (played != null) for (key in cache.keys.sorted()) {
@@ -341,11 +351,10 @@ private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download
         val metadata = cache.getContentMetadata(key)
         val from = metadata.get(SAVED_FROM_METADATA, null as String?) ?: key.removePrefix(PLAYED_PREFIX)
         val songData = metadata.get(SONG_METADATA, null as ByteArray?)
-        entries += SavedEntry(ref, songData?.let(::decodeSavedSong),
+        emit(SavedEntry(ref, songData?.let(::decodeSavedSong),
             savedOrigin(from), null, coverage, bytes, ownCover = false, removable = played.removable(key),
-            storedMetadataTooLarge = songData != null && songData.size > TRACK_METADATA_MAX_BYTES)
+            storedMetadataTooLarge = songData != null && songData.size > TRACK_METADATA_MAX_BYTES))
     }
-    return entries
 }
 
 /**
