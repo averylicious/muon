@@ -53,6 +53,7 @@ class MoveCommandAdmissionTest {
     private val shelves = mutableListOf<Shelf>()
     private val services = mutableListOf<ServiceController<MuonDownloadService>>()
     private val holds = mutableListOf<CountDownLatch>()
+    @Volatile private var removalHold: CountDownLatch? = null
     private val storeField = OfflineStore::class.java.getDeclaredField("store").apply { isAccessible = true }
     private val moverField = OfflineStore::class.java.getDeclaredField("mover").apply { isAccessible = true }
     private var previousStore: Any? = null
@@ -392,6 +393,32 @@ class MoveCommandAdmissionTest {
         assertArrayEquals(byteArrayOf(3), phone.manager.downloadIndex.getDownload("repeat")?.request?.data)
     }
 
+    @Test fun removalTasksHaveTheirOwnCapAndExcessRowsRemainAvailableForRetry() {
+        val ids = (1..5).map { "remove-$it" }
+        ids.forEach { complete(phone, it) }
+        val service = service()
+        awaitSettled(phone.manager)
+        val hold = CountDownLatch(1).also(holds::add)
+        removalHold = hold
+        ids.forEachIndexed { i, id ->
+            service.get().onStartCommand(DownloadService.buildRemoveDownloadIntent(app,
+                MuonDownloadService::class.java, id, false), 0, i + 1)
+        }
+        assertTrue(ShadowToast.getTextOfLatestToast().contains("wasn't queued"))
+        assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(ids.last())?.state)
+        assertTrue(phone.cache.isCached(ids.last(), 0, payload.size.toLong()))
+        hold.countDown()
+        awaitSettled(phone.manager)
+        ids.dropLast(1).forEach { assertNull(phone.manager.downloadIndex.getDownload(it)) }
+        assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(ids.last())?.state)
+        service.get().onStartCommand(DownloadService.buildRemoveDownloadIntent(app,
+            MuonDownloadService::class.java, ids.last(), false), 0, 6)
+        awaitSettled(phone.manager)
+        assertNull(phone.manager.downloadIndex.getDownload(ids.last()))
+        assertTrue(phone.cache.getCachedSpans(ids.last()).isEmpty())
+        assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(kept)?.state)
+    }
+
     @Test fun aBudgetRefusedMoveTokenReleasesTheReceiptWithoutRemovingEitherCopy() {
         complete(card, kept)
         val store = requireNotNull(OfflineStore.current())
@@ -459,7 +486,10 @@ class MoveCommandAdmissionTest {
             object : Downloader {
                 override fun download(progressListener: Downloader.ProgressListener?) = error("No downloading in this fixture")
                 override fun cancel() = Unit
-                override fun remove() { cache.removeResource(request.customCacheKey ?: request.id) }
+                override fun remove() {
+                    removalHold?.let { check(it.await(10, TimeUnit.SECONDS)) }
+                    cache.removeResource(request.customCacheKey ?: request.id)
+                }
             }
         }
         return Shelf(cache, DownloadManager(app, index, downloaders), service).also(shelves::add)
