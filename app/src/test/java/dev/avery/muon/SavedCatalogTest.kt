@@ -131,8 +131,8 @@ class SavedCatalogTest {
         val card = SimpleCache(folders.newFolder(), NoOpCacheEvictor(), database)
         try {
             phone.checkInitialization(); card.checkInitialization()
-            val index = DefaultDownloadIndex(database, "catalog-phone")
-            val cardIndex = DefaultDownloadIndex(database, "catalog-card")
+            val index = DefaultDownloadIndex(database, "catalog_phone")
+            val cardIndex = DefaultDownloadIndex(database, "catalog_card")
             fun put(target: DefaultDownloadIndex, id: String, key: String, state: Int, data: ByteArray): Download {
                 val request = DownloadRequest.Builder(id, Uri.parse("http://127.0.0.1:7814/api1/file/42"))
                     .setCustomCacheKey(key).setData(data).build()
@@ -178,7 +178,7 @@ class SavedCatalogTest {
         val cache = SimpleCache(folders.newFolder(), NoOpCacheEvictor(), database)
         try {
             cache.checkInitialization()
-            val index = DefaultDownloadIndex(database, "catalog-fault")
+            val index = DefaultDownloadIndex(database, "catalog_fault")
             for (n in 0..2) {
                 val id = "saved/$n"
                 val request = DownloadRequest.Builder(id, Uri.parse("http://127.0.0.1:7814/42"))
