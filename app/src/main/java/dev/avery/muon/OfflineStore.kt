@@ -100,6 +100,8 @@ internal object OfflineStore {
         val playedClaims: PlayedClaims = PlayedClaims.none(),
         val moves: DownloadMoveReceipts = DownloadMoveReceipts()) {
         /** The phone's cache, which also holds the played-song copies. */
+        var bootstrapPending = 0 // Application looper only.
+        var bootstrapFailed = false
         val cache: SimpleCache get() = phone.cache
         /** Commands admitted by the services since a completion census; no snapshot survives a mutation. */
         val moveCommandEpoch = java.util.concurrent.atomic.AtomicLong()
@@ -222,11 +224,14 @@ internal object OfflineStore {
     private fun watch(context: Context, shelf: Shelf, store: Store, main: Handler) {
         // Live callbacks and publication run on the application/main looper. An index snapshot can
         // already be obsolete when posted; retain newer events until that one bootstrap finishes.
-        var changed: MutableSet<String>? = HashSet()
+        val snapshot = DownloadBootstrapSnapshot(context)
+        store.bootstrapPending++
+        DownloadMarks.summary = DownloadSummaryStatus.Loading
+        var changed: DownloadBootstrapSnapshot? = snapshot
         shelf.manager.addListener(object : DownloadManager.Listener {
             override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) {
                 val id = download.request.id
-                changed?.add(id)
+                changed?.changed(id)
                 store.record(DownloadStatus.of(download))
                 if (download.state == Download.STATE_FAILED || download.state == Download.STATE_REMOVING)
                     store.moves.find(shelf, id)?.let(store.moves::finish)
@@ -234,7 +239,7 @@ internal object OfflineStore {
             }
             override fun onIdle(m: DownloadManager) { finishReadyMoves(context, store) }
             override fun onDownloadRemoved(m: DownloadManager, download: Download) {
-                changed?.add(download.request.id)
+                changed?.changed(download.request.id)
                 store.moves.acknowledgeRemoval(shelf, download.request)
                 store.moves.invalidate(download.request.id)
                 store.removed(download)
@@ -244,13 +249,31 @@ internal object OfflineStore {
         val bootstrap = Executors.newSingleThreadExecutor()
         try {
             bootstrap.execute {
-                // Only each row's ID, state and byte count wait for the main thread, not its stored song
-                // record (#253): each cursor row is projected as it is read and its Download dropped.
-                val known = ArrayList<DownloadStatus>()
-                runCatching { shelf.manager.downloadIndex.getDownloads().use { while (it.moveToNext()) known += DownloadStatus.of(it.download) } }
+                // A complete disk spool, then sixteen statuses per main-looper turn. Its separate
+                // live-event tombstones cannot be blocked by this worker's native-index cursor.
+                snapshot.read(shelf.manager.downloadIndex)
                 main.post {
-                    try { known.filterNot { it.id in changed.orEmpty() }.forEach(store.record) }
-                    finally { changed = null } // No lifetime-long tombstones for removed/changed songs.
+                    fun finish(success: Boolean) {
+                        changed = null
+                        snapshot.close()
+                        store.bootstrapFailed = store.bootstrapFailed || !success
+                        store.bootstrapPending--
+                        DownloadMarks.summary = when {
+                            store.bootstrapPending > 0 -> DownloadSummaryStatus.Loading
+                            store.bootstrapFailed -> DownloadSummaryStatus.Unavailable
+                            else -> DownloadSummaryStatus.Ready
+                        }
+                    }
+                    fun publish(offset: Long) {
+                        try {
+                            val batch = snapshot.page(offset)
+                            if (batch.isEmpty()) { finish(true); return }
+                            for (status in batch) if (snapshot.unchanged(status.id)) store.record(status)
+                            if (offset > Long.MAX_VALUE - batch.size) { finish(false); return }
+                            main.post { publish(offset + batch.size) }
+                        } catch (_: Exception) { finish(false) }
+                    }
+                    publish(0)
                 }
             }
         } finally { bootstrap.shutdown() }

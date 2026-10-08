@@ -40,7 +40,7 @@ internal class DownloadByteLedger(private val file: File) : Closeable {
                 val sql = if (bytes == null) "DELETE FROM sizes WHERE id=?" else "INSERT OR REPLACE INTO sizes(id,bytes) VALUES(?,?)"
                 db.compileStatement(sql).use {
                     it.bindBlob(1,key)
-                    if (bytes == null) it.executeUpdateDelete() else { it.bindLong(2,bytes); it.executeInsert() }
+                    if (bytes == null) it.executeUpdateDelete() else { it.bindLong(2,bytes); check(it.executeInsert() != -1L) { "Download tally write failed" } }
                 }
                 db.setTransactionSuccessful()
             } finally { db.endTransaction() }

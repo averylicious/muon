@@ -131,11 +131,13 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val rows = if (card != null || cardUnavailable) 5 else 4
     // Free space where new downloads go: the card's when they go there (#16 QA).
     val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
-    StorageBar(if (DownloadMarks.bytesKnown) DownloadMarks.bytes else 0L, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
+    StorageBar(if (DownloadMarks.bytesKnown && DownloadMarks.summary == DownloadSummaryStatus.Ready) DownloadMarks.bytes else 0L, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
         // Opens Saved copies (#213), where each copy is listed, played and removed on its own.
         SettingsRow(shape = rowShape(0, rows), headline = "Saved copies",
             supporting = if (moving != null) "Moving ${moving.first} of ${moving.second}…"
+                else if (DownloadMarks.summary == DownloadSummaryStatus.Loading) "Loading saved copy totals…"
+                else if (DownloadMarks.summary == DownloadSummaryStatus.Unavailable) "Saved copy totals unavailable. Open to see your copies."
                 else if (songs == 0) "None yet. Long-press a song, or use Save copies on an album, artist or playlist."
                 else "$songs ${if (songs == 1) "copy" else "copies"} · ${if (DownloadMarks.bytesKnown) formatBytes(DownloadMarks.bytes) else "Size unavailable"} · $UNVERIFIED",
             trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } },

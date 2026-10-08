@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
  * originals are streamed and never stored. A live song is never matched to a copy by its number (#213).
  */
 internal enum class DownloadMark { Queued, Downloading, Done }
+internal enum class DownloadSummaryStatus { Loading, Ready, Unavailable }
 
 /** A live song's media ID, "origin/track id"; older downloads used the same text as their key. */
 internal fun downloadId(origin: String, trackId: Long): String = "$origin/$trackId"
@@ -52,6 +53,7 @@ internal fun formatBytes(bytes: Long): String = when {
  */
 internal object DownloadMarks {
     val marks = mutableStateMapOf<String, DownloadMark>()
+    var summary by mutableStateOf(DownloadSummaryStatus.Loading)
     /** State/removal signal without copying every mark into a Compose effect key. */
     var revision by mutableLongStateOf(0L)
     /** Bytes the finished downloads take. */
