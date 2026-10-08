@@ -215,6 +215,31 @@ class SavedCatalogTest {
         } finally { try { cache.release() } finally { database.close() } }
     }
 
+    @Test fun reentrantReadersAndRebuildsCannotExposeThePartialGeneration(): Unit = io {
+        val old = catalog.rebuild(listOf(entry("saved/kept", "Kept")))
+        val current = catalog.rebuildFrom({ emit ->
+            emit(entry("saved/new", "New"))
+            assertThrows(IllegalStateException::class.java) { catalog.page(old, 0) }
+            assertThrows(IllegalStateException::class.java) { catalog.snapshot() }
+            assertThrows(IllegalStateException::class.java) { catalog.rebuild(emptyList()) }
+            assertThrows(IllegalStateException::class.java) { catalog.close() }
+        })
+        assertEquals(listOf(entry("saved/new", "New").ref), catalog.page(current, 0))
+        assertThrows(SavedCatalogStale::class.java) { catalog.page(old, 0) }
+    }
+
+    @Test fun anotherNativeConnectionPublishesOnlyCommittedGenerationsAndOldSnapshotsAreRefused(): Unit = io {
+        val old = catalog.rebuild(listOf(entry("saved/kept", "Kept")))
+        val other = SavedCatalog.open(context)
+        try {
+            assertEquals(listOf(entry("saved/kept", "Kept").ref), other.page(old, 0))
+            val current = other.rebuild(listOf(entry("saved/new", "New")))
+            assertThrows(SavedCatalogStale::class.java) { catalog.page(old, 0) }
+            assertEquals(current, catalog.snapshot())
+            assertEquals(listOf(entry("saved/new", "New").ref), catalog.page(current, 0))
+        } finally { other.close() }
+    }
+
     private fun seed(cache: SimpleCache, key: String, size: Int = 4) {
         val hole = requireNotNull(cache.startReadWrite(key, 0, size.toLong()))
         try {

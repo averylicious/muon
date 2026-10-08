@@ -20,6 +20,7 @@ internal class SavedCatalogStale : IOException("Saved copies changed; refresh th
  * raw tags in memory across calls. UI/model hydration and invalidation are a separate integration.
  */
 internal class SavedCatalog private constructor(private val database: SQLiteDatabase) : Closeable {
+    private var rebuilding = false // Also rejects same-thread reentrant readers of a partial generation.
     companion object {
         fun open(context: Context): SavedCatalog {
             requireWorker()
@@ -54,6 +55,7 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
 
     @Synchronized fun snapshot(): SavedCatalogSnapshot {
         requireWorker()
+        check(!rebuilding) { "Saved catalog generation is being rebuilt" }
         return state()
     }
 
@@ -71,7 +73,9 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
     @Synchronized fun rebuildFrom(project: ((SavedEntry) -> Unit) -> Unit,
         cancelled: () -> Boolean = { false }): SavedCatalogSnapshot {
         requireWorker()
+        check(!rebuilding) { "Saved catalog generation is already being rebuilt" }
         database.beginTransaction()
+        rebuilding = true
         try {
             val old = state()
             if (old.generation == Long.MAX_VALUE) throw IOException("Saved catalog generation exhausted")
@@ -96,25 +100,36 @@ internal class SavedCatalog private constructor(private val database: SQLiteData
                 arrayOf<Any>(next.generation, next.count))
             database.setTransactionSuccessful()
             return next
-        } finally { database.endTransaction() }
+        } finally {
+            try { database.endTransaction() } finally { rebuilding = false }
+        }
     }
 
     /** Locators only; caller hydrates current original rows and rechecks destructive ownership. */
     @Synchronized fun page(expected: SavedCatalogSnapshot, offset: Long, limit: Int = SAVED_PAGE_SIZE): List<SavedRef> {
         requireWorker()
         require(offset >= 0 && limit in 1..SAVED_PAGE_SIZE)
-        if (state() != expected) throw SavedCatalogStale()
-        return database.rawQuery("SELECT handle FROM copies ORDER BY unknown_title,sort_title,sort_handle LIMIT ? OFFSET ?",
-            arrayOf(limit.toString(), offset.toString())).use { cursor ->
-            val refs = ArrayList<SavedRef>(limit)
-            while (cursor.moveToNext()) refs += SavedRef.parse(cursor.getString(0))
-                ?: throw IOException("Invalid derived saved locator")
-            refs
-        }
+        check(!rebuilding) { "Saved catalog generation is being rebuilt" }
+        // Checking the generation and reading its page must share a SQLite transaction: another
+        // catalog instance/connection can otherwise rebuild between the two queries.
+        database.beginTransactionNonExclusive()
+        try {
+            if (state() != expected) throw SavedCatalogStale()
+            val refs = database.rawQuery("SELECT handle FROM copies ORDER BY unknown_title,sort_title,sort_handle LIMIT ? OFFSET ?",
+                arrayOf(limit.toString(), offset.toString())).use { cursor ->
+                val result = ArrayList<SavedRef>(limit)
+                while (cursor.moveToNext()) result += SavedRef.parse(cursor.getString(0))
+                    ?: throw IOException("Invalid derived saved locator")
+                result
+            }
+            database.setTransactionSuccessful()
+            return refs
+        } finally { database.endTransaction() }
     }
 
     @Synchronized override fun close() {
         requireWorker()
+        check(!rebuilding) { "Saved catalog generation is being rebuilt" }
         database.close()
     }
 }
