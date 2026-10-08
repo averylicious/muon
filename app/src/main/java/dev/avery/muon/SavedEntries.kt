@@ -152,7 +152,13 @@ internal class IndexRow(val id: String, val key: String, val ownKey: Boolean, va
  * and key; two is enough to know a name is shared. The [soleOwner] rule without each row's raw request data.
  * A snapshot: the full record of a row being acted on is read again from its index.
  */
-internal class IndexCensus(val rows: List<IndexRow>) {
+internal interface OwnershipCensus {
+    fun soleOwner(id: String): Boolean
+    fun names(name: String): Boolean
+    fun onlyNaming(name: String): IndexRow?
+}
+
+internal class IndexCensus(val rows: List<IndexRow>) : OwnershipCensus {
     // Null means more than one row carries the ID. Keep one reference, not a per-lookup full scan.
     private val singles = HashMap<String, IndexRow?>()
     private val keys = HashMap<String, Int>()
@@ -172,13 +178,13 @@ internal class IndexCensus(val rows: List<IndexRow>) {
         singles[row.id] === row && row.ownKey && row.key == row.id &&
             !row.id.startsWith(PLAYED_PREFIX) && keys[row.key] == 1
 
-    fun soleOwner(id: String): Boolean = row(id)?.let { soleOwner(it) } == true
+    override fun soleOwner(id: String): Boolean = row(id)?.let { soleOwner(it) } == true
 
     /** Whether any row has [name] as its ID or its key. */
-    fun names(name: String): Boolean = name in singles || name in keys
+    override fun names(name: String): Boolean = name in singles || name in keys
 
     /** The row with [name] as both ID and key, when no other row has it as either. */
-    fun onlyNaming(name: String): IndexRow? = row(name)?.takeIf { it.key == name && keys[name] == 1 }
+    override fun onlyNaming(name: String): IndexRow? = row(name)?.takeIf { it.key == name && keys[name] == 1 }
 
     companion object {
         /** For fixtures holding full rows; production reads [indexCensus]. */
@@ -263,7 +269,7 @@ internal fun movable(download: Download, sourceRows: List<Download>, targetRows:
  * [movable] over two censuses (#253). [download] is the source row's full record, read again; a target row
  * there must be the only one naming the key, and its full record, read by [targetRecord], the exact request.
  */
-internal fun movable(download: Download, source: IndexCensus, target: IndexCensus, targetRecord: (String) -> Download?): Boolean {
+internal fun movable(download: Download, source: OwnershipCensus, target: OwnershipCensus, targetRecord: (String) -> Download?): Boolean {
     val id = download.request.id
     if (download.request.customCacheKey != id || !source.soleOwner(id)) return false
     if (!target.names(id)) return true
