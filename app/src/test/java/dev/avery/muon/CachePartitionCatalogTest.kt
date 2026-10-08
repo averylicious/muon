@@ -68,7 +68,7 @@ class CachePartitionCatalogTest {
         SQLiteDatabase.openOrCreateDatabase(File(root,"partition-locators-v1.db"),null).use { assertEquals(42,it.version) }
         val foreign=folders.newFolder()
         SQLiteDatabase.openOrCreateDatabase(File(foreign,"partition-locators-v1.db"),null).use {
-            it.execSQL("CREATE TABLE unrelated(value INTEGER)"); it.execSQL("INSERT INTO unrelated VALUES(7)")
+            it.execSQL("CREATE TABLE sqliteXunrelated(value INTEGER)"); it.execSQL("INSERT INTO sqliteXunrelated VALUES(7)")
         }
         assertThrows(IOException::class.java) { CachePartitionCatalog(foreign).close() }
     }

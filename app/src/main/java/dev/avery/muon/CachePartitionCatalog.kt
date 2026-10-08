@@ -23,7 +23,7 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
             try {
                 when (database.version) {
                     0 -> {
-                        val existing=database.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='android_metadata'",null).use {
+                        val existing=database.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name!='android_metadata'",null).use {
                             if (!it.moveToFirst()) throw IOException("Partition schema unreadable")
                             it.getLong(0)
                         }
