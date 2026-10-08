@@ -42,6 +42,28 @@ class DownloadMarkLedgerTest {
             assertEquals(1L,ledger.done); assertTrue(ledger.known)
         }
     }
+    @Test fun aWorkerOnlyReadFailurePublishesUnknownOnceWithoutWaitingForADownloadEvent() {
+        val main=android.os.Handler(android.os.Looper.getMainLooper())
+        DownloadMarks.countsKnown=true
+        var signals=0
+        val ledger=DownloadMarkLedger(folders.newFolder()) {
+            signals++; main.post { DownloadMarks.countsKnown=false }
+        }
+        val worker=Thread { repeat(1000) { assertNull(ledger.get("kept")) } }
+        worker.start(); worker.join(5000)
+        assertFalse(worker.isAlive); assertFalse(ledger.known); assertEquals(1,signals)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertFalse(DownloadMarks.countsKnown)
+        ledger.put("kept",DownloadMark.Done); ledger.close(); assertEquals(1,signals)
+        DownloadMarks.countsKnown=true // Shared fixture state restored.
+    }
+    @Test fun aThrowingNotificationNeverRestoresTrustOrThrowsIntoTheNativeStateCallback() {
+        var signals=0
+        val ledger=DownloadMarkLedger(folders.newFolder()) { signals++; throw IllegalStateException("sink failed") }
+        ledger.put("kept",DownloadMark.Done); assertFalse(ledger.known)
+        repeat(100) { assertNull(ledger.get("kept")); ledger.put("kept",DownloadMark.Done) }
+        assertEquals(1,signals); ledger.close(); assertEquals(1,signals)
+    }
     @Test fun failureRevokesCountsAndBadgesWithoutTouchingOriginalAudio() {
         val dir = folders.newFolder()
         val original = File(dir,"original").apply { writeBytes(byteArrayOf(1,2,3)) }

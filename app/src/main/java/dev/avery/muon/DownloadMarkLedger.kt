@@ -5,7 +5,7 @@ import java.io.Closeable
 import java.io.File
 
 /** Derived display state only. Exact IDs stay on private disk, never in a whole-library UI map. */
-internal class DownloadMarkLedger(private val file: File) : Closeable {
+internal class DownloadMarkLedger(private val file: File, private val onUnknown: () -> Unit = {}) : Closeable {
     @Volatile var known = true
         private set
     @Volatile var done = 0L
@@ -22,7 +22,7 @@ internal class DownloadMarkLedger(private val file: File) : Closeable {
                 opened.execSQL("CREATE TABLE IF NOT EXISTS marks(id BLOB PRIMARY KEY NOT NULL, mark INTEGER NOT NULL)")
                 opened.delete("marks",null,null) // Previous process state cannot establish current badges/counts.
             }
-        } catch (_: Exception) { known = false; null }
+        } catch (_: Exception) { unavailable(); null }
     }
     private fun lookup(db: SQLiteDatabase, key: ByteArray): DownloadMark? =
         db.compileStatement("SELECT COALESCE((SELECT mark FROM marks WHERE id=?),-1)").use {
@@ -35,7 +35,7 @@ internal class DownloadMarkLedger(private val file: File) : Closeable {
     @Synchronized fun get(id: String): DownloadMark? {
         val db = db() ?: return null
         return try { lookup(db,savedCatalogSortKey(id)) }
-        catch (_: Exception) { known = false; null }
+        catch (_: Exception) { unavailable(); null }
     }
 
     /** Application-looper state events, one exact ID at a time; no byte-progress events. */
@@ -56,10 +56,17 @@ internal class DownloadMarkLedger(private val file: File) : Closeable {
                 db.setTransactionSuccessful()
             } finally { db.endTransaction() }
             done += (if (mark == DownloadMark.Done) 1L else 0L) - (if (prior == DownloadMark.Done) 1L else 0L)
-        } catch (_: Exception) { known = false }
+        } catch (_: Exception) { unavailable() }
+    }
+    private fun unavailable() {
+        if (!known) return
+        known = false
+        // At most one UI notification for a poisoned instance, including worker-only read failures.
+        // Notification failure cannot turn an unreadable ledger into trusted state or fail playback.
+        runCatching(onUnknown)
     }
     @Synchronized override fun close() {
-        known = false
+        unavailable()
         try { database?.close() } finally { database = null }
     }
 }
