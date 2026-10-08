@@ -278,19 +278,25 @@ internal fun movable(download: Download, source: IndexCensus, target: IndexCensu
  * saves use `saved/`, a move refuses such a row), so this set can only shrink after it is read, and holding
  * on to it keeps every such key protected. Until it is read, no played copy is removed at all.
  */
-internal class PlayedClaims private constructor(@Volatile private var claimed: Set<String>?) {
+internal class PlayedClaims private constructor(@Volatile private var claimed: Set<String>?,
+    private val disk: PlayedClaimDisk? = null) {
     constructor() : this(null)
+    /** Runtime uses a derived private disk census; the in-memory variant remains a fixture seam. */
+    constructor(context: android.content.Context) : this(null, PlayedClaimDisk(
+        java.io.File(context.noBackupFilesDir, "played-claims-v1.db")))
 
     /** Whether the phone index has been read. */
-    val known: Boolean get() = claimed != null
+    val known: Boolean get() = disk?.known ?: (claimed != null)
 
-    fun ready(keys: Set<String>) { claimed = keys }
+    fun ready(keys: Set<String>) { check(disk == null); claimed = keys }
 
     /** Reads every row of the phone's [index], names only (#253); a failed read leaves the claims as they were. */
-    fun read(index: DownloadIndex) { runCatching { ready(keysIn(index)) } }
+    fun read(index: DownloadIndex) {
+        if (disk != null) disk.read(index) else runCatching { ready(keysIn(index)) }
+    }
 
     /** Whether the played cache may remove [key]: the index has been read and no row names it. */
-    fun removable(key: String): Boolean = claimed?.let { key !in it } ?: false
+    fun removable(key: String): Boolean = disk?.removable(key) ?: (claimed?.let { key !in it } ?: false)
 
     companion object {
         /** For fixtures with no phone index rows naming played keys. */
