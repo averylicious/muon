@@ -21,6 +21,8 @@ internal class PlaybackSessionCallback(
     private val admitSaved: (SavedRef) -> Boolean = { false },
     private val background: Executor = Executor { it.run() },
 ) : MediaSession.Callback {
+    // Cancellation does not free a task that is still queued/running on the admission worker.
+    private val savedAdmissionPending = java.util.concurrent.atomic.AtomicBoolean()
     override fun onConnectAsync(
         session: MediaSession,
         controller: MediaSession.ControllerInfo,
@@ -50,8 +52,10 @@ internal class PlaybackSessionCallback(
             UnsupportedOperationException("Only Muon can supply queue items"),
         )
         return try {
+            require(playbackInputFits(mediaItems)) { "That queue has too many items or too much metadata" }
+            val items = mediaItems.toMutableList()
             val saved = LinkedHashSet<SavedRef>()
-            mediaItems.forEach { item ->
+            items.forEach { item ->
                 val uri = requireNotNull(item.localConfiguration?.uri)
                 if (uri.scheme == SAVED_SCHEME) {
                     // Exactly as Muon writes it, and the same handle as the item's own ID: no other spelling.
@@ -65,13 +69,26 @@ internal class PlaybackSessionCallback(
                 require(uri.path.orEmpty().matches(Regex("/api1/file/[0-9]+")))
                 require(uri.query == null && uri.fragment == null)
             }
-            if (saved.isEmpty()) return Futures.immediateFuture(mediaItems)
+            if (saved.isEmpty()) return Futures.immediateFuture(items)
+            check(savedAdmissionPending.compareAndSet(false, true)) {
+                "Muon is checking another saved queue. Retry after it finishes"
+            }
             val admitted = SettableFuture.create<MutableList<MediaItem>>()
-            background.execute {
-                try {
-                    saved.forEach { require(admitSaved(it)) { "That saved copy isn't here any more" } }
-                    admitted.set(mediaItems)
-                } catch (e: Exception) { admitted.setException(e) }
+            try {
+                background.execute {
+                    try {
+                        if (admitted.isCancelled) return@execute
+                        for (ref in saved) {
+                            if (admitted.isCancelled) return@execute
+                            require(admitSaved(ref)) { "That saved copy isn't here any more" }
+                        }
+                        admitted.set(items)
+                    } catch (e: Exception) { admitted.setException(e) }
+                    finally { savedAdmissionPending.set(false) }
+                }
+            } catch (e: Exception) {
+                savedAdmissionPending.set(false)
+                admitted.setException(e)
             }
             admitted
         } catch (e: Exception) { Futures.immediateFailedFuture(e) }
