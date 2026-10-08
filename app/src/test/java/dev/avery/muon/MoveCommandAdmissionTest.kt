@@ -274,7 +274,7 @@ class MoveCommandAdmissionTest {
         val original = Download(raw, Download.STATE_STOPPED, 10, 20, payload.size.toLong(),
             RETAINED_STOP_REASON, Download.FAILURE_REASON_NONE)
         native.putDownload(original)
-        phone = shelf("omitted_service", MuonDownloadService::class.java, ManagerStartupIndex(RetainedDownloadIndex(native)))
+        phone = shelf("omitted_service", MuonDownloadService::class.java, ManagerStartupIndex(RetainedDownloadIndex(native, folders.newFile())))
         val hole = requireNotNull(phone.cache.startReadWrite(raw.id, 0, payload.size.toLong()))
         try {
             val file = phone.cache.startFile(raw.id, 0, payload.size.toLong())
@@ -404,6 +404,7 @@ class MoveCommandAdmissionTest {
             service.get().onStartCommand(DownloadService.buildRemoveDownloadIntent(app,
                 MuonDownloadService::class.java, id, false), 0, i + 1)
         }
+        shadowOf(Looper.getMainLooper()).idle() // Publish the refusal without waiting for held tasks.
         assertTrue(ShadowToast.getTextOfLatestToast().contains("wasn't queued"))
         assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(ids.last())?.state)
         assertTrue(phone.cache.isCached(ids.last(), 0, payload.size.toLong()))

@@ -131,7 +131,8 @@ internal object OfflineStore {
         val cache = SimpleCache(folder, evictor, database)
         val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client))
         // The manager loads no retained stopped rows at startup (#253, [ManagerStartupIndex]).
-        val manager = DownloadManager(context, ManagerStartupIndex(RetainedDownloadIndex(DefaultDownloadIndex(database, index))),
+        val manager = DownloadManager(context, ManagerStartupIndex(RetainedDownloadIndex(DefaultDownloadIndex(database, index),
+            File(context.cacheDir, "muon-retained-startup-${index.ifEmpty { "phone" }}.ids"))),
             DefaultDownloaderFactory(factory, Executors.newFixedThreadPool(2)))
         manager.maxParallelDownloads = 2
         return Shelf(cache, manager, service, present)

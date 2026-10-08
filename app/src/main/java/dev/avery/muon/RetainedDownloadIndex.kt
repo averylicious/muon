@@ -4,6 +4,9 @@ import android.os.Looper
 import android.database.sqlite.SQLiteException
 import androidx.media3.common.util.UnstableApi
 import java.io.IOException
+import java.io.File
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadCursor
 import androidx.media3.exoplayer.offline.DownloadProgress
@@ -25,7 +28,7 @@ internal const val RETAINED_STOP_REASON = 213
  * by Muon's service startup. This does not synchronize card loss or drain pre-existing workers.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class RetainedDownloadIndex(private val actual: WritableDownloadIndex) : WritableDownloadIndex by actual {
+internal class RetainedDownloadIndex(private val actual: WritableDownloadIndex, private val startupFile: File) : WritableDownloadIndex by actual {
     private var inspectionFailure: IOException? = null
     private var inspected = false // Protected by inspect; bootstrap/saved inventory also read this index.
 
@@ -58,27 +61,45 @@ internal class RetainedDownloadIndex(private val actual: WritableDownloadIndex) 
             // onto the UI thread; the caller reports not ready and the manager's worker initializes.
             if (Looper.myLooper() == Looper.getMainLooper()) throw IOException("Saved copies are still initializing")
             try {
-                // Only the IDs wait while the cursor is open (#253), not each row's request and stored tags.
-                val pending = ArrayList<String>()
-                actual.getDownloads(*UNFINISHED).use { cursor ->
-                    while (cursor.moveToNext()) pending += cursor.download.request.id
-                }
-                // Close the cursor before updating; an IO failure propagates to Media3's initialization,
-                // which loads no tasks. Partial state updates still preserve the requests and their bytes.
-                for (id in pending) {
-                    // One full record at a time, read again just before its write. In supported startup no
-                    // other writer runs before this finishes: Media3's worker is waiting in this call, and its
-                    // commands wait for initialization. A row gone or no longer unfinished means one did, so
-                    // nothing is written for it (no row recreated, no newer record overwritten) and the rest
-                    // is refused like any failed read.
-                    val row = actual.getDownload(id)
-                    if (row == null || row.state !in UNFINISHED) throw IOException("A retained download changed during startup")
-                    val progress = DownloadProgress().apply {
-                        bytesDownloaded = row.bytesDownloaded
-                        percentDownloaded = row.percentDownloaded
+                try {
+                    // A private, per-shelf scratch file replaces the whole pending-ID list (#253).
+                    // Length + exact UTF-16 code units: no writeUTF limit or lossy tag/ID encoding.
+                    // Truncate a previous interrupted startup's file; it is never recovery authority.
+                    var pending = 0L
+                    DataOutputStream(startupFile.outputStream().buffered()).use { output ->
+                        actual.getDownloads(*UNFINISHED).use { cursor ->
+                            while (cursor.moveToNext()) {
+                                val id = cursor.download.request.id
+                                output.writeInt(id.length)
+                                for (char in id) output.writeChar(char.code)
+                                pending++
+                            }
+                        }
                     }
-                    actual.putDownload(Download(row.request, Download.STATE_STOPPED, row.startTimeMs,
-                        row.updateTimeMs, row.contentLength, RETAINED_STOP_REASON, Download.FAILURE_REASON_NONE, progress))
+                    // Close both scan/output before any update. Re-read one full row at a time just
+                    // before its write; missing/changed rows refuse without recreating or overwriting.
+                    DataInputStream(startupFile.inputStream().buffered()).use { input ->
+                        while (pending > 0) {
+                            val length = input.readInt()
+                            if (length < 0) throw IOException("Invalid retained startup ID length")
+                            val text = StringBuilder(minOf(length, 4096))
+                            repeat(length) { text.append(input.readChar()) }
+                            val row = actual.getDownload(text.toString())
+                            if (row == null || row.state !in UNFINISHED)
+                                throw IOException("A retained download changed during startup")
+                            val progress = DownloadProgress().apply {
+                                bytesDownloaded = row.bytesDownloaded
+                                percentDownloaded = row.percentDownloaded
+                            }
+                            actual.putDownload(Download(row.request, Download.STATE_STOPPED, row.startTimeMs,
+                                row.updateTimeMs, row.contentLength, RETAINED_STOP_REASON, Download.FAILURE_REASON_NONE, progress))
+                            pending--
+                        }
+                        if (input.read() != -1) throw IOException("Unexpected retained startup IDs")
+                    }
+                } finally {
+                    // No scratch IDs are kept intentionally; crash leftovers are overwritten next start.
+                    startupFile.delete()
                 }
                 inspected = true
             } catch (failure: SQLiteException) {

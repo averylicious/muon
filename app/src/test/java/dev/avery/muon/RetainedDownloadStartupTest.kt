@@ -96,7 +96,7 @@ class RetainedDownloadStartupTest {
                 return index.getDownloads(*states)
             }
         }
-        val guard = RetainedDownloadIndex(onceUnreadable)
+        val guard = RetainedDownloadIndex(onceUnreadable, folders.newFile())
         start(guard, DownloaderFactory { error("No tasks may start") })
         // Exercise the manager directly as a positive control after its failed initialization.
         val fresh = DownloadRequest.Builder("saved/new", Uri.parse("http://127.0.0.1:7814/9"))
@@ -114,7 +114,7 @@ class RetainedDownloadStartupTest {
     @Test fun anEarlyMainThreadCountNeverWritesStartupStatesAndTheWorkerCanStillInitialize() {
         put("pending", "pending", Download.STATE_REMOVING)
         seed("pending")
-        val guard = RetainedDownloadIndex(index)
+        val guard = RetainedDownloadIndex(index, folders.newFile())
         assertThrows(IOException::class.java) { guard.getDownloads().close() }
         assertEquals(Download.STATE_REMOVING, index.getDownload("pending")?.state)
         start(guard, DownloaderFactory { error("The worker must stop the pending removal") })
@@ -129,7 +129,7 @@ class RetainedDownloadStartupTest {
             override fun getDownloads(vararg states: Int): DownloadCursor = throw IOException("Fixture census unavailable")
         }
         val creations = AtomicInteger()
-        start(RetainedDownloadIndex(unreadable), DownloaderFactory {
+        start(RetainedDownloadIndex(unreadable, folders.newFile()), DownloaderFactory {
             creations.incrementAndGet(); error("An unreadable startup must start no task")
         })
         assertEquals(0, creations.get())
@@ -145,7 +145,7 @@ class RetainedDownloadStartupTest {
         val real = DefaultDownloaderFactory(androidx.media3.datasource.cache.CacheDataSource.Factory().setCache(cache), Runnable::run)
         val creations = AtomicInteger()
         val factory = DownloaderFactory { request -> creations.incrementAndGet(); real.createDownloader(request) }
-        start(RetainedDownloadIndex(index), factory)
+        start(RetainedDownloadIndex(index, folders.newFile()), factory)
         val held = requireNotNull(index.getDownload("pending"))
         assertEquals(Download.STATE_STOPPED, held.state)
         assertEquals(RETAINED_STOP_REASON, held.stopReason)
@@ -167,7 +167,7 @@ class RetainedDownloadStartupTest {
         originals.forEach { seed(it.request.id, partial = true) }
         val creations = AtomicInteger()
         val never = DownloaderFactory { creations.incrementAndGet(); error("Retained tasks must not start") }
-        start(RetainedDownloadIndex(index), never)
+        start(RetainedDownloadIndex(index, folders.newFile()), never)
         requireNotNull(manager).resumeDownloads()
         pumpUntil { requireNotNull(manager).isIdle }
         for (old in originals) {
@@ -182,7 +182,7 @@ class RetainedDownloadStartupTest {
             assertEquals(RETAINED_STOP_REASON, held.stopReason)
         }
         requireNotNull(manager).release(); manager = null
-        start(RetainedDownloadIndex(index), never)
+        start(RetainedDownloadIndex(index, folders.newFile()), never)
         assertEquals(0, creations.get())
         val entries = savedInventory(SavedShelf.Phone, rows(), cache, PlayedClaims.none()) { false }
         assertEquals(3, entries.size)
@@ -194,7 +194,7 @@ class RetainedDownloadStartupTest {
         val completed = put("finished", "finished", Download.STATE_COMPLETED)
         seed("finished")
         val real = DefaultDownloaderFactory(androidx.media3.datasource.cache.CacheDataSource.Factory().setCache(cache), Runnable::run)
-        start(RetainedDownloadIndex(index), real)
+        start(RetainedDownloadIndex(index, folders.newFile()), real)
         assertEquals(completed.request, requireNotNull(index.getDownload("finished")).request)
         assertEquals(Download.STATE_COMPLETED, index.getDownload("finished")?.state)
         // A new name remains addable in this process; explicitly stopped to forbid network in this fixture.
@@ -231,7 +231,7 @@ class RetainedDownloadStartupTest {
         small.getDownloads().use { cursor ->
             assertThrows(SQLiteBlobTooBigException::class.java) { cursor.moveToNext() }
         }
-        val guard = RetainedDownloadIndex(small)
+        val guard = RetainedDownloadIndex(small, folders.newFile())
         val creations = AtomicInteger()
         start(guard, DownloaderFactory { creations.incrementAndGet(); error("No task may start") })
         assertTrue(requireNotNull(manager).currentDownloads.isEmpty())
@@ -252,7 +252,7 @@ class RetainedDownloadStartupTest {
         val original = put("stopped", "stopped", Download.STATE_STOPPED, ByteArray(256 * 1024) { 8 })
         seed("stopped", partial = true)
         val small = SmallWindowIndex(index)
-        val guard = RetainedDownloadIndex(small)
+        val guard = RetainedDownloadIndex(small, folders.newFile())
         val creations = AtomicInteger()
         start(guard, DownloaderFactory { creations.incrementAndGet(); error("No task may start") })
         assertTrue(requireNotNull(manager).currentDownloads.isEmpty())
@@ -287,7 +287,7 @@ class RetainedDownloadStartupTest {
         val observed = Observed(index)
         val creations = AtomicInteger()
         val never = DownloaderFactory { creations.incrementAndGet(); error("Retained tasks must not start") }
-        start(RetainedDownloadIndex(observed), never)
+        start(RetainedDownloadIndex(observed, folders.newFile()), never)
         requireNotNull(manager).resumeDownloads()
         pumpUntil { requireNotNull(manager).isIdle }
         assertEquals(0, creations.get())
@@ -324,13 +324,95 @@ class RetainedDownloadStartupTest {
         assertTrue(shown.stoppedAfterRestart)
     }
 
+    @Test fun privateSpoolPreservesLongUnicodeIdsClosesTheScanBeforeWritesAndDeletesScratch() {
+        val scratch = folders.newFile()
+        scratch.writeText("an interrupted startup is not recovery authority")
+        val originals = (0 until 48).map { i ->
+            val id = "Ω".repeat(if (i == 0) 40_000 else 1024) + "-$i"
+            put(id, "shared", Download.STATE_REMOVING, byteArrayOf(i.toByte(), 9, 0),
+                start = 100L + i, update = 200L + i)
+        }
+        seed("shared")
+        val observed = Observed(index)
+        val guard = RetainedDownloadIndex(observed, scratch)
+        val creations = AtomicInteger()
+        start(ManagerStartupIndex(guard), DownloaderFactory {
+            creations.incrementAndGet(); error("Stopped originals must never become tasks")
+        })
+        assertEquals(0, creations.get())
+        assertTrue(requireNotNull(manager).currentDownloads.isEmpty())
+        assertEquals(0, observed.duringScan)
+        assertTrue(observed.retainedCursors.single().isClosed)
+        val events = observed.events.takeWhile { it != "queued" }
+        assertEquals("scan", events.first())
+        assertTrue(events.drop(1).chunked(2).all { it.size == 2 && it[0] == "read:" + it[1].removePrefix("put:") })
+        originals.forEach { old ->
+            val now = requireNotNull(index.getDownload(old.request.id))
+            assertEquals(old.request, now.request)
+            assertEquals(old.startTimeMs, now.startTimeMs)
+            assertEquals(old.updateTimeMs, now.updateTimeMs)
+            assertEquals(old.contentLength, now.contentLength)
+            assertEquals(old.bytesDownloaded, now.bytesDownloaded)
+            assertEquals(old.percentDownloaded, now.percentDownloaded)
+            assertEquals(Download.STATE_STOPPED, now.state)
+            assertEquals(RETAINED_STOP_REASON, now.stopReason)
+        }
+        assertTrue(cache.isCached("shared", 0, 4))
+        assertFalse("No scratch IDs retained after initialization", scratch.exists())
+    }
+
+    @Test fun anUnavailableSpoolRefusesInitializationWithoutTouchingOriginalRowsOrBytes() {
+        val original = put("pending", "shared", Download.STATE_REMOVING)
+        seed("shared")
+        val blocker = folders.newFile()
+        val scratch = java.io.File(blocker, "ids") // Parent is a regular file, so it cannot be opened.
+        val guard = RetainedDownloadIndex(index, scratch)
+        val creations = AtomicInteger()
+        start(ManagerStartupIndex(guard), DownloaderFactory {
+            creations.incrementAndGet(); error("No task may start without complete startup evidence")
+        })
+        assertEquals(0, creations.get())
+        assertEquals(original.request, index.getDownload("pending")?.request)
+        assertEquals(Download.STATE_REMOVING, index.getDownload("pending")?.state)
+        assertTrue(cache.isCached("shared", 0, 4))
+        assertTrue(blocker.isFile)
+        assertFalse(scratch.exists())
+        assertThrows(IOException::class.java) { guard.getDownloads().close() }
+    }
+
+    @Test fun failedScanCloseDeletesSpoolAndNeverUpdatesAnOriginal() {
+        val original = put("pending", "shared", Download.STATE_REMOVING)
+        seed("shared")
+        val scratch = folders.newFile()
+        val scans = AtomicInteger()
+        val failing = object : WritableDownloadIndex by index {
+            override fun getDownloads(vararg states: Int): DownloadCursor {
+                scans.incrementAndGet()
+                val cursor = index.getDownloads(*states)
+                return object : DownloadCursor by cursor {
+                    override fun close() { cursor.close(); throw IOException("Injected close failure") }
+                }
+            }
+        }
+        val guard = RetainedDownloadIndex(failing, scratch)
+        val creations = AtomicInteger()
+        start(ManagerStartupIndex(guard), DownloaderFactory { creations.incrementAndGet(); error("No task") })
+        assertEquals(0, creations.get())
+        assertEquals(original.request, index.getDownload("pending")?.request)
+        assertEquals(Download.STATE_REMOVING, index.getDownload("pending")?.state)
+        assertTrue(cache.isCached("shared", 0, 4))
+        assertFalse(scratch.exists())
+        assertThrows(IOException::class.java) { guard.getDownloads().close() }
+        assertEquals("Failure stays latched", 1, scans.get())
+    }
+
     @Test fun aRowThatCannotBeReadAgainLatchesTheFailureStartsNoTaskAndNeverRescans() {
         val first = put("a", "shared", Download.STATE_REMOVING, largeTags)
         val second = put("b", "b", Download.STATE_REMOVING, largeTags)
         val other = put("other", "shared", Download.STATE_COMPLETED)
         seed("shared"); seed("b")
         val observed = Observed(index) { id -> if (id == "b") throw IOException("Injected row read failure") }
-        val guard = RetainedDownloadIndex(observed)
+        val guard = RetainedDownloadIndex(observed, folders.newFile())
         val creations = AtomicInteger()
         start(guard, DownloaderFactory { creations.incrementAndGet(); error("A failed startup must start no task") })
         assertEquals(0, creations.get())
@@ -383,7 +465,7 @@ class RetainedDownloadStartupTest {
         val kept = put("kept", "kept", Download.STATE_QUEUED, largeTags)
         seed("changing"); seed("kept", partial = true)
         val observed = Observed(index, change)
-        val guard = RetainedDownloadIndex(observed)
+        val guard = RetainedDownloadIndex(observed, folders.newFile())
         val creations = AtomicInteger()
         start(guard, DownloaderFactory { creations.incrementAndGet(); error("A refused startup must start no task") })
         requireNotNull(manager).resumeDownloads()
@@ -441,7 +523,7 @@ class RetainedDownloadStartupTest {
     private val startupStates = intArrayOf(Download.STATE_QUEUED, Download.STATE_STOPPED, Download.STATE_DOWNLOADING,
         Download.STATE_REMOVING, Download.STATE_RESTARTING)
 
-    private fun production(over: WritableDownloadIndex = index) = ManagerStartupIndex(RetainedDownloadIndex(over))
+    private fun production(over: WritableDownloadIndex = index) = ManagerStartupIndex(RetainedDownloadIndex(over, folders.newFile()))
 
     /** A row stopped at an earlier restart, as RetainedDownloadIndex leaves it. */
     private fun retained(id: String, data: ByteArray, start: Long = 123, update: Long = 456): Download {
@@ -538,7 +620,7 @@ class RetainedDownloadStartupTest {
             file.writeBytes(payload); ownCache.commitFile(file, 4)
         } finally { ownCache.releaseHoleSpan(hole) }
         val real = DefaultDownloaderFactory(androidx.media3.datasource.cache.CacheDataSource.Factory().setCache(ownCache), Runnable::run)
-        val guard = RetainedDownloadIndex(own)
+        val guard = RetainedDownloadIndex(own, folders.newFile())
         val chosen = DownloadManager(RuntimeEnvironment.getApplication(), if (view) ManagerStartupIndex(guard) else guard, real)
         val events = Events().also(chosen::addListener)
         try {
