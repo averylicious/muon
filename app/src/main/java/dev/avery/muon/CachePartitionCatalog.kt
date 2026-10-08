@@ -49,7 +49,7 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
     }
     private fun lookup(key:String):CachePartitionAllocation? = database.rawQueryWithFactory({ _,driver,table,query ->
         query.bindBlob(1,savedCatalogSortKey(key)); SQLiteCursor(driver,table,query)
-    },"SELECT directory FROM partitions WHERE key=?",null,null).use { cursor ->
+    },"SELECT directory FROM partitions WHERE key=?",null,"partitions").use { cursor ->
         if (!cursor.moveToFirst()) null else allocation(key,cursor.getString(0))
     }
     @Synchronized fun find(key:String):CachePartitionAllocation? { requireKey(key); return lookup(key) }
@@ -93,7 +93,7 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
         val where=if (after==null) "" else " WHERE key>?"
         return database.rawQueryWithFactory({ _,driver,table,query ->
             after?.let { query.bindBlob(1,savedCatalogSortKey(it)) }; SQLiteCursor(driver,table,query)
-        },"SELECT key,directory FROM partitions$where ORDER BY key LIMIT $PARTITION_LOCATOR_WINDOW",null,null).use { cursor ->
+        },"SELECT key,directory FROM partitions$where ORDER BY key LIMIT $PARTITION_LOCATOR_WINDOW",null,"partitions").use { cursor ->
             val rows=ArrayList<CachePartitionAllocation>(PARTITION_LOCATOR_WINDOW)
             while (cursor.moveToNext()) rows+=allocation(savedCatalogText(cursor.getBlob(0)),cursor.getString(1))
             rows
