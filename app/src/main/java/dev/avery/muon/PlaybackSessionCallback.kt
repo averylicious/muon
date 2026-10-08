@@ -8,10 +8,19 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommands
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
+import java.util.concurrent.Executor
 
-/** The app owns the queue; trusted system controllers operate the existing queue only. */
+/**
+ * The app owns the queue; trusted system controllers operate the existing queue only. A saved copy
+ * (#213) is admitted only from Muon itself, by its exact handle, and only once [admitSaved] has found the
+ * row or played copy it names, which is checked on [background] since it reads an index.
+ */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class PlaybackSessionCallback : MediaSession.Callback {
+internal class PlaybackSessionCallback(
+    private val admitSaved: (SavedRef) -> Boolean = { false },
+    private val background: Executor = Executor { it.run() },
+) : MediaSession.Callback {
     override fun onConnectAsync(
         session: MediaSession,
         controller: MediaSession.ControllerInfo,
@@ -41,14 +50,30 @@ internal class PlaybackSessionCallback : MediaSession.Callback {
             UnsupportedOperationException("Only Muon can supply queue items"),
         )
         return try {
+            val saved = LinkedHashSet<SavedRef>()
             mediaItems.forEach { item ->
                 val uri = requireNotNull(item.localConfiguration?.uri)
+                if (uri.scheme == SAVED_SCHEME) {
+                    // Exactly as Muon writes it, and the same handle as the item's own ID: no other spelling.
+                    val ref = requireNotNull(SavedRef.parse(uri.toString())) { "Not a saved copy Muon made" }
+                    require(item.mediaId == ref.handle)
+                    saved += ref
+                    return@forEach
+                }
                 val endpoint = ServerEndpoint.parse("${uri.scheme}://${uri.encodedAuthority}")
                 require(uri.toString().startsWith(endpoint.origin + "/api1/file/"))
                 require(uri.path.orEmpty().matches(Regex("/api1/file/[0-9]+")))
                 require(uri.query == null && uri.fragment == null)
             }
-            Futures.immediateFuture(mediaItems)
+            if (saved.isEmpty()) return Futures.immediateFuture(mediaItems)
+            val admitted = SettableFuture.create<MutableList<MediaItem>>()
+            background.execute {
+                try {
+                    saved.forEach { require(admitSaved(it)) { "That saved copy isn't here any more" } }
+                    admitted.set(mediaItems)
+                } catch (e: Exception) { admitted.setException(e) }
+            }
+            admitted
         } catch (e: Exception) { Futures.immediateFailedFuture(e) }
     }
 
