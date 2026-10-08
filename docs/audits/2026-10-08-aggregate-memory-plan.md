@@ -1,5 +1,7 @@
 # #253 aggregate memory redesign: finite engineering plan — 2026-10-08
 
+Current continuation: [October9 admission/startup/preparation checkpoint](../handoffs/2026-10-09-download-memory-checkpoint.md). #406 service request/removal budgets and #407 disk-spooled startup IDs are verified/open; #408 preparation budgets are verified/open with832tests per variant and actual signed .784 artifact. Remaining required producer/artwork, full inventory/name/native-cache/played/origin and live/service queue holders are itemized there.
+
 The user explicitly **requires broader saved-library paging and Media3/cache retention memory redesign before Stable**. It is not a post-release deferral or just UAT. Other release-trust deferrals and separate SD-recovery #179 remain unchanged. Source acceptance PRs stay open; this document does not land app changes or authorize Stable.
 
 Inspected application baseline: #390 d0df73a64b3758375424293fca9638dad2b5dee4, including #389 and inherited acceptance stack, main5a123109. Later focused implementations below were reviewed against their own heads. Initial mapping by Claude Opus5.5, Claude Code, High; GPT-6 (Codex desktop, exact variant/effort not exposed) verified relevant sources, corrected unsupported proposals and maintains this plan. Unverified hypotheses are identified. No phone OOM, heap reduction or jank improvement was measured.
