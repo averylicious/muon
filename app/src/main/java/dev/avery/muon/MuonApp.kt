@@ -68,11 +68,19 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var lyricsOpen by rememberSaveable { mutableStateOf(false) }
         // Queue sits over the player exactly as Lyrics does; only one of the two is ever open.
         var queueOpen by rememberSaveable { mutableStateOf(false) }
+        // Saved copies (#213), opened from Settings while Tauon is reachable; offline, they are the library.
+        var savedOpen by rememberSaveable { mutableStateOf(false) }
+        var savedQueueTooLarge by remember { mutableStateOf<SavedEntry?>(null) }
+        var savedQueueStamp by remember { mutableStateOf<QueueActionStamp?>(null) }
+        var liveQueueChoice by remember { mutableStateOf<LiveQueueChoice?>(null) }
+        val latestPlayer by rememberUpdatedState(player)
+        val savedScreenCurrent by rememberUpdatedState((model.offline && tab == Tab.Library) || (savedOpen && tab == Tab.Settings))
         val library = rememberLibrarySettings()
         val context = LocalContext.current
         // Downloads are read in at launch, so rows can mark them, and any left unfinished carry on.
         LaunchedEffect(Unit) { OfflineStore.get(context); OfflineStore.resume(context) }
         val scope = rememberCoroutineScope()
+        val snackbar = remember { SnackbarHostState() }
         // Which playlist is open is about this sitting, not a preference. It is saved with the
         // server it was chosen on, so it survives rotation but never crosses servers, and a
         // refresh that removes or empties it forgets it rather than leaving it to reappear.
@@ -99,21 +107,26 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var playlistList by rememberSaveable(stateSaver = LazyListState.Saver) { mutableStateOf(LazyListState()) }
         // The open artist's page keeps its place while one of its albums is open; another artist starts at the top.
         val artistPageList = rememberSaveable(artistKey, saver = LazyListState.Saver) { LazyListState() }
-        // The library switching between what is on the phone and Tauon's whole collection is a new
-        // list, not the old one grown or shrunk: every list starts again from its top (#16 QA).
-        LaunchedEffect(model.offline) {
-            if (songList.firstVisibleItemIndex == 0 && songList.firstVisibleItemScrollOffset == 0) return@LaunchedEffect
-            songList = LazyListState(); artistList = LazyListState(); playlistList = LazyListState()
-        }
         var albumGrid by rememberSaveable(stateSaver = LazyGridState.Saver) { mutableStateOf(LazyGridState()) }
         var libraryBar by rememberSaveable(stateSaver = TopAppBarState.Saver) { mutableStateOf(TopAppBarState(
             initialHeightOffsetLimit = -Float.MAX_VALUE, initialHeightOffset = 0f, initialContentOffset = 0f)) }
+        // Ignore the initial effect after recreation: the saveable lists already hold their places.
+        // Only a real online/offline boundary starts all top-level views and their header afresh.
+        var browsingOffline by remember(model) { mutableStateOf(model.offline) }
+        LaunchedEffect(model, model.offline) {
+            if (browsingOffline == model.offline) return@LaunchedEffect
+            browsingOffline = model.offline
+            songList = LazyListState(); artistList = LazyListState(); playlistList = LazyListState()
+            albumGrid = LazyGridState()
+            libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
+        }
         var query by rememberSaveable { mutableStateOf("") }
         // Whether the open library page was opened from Search, which Back then returns to.
         var fromSearch by rememberSaveable { mutableStateOf(false) }
         // Whether the search bar is expanded over the Search tab; kept here so a page opened from the
         // results comes back to them.
         var searchOpen by rememberSaveable { mutableStateOf(false) }
+        val currentPlayer by rememberUpdatedState(player)
         val playback = rememberPlayback(player)
         val ui = playback.ui
         val position = remember(playback) { { playback.position } }
@@ -143,7 +156,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 value = SearchResults(found, searching = false, completed = query.trim())
             }
         }
-        val connected = model.endpoint != null
+        // Offline, the saved copies show with or without a known server (#213).
+        val connected = model.endpoint != null || model.offline
         val origin = model.endpoint?.origin
         // Grouped once per library snapshot, off the main thread, and labelled with the server and
         // the snapshot it was grouped from. Keyed on the same snapshot identity that decides whether
@@ -256,32 +270,111 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
         }
         BackHandler(target != BackTarget.None) { goBack() }
+        // Saved copies over Settings: Back closes them first, unless the player is over them.
+        BackHandler(savedOpen && tab == Tab.Settings && !overlayOpen) { savedOpen = false }
         // While the finger is carrying a closed player up, Back cancels that and nothing else: the
         // library underneath is hidden by the rising player and must not be navigated. Registered
         // after the app's own handler, so the dispatcher gives it the press while it is enabled.
         BackHandler(sheet.previewing) { sheet.endPreview() }
+        fun liveQueueRefused(track: TauonTrack, endpoint: ServerEndpoint, shuffle: Boolean?) {
+            val original = player ?: return
+            liveQueueChoice = LiveQueueChoice(track, endpoint, original,
+                QueueActionStamp(0, original.currentTimeline, original.currentMediaItemIndex, original.shuffleModeEnabled),
+                original.repeatMode, shuffle)
+        }
         fun startQueue(list: List<TauonTrack>, track: TauonTrack) {
             val endpoint = model.endpoint ?: return
-            val queue = list.filter { it.playable }
-            val index = queue.indexOfFirst { it.id == track.id }
-            if (index < 0 || player == null) return
-            player.setMediaItems(queue.map { it.mediaItem(endpoint) }, index, 0L)
-            player.prepare(); player.play()
+            val original = player ?: return
+            val plan = try { prepareLiveQueue(list, endpoint, track.id) }
+            catch (_: PlaybackQueueLimit) { liveQueueRefused(track, endpoint, null); return } ?: return
+            original.setMediaItems(plan.items, plan.startIndex, 0L)
+            original.prepare(); original.play()
         }
-        // An album's Play and Shuffle: in order from the first song, or shuffled from a random one.
-        // Both set shuffle to match, as the buttons promise.
+        // An album's Play and Shuffle: only change the mode after the full selection fits.
         fun playAll(list: List<TauonTrack>, shuffle: Boolean) {
             val endpoint = model.endpoint ?: return
-            val queue = list.filter { it.playable }
-            if (queue.isEmpty() || player == null) return
-            player.shuffleModeEnabled = shuffle
-            player.setMediaItems(queue.map { it.mediaItem(endpoint) }, if (shuffle) queue.indices.random() else 0, 0L)
+            val original = player ?: return
+            val plan = try { prepareLiveQueue(list, endpoint) }
+            catch (_: PlaybackQueueLimit) {
+                list.firstOrNull { it.playable }?.let { liveQueueRefused(it, endpoint, shuffle) }
+                return
+            } ?: return
+            original.shuffleModeEnabled = shuffle
+            original.setMediaItems(plan.items, if (shuffle) plan.items.indices.random() else 0, 0L)
+            original.prepare(); original.play()
+        }
+        liveQueueChoice?.let { choice ->
+            AlertDialog(onDismissRequest = { liveQueueChoice = null },
+                title = { Text("Selection too large to queue") },
+                text = { Text("This selection has too many songs or too much metadata to play at once. " +
+                    "You can play only “${choice.track.title}” instead, or choose a smaller collection. All songs stay available.") },
+                confirmButton = { TextButton(onClick = {
+                    liveQueueChoice = null
+                    val original = player
+                    if (original != null && original === choice.player && model.endpoint?.origin == choice.endpoint.origin &&
+                        original.currentTimeline === choice.stamp.timeline &&
+                        original.currentMediaItemIndex == choice.stamp.current &&
+                        original.shuffleModeEnabled == choice.stamp.shuffle && original.repeatMode == choice.repeat) {
+                        val plan = try { prepareLiveQueue(listOf(choice.track), choice.endpoint, choice.track.id) }
+                        catch (_: PlaybackQueueLimit) { null }
+                        if (plan != null) {
+                            choice.shuffle?.let { original.shuffleModeEnabled = it }
+                            original.setMediaItems(plan.items, 0, 0L); original.prepare(); original.play()
+                        } else scope.launch { snackbar.showSnackbar("This song has too much metadata to queue.") }
+                    }
+                }) { Text("Play this song") } },
+                dismissButton = { TextButton(onClick = { liveQueueChoice = null }) { Text("Cancel") } })
+        }
+        // Saved copies (#213) play from their own list, each by its exact handle, cache-only; the queue is
+        // the complete copies in the order shown, starting from the one chosen.
+        fun applySavedQueue(plan: SavedQueuePlan) {
+            if (player == null) return
+            player.setMediaItems(plan.items, plan.startIndex, 0L)
             player.prepare(); player.play()
         }
+        // Preparing an ordered saved queue reads bounded catalog pages off main. Never replace a
+        // queue changed while this request/dialog was pending, or after this screen disappears.
+        fun savedQueueCurrent(stamp: QueueActionStamp?, original: MediaController?): Boolean =
+            original != null && savedScreenCurrent && latestPlayer === original && stamp != null &&
+                original.currentTimeline === stamp.timeline && original.currentMediaItemIndex == stamp.current &&
+                original.shuffleModeEnabled == stamp.shuffle
+        fun playSaved(entry: SavedEntry) {
+            val original = player ?: return
+            val stamp = QueueActionStamp(0, original.currentTimeline, original.currentMediaItemIndex, original.shuffleModeEnabled)
+            savedQueueTooLarge = null; savedQueueStamp = null
+            model.prepareSavedPlayback(entry.ref) { result ->
+                if (savedQueueCurrent(stamp, original)) when (result) {
+                    is SavedPlaybackResult.Ready -> applySavedQueue(result.plan)
+                    is SavedPlaybackResult.TooLarge -> { savedQueueStamp = stamp; savedQueueTooLarge = result.entry }
+                }
+            }
+        }
+        savedQueueTooLarge?.let { entry ->
+            AlertDialog(onDismissRequest = { savedQueueTooLarge = null; savedQueueStamp = null },
+                title = { Text("Saved library too large to queue") },
+                text = { Text("The full saved library has too many copies or too much metadata to play at once. " +
+                    "You can play only “${entry.title()}” instead. All saved copies stay available.") },
+                confirmButton = { TextButton(enabled = player != null, onClick = {
+                    val original = player; val stamp = savedQueueStamp
+                    savedQueueTooLarge = null; savedQueueStamp = null
+                    if (savedQueueCurrent(stamp, original)) model.prepareSavedPlayback(entry.ref, single = true) { result ->
+                        if (result is SavedPlaybackResult.Ready && savedQueueCurrent(stamp, original)) applySavedQueue(result.plan)
+                    }
+                }) { Text("Play this copy") } },
+                dismissButton = { TextButton(onClick = { savedQueueTooLarge = null; savedQueueStamp = null }) { Text("Cancel") } })
+        }
+        fun removeSaved(entry: SavedEntry) = OfflineStore.removeSaved(context, entry.ref)
+        // The list follows what is kept: a copy finishing, being removed, or a played copy coming or going.
+        val savedShown = (model.offline && tab == Tab.Library) || (savedOpen && tab == Tab.Settings)
+        LaunchedEffect(savedShown, DownloadMarks.revision, DownloadMarks.bytes, PlayedCacheState.used) {
+            savedQueueTooLarge = null; savedQueueStamp = null
+            if (savedShown) model.refreshSaved() else model.cancelSavedPlayback()
+        }
+        LaunchedEffect(model.savedSnapshot) { savedQueueTooLarge = null; savedQueueStamp = null }
+        val savedCardUnavailable = remember(savedShown, model.saved) { OfflineStore.current()?.card?.available() == false }
         // The song a long press chose (#46), while its actions sheet is open. Not saved: a sheet is a
         // passing choice, and a rotation that closes it loses nothing.
         var actionTrack by remember { mutableStateOf<TauonTrack?>(null) }
-        val snackbar = remember { SnackbarHostState() }
         // Android 17's local network permission (LocalNetwork.kt): asked for in context, from Connect or
         // the library's card. Once Android stops showing the prompt, the same button opens Settings;
         // coming back with access granted connects.
@@ -289,7 +382,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val askLocalNetwork = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             LocalNetworkState.granted = granted
             LocalNetworkState.denied = !granted
-            if (granted) model.connect()
+            // With no address yet (Connect screen's Allow), the grant starts discovery instead (#278).
+            if (granted && model.address.isNotBlank()) model.connect()
         }
         fun allowLocalNetwork() {
             val rationale = activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, ACCESS_LOCAL_NETWORK) } ?: false
@@ -321,21 +415,30 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         // Play next goes straight after the playing song and Add to queue at the end; the shuffle
         // order keeps both there with shuffle on. With nothing queued, the song simply plays. Undo
-        // takes back that same entry, found again if the queue has moved since.
+        // takes back that same insertion, even among duplicates after a queue move.
         fun queueSong(track: TauonTrack, next: Boolean) {
             val endpoint = model.endpoint ?: return
             val p = player ?: return
             val item = track.mediaItem(endpoint)
-            if (p.mediaItemCount == 0) { p.setMediaItems(listOf(item)); p.prepare(); p.play(); return }
+            if (p.mediaItemCount == 0) {
+                if (!playbackInputFits(listOf(item))) {
+                    liveQueueRefused(track, endpoint, null); return
+                }
+                p.setMediaItems(listOf(item)); p.prepare(); p.play(); return
+            }
             val at = if (next) p.currentMediaItemIndex + 1 else p.mediaItemCount
-            p.addMediaItem(at, item)
+            val insertion = queueInsertion(item)
+            if (!playbackEditFits(p, 0, 0, listOf(insertion.item))) {
+                scope.launch { snackbar.showSnackbar("The queue is full. Remove some queued songs or choose fewer songs.") }
+                return
+            }
+            p.addMediaItem(at, insertion.item)
             snackbar.currentSnackbarData?.dismiss()
             scope.launch {
                 val result = snackbar.showSnackbar(queuedMessage(track.title, next), actionLabel = "Undo",
                     duration = SnackbarDuration.Short)
                 if (result != SnackbarResult.ActionPerformed) return@launch
-                val entries = (0 until p.mediaItemCount).filter { p.getMediaItemAt(it).mediaId == item.mediaId }
-                entries.minByOrNull { kotlin.math.abs(it - at) }?.let { p.removeMediaItem(it) }
+                if (currentPlayer === p) undoQueueInsertion(p, insertion)
             }
         }
         // Go to album and Go to artist open the page over the one on show: an album over an open artist
@@ -400,7 +503,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 active = connected && player != null && ui.item != null && !overlayOpen,
                                 sheet = sheet,
                                 open = {
-                                    if (model.endpoint != null && player != null && playback.ui.item != null && !overlayOpen)
+                                    if (connected && player != null && playback.ui.item != null && !overlayOpen)
                                         playerOpen = true
                                 },
                                 toggle = { if (ui.playing) player?.pause() else player?.play() },
@@ -441,7 +544,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         }, label = "screen") { shown ->
                             when (shown) {
                                 null -> ConnectScreen(model, ::allowLocalNetwork)
-                                Tab.Settings -> SettingsScreen(model, appearance) {
+                                Tab.Settings -> if (savedOpen) {
+                                    SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
+                                        ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
+                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, model.savedPreparing, model::cancelSavedPlayback, back = { savedOpen = false })
+                                } else SettingsScreen(model, appearance, openSaved = { savedOpen = true }) {
                                     player?.stop(); player?.clearMediaItems(); model.disconnect()
                                     // Nothing from the server just left is shown again or kept on disk.
                                     val disk = ArtworkStore.disk(context)
@@ -451,9 +558,14 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     playlistList = LazyListState()
                                     libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
                                     lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library; fromSearch = false
-                                    searchOpen = false
+                                    searchOpen = false; savedOpen = false
                                 }
-                                Tab.Library -> {
+                                // Offline, the library is the saved copies, each its own Unverified entry (#213).
+                                Tab.Library -> if (model.offline) {
+                                    SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
+                                        ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
+                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, model.savedPreparing, model::cancelSavedPlayback)
+                                } else {
                                     val page = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey)
                                     val shift = with(LocalDensity.current) { LIBRARY_PAGE_SHIFT.roundToPx() }
                                     // Opening a playlist or an artist steps down a level, so the page
@@ -612,7 +724,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // Lyrics and Queue are layered over the player, so they open it too; Back from
                     // either then steps down through Now Playing, as it does when they are opened there.
                     fun openPlayer(): Boolean {
-                        if (model.endpoint != null && player != null && playback.ui.item != null) playerOpen = true
+                        if (connected && player != null && playback.ui.item != null) playerOpen = true
                         return playerOpen
                     }
                     PlayerPanel(ui, position, revision, player,
@@ -632,14 +744,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     artists = songArtists(track, artists).filter { !(here is LibraryPage.Artist && here.artistKey == it.key) },
                     dismiss = { actionTrack = null }, queue = { next -> queueSong(track, next) },
                     goToAlbum = ::goToAlbum, goToArtist = ::goToArtist,
-                    download = downloadMark(model.endpoint, track), canDownload = model.endpoint != null && track.playable,
-                    toggleDownload = {
-                        model.endpoint?.let { endpoint ->
-                            if (DownloadMarks.marks[downloadId(endpoint.origin, track.id)] != null)
-                                OfflineStore.remove(context, listOf(downloadId(endpoint.origin, track.id)))
-                            else OfflineStore.add(context, endpoint, listOf(track))
-                        }
-                    })
+                    canSave = model.endpoint != null && track.playable && !model.offline,
+                    save = { model.endpoint?.let { endpoint -> OfflineStore.add(context, endpoint, listOf(track)) } })
             }
             // Dims the library under the player, so a player being dragged, closed or previewed
             // by Back reads as a sheet over it rather than more of the same surface. It stays
@@ -726,8 +832,13 @@ private fun PlayerScrim() {
 /**
  * A surface that covers the tabs and insets itself, because the scaffold below cannot reach it.
  * Material's own `Surface` already blocks touches from reaching what it covers, so nothing here
- * adds a click target that a screen reader would announce. Lyrics uses this; the player has
- * [PlayerHost], because its position is driven by gestures as well as by being opened.
+ * adds a click target that a screen reader would announce. Lyrics and Queue use this; the player
+ * has [PlayerHost], because its position is driven by gestures as well as by being opened.
+ *
+ * Like [PlayerHost], once it is no longer [visible] and only sliding away, its content leaves the
+ * accessibility tree and a non-semantic cover takes new touches, so the outgoing screen cannot be
+ * tapped or read while what replaces it is already in use. A touch already in progress keeps its
+ * own stream, and hardware keyboard focus is not changed by this.
  */
 @Composable
 private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
@@ -735,7 +846,10 @@ private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit)
         enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
         exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Box(Modifier.safeDrawingPadding()) { content() }
+            Box(Modifier.safeDrawingPadding()) {
+                Box(if (visible) Modifier else Modifier.clearAndSetSemantics {}) { content() }
+                if (!visible) Box(Modifier.matchParentSize().pointerInput(Unit) {})
+            }
         }
     }
 }
@@ -771,3 +885,7 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean,
         }
     }
 }
+
+/** A deferred explicit smaller choice cannot replace a newer queue/server/mode decision. */
+private data class LiveQueueChoice(val track: TauonTrack, val endpoint: ServerEndpoint,
+    val player: MediaController, val stamp: QueueActionStamp, val repeat: Int, val shuffle: Boolean?)
