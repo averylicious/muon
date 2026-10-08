@@ -95,7 +95,7 @@ internal object OfflineStore {
         val prefs: android.content.SharedPreferences, val database: StandaloneDatabaseProvider,
         val record: (DownloadStatus) -> Unit, val removed: (Download) -> Unit,
         /** Where a new save's own cover is fetched; fixtures leave it doing nothing. */
-        val artwork: java.util.concurrent.Executor = java.util.concurrent.Executor { },
+        val artwork: DownloadArtworkWork = DownloadArtworkWork(java.util.concurrent.Executor { it.run() }, { _, _ -> }, {}),
         /** Played-copy keys a phone index row names, which the played cache never removes (#213). */
         val playedClaims: PlayedClaims = PlayedClaims.none(),
         val moves: DownloadMoveReceipts = DownloadMoveReceipts()) {
@@ -158,7 +158,7 @@ internal object OfflineStore {
         }
         val art = DownloadArt(File(context.filesDir, "downloads-art"))
         // Covers are fetched one at a time, beside the downloads rather than in their way.
-        val artwork = Executors.newSingleThreadExecutor()
+        val artwork = DownloadArtworkWork(Executors.newSingleThreadExecutor(), art::fetchEntry, art::removeEntry)
         val sizes = DownloadByteTotals()
         fun record(download: DownloadStatus) {
             val id = download.id
@@ -187,7 +187,7 @@ internal object OfflineStore {
             // left where it is.
             val id = download.request.id
             if (id.startsWith(NEW_SAVE_PREFIX) && listOfNotNull(phone, store?.card).none { it.holds(id) })
-                artwork.execute { art.removeEntry(id) }
+                artwork.remove(id)
             DownloadMarks.marks.remove(id)
             sizes.remove(id)
             DownloadMarks.bytes = sizes.total
@@ -430,12 +430,15 @@ internal object OfflineStore {
                         notice(context, "Muon couldn't prepare these copies. Nothing was queued. Try again or select fewer songs.")
                         return@execute
                     }
+                    var missingCovers = 0
                     requests.forEach { (request, cover) ->
                         DownloadService.sendAddDownload(context, shelf.service, request, false)
-                        store.artwork.execute { store.art.fetchEntry(request.id, cover) }
+                        if (!store.artwork.fetch(request.id, cover)) missingCovers++
                     }
-                    notice(context, if (requests.size == 1) "Saving a copy. It's under Saved copies."
-                        else "Saving ${requests.size} copies. They're under Saved copies.")
+                    val saving = if (requests.size == 1) "Saving a copy. It's under Saved copies."
+                        else "Saving ${requests.size} copies. They're under Saved copies."
+                    notice(context, saving + if (missingCovers == 0) "" else
+                        " Some covers weren't queued because artwork is busy; the audio save requests were still sent.")
                 } finally { store.savePreparation.set(false) }
             }
         } catch (failure: Exception) {

@@ -1180,6 +1180,27 @@ class DownloadMoveCharacterizationTest {
         assertFalse(OfflineStore.get(app).savePreparation.get())
     }
 
+    @Test fun saturatedCoverWorkDoesNotStopAudioSaveRequestsOrChangeOriginals() {
+        val (old, payload) = completeKeyed("saved/original")
+        val store = OfflineStore.get(app)
+        val workerTasks = java.util.ArrayDeque<Runnable>()
+        val covers = DownloadArtworkWork(java.util.concurrent.Executor { workerTasks.add(it) },
+            { _, _ -> fail("The held artwork worker must not run") }, {}, maxJobs = 1)
+        val fixture = OfflineStore.Store(phone, store.art, store.played, store.prefs, database,
+            store.record, store.removed, covers)
+        fixture.card = card
+        storeField.set(null, fixture)
+        val track = TauonTrack(42, "Title", "Artist", "Album", 1000, true, false)
+        OfflineStore.add(app, ServerEndpoint.parse("192.168.1.20"), listOf(track, track.copy(id = 43)))
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(2, startedCommands().count { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertEquals(1, workerTasks.size)
+        assertTrue(ShadowToast.getTextOfLatestToast().orEmpty().contains("covers weren't queued"))
+        assertFalse(fixture.savePreparation.get())
+        assertEquals(old, sourceIndex.getDownload(old.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, old.customCacheKey!!))
+    }
+
     private fun awaitSaver() {
         val saver = saverField.get(null) as ExecutorService
         saver.submit {}.get(10, TimeUnit.SECONDS)
