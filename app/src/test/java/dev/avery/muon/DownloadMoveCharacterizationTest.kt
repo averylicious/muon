@@ -705,7 +705,7 @@ class DownloadMoveCharacterizationTest {
         assertNull(SavedRef.download(SavedShelf.Phone, hidden.id, id))
         assertEquals(OfflineStore.SavedRemoval.NotOwned, OfflineStore.removeSavedNow(app,
             requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
-        assertEquals(0 to 2, OfflineStore.removeAllNow(app))
+        assertEquals(OfflineStore.RemoveAllPlan(0, 2), OfflineStore.removeAllNow(app))
         assertTrue(startedCommands().isEmpty())
         OfflineStore.move(app, toCard = true)
         awaitMover(); shadowOf(Looper.getMainLooper()).idle()
@@ -721,7 +721,13 @@ class DownloadMoveCharacterizationTest {
         completeSource(bytes, largeRequest())
         assertEquals(OfflineStore.SavedRemoval.Sent, OfflineStore.removeSavedNow(app,
             requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
-        assertEquals(1 to 0, OfflineStore.removeAllNow(app))
+        // The single removal awaits its service acknowledgement (#253): Remove all waits rather than doubling up.
+        assertEquals(OfflineStore.RemoveAllPlan(0, 0, busy = true), OfflineStore.removeAllNow(app))
+        // Captured, never delivered: once its deadline passes it is reported unconfirmed, not unchanged.
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(61))
+        assertEquals("Muon couldn't confirm that copy's removal. Check Saved copies before trying again.",
+            ShadowToast.getTextOfLatestToast())
+        assertEquals(OfflineStore.RemoveAllPlan(1, 0), OfflineStore.removeAllNow(app))
         val removals = startedCommands()
         assertEquals(2, removals.size)
         assertTrue(removals.all { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD &&
@@ -787,7 +793,8 @@ class DownloadMoveCharacterizationTest {
         phoneIndex.failAtRow = 2 // Every whole read of the phone's index now fails at its second row.
         assertEquals(OfflineStore.SavedRemoval.NotOwned, OfflineStore.removeSavedNow(app,
             requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
-        assertEquals("The card's census still runs; the phone's sends nothing", 0 to 0, OfflineStore.removeAllNow(app))
+        assertEquals("The card's census still runs; the phone's sends nothing", OfflineStore.RemoveAllPlan(0, 0),
+            OfflineStore.removeAllNow(app))
         val namingFailure = assertThrows(java.util.concurrent.ExecutionException::class.java) {
             (saverField.get(null) as ExecutorService).submit {
                 OfflineStore.takenNames(app, OfflineStore.get(app)).use { }

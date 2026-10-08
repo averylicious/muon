@@ -74,6 +74,7 @@ class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadServi
         // A refused owned move must not leave a pending receipt blocking every later retry.
         OfflineStore.refusedMoveCommand(intent)
         OfflineStore.refusedSaveCommand(intent)
+        OfflineStore.refusedRemovalCommand(intent, OfflineStore.current()?.card)
         // A copy that changes nothing, with the same extras, so a foreground start still shows its notification.
         return super.onStartCommand(Intent(intent).setAction(DownloadService.ACTION_INIT), flags, startId)
     }
