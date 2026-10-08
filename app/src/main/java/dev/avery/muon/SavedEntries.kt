@@ -315,11 +315,12 @@ internal fun savedInventory(shelf: SavedShelf, index: DownloadIndex, cache: Cach
 /** Streaming projection for a transactional consumer; a failed scan must never publish a prefix. */
 internal fun forEachSavedEntry(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
     ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
-    checkpoint: () -> Unit = {}, emit: (SavedEntry) -> Unit) = index.getDownloads().use { cursor ->
+    checkpoint: () -> Unit = {}, ownership: ((Download) -> Boolean)? = null,
+    emit: (SavedEntry) -> Unit) = index.getDownloads().use { cursor ->
     projectSavedInventory(shelf, {
         cursor.moveToPosition(-1)
         sequence { while (cursor.moveToNext()) { checkpoint(); yield(cursor.download) } }
-    }, cache, played, ownsCover, include, checkpoint, emit)
+    }, cache, played, ownsCover, include, checkpoint, ownership, emit)
 }
 
 private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
@@ -329,8 +330,9 @@ private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download
 
 private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
     ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
-    checkpoint: () -> Unit = {}, emit: (SavedEntry) -> Unit) {
-    val removableIds = soleOwners(downloads())
+    checkpoint: () -> Unit = {}, ownership: ((Download) -> Boolean)? = null,
+    emit: (SavedEntry) -> Unit) {
+    val removableIds = if (ownership == null) soleOwners(downloads()) else emptySet()
     for (download in downloads()) {
         if (download.state == Download.STATE_REMOVING) continue
         val request = download.request
@@ -341,7 +343,7 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
         // Only a new save's own cover is shown, and only for the row it was fetched for (see DownloadArt).
         val newSave = request.id.startsWith(NEW_SAVE_PREFIX) && request.customCacheKey == request.id
         emit(SavedEntry(ref, decodeSavedSong(request.data), savedOrigin(request.uri.toString()), download.state,
-            coverage, bytes, newSave && ownsCover(request.id), request.id in removableIds,
+            coverage, bytes, newSave && ownsCover(request.id), ownership?.invoke(download) ?: (request.id in removableIds),
             stoppedAfterRestart = download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON,
             storedMetadataTooLarge = request.data.size > TRACK_METADATA_MAX_BYTES))
     }

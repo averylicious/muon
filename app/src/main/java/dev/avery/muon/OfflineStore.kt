@@ -471,9 +471,11 @@ internal object OfflineStore {
             store.card?.takeIf { it.available() }?.let { SavedShelf.Card to it })
         for ((name, shelf) in shelves) {
             checkpoint()
-            forEachSavedEntry(name, shelf.manager.downloadIndex, shelf.cache,
-                if (name == SavedShelf.Phone) store.playedClaims else null,
-                { store.art.hasEntry(it) }, include, checkpoint, emit)
+            SavedOwnerProjection.open(context, shelf.manager.downloadIndex, checkpoint).use { owners ->
+                forEachSavedEntry(name, shelf.manager.downloadIndex, shelf.cache,
+                    if (name == SavedShelf.Phone) store.playedClaims else null,
+                    { store.art.hasEntry(it) }, include, checkpoint, ownership = owners::soleOwner, emit = emit)
+            }
             if (!shelf.available()) throw java.io.IOException("Saved storage changed; refresh your copies")
         }
     }
