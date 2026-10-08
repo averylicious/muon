@@ -171,8 +171,9 @@ class MoveDeliveryOwnershipTest {
 
     @Test fun aCommandBetweenVerificationAndRemovalInvalidatesItsEpoch() {
         val remove = queuedRemove()
-        deliver(phoneService, DownloadService.buildSetStopReasonIntent(app, MuonDownloadService::class.java,
-            "another-entry", 9, false))
+        // An ordinary admitted command (a stop reason is no longer passed on at all, #253).
+        deliver(phoneService, DownloadService.buildRemoveDownloadIntent(app, MuonDownloadService::class.java,
+            "another-entry", false))
         settle(phone)
         deliver(phoneService, remove); settle(phone)
         assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(id)?.state)

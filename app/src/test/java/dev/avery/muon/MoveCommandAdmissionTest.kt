@@ -204,6 +204,110 @@ class MoveCommandAdmissionTest {
         assertEquals(Download.STATE_QUEUED, index.getDownload("queued")?.state)
     }
 
+    // ---- #253: bulk commands that would reach only the manager's in-memory rows never reach Media3 ----
+
+    private val unsupported = "Muon doesn't support that download command, so nothing was changed."
+
+    @Test fun removeAllAndStopReasonCommandsAreRefusedBeforeMedia3EvenWithAMoveToken() {
+        val service = service()
+        awaitSettled(phone.manager)
+        val clazz = MuonDownloadService::class.java
+        listOf(
+            DownloadService.buildRemoveAllDownloadsIntent(app, clazz, false),
+            DownloadService.buildSetStopReasonIntent(app, clazz, null, 7, false),
+            DownloadService.buildSetStopReasonIntent(app, clazz, kept, 7, false),
+            // A process move token never lets one through, and no receipt is touched by it.
+            DownloadService.buildRemoveAllDownloadsIntent(app, clazz, false).putExtra(OfflineStore.MOVE_COMMAND_TOKEN, "any"),
+            DownloadService.buildSetStopReasonIntent(app, clazz, kept, 7, false).putExtra(OfflineStore.MOVE_COMMAND_TOKEN, "any"),
+        ).forEachIndexed { startId, command ->
+            service.get().onStartCommand(command, 0, startId + 1)
+            awaitSettled(phone.manager)
+            assertEquals(unsupported, ShadowToast.getTextOfLatestToast())
+        }
+        // Delivered, remove-all would have deleted this completed row and its bytes, and either stop reason
+        // command would have set its stop reason (Media3 applies both to completed rows in the index).
+        val row = requireNotNull(phone.manager.downloadIndex.getDownload(kept))
+        assertEquals(Download.STATE_COMPLETED, row.state)
+        assertEquals(Download.STOP_REASON_NONE, row.stopReason)
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+        assertFalse(requireNotNull(OfflineStore.current()).moves.hasPending)
+    }
+
+    @Test fun theCardServiceRefusesThemForItsOwnManagerToo() {
+        complete(card, "saved/on-card")
+        val cardService = Robolectric.buildService(MuonCardDownloadService::class.java).create()
+        try {
+            awaitSettled(card.manager)
+            val clazz = MuonCardDownloadService::class.java
+            cardService.get().onStartCommand(DownloadService.buildRemoveAllDownloadsIntent(app, clazz, false), 0, 1)
+            cardService.get().onStartCommand(DownloadService.buildSetStopReasonIntent(app, clazz, null, 7, false), 0, 2)
+            awaitSettled(card.manager)
+            assertEquals(unsupported, ShadowToast.getTextOfLatestToast())
+            val row = requireNotNull(card.manager.downloadIndex.getDownload("saved/on-card"))
+            assertEquals(Download.STATE_COMPLETED, row.state)
+            assertEquals(Download.STOP_REASON_NONE, row.stopReason)
+            assertTrue(card.cache.isCached("saved/on-card", 0, payload.size.toLong()))
+        } finally { cardService.destroy() }
+    }
+
+    @Test fun userRemoveAllStillRemovesSoleOwnersThroughCheckedPerRowCommands() {
+        val service = service()
+        awaitSettled(phone.manager)
+        startedServices() // Ignore setup starts.
+        assertEquals("One sole-owned row sent, none kept", 1 to 0, OfflineStore.removeAllNow(app))
+        val commands = startedServices().filter { it.component?.className == MuonDownloadService::class.java.name }
+        assertEquals(listOf(kept), commands.map {
+            assertEquals(DownloadService.ACTION_REMOVE_DOWNLOAD, it.action)
+            it.getStringExtra(DownloadService.KEY_CONTENT_ID)
+        })
+        commands.forEachIndexed { startId, command -> service.get().onStartCommand(command, 0, startId + 1) }
+        awaitSettled(phone.manager)
+        assertNull(phone.manager.downloadIndex.getDownload(kept))
+        assertTrue(phone.cache.getCachedSpans(kept).isEmpty())
+    }
+
+    @Test fun aRealServiceProtectsAndThenRemovesAnOmittedRetainedRow() {
+        val native = DefaultDownloadIndex(database, "omitted_service")
+        val raw = DownloadRequest.Builder("saved/omitted", request("saved/omitted").uri)
+            .setCustomCacheKey("saved/omitted").setData(ByteArray(32 * 1024) { 7 }).build()
+        val original = Download(raw, Download.STATE_STOPPED, 10, 20, payload.size.toLong(),
+            RETAINED_STOP_REASON, Download.FAILURE_REASON_NONE)
+        native.putDownload(original)
+        phone = shelf("omitted_service", MuonDownloadService::class.java, ManagerStartupIndex(RetainedDownloadIndex(native)))
+        val hole = requireNotNull(phone.cache.startReadWrite(raw.id, 0, payload.size.toLong()))
+        try {
+            val file = phone.cache.startFile(raw.id, 0, payload.size.toLong())
+            file.writeBytes(payload); phone.cache.commitFile(file, payload.size.toLong())
+        } finally { phone.cache.releaseHoleSpan(hole) }
+        val fixture = OfflineStore.Store(phone, DownloadArt(folders.newFolder("omitted_art")),
+            PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {}, app.getSharedPreferences("omitted_service", Context.MODE_PRIVATE),
+            database, {}, {})
+        storeField.set(null, fixture)
+        awaitSettled(phone.manager)
+        assertTrue(phone.manager.currentDownloads.isEmpty())
+        val service = service()
+        val clazz = MuonDownloadService::class.java
+        listOf(DownloadService.buildRemoveAllDownloadsIntent(app, clazz, false),
+            DownloadService.buildSetStopReasonIntent(app, clazz, raw.id, Download.STOP_REASON_NONE, false),
+            DownloadService.buildSetStopReasonIntent(app, clazz, null, Download.STOP_REASON_NONE, false))
+            .forEachIndexed { startId, command -> service.get().onStartCommand(command, 0, startId + 1) }
+        awaitSettled(phone.manager)
+        assertEquals(original.request, native.getDownload(raw.id)?.request)
+        assertEquals(Download.STATE_STOPPED, native.getDownload(raw.id)?.state)
+        assertEquals(RETAINED_STOP_REASON, native.getDownload(raw.id)?.stopReason)
+        assertTrue(phone.manager.currentDownloads.isEmpty())
+        assertTrue(phone.cache.isCached(raw.id, 0, payload.size.toLong()))
+        service.get().onStartCommand(DownloadService.buildRemoveDownloadIntent(app, clazz, raw.id, false), 0, 4)
+        awaitSettled(phone.manager)
+        assertNull(native.getDownload(raw.id))
+        assertTrue(phone.cache.getCachedSpans(raw.id).isEmpty())
+    }
+
+    private fun startedServices(): List<android.content.Intent> = buildList {
+        val shadow = shadowOf(app)
+        while (true) add(shadow.nextStartedService ?: break)
+    }
+
     // ---- fixture ----
 
     private fun removal() = DownloadService.buildRemoveDownloadIntent(app, MuonDownloadService::class.java, kept, false)
@@ -239,7 +343,7 @@ class MoveCommandAdmissionTest {
     }
 
     private fun shelf(name: String, service: Class<out DownloadService>,
-        index: DefaultDownloadIndex = DefaultDownloadIndex(database, name)): Shelf {
+        index: androidx.media3.exoplayer.offline.WritableDownloadIndex = DefaultDownloadIndex(database, name)): Shelf {
         val cache = SimpleCache(folders.newFolder(name), NoOpCacheEvictor(), database)
         cache.checkInitialization()
         // Removal deletes the row's real bytes; downloading is never allowed.

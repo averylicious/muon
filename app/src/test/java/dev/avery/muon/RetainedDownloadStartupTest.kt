@@ -436,6 +436,181 @@ class RetainedDownloadStartupTest {
         override fun setDownloadingStatesToQueued() { queued = true; events += "queued"; actual.setDownloadingStatesToQueued() }
     }
 
+    // ---- #253: the manager's startup view (ManagerStartupIndex over RetainedDownloadIndex, as in production) ----
+
+    private val startupStates = intArrayOf(Download.STATE_QUEUED, Download.STATE_STOPPED, Download.STATE_DOWNLOADING,
+        Download.STATE_REMOVING, Download.STATE_RESTARTING)
+
+    private fun production(over: WritableDownloadIndex = index) = ManagerStartupIndex(RetainedDownloadIndex(over))
+
+    /** A row stopped at an earlier restart, as RetainedDownloadIndex leaves it. */
+    private fun retained(id: String, data: ByteArray, start: Long = 123, update: Long = 456): Download {
+        val request = DownloadRequest.Builder(id, Uri.parse("http://127.0.0.1:7814/api1/file/$id"))
+            .setCustomCacheKey(id).setData(data).build()
+        val progress = DownloadProgress().apply { bytesDownloaded = 2; percentDownloaded = 50f }
+        return Download(request, Download.STATE_STOPPED, start, update, 4, RETAINED_STOP_REASON,
+            Download.FAILURE_REASON_NONE, progress).also(index::putDownload)
+    }
+
+    @Test fun aRestartWithManyRetainedRowsLoadsNoneIntoTheManagerAndKeepsEveryRecordAndByte() {
+        val tags = ByteArray(64 * 1024) { (it % 249).toByte() }
+        val unfinished = listOf(Download.STATE_QUEUED, Download.STATE_DOWNLOADING, Download.STATE_REMOVING,
+            Download.STATE_RESTARTING)
+        val originals = (0 until 64).map { i ->
+            val data = tags + byteArrayOf(i.toByte())
+            if (i % 2 == 0) retained("old-$i", data, start = 1000L + i, update = 2000L + i)
+            else put("new-$i", "new-$i", unfinished[(i / 2) % unfinished.size], data, start = 1000L + i, update = 2000L + i)
+        }
+        originals.forEach { seed(it.request.id, partial = true) }
+        val finished = put("finished", "finished", Download.STATE_COMPLETED, tags)
+        seed("finished")
+        val creations = AtomicInteger()
+        val never = DownloaderFactory { creations.incrementAndGet(); error("Retained tasks must not start") }
+        repeat(2) { restart ->
+            start(production(), never)
+            requireNotNull(manager).resumeDownloads()
+            pumpUntil { requireNotNull(manager).isIdle }
+            assertTrue("Restart $restart: nothing retained is held by the manager", requireNotNull(manager).currentDownloads.isEmpty())
+            assertEquals(0, creations.get())
+            for (old in originals) {
+                val held = requireNotNull(index.getDownload(old.request.id))
+                assertEquals(old.request, held.request)
+                assertEquals(old.startTimeMs, held.startTimeMs)
+                assertEquals(old.updateTimeMs, held.updateTimeMs)
+                assertEquals(old.contentLength, held.contentLength)
+                assertEquals(old.bytesDownloaded, held.bytesDownloaded)
+                assertEquals(old.percentDownloaded, held.percentDownloaded, 0f)
+                assertEquals(Download.STATE_STOPPED, held.state)
+                assertEquals(RETAINED_STOP_REASON, held.stopReason)
+                assertTrue(cache.isCached(old.request.id, 0, 2))
+            }
+            assertEquals(finished.request, index.getDownload("finished")?.request)
+            assertEquals(Download.STATE_COMPLETED, index.getDownload("finished")?.state)
+            // Muon's own reads through the manager's index stay complete: all states, and STOPPED alone.
+            val view = requireNotNull(manager).downloadIndex
+            assertEquals(65, view.getDownloads().use { it.count })
+            assertEquals(64, view.getDownloads(Download.STATE_STOPPED).use { it.count })
+            assertEquals(1, view.getDownloads(Download.STATE_COMPLETED).use { it.count })
+            requireNotNull(manager).release(); manager = null
+        }
+    }
+
+    @Test fun onlyTheExactStartupQueryLeavesStoppedRowsOutAnyOtherShapeStaysComplete() {
+        retained("old", byteArrayOf(1))
+        put("queued", "queued", Download.STATE_QUEUED)
+        put("finished", "finished", Download.STATE_COMPLETED)
+        val view = ManagerStartupIndex(index) // The shape rule alone; the manager tests use the full composition.
+        fun ids(vararg states: Int) = view.getDownloads(*states).use { cursor ->
+            buildSet { while (cursor.moveToNext()) add(cursor.download.request.id) }
+        }
+        assertEquals(setOf("queued"), ids(*startupStates))
+        val reordered = startupStates.reversedArray()
+        assertEquals("Another order is not the startup query", setOf("old", "queued"), ids(*reordered))
+        assertEquals(setOf("old", "queued"), ids(*(startupStates + Download.STATE_STOPPED)))
+        assertEquals(setOf("old", "queued", "finished"), ids(*(startupStates + Download.STATE_COMPLETED)))
+        assertEquals(setOf("old", "queued"), ids(*startupStates.copyOf(4)))
+        assertEquals(setOf("old"), ids(Download.STATE_STOPPED))
+        assertEquals(setOf("old", "queued", "finished"), ids())
+        assertEquals(RETAINED_STOP_REASON, view.getDownload("old")?.stopReason)
+    }
+
+    /** A manager's listener record: each change's state, and each removal. */
+    private class Events : DownloadManager.Listener {
+        val seen: MutableList<String> = java.util.Collections.synchronizedList(ArrayList())
+        override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) {
+            seen += "changed:${download.request.id}:${download.state}"
+        }
+        override fun onDownloadRemoved(m: DownloadManager, download: Download) { seen += "removed:${download.request.id}" }
+    }
+
+    /** Runs [act] on a manager over a fresh copy of one retained row, with or without the startup view. */
+    private fun withRetainedRow(name: String, view: Boolean, data: ByteArray,
+        act: (DownloadManager, DefaultDownloadIndex, SimpleCache) -> Unit): List<String> {
+        val own = DefaultDownloadIndex(database, name)
+        val ownCache = SimpleCache(folders.newFolder(), NoOpCacheEvictor(), database).also { it.checkInitialization() }
+        val request = DownloadRequest.Builder("kept", Uri.parse("http://127.0.0.1:7814/api1/file/kept"))
+            .setCustomCacheKey("kept").setData(data).build()
+        own.putDownload(Download(request, Download.STATE_STOPPED, 123, 456, 4, RETAINED_STOP_REASON,
+            Download.FAILURE_REASON_NONE, DownloadProgress().apply { bytesDownloaded = 4; percentDownloaded = 100f }))
+        val hole = requireNotNull(ownCache.startReadWrite("kept", 0, 4))
+        try {
+            val file = ownCache.startFile("kept", 0, 4)
+            file.writeBytes(payload); ownCache.commitFile(file, 4)
+        } finally { ownCache.releaseHoleSpan(hole) }
+        val real = DefaultDownloaderFactory(androidx.media3.datasource.cache.CacheDataSource.Factory().setCache(ownCache), Runnable::run)
+        val guard = RetainedDownloadIndex(own)
+        val chosen = DownloadManager(RuntimeEnvironment.getApplication(), if (view) ManagerStartupIndex(guard) else guard, real)
+        val events = Events().also(chosen::addListener)
+        try {
+            pumpUntil { chosen.isInitialized && chosen.isIdle }
+            assertEquals(if (view) emptyList() else listOf("kept"), chosen.currentDownloads.map { it.request.id })
+            act(chosen, own, ownCache)
+            pumpUntil { chosen.isIdle }
+            return events.seen.toList()
+        } finally { chosen.release(); ownCache.release() }
+    }
+
+    @Test fun anOmittedRowIsStillRemovedByItsOwnCommandWithTheSameEvents() {
+        val outcomes = listOf(false, true).map { view ->
+            var removed = false
+            val events = withRetainedRow("remove_${if (view) "view" else "base"}", view, byteArrayOf(5, 6)) { manager, own, ownCache ->
+                manager.removeDownload("kept")
+                pumpUntil { own.getDownload("kept") == null }
+                removed = ownCache.getCachedSpans("kept").isEmpty()
+            }
+            assertTrue("view=$view: the row's own bytes went with it", removed)
+            events
+        }
+        assertEquals(listOf("changed:kept:${Download.STATE_REMOVING}", "removed:kept"), outcomes[0])
+        assertEquals("The same Media3 events with and without the view", outcomes[0], outcomes[1])
+    }
+
+    @Test fun aFreshAddForAnOmittedRowMergesItsFullStoredRecordAsBefore() {
+        val stored = ByteArray(32 * 1024) { (it % 241).toByte() }
+        val results = listOf(false, true).map { view ->
+            var after: Download? = null
+            withRetainedRow("add_${if (view) "view" else "base"}", view, stored) { manager, own, _ ->
+                val again = requireNotNull(own.getDownload("kept")).request
+                manager.addDownload(again, 7) // Stopped by reason: merged and kept, no network in this fixture.
+                pumpUntil { own.getDownload("kept")?.stopReason == 7 }
+                after = own.getDownload("kept")
+            }
+            requireNotNull(after)
+        }
+        for (merged in results) {
+            assertArrayEquals(stored, merged.request.data)
+            assertEquals(Download.STATE_STOPPED, merged.state)
+            assertEquals(7, merged.stopReason)
+        }
+        assertEquals(results[0].request, results[1].request)
+        assertEquals(results[0].startTimeMs, results[1].startTimeMs)
+        assertEquals(results[0].contentLength, results[1].contentLength)
+    }
+
+    /**
+     * Pinned Media3 1.11.0 hazards of the two bulk commands for a row the manager never loaded. Called here
+     * directly on the manager only: production refuses both before Media3 (OfflineStore.admitCommand).
+     */
+    @Test fun directBulkCommandsWouldTreatAnOmittedRowDifferentlyWhichIsWhyTheyAreRefused() {
+        val old = retained("old", byteArrayOf(4, 4))
+        seed("old")
+        val creations = AtomicInteger()
+        start(production(), DownloaderFactory { creations.incrementAndGet(); error("No task may start") })
+        val manager = requireNotNull(manager)
+        // setStopReason(id) does not read an omitted row; its index fallback updates only completed/failed rows.
+        manager.setStopReason("old", Download.STOP_REASON_NONE)
+        pumpUntil { manager.isIdle }
+        assertEquals(RETAINED_STOP_REASON, index.getDownload("old")?.stopReason)
+        assertEquals(Download.STATE_STOPPED, index.getDownload("old")?.state)
+        // removeAllDownloads marks every index row REMOVING but starts no task for one it never loaded.
+        manager.removeAllDownloads()
+        pumpUntil { manager.isIdle }
+        assertEquals(Download.STATE_REMOVING, index.getDownload("old")?.state)
+        assertEquals(old.request, index.getDownload("old")?.request)
+        assertEquals(0, creations.get())
+        assertTrue("Its bytes stay", cache.isCached("old", 0, 4))
+    }
+
     private fun start(downloadIndex: WritableDownloadIndex, factory: DownloaderFactory) {
         manager = DownloadManager(RuntimeEnvironment.getApplication(), downloadIndex, factory)
         pumpUntil { requireNotNull(manager).isInitialized && requireNotNull(manager).isIdle }

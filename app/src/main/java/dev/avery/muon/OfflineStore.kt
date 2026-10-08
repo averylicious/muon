@@ -127,7 +127,8 @@ internal object OfflineStore {
         present: () -> Boolean = { true }): Shelf {
         val cache = SimpleCache(folder, evictor, database)
         val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client))
-        val manager = DownloadManager(context, RetainedDownloadIndex(DefaultDownloadIndex(database, index)),
+        // The manager loads no retained stopped rows at startup (#253, [ManagerStartupIndex]).
+        val manager = DownloadManager(context, ManagerStartupIndex(RetainedDownloadIndex(DefaultDownloadIndex(database, index))),
             DefaultDownloaderFactory(factory, Executors.newFixedThreadPool(2)))
         manager.maxParallelDownloads = 2
         return Shelf(cache, manager, service, present)
@@ -643,6 +644,9 @@ internal object OfflineStore {
         DownloadService.ACTION_REMOVE_ALL_DOWNLOADS, DownloadService.ACTION_RESUME_DOWNLOADS,
         DownloadService.ACTION_SET_STOP_REASON, DownloadService.ACTION_SET_REQUIREMENTS)
 
+    /** Media3 commands Muon never passes on: they would reach only the rows the manager holds (#253). */
+    private val unsupportedActions = setOf(DownloadService.ACTION_REMOVE_ALL_DOWNLOADS, DownloadService.ACTION_SET_STOP_REASON)
+
     /**
      * The command a download service may pass on to Media3 now (#230). While a move holds [moveExclusion],
      * a command that could add, remove, start or restart a download becomes a copy that changes nothing, with
@@ -667,6 +671,11 @@ internal object OfflineStore {
             notice(context, message)
             return Intent(intent).setAction(DownloadService.ACTION_INIT)
         }
+        // Never reaches Media3, token or no token, and before any receipt is touched (#253): with retained rows
+        // left out of the manager ([ManagerStartupIndex]) these bulk commands would act on only part of the
+        // index. Muon sends neither; its Remove all sends a checked removal per row.
+        if (action in unsupportedActions)
+            return refused("Muon doesn't support that download command, so nothing was changed.")
         if (intent.hasExtra(MOVE_COMMAND_TOKEN)) {
             val token = intent.getStringExtra(MOVE_COMMAND_TOKEN)
             val adding = action == DownloadService.ACTION_ADD_DOWNLOAD
