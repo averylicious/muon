@@ -80,6 +80,15 @@ class MixedSavedAudioTest {
             assertEquals(-1,source.read(ByteArray(1),0,1)); return bytes
         } finally { source.close() }
     }
+    @Test fun actualMixedPublishedReaderKeepsSharedBarrierThroughEofAndCleanClose() {
+        val f=fixture(); published(f,"barrier",byteArrayOf(4,5))
+        val barrier=SavedStorageBarrier(); val audio=BarrierSavedAudio(f.audio,barrier)
+        val reader=audio.source.createDataSource(); reader.open(spec("barrier"))
+        assertEquals(2,reader.read(ByteArray(2),0,2)); assertEquals(-1,reader.read(ByteArray(1),0,1))
+        assertEquals(1,f.published.active); assertEquals(1,barrier.active)
+        assertThrows(IOException::class.java) { barrier.exclusive() }
+        reader.close(); assertEquals(0,f.published.active); assertTrue(barrier.quiescent)
+    }
     @Test fun actualMixedReaderSelectsLegacyPublishedAndCompletedWithoutWrongLegacyBytes() {
         val f=fixture(); seed(f.native,"old",byteArrayOf(1,2)); published(f,"published",byteArrayOf(3,4))
         val fresh="saved/new"; seed(f.native,fresh,byteArrayOf(99)); completed(f,fresh,byteArrayOf(5,6,7))

@@ -16,6 +16,7 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
     private val inputs:(File)->java.io.RandomAccessFile={java.io.RandomAccessFile(it,"r")}) {
     private var healthy=true
     private var running=false
+    @get:Synchronized val ownershipUncertain:Boolean get()=!healthy
     private data class Quarantine(val cache:Cache,val files:MigrationIoOwnership)
     private var retained:Quarantine?=null
     @Synchronized fun migrate(source:Cache,key:String,checkpoint:()->Unit):MigrationRecord {

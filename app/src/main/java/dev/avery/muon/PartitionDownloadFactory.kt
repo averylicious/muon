@@ -37,6 +37,7 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
     /** Prepared new-save mode: full coverage + actual durable owner close before manager completion.
      * The production caller must separately own exact request/command/cover/completion admission. */
     private val sealNewSaves:Boolean=false,
+    private val barrier:SavedStorageBarrier?=null,
     private val sinks:(Cache)->DataSink.Factory={CacheDataSink.Factory().setCache(it)}) : DownloaderFactory {
     override fun createDownloader(request:DownloadRequest):Downloader {
         val uri=request.uri; val key=request.customCacheKey ?: uri.toString()
@@ -88,17 +89,21 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
                 if(!exclusive && canceled) throw CancellationException("Download canceled")
                 running=true; started=false
             }
+            var storage:SavedStorageBarrier.Lease?=null
             var lease:PartitionCacheLeases.Lease?=null
             var backend:PartitionOwnedCache?=null
             var tracker:ClosureTracker?=null
             var failure:Throwable?=null
             try {
+                storage=if(exclusive) barrier?.exclusive() else barrier?.shared()
+                storage?.check()
                 lease=pool.acquireWriter(key,exclusive)
                 backend=lease.cache as? PartitionOwnedCache ?: throw IOException("Downloader requires an owned partition")
                 backend.checkQuiescent()
                 if(sealNewSaves && !exclusive) backend.checkNewSave(key)
-                tracker=ClosureTracker()
+                tracker=ClosureTracker { storage?.check() }
                 work(lease.cache,tracker)
+                storage?.check()
                 if(sealNewSaves && !exclusive) {
                     backend.checkNewSave(key)
                     if(savedAudioState(lease.cache,key).coverage!=SavedCoverage.Full)
@@ -122,9 +127,14 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
                     }
                 } catch(closeFailure:Throwable) {
                     synchronized(lock) { uncertain=true }
-                    lease?.quarantine(Broken(native,tracker,closeFailure))
+                    val retained=Broken(native,tracker,closeFailure)
+                    lease?.quarantine(retained)
+                    storage?.quarantine(retained)
                     if(failure==null) failure=closeFailure else if(closeFailure!==failure) failure!!.addSuppressed(closeFailure)
-                } finally { synchronized(lock) { running=false; started=false; native=null } }
+                } finally {
+                    try { if(!uncertain) storage?.close() }
+                    finally { synchronized(lock) { running=false; started=false; native=null } }
+                }
             }
             failure?.let { throw it }
         }
@@ -134,7 +144,7 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
 /** Exactly three components per native progressive downloader: upstream, file reader and cache sink.
  * Clean close after failed open is required too. A close failure is latched; a later retry cannot
  * turn it into evidence of closure. Controls never accumulate per hole/read/retry. */
-private class ClosureTracker {
+private class ClosureTracker(private val checkpoint:()->Unit={}) {
     private class Control { var active=false; var uncertain=false; var closing=false }
     private val controls=arrayOfNulls<Control>(3)
     @Synchronized private fun register():Control {
@@ -163,8 +173,8 @@ private class ClosureTracker {
         val c=register(); val source=factory.createDataSource()
         return object:DataSource {
             override fun addTransferListener(listener:TransferListener)=source.addTransferListener(listener)
-            override fun open(spec:DataSpec):Long { opening(c); return source.open(spec) }
-            override fun read(buffer:ByteArray,offset:Int,length:Int):Int { live(c); return source.read(buffer,offset,length) }
+            override fun open(spec:DataSpec):Long { checkpoint(); opening(c); return source.open(spec).also { checkpoint() } }
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int { checkpoint(); live(c); return source.read(buffer,offset,length).also { checkpoint() } }
             override fun getUri()=source.uri
             override fun getResponseHeaders()=source.responseHeaders
             override fun close()=close(c) { source.close() }
@@ -173,8 +183,8 @@ private class ClosureTracker {
     fun sink(factory:DataSink.Factory):DataSink {
         val c=register(); val sink=factory.createDataSink()
         return object:DataSink {
-            override fun open(spec:DataSpec) { opening(c); sink.open(spec) }
-            override fun write(buffer:ByteArray,offset:Int,length:Int) { live(c); sink.write(buffer,offset,length) }
+            override fun open(spec:DataSpec) { checkpoint(); opening(c); sink.open(spec); checkpoint() }
+            override fun write(buffer:ByteArray,offset:Int,length:Int) { checkpoint(); live(c); sink.write(buffer,offset,length); checkpoint() }
             override fun close()=close(c) { sink.close() }
         }
     }

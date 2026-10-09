@@ -73,6 +73,30 @@ class PartitionDownloadFactoryTest {
     private fun factory(upstream:DataSource.Factory=bytes(),remove:(String,String,Cache)->Unit={_,name,cache -> cache.removeResource(name)})=
         PartitionDownloadFactory(pool,upstream,remove)
     private fun cached():Long=pool.acquire(key).use { it.cache.cacheSpace }
+    @Test fun actualDownloaderSharesBarrierAndRemovalRequiresGlobalExclusion() {
+        prepare(); val barrier=SavedStorageBarrier(); var progress=0; var removes=0
+        val factory=PartitionDownloadFactory(pool,bytes(),{_,name,cache -> removes++; cache.removeResource(name) },barrier=barrier)
+        val task=factory.createDownloader(request())
+        task.download { _,_,_ ->
+            progress++; assertEquals(1,barrier.active)
+            assertThrows(IOException::class.java) { barrier.exclusive() }
+        }
+        assertTrue(progress>0); assertTrue(barrier.quiescent); assertEquals(5L,cached())
+        val held=barrier.shared()
+        assertThrows(IOException::class.java) { task.remove() }; assertEquals(0,removes)
+        held.close(); task.remove(); assertEquals(1,removes); assertTrue(barrier.quiescent)
+    }
+    @Test fun actualDownloaderUnknownCloseQuarantinesBothStorageAndNativePins() {
+        prepare(); val barrier=SavedStorageBarrier()
+        val upstream=DataSource.Factory {
+            val actual=ByteArrayDataSource(payload)
+            object:DataSource by actual { override fun close() { actual.close(); throw IOException("Injected unknown close") } }
+        }
+        val task=PartitionDownloadFactory(pool,upstream,{_,_,_ -> fail("No removal") },barrier=barrier).createDownloader(request())
+        assertThrows(IOException::class.java) { task.download(null) }
+        assertEquals(1,barrier.active); assertEquals(1,pool.active)
+        assertThrows(IOException::class.java) { barrier.exclusive() }
+    }
     @Test fun actualProgressiveDownloadWritesThroughOwnedSidecarAndReturnsOnlyItsWriterPin() {
         prepare(); var progress=0
         val task=factory().createDownloader(request())

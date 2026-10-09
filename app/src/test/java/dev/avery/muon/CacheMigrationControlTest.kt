@@ -40,6 +40,20 @@ class CacheMigrationControlTest {
             block(source,original,catalog,journal,CacheMigrationPublication(catalog,journal,::cache))
         } }
     }
+    @Test fun barrierAdapterExcludesActiveReaderBeforeReservationAndPublishesAfterDrain()=fixture { source,original,catalog,journal,publisher ->
+        val barrier=SavedStorageBarrier(); val adapter=BarrierCacheMigration(barrier); val held=barrier.shared()
+        assertThrows(IOException::class.java) {
+            adapter.run(CacheMigrationControl(1000,nanoTime={0L}),source,"saved",publisher,{Long.MAX_VALUE},{})
+        }
+        assertEquals(0L,catalog.count()); held.close()
+        val before=original.readBytes()
+        val ready=adapter.run(CacheMigrationControl(1000,nanoTime={0L}),source,"saved",publisher,{Long.MAX_VALUE},{
+            assertEquals(1,barrier.active)
+            assertThrows(IOException::class.java) { barrier.shared() }
+        })
+        assertEquals(MigrationPhase.Ready,ready.phase); assertEquals(ready,journal.ready("saved"))
+        assertTrue(barrier.quiescent); assertArrayEquals(before,original.readBytes())
+    }
     @Test fun admitsExactSpacePublishesNativeReplacementAndKeepsOneScalarReceipt()=fixture { source,original,_,journal,publisher ->
         val before=original.readBytes(); val control=CacheMigrationControl(1000,headroomBytes=1024,nanoTime={0L})
         val ready=control.run(source,"saved",publisher,{151_024L},{})

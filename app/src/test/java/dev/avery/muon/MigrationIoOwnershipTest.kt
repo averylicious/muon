@@ -74,6 +74,21 @@ class MigrationIoOwnershipTest {
         assertThrows(IOException::class.java) { runner.migrate(f.source,f.key,{}) }; assertEquals(1,opens)
         assertArrayEquals(f.payload,f.original.readBytes())
     }
+    @Test fun migrationAdapterRetainsBorrowedSourceExclusionOnUnknownFileClose() {
+        val f=fixture(); val barrier=SavedStorageBarrier()
+        val outputs=MoveFileOutputs { file ->
+            uncommittedOutputFiles+=file
+            val raw=MoveFileOutputs.Real.open(file).also(rawOutputs::add)
+            object:MoveFileOutput by raw { override fun close():Unit=throw IOException("Injected unknown output") }
+        }
+        val publisher=CacheMigrationPublication(f.catalog,f.journal,f.opener(),outputs=outputs)
+        assertThrows(MigrationIoUncertain::class.java) {
+            BarrierCacheMigration(barrier).run(CacheMigrationControl(1000,nanoTime={0L}),f.source,f.key,publisher,{Long.MAX_VALUE},{})
+        }
+        assertEquals(1,barrier.active); assertEquals(1,f.budget.resident)
+        assertThrows(IOException::class.java) { barrier.shared() }
+        assertArrayEquals(f.payload,f.original.readBytes())
+    }
     @Test fun unknownInputCloseDuringCopyCannotReleaseNativeTargetOrRetryTheRawClose() {
         val f=fixture(); var closeCalls=0; var opens=0
         val inputs:(File)->RandomAccessFile={ file ->
