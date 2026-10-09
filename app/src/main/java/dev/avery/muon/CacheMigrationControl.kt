@@ -6,7 +6,7 @@ import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal enum class MigrationWorkPhase { Waiting, Preparing, Running, Ready, Cancelled, Expired, Failed }
+internal enum class MigrationWorkPhase { Waiting, Preparing, Running, Ready, Cancelled, Expired, Failed, Uncertain }
 internal data class MigrationWorkProgress(val phase:MigrationWorkPhase, val copyBytes:Long=0)
 
 /** Single-use synchronous control for an explicitly opted-in resource, not a scheduler or source
@@ -78,7 +78,8 @@ internal class CacheMigrationControl(timeoutMillis:Long,
             progress=MigrationWorkProgress(MigrationWorkPhase.Ready,bytes)
             return ready
         } catch(failure:Throwable) {
-            progress=MigrationWorkProgress(terminal,bytes)
+            progress=MigrationWorkProgress(
+                if(failure is MigrationIoUncertain || publication.ownershipUncertain) MigrationWorkPhase.Uncertain else terminal,bytes)
             throw failure
         }
     }

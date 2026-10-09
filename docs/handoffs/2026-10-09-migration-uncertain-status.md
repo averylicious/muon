@@ -1,0 +1,9 @@
+# Migration uncertainty is retained and reported (#253)
+
+Cumulative successor of OPEN#461 at85a3e330ddac0cac20a69d7229246b90c7b1312a. Source review found publication marked native-release failure unhealthy but did not itself retain the exact returned native Cache. It now keeps that one owner (and a returned source alias without releasing it); unhealthy state refuses every later attempt, so no unbounded retained list forms. The production native-budget layer remains independently required.
+
+CacheMigrationControl now reports Uncertain when raw source/output/directory close is unknown or publication native ownership is uncertain, even if cancellation was also requested. Ordinary known cancellation/deadline still report Cancelled/Expired; a durable Ready receipt remains Ready. This scalar status is not repair, permission to delete bytes or a recovery proof.
+
+Actual native/file controls inject release failure before closing a real disposable SimpleCache and cancellation at that same boundary: one retained exclusive gate, one native open/close attempt, no Ready/retry and original bytes preserved. Unknown source-directory close before reservation likewise reports Uncertain, keeps the actual handle/gate and leaves catalog/journal untouched. Existing projection cancellation and known-refusal controls remain inherited. CI first Android compile/test/lint, receipt pending; no new phone claim.
+
+Production partition mode still disabled. #253 still requires actual owner/service/command/cover/move/played/removal/lifetime integration and explicit opt-in/background/progress/restart recovery with truthful unsupported-resource feedback. App stack remains OPEN/UAT pending, experiment untouched; no Stable/tag/auto-merge/bypass. GPT-6/Codex desktop implementation/author self-check, exact variant/effort unavailable; audit Claude idle after session-limit event.

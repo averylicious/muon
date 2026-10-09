@@ -155,4 +155,53 @@ class CacheMigrationControlTest {
         assertNull(journal.find("saved")); assertTrue(original.isFile)
     }
 
+    @Test fun unknownNativeCloseIsDistinctFromCancellationAndRetainsExclusionUntilProcessTeardown() {
+        val source=cache(); val original=seed(source,"saved"); val before=original.readBytes()
+        val root=folders.newFolder(); val actual=ArrayList<Cache>(); var closes=0; var opened=0
+        CachePartitionCatalog(root).use { catalog -> CacheMigrationJournal(root).use { journal ->
+            val control=CacheMigrationControl(1000,nanoTime={0L})
+            val publication=CacheMigrationPublication(catalog,journal,{ directory ->
+                val child=cache(directory).also(actual::add); opened++
+                object:Cache by child {
+                    override fun release() {
+                        closes++; control.cancel()
+                        throw IOException("Injected native close before release")
+                    }
+                }
+            })
+            val barrier=SavedStorageBarrier()
+            assertThrows(IOException::class.java) {
+                BarrierCacheMigration(barrier).run(control,source,"saved",publication,{Long.MAX_VALUE},{})
+            }
+            assertEquals(MigrationWorkPhase.Uncertain,control.progress.phase)
+            assertTrue(publication.ownershipUncertain); assertEquals(1,closes); assertEquals(1,opened)
+            assertEquals(1,barrier.active); assertThrows(IOException::class.java) { barrier.shared() }
+            assertNull(journal.ready("saved")); assertEquals(MigrationPhase.Uncertain,journal.find("saved")?.phase)
+            assertThrows(IOException::class.java) { publication.migrate(source,"saved",{}) }
+            assertEquals(1,closes); assertEquals(1,opened); assertArrayEquals(before,original.readBytes())
+            // Only disposable fixture teardown closes actual; production must not retry uncertain close.
+            actual.forEach { it.release() }
+        } }
+    }
+    @Test fun unknownSourceDirectoryCloseReportsUncertainBeforeAnyReservation()=fixture { _,original,catalog,journal,publisher ->
+        val directory=folders.newFolder().toPath(); val actual=java.nio.file.Files.newDirectoryStream(directory)
+        val ownership=MigrationIoOwnership(directories={
+            object:java.nio.file.DirectoryStream<java.nio.file.Path> {
+                override fun iterator()=actual.iterator()
+                override fun close():Unit=throw IOException("Injected unknown directory close")
+            }
+        })
+        try {
+            val control=CacheMigrationControl(1000,nanoTime={0L}); val barrier=SavedStorageBarrier()
+            assertThrows(MigrationIoUncertain::class.java) {
+                BarrierCacheMigration(barrier).runProjected(control,"saved",publisher,{Long.MAX_VALUE},{}) {
+                    ownership.directory(directory).close(); throw AssertionError("Unknown close swallowed")
+                }
+            }
+            assertEquals(MigrationWorkPhase.Uncertain,control.progress.phase)
+            assertFalse(ownership.quiescent); assertEquals(1,barrier.active)
+            assertEquals(0L,catalog.count()); assertNull(journal.find("saved")); assertTrue(original.isFile)
+        } finally { actual.close() }
+    }
+
 }

@@ -19,6 +19,9 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
     @get:Synchronized val ownershipUncertain:Boolean get()=!healthy
     private data class Quarantine(val cache:Cache,val files:MigrationIoOwnership)
     private var retained:Quarantine?=null
+    // Native release may throw before closing. Keep the exact returned owner, not only a flag/error.
+    // At most one can remain: healthy=false refuses every later attempt on this adapter.
+    private var retainedNative:Cache?=null
     @Synchronized fun migrate(source:Cache,key:String,checkpoint:()->Unit):MigrationRecord {
         if(running) throw IOException("Migration operation already active")
         running=true
@@ -82,10 +85,13 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
         open(directory).also {
             // An alias of the source is not an independently owned target. Do not release it: that
             // could close the caller's source and its active readers. Refuse all further admission.
-            if(it.uid==sourceUid) throw IOException("Migration target aliases the source")
+            if(it.uid==sourceUid) {
+                retainedNative=it
+                throw IOException("Migration target aliases the source")
+            }
         }
     } catch(failure:Throwable) { healthy=false; throw failure }
     private fun closing(cache:Cache) {
-        try { cache.release() } catch(failure:Throwable) { healthy=false; throw failure }
+        try { cache.release() } catch(failure:Throwable) { retainedNative=cache; healthy=false; throw failure }
     }
 }
