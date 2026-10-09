@@ -14,6 +14,10 @@ Service-return acknowledgement is distinct from durable download completion. A s
 
 Eight new controlled tests use real native SQLite journal/catalog/owned caches and actual DownloadManager/DefaultDownloadIndex: admission capacity/unsupported/census refusal without extra native allocation; full request/data identity and single-use token; durable success/retained row/untouched cover/audio; bypassed unforwarded request FAILED and same manager later succeeds; restart/changed allocation original preservation; uncertain delivery/volume loss; existing record refusal; cancellation/no false completion. Actions is first compile/test/lint; exact final-head result/report/APK belongs on PR/issues. No local Android build or physical heap/performance claim.
 
+## Initial CI correction
+
+The first Android run37922004477 at `abfeda9dffb6ad48f070228875d72104abee85db` compiled production sources but failed debug-test compilation: the fixture constructor capacity parameter needed to be a stored property for its method’s default argument. Corrected only the fixture declaration; tests did not run at that failed head. Refreshed exact-head CI must establish the actual test/lint/APK result.
+
 ## Remaining engineering / continuing owner
 
 These prepared components are not yet selected by app services. Production must bind them to `OfflineStore.add` / `deliverCommand` / `admitCommand` under its app-wide source/move/removal/eviction/availability barrier and complete legacy/published name census. Existing DownloadSaveDelivery owns cover acknowledgements; this owner must be integrated with that path, not used as a parallel service entry. Follow with mixed read/completed-new-save routing, allocation/manager callback recovery, bounded space/deadline/cancel/progress migration worker, opt-in controls and legacy full-index transition investigation. #401 remains unresolved; #230 defined legacy engineering/UAT and user-deferred full #179/provenance stay separate.

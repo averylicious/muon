@@ -36,7 +36,7 @@ class PartitionSaveCommandsTest {
     private val fixtures=mutableListOf<Fixture>()
     private val managers=mutableListOf<DownloadManager>()
     private val payload=byteArrayOf(2,4,6,8,10)
-    private inner class Fixture(capacity:Int=DOWNLOAD_COMMAND_COUNT) {
+    private inner class Fixture(private val capacity:Int=DOWNLOAD_COMMAND_COUNT) {
         val root=folders.newFolder(); val catalog=CachePartitionCatalog(root)
         val migration=CacheMigrationJournal(root); val saves=PartitionSaveJournal(root,create=true)
         var available=true; var free=true
