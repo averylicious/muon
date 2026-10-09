@@ -6,7 +6,6 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.Cache
-import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheKeyFactory
 import java.io.IOException
 
@@ -20,8 +19,7 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
     /** Recheck the acquired native identity even when an idle cached instance is reused. */
     private val cacheValidation:(String,Cache)->Unit={ _,_ -> },
     /** Internal fixture seam. The production default is the actual read-only Media3 cache source. */
-    private val readers:(Cache)->DataSource={ cache -> CacheDataSource.Factory().setCache(cache)
-        .setUpstreamDataSourceFactory(null).setCacheWriteDataSinkFactory(null).createDataSource() }) : DataSource.Factory {
+    private val readers:(Cache)->DataSource={ cache -> savedCacheReader(cache) }) : DataSource.Factory {
     override fun createDataSource():DataSource=Reader()
     private enum class Phase { Idle, Opening, Open, Reading, AddingListener, Closing, Uncertain }
     private inner class Reader:DataSource {

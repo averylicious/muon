@@ -8,7 +8,6 @@ import androidx.media3.database.DatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
-import androidx.media3.datasource.cache.CacheDataSource
 import java.io.File
 import java.io.IOException
 
@@ -85,10 +84,7 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
             val name=spec.key ?: throw IOException("Saved legacy read requires exact key")
             val projection=try { LegacyResourceProjection.read(directory,uid,name,index,checkpoint) }
                 catch(failure:MigrationIoUncertain) { uncertainty=failure; throw failure }
-            val factory=CacheDataSource.Factory().setCache(projection).setUpstreamDataSourceFactory(null)
-                .setCacheWriteDataSinkFactory(null)
-            if(files!=null) factory.setCacheReadDataSourceFactory(files)
-            val opened=factory.createDataSource(); child=opened
+            val opened=savedCacheReader(projection,files); child=opened
             for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)
             checkpoint(); return opened.open(spec).also { checkpoint() }
         }

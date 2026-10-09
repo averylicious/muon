@@ -5,7 +5,6 @@ package dev.avery.muon
 import androidx.media3.common.C
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.Cache
-import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.ContentMetadata
 
 /** Read boundary for one shelf. Callers receive one resource's state, never its native Cache/owner.
@@ -28,9 +27,7 @@ internal data class SavedAudioState(val coverage: SavedCoverage, val bytes: Long
  * The optional file factory is for real-source close/containment controls, not another upstream.
  */
 internal class LegacySavedAudio(private val cache: Cache, files: DataSource.Factory? = null) : SavedAudio {
-    override val source: DataSource.Factory = CacheDataSource.Factory().setCache(cache)
-        .setUpstreamDataSourceFactory(null).setCacheWriteDataSinkFactory(null)
-        .also { if (files != null) it.setCacheReadDataSourceFactory(files) }
+    override val source: DataSource.Factory = DataSource.Factory { savedCacheReader(cache, files) }
 
     override fun inspect(key: String): SavedAudioState = savedAudioState(cache, key)
     override fun contains(key: String): Boolean = key in cache.keys
