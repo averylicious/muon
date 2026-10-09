@@ -14,9 +14,9 @@ import java.util.concurrent.CancellationException
  * Removal still MUST be refused before manager delivery: throwing here alone cannot preserve its row.
  */
 internal class PartitionCommandDownloader(private val commands:PartitionSaveCommands,
-    pool:PartitionCacheLeases,upstream:DataSource.Factory) : DownloaderFactory {
+    pool:PartitionCacheLeases,upstream:DataSource.Factory,barrier:SavedStorageBarrier?=null) : DownloaderFactory {
     private val factory=PartitionDownloadFactory(pool,upstream,
-        {_,_,_->throw IOException("Partition removal requires production pre-manager admission")},sealNewSaves=true)
+        {_,_,_->throw IOException("Partition removal requires production pre-manager admission")},sealNewSaves=true,barrier=barrier)
     override fun createDownloader(request:DownloadRequest):Downloader = object:Downloader {
         private var delegate:Downloader?=null
         private var canceled=false
