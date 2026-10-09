@@ -1,0 +1,188 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+package dev.avery.muon
+
+import android.database.sqlite.SQLiteDatabase
+import androidx.media3.database.DatabaseProvider
+import androidx.media3.datasource.cache.Cache
+import androidx.media3.datasource.cache.NoOpCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+
+/** Count opening, open, closing AND quarantined instances. Production uses the process singleton
+ * across all stores, pools and migration factories. A separate budget is only for isolated tests.
+ * No waiting queue, eviction, reset or retry frees uncertain native ownership. */
+internal class PartitionNativeBudget(private val capacity:Int=PARTITION_NATIVE_INSTANCES) {
+    init { require(capacity in 1..PARTITION_NATIVE_INSTANCES) }
+    companion object { val process=PartitionNativeBudget() }
+    private val slots=arrayOfNulls<Permit>(capacity)
+    val resident:Int @Synchronized get()=slots.count { it!=null }
+    @Synchronized fun acquire():Permit {
+        val slot=slots.indexOfFirst { it==null }
+        if(slot<0) throw PartitionCacheBusy()
+        return Permit(slot).also { slots[slot]=it }
+    }
+    inner class Permit internal constructor(private val slot:Int) {
+        private var ended=false
+        private var quarantined=false
+        // Strongly keep all possibly live handles; this is bounded by slots, never a growing list.
+        private var retained:Any?=null
+        fun retain(handles:Any)=synchronized(this@PartitionNativeBudget) { check(!ended); retained=handles }
+        fun quarantine(handles:Any)=synchronized(this@PartitionNativeBudget) {
+            check(!ended); quarantined=true; retained=handles
+        }
+        fun closed()=synchronized(this@PartitionNativeBudget) {
+            if(ended) return@synchronized
+            check(!quarantined) { "Uncertain native ownership cannot return its permit" }
+            check(slots[slot]===this); ended=true; slots[slot]=null
+        }
+    }
+}
+
+/** UNWIRED owned factory for known private partitions, never a legacy/adopted cache. Each allocation
+ * owns bytes/, index/native-v1.db and metadata/content-v1.db as siblings. Public Media3 APIs alone
+ * create/update native schemas. Ready opens require the journal UID plus pre-open native and sidecar
+ * admission; reservation alone is never routing authority. A migration adapter can create ONE fresh
+ * reservation and reopen only that same attempt after a known clean close.
+ *
+ * The production caller still owes the app-wide source/writer/removal/eviction/availability barrier
+ * and all reader/writer/listener pins. A volume token is a fail-closed observation, NOT an OS mount
+ * lock, card authentication or power-loss proof. Do not pass independent production budgets or raw
+ * native handles elsewhere. No routing, user migration controls or destructive cleanup is enabled.
+ */
+internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
+    private val journal:CacheMigrationJournal,private val volume:String,private val currentVolume:()->String?,
+    private val limits:PartitionResourceLimits=PartitionResourceLimits(),
+    private val budget:PartitionNativeBudget=PartitionNativeBudget.process) {
+    init { require(volume.isNotEmpty()) }
+    @Volatile private var healthy=true
+    private class Handles(val permit:PartitionNativeBudget.Permit) {
+        var database:SQLiteDatabase?=null
+        var native:SimpleCache?=null
+        var metadata:PartitionContentMetadata?=null
+        var facade:PartitionResourceCache?=null
+        var attempted=false
+    }
+    private fun available() {
+        if(currentVolume()!=volume) throw IOException("Partition volume unavailable or changed")
+    }
+    private fun exactDirectory(file:File) {
+        if(!file.isDirectory || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
+            throw IOException("Partition directory identity differs")
+    }
+    private fun exactFile(file:File) {
+        if(!file.isFile || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
+            throw IOException("Partition database identity differs")
+    }
+    @Synchronized fun openReady(key:String):Cache {
+        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        available()
+        val ready=journal.ready(key) ?: throw IOException("Partition has no verified ready route")
+        val uid=requireNotNull(ready.targetUid)
+        if(uid==ready.ticket.sourceUid) throw IOException("Ready partition aliases its source UID")
+        return open(ready.ticket.allocation,uid,false)
+    }
+    /** Return a distinct adapter per migration attempt. It cannot adopt an interrupted old target. */
+    fun migrationTarget(key:String):(File)->Cache {
+        if(key.length.toLong()*2>limits.keyBytes) throw IOException("Partition key exceeds its budget")
+        var allocation:CachePartitionAllocation?=null
+        var uid:Long?=null
+        var failed=false
+        return { directory -> synchronized(this) {
+            if(!healthy || failed) throw IOException("Migration factory unavailable")
+            available()
+            try {
+                val first=allocation==null
+                val claim=allocation ?: (catalog.find(key) ?: throw IOException("Migration has no reservation"))
+                val row=journal.find(key)
+                if(row?.ticket?.allocation!=claim || row.phase!=MigrationPhase.Copying ||
+                    directory.absoluteFile!=catalog.directory(claim)) throw IOException("Migration target claim differs")
+                if(first) allocation=claim
+                val cache=open(claim,uid,first,row.ticket.sourceUid)
+                if(first) uid=cache.uid
+                cache
+            } catch(failure:Throwable) { failed=true; throw failure }
+        } }
+    }
+    /** Must be called under this owner's creation mutex; actual native lock also refuses duplicates. */
+    private fun open(allocation:CachePartitionAllocation,expectedUid:Long?,fresh:Boolean,forbiddenUid:Long?=null):Cache {
+        if(allocation.key.length.toLong()*2>limits.keyBytes) throw IOException("Partition key exceeds its budget")
+        available()
+        val root=catalog.directory(allocation)
+        val bytes=File(root,"bytes"); val index=File(root,"index"); val file=File(index,"native-v1.db")
+        val metadata=File(root,"metadata")
+        val h=Handles(budget.acquire()).also { it.permit.retain(it) }
+        try {
+            if(fresh) {
+                if(root.exists()) throw IOException("Fresh partition already exists")
+                val parent=requireNotNull(root.parentFile)
+                if(!parent.exists() && !parent.mkdirs()) throw IOException("Partition parent unavailable")
+                exactDirectory(parent)
+                if(!root.mkdir() || !bytes.mkdir() || !index.mkdir()) throw IOException("Fresh partition layout unavailable")
+            }
+            exactDirectory(root); exactDirectory(bytes); exactDirectory(index)
+            if(SimpleCache.isCacheFolderLocked(bytes)) throw PartitionCacheBusy()
+            if(fresh) {
+                if(file.exists()) throw IOException("Fresh native database already exists")
+                h.database=SQLiteDatabase.openOrCreateDatabase(file,null)
+            } else {
+                exactFile(file); exactDirectory(metadata); exactFile(File(metadata,"content-v1.db"))
+                h.database=SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READWRITE)
+            }
+            val db=requireNotNull(h.database)
+            db.execSQL("PRAGMA cache_size=-256"); db.execSQL("PRAGMA synchronous=FULL")
+            if(!fresh) {
+                val uid=expectedUid ?: throw IOException("Partition UID missing")
+                h.metadata=PartitionContentMetadata(metadata,uid,allocation.key)
+                PartitionResourceCache.measured(requireNotNull(h.metadata).read(),limits)
+                PartitionNativeAdmission.inspect(bytes,uid,allocation.key,db,limits,checkpoint=::available)
+            }
+            available()
+            val provider=object:DatabaseProvider {
+                override fun getWritableDatabase()=db
+                override fun getReadableDatabase()=db
+            }
+            // After constructor entry, an exception can leave a background native initializer alive.
+            // Do not close its DB or return a residency permit merely because no object was returned.
+            h.attempted=true
+            val native=SimpleCache(bytes,NoOpCacheEvictor(),provider).also { h.native=it; it.checkInitialization() }
+            available()
+            if(native.uid<0 || native.uid==forbiddenUid || (!fresh && native.uid!=expectedUid)) throw IOException("Partition native UID changed")
+            if(fresh) h.metadata=PartitionContentMetadata(metadata,native.uid,allocation.key,create=true)
+            h.facade=PartitionResourceCache.open(native,allocation.key,limits,requireNotNull(h.metadata),::available)
+            available()
+            return Owned(h,bytes,metadata,allocation.key,native.uid)
+        } catch(failure:Throwable) {
+            if(h.attempted) quarantine(h)
+            else try {
+                available(); h.metadata?.close(); h.database?.close(); h.permit.closed()
+            } catch(cleanup:Throwable) { quarantine(h); if(cleanup!==failure) failure.addSuppressed(cleanup) }
+            throw failure
+        }
+    }
+    private fun quarantine(h:Handles) { healthy=false; h.permit.quarantine(h) }
+    private inner class Owned(private val h:Handles,private val bytes:File,private val metadata:File,
+        private val key:String,private val nativeUid:Long):Cache by requireNotNull(h.facade) {
+        private var ended=false
+        private var uncertain=false
+        @Synchronized override fun release() {
+            if(ended) return
+            if(uncertain) throw IOException("Partition close remains uncertain")
+            try {
+                available()
+                val facade=requireNotNull(h.facade); val native=requireNotNull(h.native); val db=requireNotNull(h.database)
+                facade.checkOwnerRelease()
+                // Native release prunes stale spans; validate BEFORE permitting that mutation.
+                PartitionNativeAdmission.inspect(bytes,nativeUid,key,db,limits,ownedActive=native,checkpoint=::available)
+                facade.release()
+                available()
+                PartitionNativeAdmission.inspect(bytes,nativeUid,key,db,limits,checkpoint=::available)
+                // Release can log native persistence failure without throwing. Validate the closed
+                // index/layout AND reopen durable metadata; migration still fully rechecks bytes.
+                PartitionContentMetadata(metadata,nativeUid,key).use { PartitionResourceCache.measured(it.read(),limits) }
+                available(); db.close(); h.permit.closed(); ended=true
+            } catch(failure:Throwable) { uncertain=true; quarantine(h); throw failure }
+        }
+    }
+}

@@ -67,6 +67,7 @@ internal class PartitionResourceCache private constructor(
     val key: String,
     private val limits: PartitionResourceLimits,
     private val persistent: PartitionContentMetadata?,
+    private val availability:()->Unit,
     private var spans: Int,
     /** A resource that held metadata but no bytes when admitted: Media3 would drop it on a hole release. */
     private var bareMetadata: Boolean,
@@ -93,8 +94,9 @@ internal class PartitionResourceCache private constructor(
          */
         @Throws(IOException::class)
         fun open(cache: SimpleCache, key: String, limits: PartitionResourceLimits = PartitionResourceLimits(),
-            persistent:PartitionContentMetadata?=null): PartitionResourceCache =
+            persistent:PartitionContentMetadata?=null, availability:()->Unit={}): PartitionResourceCache =
             synchronized(cache) {
+                availability()
                 if (key.length.toLong() * 2 > limits.keyBytes) throw IOException("Partition key exceeds its budget")
                 cache.checkInitialization()
                 for (name in cache.keys) if (name != key) throw IOException("Partition holds another resource")
@@ -104,11 +106,11 @@ internal class PartitionResourceCache private constructor(
                 val metadata = measured(persistent?.read() ?: cache.getContentMetadata(key), limits)
                 val count = cache.getCachedSpans(key).size
                 if (count > limits.spans) throw IOException("Partition resource is too fragmented")
-                PartitionResourceCache(cache, key, limits, persistent, count, persistent==null && count == 0 && metadata.entrySet().isNotEmpty())
+                PartitionResourceCache(cache, key, limits, persistent, availability, count, persistent==null && count == 0 && metadata.entrySet().isNotEmpty())
             }
 
         /** The metadata as Media3 stores it, within budget; anything else is refused unchanged. */
-        private fun measured(metadata: ContentMetadata, limits: PartitionResourceLimits): DefaultContentMetadata {
+        internal fun measured(metadata: ContentMetadata, limits: PartitionResourceLimits): DefaultContentMetadata {
             val known = metadata as? DefaultContentMetadata ?: throw IOException("Unknown cache metadata implementation")
             var fields = 0
             var bytes = 0L
@@ -322,6 +324,14 @@ internal class PartitionResourceCache private constructor(
 
     // ---- lifecycle ----
 
+    /** The owned factory must establish quiescence before a native release can prune stale files.
+     * Cached-file readers are external pins and still belong to the caller/pool. */
+    internal fun checkOwnerRelease():Unit=synchronized(cache) {
+        live(); notInCallback()
+        if(uncertain || holes.any { it!=null } || holesReserved>0 || files.any { it!=null } || listeners.any { it!=null })
+            throw IOException("Partition is not known quiescent")
+    }
+
     /** Refused while this instance still holds write locks, pending files or listeners. */
     override fun release(): Unit = synchronized(cache) {
         if (released) return@synchronized
@@ -335,7 +345,10 @@ internal class PartitionResourceCache private constructor(
 
     // ---- checks ----
 
-    private fun live() { check(!released) { "Partition was released" } }
+    private fun live() {
+        check(!released) { "Partition was released" }
+        try { availability() } catch(failure:Exception) { uncertain=true; throw failure }
+    }
 
     private fun mine(name: String) {
         live()

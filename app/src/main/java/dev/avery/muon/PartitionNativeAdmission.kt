@@ -23,10 +23,14 @@ internal data class PartitionNativeEvidence(val bytes:Long,val spans:Int)
 internal object PartitionNativeAdmission {
     private data class SpanFile(val length:Long,val position:Long)
     fun inspect(directory:File,uid:Long,key:String,index:SQLiteDatabase,
-        limits:PartitionResourceLimits=PartitionResourceLimits(),checkpoint:()->Unit={}):PartitionNativeEvidence {
+        limits:PartitionResourceLimits=PartitionResourceLimits(), ownedActive:SimpleCache?=null,checkpoint:()->Unit={}):PartitionNativeEvidence {
         checkpoint()
         if(uid<0 || key.length.toLong()*2>limits.keyBytes || !index.isOpen) throw IOException("Partition identity unavailable")
-        if(!directory.isDirectory || directory.canonicalFile!=directory.absoluteFile || SimpleCache.isCacheFolderLocked(directory))
+        // Only the actual exclusively owned factory may inspect its own initialized instance before
+        // release. The default still refuses every live cache; this is not authority to adopt one.
+        val locked=SimpleCache.isCacheFolderLocked(directory)
+        if(ownedActive!=null && (ownedActive.uid!=uid || !locked)) throw IOException("Active native owner differs")
+        if(!directory.isDirectory || directory.canonicalFile!=directory.absoluteFile || (locked && ownedActive==null))
             throw IOException("Partition directory is not a closed exact owner path")
         val hex=java.lang.Long.toHexString(uid)
         val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
