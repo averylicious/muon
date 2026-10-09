@@ -31,3 +31,7 @@ Native tests cover adjacent/many fragmented spans, holes, retained bytes beyond 
 5. **Controlled and acceptance testing:** real native cache/index integration with forced write/metadata/close/publish/deletion/restart failures and bounded residency. Device/card timing and preservation testing only after renewed authorization. #401 saved-card startup remains measurement pending, not fixed by instrumentation.
 
 The native-cache gate remains REQUIRED before Stable. A partial migration is not a completed memory redesign. #230 defined engineering completion/UAT and user-deferred #179/trust work remain separate decisions.
+
+## Owned production bridge follow-up
+
+#438 adds the owned per-partition native DB/sidecar factory, global native residency and pre-/post-close checks; actual .837 passed1017tests per variant with reports/APK identity verification. #439 adds the supported progressive downloader, writer/exclusive pins, source/sink closure tracking and bounded sidecar cursor projection; its latest .841 atd673461d87e4024432e3dc7c4c7c20911c0e21f8 is pending at this draft. All remain disabled. See the [production integration map](2026-10-09-partitioned-production-plan.md) and latest checkpoint for required routing/new-save ownership/barrier/opt-in engineering and final receipts.
