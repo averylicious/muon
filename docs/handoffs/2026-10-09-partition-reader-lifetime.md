@@ -23,3 +23,7 @@ This only establishes cached-read lifetime over an owner-supplied pool. A produc
 Ask for renewed POCO rooted-ADB access after production routing/opt-in controls exist; then inspect private records/card identity and perform disposable-data cancel/restart/preservation checks. Do not disturb the user's card for an unwired helper. #401 measurements and inherited application UAT remain pending.
 
 Claude Opus5.5/ClaudeCode/High finished normally/idle at78%five-hour/92%weekly USED this assignment, no hard cutoff. Root continues solo; current account quota is checked at boundaries. Portable PR/head/evidence is authoritative; local session IDs are optional.
+
+## CI ordering correction
+
+Initial .831 at ef796ba4228ef897c47e50a17ffefdbcbd2020e5 compiled and ran993tests per variant. Its release suite failed the inherited SavedLibraryModel pending-callback revocation test: expected1callback, got2. The test did not ensure work was still pending before refresh; a fast IO completion can legitimately publish before that command. The correction holds the actual private saved-work Mutex during prepare/cancel/replacement and prepare/refresh, then releases it and pumps the actual main/coroutine result. This tests the stated cancellation case deterministically without changing production behavior, adding sleeps or suppressing the assertion. Latest-head full CI and actual reports are required; .831 is not a successful receipt.
