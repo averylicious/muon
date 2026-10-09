@@ -1,5 +1,7 @@
 # #253 opt-in native-cache migration preparation
 
+Current implementation boundary: [native-cache checkpoint](../handoffs/2026-10-09-native-cache-checkpoint.md). #433 adds persistent verified close/reopen publication; #434 hard per-resource native mutation admission; #435 separate durable exact metadata outside the scanned native byte folder; #436 cached-file reader pinning through clean close; #437 read-only closed native index/UID/span admission before native initialization. All remain disabled. The stages below describe the full goal, not unstarted journal/admission work; production ownership wiring the prepared pre-open admission, routing/downloader integration, source barriers, request/cover handover and opt-in controls still remain REQUIRED. The checkpoint has exact heads, actual receipts and the next bounded implementation.
+
 User approved preparation on October9: migration is opt-in, old copies remain readable, temporary free space is needed, and an old copy is removed only after its replacement passes byte verification. This document does not authorize enabling migration, deleting user data or claiming #253 complete. No phone/experimental work in this cycle. App stack remains open for UAT.
 
 ## Source evidence and chosen direction
@@ -29,3 +31,7 @@ Native tests cover adjacent/many fragmented spans, holes, retained bytes beyond 
 5. **Controlled and acceptance testing:** real native cache/index integration with forced write/metadata/close/publish/deletion/restart failures and bounded residency. Device/card timing and preservation testing only after renewed authorization. #401 saved-card startup remains measurement pending, not fixed by instrumentation.
 
 The native-cache gate remains REQUIRED before Stable. A partial migration is not a completed memory redesign. #230 defined engineering completion/UAT and user-deferred #179/trust work remain separate decisions.
+
+## Owned production bridge follow-up
+
+#438 adds the owned per-partition native DB/sidecar factory, global native residency and pre-/post-close checks; actual .837 passed1017tests per variant with reports/APK identity verification. #439 adds the supported progressive downloader, writer/exclusive pins, source/sink closure tracking and bounded sidecar cursor projection; its latest .841 at `d673461d87e4024432e3dc7c4c7c20911c0e21f8` passed 1,035 tests per variant with actual reports/APK identity verification. All remain disabled. See the [production integration map](2026-10-09-partitioned-production-plan.md) and latest checkpoint for required routing/new-save ownership/barrier/opt-in engineering and final receipts.
