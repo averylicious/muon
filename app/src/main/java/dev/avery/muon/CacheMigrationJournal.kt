@@ -6,6 +6,8 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.util.UUID
+import java.nio.file.Files
+import android.database.Cursor
 
 internal enum class MigrationPhase { Copying, Verified, Ready, Uncertain }
 internal data class MigrationTicket(val allocation:CachePartitionAllocation, val token:String, val sourceUid:Long)
@@ -16,7 +18,7 @@ internal data class MigrationRecord(val ticket:MigrationTicket, val phase:Migrat
  * coordinator may advance a ticket while holding source/availability/writer/eviction exclusion.
  * Restarted Copying/Verified/Uncertain rows NEVER become Ready without a fresh replacement attempt.
  * A Ready row still needs matching native UID and current volume/ownership before use. */
-internal class CacheMigrationJournal(root:File, private val token:()->String={UUID.randomUUID().toString()}) : Closeable {
+internal class CacheMigrationJournal(root:File, create:Boolean=true, private val token:()->String={UUID.randomUUID().toString()}) : Closeable {
     private val schema="CREATE TABLE migrations(key BLOB PRIMARY KEY NOT NULL, directory TEXT UNIQUE NOT NULL, token TEXT UNIQUE NOT NULL, source_uid INTEGER NOT NULL, phase INTEGER NOT NULL, target_uid INTEGER, bytes INTEGER, ranges INTEGER)"
     // Bounded projections reject corruption BEFORE CursorWindow loads payload. Invalid nullable
     // numeric types use a small text sentinel so they cannot masquerade as legitimate SQL NULL.
@@ -30,8 +32,15 @@ internal class CacheMigrationJournal(root:File, private val token:()->String={UU
     private val database:SQLiteDatabase
     private var verifiedHere:MigrationTicket?=null
     init {
-        check(root.isDirectory || root.mkdirs()) { "No private migration journal directory" }
-        database=SQLiteDatabase.openOrCreateDatabase(File(root,"migration-journal-v1.db"),null)
+        if(create && !root.exists() && !root.mkdirs()) throw IOException("No private migration directory")
+        if(!root.isDirectory || root.absoluteFile!=root.canonicalFile || Files.isSymbolicLink(root.toPath()))
+            throw IOException("Migration journal directory differs")
+        val file=File(root,"migration-journal-v1.db")
+        if(file.exists() && (!file.isFile || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath())))
+            throw IOException("Migration journal file differs")
+        if(!create && !file.isFile) throw IOException("Migration journal missing; resume cannot initialize it")
+        database=if(create) SQLiteDatabase.openOrCreateDatabase(file,null)
+            else SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS)
         try {
             database.execSQL("PRAGMA cache_size=-256")
             database.execSQL("PRAGMA synchronous=FULL")
@@ -39,13 +48,14 @@ internal class CacheMigrationJournal(root:File, private val token:()->String={UU
             try {
                 when (database.version) {
                     0 -> {
+                        if(!create) throw IOException("Migration journal is uninitialized; resume cannot replace it")
                         database.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name!='android_metadata'",null).use {
                             if (!it.moveToFirst() || it.getLong(0)!=0L) throw IOException("Unrecognized migration journal")
                         }
                         database.execSQL(schema); database.version=1
                     }
-                    1 -> database.rawQuery("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name!='android_metadata'",null).use {
-                        if (!it.moveToFirst() || it.getString(0)!="table" || it.getString(1)!="migrations" || it.getString(2)!=schema || it.moveToNext())
+                    1 -> database.rawQuery("SELECT CASE WHEN type='table' AND name='migrations' AND length(CAST(sql AS BLOB))<=1024 THEN sql ELSE NULL END FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND NOT (type='table' AND name='android_metadata') LIMIT 2",null).use {
+                        if(!it.moveToFirst() || it.getType(0)!=Cursor.FIELD_TYPE_STRING || it.getString(0)!=schema || it.moveToNext())
                             throw IOException("Unrecognized migration journal schema")
                     }
                     else -> throw IOException("Unsupported migration journal version")

@@ -6,12 +6,14 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.util.UUID
+import java.nio.file.Files
+import android.database.Cursor
 
 internal const val PARTITION_LOCATOR_WINDOW=16
 internal data class CachePartitionAllocation(val key:String, val directory:String)
 
 /** Persistent exact reservations for opt-in migration; no readiness/publish/delete authority. */
-internal class CachePartitionCatalog(private val root:File, private val newDirectory:()->String={ UUID.randomUUID().toString() }) : Closeable {
+internal class CachePartitionCatalog(private val root:File, create:Boolean=true, private val newDirectory:()->String={ UUID.randomUUID().toString() }) : Closeable {
     private val schema="CREATE TABLE partitions(key BLOB PRIMARY KEY NOT NULL, directory TEXT UNIQUE NOT NULL)"
     private val resources=File(root,"resources")
     // Bound payload BEFORE CursorWindow projection. TEXT length alone stops at embedded NUL.
@@ -19,14 +21,22 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
     private val boundedKey="CASE WHEN typeof(key)='blob' AND length(key)<=$MIGRATION_KEY_BYTES THEN key ELSE NULL END"
     private val database:SQLiteDatabase
     init {
-        check(root.isDirectory || root.mkdirs()) { "No private partition directory" }
-        database=SQLiteDatabase.openOrCreateDatabase(File(root,"partition-locators-v1.db"),null)
+        if(create && !root.exists() && !root.mkdirs()) throw IOException("No private partition directory")
+        if(!root.isDirectory || root.absoluteFile!=root.canonicalFile || Files.isSymbolicLink(root.toPath()))
+            throw IOException("Partition journal directory differs")
+        val file=File(root,"partition-locators-v1.db")
+        if(file.exists() && (!file.isFile || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath())))
+            throw IOException("Partition journal file differs")
+        if(!create && !file.isFile) throw IOException("Partition journal missing; resume cannot initialize it")
+        database=if(create) SQLiteDatabase.openOrCreateDatabase(file,null)
+            else SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS)
         try {
             database.execSQL("PRAGMA cache_size=-256")
             database.beginTransaction()
             try {
                 when (database.version) {
                     0 -> {
+                        if(!create) throw IOException("Partition journal is uninitialized; resume cannot replace it")
                         val existing=database.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name!='android_metadata'",null).use {
                             if (!it.moveToFirst()) throw IOException("Partition schema unreadable")
                             it.getLong(0)
@@ -35,9 +45,9 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
                         database.execSQL(schema)
                         database.version=1
                     }
-                    1 -> database.rawQuery("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name!='android_metadata'",null).use {
-                        if (!it.moveToFirst() || it.getString(0)!="table" || it.getString(1)!="partitions" ||
-                            it.getString(2)!=schema || it.moveToNext()) throw IOException("Unrecognized partition schema")
+                    1 -> database.rawQuery("SELECT CASE WHEN type='table' AND name='partitions' AND length(CAST(sql AS BLOB))<=1024 THEN sql ELSE NULL END FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND NOT (type='table' AND name='android_metadata') LIMIT 2",null).use {
+                        if(!it.moveToFirst() || it.getType(0)!=Cursor.FIELD_TYPE_STRING || it.getString(0)!=schema || it.moveToNext())
+                            throw IOException("Unrecognized partition journal schema")
                     }
                     else -> throw IOException("Unsupported partition schema")
                 }

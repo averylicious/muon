@@ -65,7 +65,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             PartitionShelfStart.Fresh -> if(directory.exists()) throw IOException("Fresh partition shelf root already exists")
             PartitionShelfStart.Resume -> {
                 exactDirectory(directory)
-                journalNames.forEach { exactJournal(File(directory,it)) }
+                rootIdentity=key(directory)
+                for(i in journalNames.indices) {
+                    val file=File(directory,journalNames[i]); exactJournal(file); identities[i]=key(file)
+                }
+                located()
             }
         }
     }
@@ -81,11 +85,16 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             val legacy=owner.own { LegacyTransitionOwner(legacyDirectory,legacyDatabase,barrier,{currentVolume()==volume}) }
             val audio=legacy.open()
             if(start==PartitionShelfStart.Fresh) Files.createDirectory(directory.toPath())
-            exactDirectory(directory); rootIdentity=key(directory)
-            val catalog=owner.own { CachePartitionCatalog(directory) }
-            val migrations=owner.own { CacheMigrationJournal(directory) }
+            exactDirectory(directory)
+            if(start==PartitionShelfStart.Fresh) rootIdentity=key(directory) else located()
+            val catalog=owner.own { CachePartitionCatalog(directory,create=start==PartitionShelfStart.Fresh) }
+            if(start==PartitionShelfStart.Resume) located()
+            val migrations=owner.own { CacheMigrationJournal(directory,create=start==PartitionShelfStart.Fresh) }
+            if(start==PartitionShelfStart.Resume) located()
             val saves=owner.own { PartitionSaveJournal(directory,create=start==PartitionShelfStart.Fresh) }
-            for(i in journalNames.indices) { val file=File(directory,journalNames[i]); exactJournal(file); identities[i]=key(file) }
+            if(start==PartitionShelfStart.Fresh) for(i in journalNames.indices) {
+                val file=File(directory,journalNames[i]); exactJournal(file); identities[i]=key(file)
+            }
             located()
             val native=owner.own { PartitionNativeOwner(catalog,migrations,volume,
                 { if(runCatching { located(); true }.getOrDefault(false)) volume else null },budget=budget,saves=saves) }

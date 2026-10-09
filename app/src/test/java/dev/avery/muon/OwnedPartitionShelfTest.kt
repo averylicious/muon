@@ -49,8 +49,8 @@ class OwnedPartitionShelfTest {
                 databaseFile=File(provider.readableDatabase.path)
             } finally { native.release() }
         }
-        fun owner(start:PartitionShelfStart=PartitionShelfStart.Fresh,path:File=root)=OwnedPartitionShelf(
-            RuntimeEnvironment.getApplication(),path,legacy,databaseFile,provider,"owned_partition","fixture",{volume},
+        fun owner(start:PartitionShelfStart=PartitionShelfStart.Fresh,path:File=root,currentVolume:()->String?={volume})=OwnedPartitionShelf(
+            RuntimeEnvironment.getApplication(),path,legacy,databaseFile,provider,"owned_partition","fixture",currentVolume,
             start,barrier,{true},DataSource.Factory { ByteArrayDataSource(payload) },budget)
     }
     private fun await(manager:DownloadManager,condition:()->Boolean) {
@@ -116,6 +116,23 @@ class OwnedPartitionShelfTest {
             CacheMigrationJournal(f.root).use { assertEquals(record,it.ready("old")) }
             assertFalse(SimpleCache.isCacheFolderLocked(f.legacy)); assertArrayEquals(payload,f.original.readBytes())
         } finally { resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
+    }
+    @Test fun resumePinsJournalIdentityBeforeAnyConstructorOrLegacyOpening() {
+        val f=Fixture(); val first=f.owner(); var firstClosed=false
+        try {
+            first.prepare(); teardown(first); firstClosed=true
+            val file=File(f.root,"partition-locators-v1.db"); val kept=File(f.root,"preserved-locators.db")
+            var observations=0
+            val resume=f.owner(PartitionShelfStart.Resume,currentVolume={
+                observations++
+                if(observations==2) { check(file.renameTo(kept)); kept.copyTo(file) }
+                f.volume
+            })
+            assertThrows(IOException::class.java) { resume.prepare() }
+            assertTrue(kept.isFile); assertTrue(file.isFile); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+            assertArrayEquals(payload,f.original.readBytes()); assertEquals(0,f.budget.resident)
+            assertThrows(IOException::class.java) { resume.prepare() }
+        } finally { if(!firstClosed) teardown(first); f.provider.close() }
     }
     @Test fun resumeNeverCreatesAMissingJournalAndFreshNeverAdoptsExistingRoot() {
         val f=Fixture(); assertTrue(f.root.mkdir()); val marker=File(f.root,"user-original").apply { writeText("kept") }

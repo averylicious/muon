@@ -117,6 +117,16 @@ class PartitionOpeningQuarantineTest {
         assertThrows(PartitionOwnershipUncertain::class.java) { task.download(null) }
         f.unavailable=false; f.unknown()
     }
+    @Test fun migrationProgressReportsUnknownIdleNativeCloseBeforeSourceProjection() {
+        val f=fixture(); f.pool.acquire(key).use { f.actual=it.cache }; f.unavailable=true
+        val control=CacheMigrationControl(1000,nanoTime={0L})
+        val publication=CacheMigrationPublication(f.catalog,f.journal,{ throw AssertionError("Target must not open") })
+        assertThrows(PartitionOwnershipUncertain::class.java) {
+            BarrierCacheMigration(f.barrier,f.pool::trimIdle).run(control,f.legacy,"other",publication,{Long.MAX_VALUE},{})
+        }
+        assertEquals(MigrationWorkPhase.Uncertain,control.progress.phase)
+        f.unavailable=false; f.unknown(); assertNull(f.journal.find("other"))
+    }
     @Test fun preNativeAdmissionFailureWithKnownClosureStillReleasesGateAndCapacity() {
         val f=fixture(); val uid=requireNotNull(f.journal.ready(key)?.targetUid)
         assertTrue(File(requireNotNull(f.bytes),"${java.lang.Long.toHexString(uid)}.uid").delete())

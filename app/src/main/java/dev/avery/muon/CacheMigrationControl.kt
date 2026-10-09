@@ -79,7 +79,7 @@ internal class CacheMigrationControl(timeoutMillis:Long,
             return ready
         } catch(failure:Throwable) {
             progress=MigrationWorkProgress(
-                if(failure is MigrationIoUncertain || publication.ownershipUncertain) MigrationWorkPhase.Uncertain else terminal,bytes)
+                if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || publication.ownershipUncertain) MigrationWorkPhase.Uncertain else terminal,bytes)
             throw failure
         }
     }
