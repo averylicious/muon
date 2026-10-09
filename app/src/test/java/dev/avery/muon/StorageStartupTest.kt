@@ -35,6 +35,22 @@ class StorageStartupTest {
         assertFalse(nested)
         assertThrows(IOException::class.java) { owner.open { Any() } }
     }
+    @Test fun nestedAllocationReservesItsSlotBeforeEnteringTheFactory() {
+        val owner = StorageStartup<Any>(1); var nested = false
+        assertThrows(IOException::class.java) { owner.open { opening ->
+            opening.own { opening.own { nested = true; Any() } }
+        } }
+        assertFalse(nested); assertEquals(1, owner.retained)
+    }
+    @Test fun failedAttemptRetainsItsConstructionSlotAndDoesNotRetry() {
+        val owner = StorageStartup<Any>(); var calls = 0
+        assertThrows(IOException::class.java) { owner.open { opening ->
+            opening.own<Any> { calls++; throw IOException("partial constructor") }
+        } }
+        assertEquals(1, owner.retained)
+        assertThrows(IOException::class.java) { owner.open { calls++; Any() } }
+        assertEquals(1, calls)
+    }
     @Test fun leakedOpeningHandleCannotAllocateAfterStartupFinished() {
         val owner = StorageStartup<Any>(); var opening: StorageStartup<Any>.Opening? = null
         owner.open { opening = it; Any() }

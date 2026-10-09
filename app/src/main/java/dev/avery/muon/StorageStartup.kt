@@ -24,7 +24,9 @@ internal class StorageStartup<T : Any>(private val capacity: Int = 16) {
         fun <R : Any> own(factory: () -> R): R = synchronized(this@StorageStartup) {
             check(phase == Phase.Opening) { "Storage startup is no longer opening" }
             if (count == handles.size) throw IOException("Storage startup ownership budget full")
-            factory().also { handles[count++] = it }
+            val slot = count++
+            handles[slot] = factory // Keep the attempted construction closure if it fails partway.
+            factory().also { handles[slot] = it }
         }
     }
 
