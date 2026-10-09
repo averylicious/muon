@@ -55,6 +55,6 @@ This guard prevents common accidental branch mixing. It does not detect a hand-c
 
 ## Evidence and stopping safely
 
-Each PR records destination/track, source and destination SHAs, any cross-track source/forward-sync need, actual model roles, checks, artifacts and remaining QA. A handoff records dirty work, running tasks and next owner. Preserve it before another slice or a quota cutoff; use [the template](handoffs/TEMPLATE.md).
+Each PR records destination/track, source and destination SHAs, any cross-track source/forward-sync need, actual model roles, checks, artifacts and remaining QA. A handoff records dirty work, running tasks and next owner. Preserve it before another implementation boundary or a quota cutoff; use [the template](handoffs/TEMPLATE.md). A checkpoint does not end a continuing turn; follow [continuous engineering](continuous-engineering.md) and continue actionable authorized work while capacity allows.
 
 Main still publishes the normal Canary feed with the repository's current visibility. Experimental APKs come from Actions and update the same Canary package/data. Installing a newer main APK can replace experimental features; identify the track and version before recommending a download. No Stable tag/release, signing change, phone access or feed change is implied by this protocol.
