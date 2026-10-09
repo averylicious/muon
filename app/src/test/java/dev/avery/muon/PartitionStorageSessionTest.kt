@@ -40,10 +40,10 @@ class PartitionStorageSessionTest {
     private val fixtures=mutableListOf<Fixture>()
     private val managers=mutableListOf<DownloadManager>()
     private val payload=byteArrayOf(2,4,6,8)
-    private inner class Fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT) {
+    private inner class Fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,nativeCapacity:Int=1) {
         val root=folders.newFolder(); val catalog=CachePartitionCatalog(root)
         val migrations=CacheMigrationJournal(root); val saves=PartitionSaveJournal(root,create=true)
-        val budget=PartitionNativeBudget(1); val barrier=SavedStorageBarrier()
+        val budget=PartitionNativeBudget(nativeCapacity); val barrier=SavedStorageBarrier()
         val legacyRoot=folders.newFolder()
         val legacy=SimpleCache(legacyRoot,NoOpCacheEvictor(),database).also { it.checkInitialization() }
         val name="storage_session_"+fixtures.size
@@ -63,7 +63,7 @@ class PartitionStorageSessionTest {
         }
         fun migrate(key:String)=session.migrate(CacheMigrationControl(1000,nanoTime={0L}),legacy,key,{Long.MAX_VALUE},{})
     }
-    private fun fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT)=Fixture(commandCapacity).also(fixtures::add)
+    private fun fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,nativeCapacity:Int=1)=Fixture(commandCapacity,nativeCapacity).also(fixtures::add)
     private fun spec(key:String)=DataSpec.Builder().setUri("muon-saved:test").setKey(key).build()
     private fun read(f:Fixture,key:String):ByteArray {
         val reader=f.session.audio.source.createDataSource()
@@ -134,7 +134,7 @@ class PartitionStorageSessionTest {
         assertNull(f.index.getDownload(first.id)); assertNull(f.index.getDownload(next.id))
     }
     @Test fun missingCompletionCallbackCanReconcileExactPersistedRowBeforeNextSaveWithinOneReceiptBudget() {
-        val f=fixture(1); val manager=DownloadManager(RuntimeEnvironment.getApplication(),f.index,f.session.downloaders).also(managers::add)
+        val f=fixture(commandCapacity=1,nativeCapacity=2); val manager=DownloadManager(RuntimeEnvironment.getApplication(),f.index,f.session.downloaders).also(managers::add)
         manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads()
         fun request(key:String)=DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/api1/fileopus/1"))
             .setCustomCacheKey(key).setData(byteArrayOf(3,5)).build()
