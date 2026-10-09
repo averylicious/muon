@@ -32,7 +32,6 @@ Actual downloaded .828/.829/.830/.833/.835/.837/.841 reports passed 951/967/982/
 | .833 | [11601702811](https://github.com/averylicious/muon/actions/runs/37898542926/artifacts/11601702811), `app-debug-e676b162b7d371a33278fe010233c73e7e3d8942` | `423a9fa9295b8e1cb2ce4a1533937ec55458fb1fd67ac7819a1e8a9e8f42ad18` |
 | .835 | [11602316390](https://github.com/averylicious/muon/actions/runs/37899828772/artifacts/11602316390), `app-debug-bfadd7cba2934550f616b079fa713621bbbce6fa` | `dbb52b2913a84ec8f7b1a785439e06852784fb64949ed3b259dc7d3a1218c166` |
 | .837 | [11603166888](https://github.com/averylicious/muon/actions/runs/37902195417/artifacts/11603166888), `app-debug-6858159b177214e7fbdd18b192f2e3b2ccb8cc2a` | `7e899945b0f454e6bb090492894a7f1b795a0290c6d3b800191a83bc230c0611` |
-
 | .841 | [11604394414](https://github.com/averylicious/muon/actions/runs/37906059763/artifacts/11604394414), `app-debug-d673461d87e4024432e3dc7c4c7c20911c0e21f8` | `14d27a9e70e5bc76838852cb338c5fc504b7a9e512613f78c2e801547d324bd2` |
 
 Branch artifacts expire after14days, update the existing signed Canary/data and are NOT Obtainium releases or separate per-PR apps. These additions remain disabled; inherited playback/download/move/queue/library/accessibility UAT is still pending. No app was installed this cycle.
