@@ -191,6 +191,32 @@ class PartitionPublishedAudioTest {
         assertEquals(MigrationPhase.Uncertain, f.journal.find(key)?.phase)
     }
 
+    @Test fun changedReadyUidCannotReuseAnOldIdleNativeInstanceForReading() {
+        val f = fixture(1); val key = "saved/identity"; val ready = publish(f, key)
+        val before = original(f, key).readBytes()
+        val reader = f.audio.source.createDataSource()
+        reader.open(spec(key)); reader.close()
+        assertEquals(1, f.audio.resident); assertEquals(0, f.audio.active)
+        // Public publication makes Ready immutable. Inject a mismatched scalar in disposable SQL
+        // to verify that a cached pool hit cannot bypass the owner's native-identity admission.
+        SQLiteDatabase.openDatabase(File(f.root, "migration-journal-v1.db").path, null,
+            SQLiteDatabase.OPEN_READWRITE).use { db ->
+            db.execSQL("UPDATE migrations SET target_uid=?", arrayOf(requireNotNull(ready.targetUid) xor 1L))
+        }
+        assertTrue(f.audio.contains(key)) // Existence is deliberately not native identity verification.
+        assertThrows(IOException::class.java) { reader.open(spec(key)) }
+        reader.close(); assertEquals(0, f.audio.active)
+        assertThrows(IOException::class.java) { f.audio.inspect(key) }
+        assertArrayEquals(before, original(f, key).readBytes())
+        SQLiteDatabase.openDatabase(File(f.root, "migration-journal-v1.db").path, null,
+            SQLiteDatabase.OPEN_READWRITE).use { db ->
+            db.execSQL("UPDATE migrations SET target_uid=?", arrayOf(requireNotNull(ready.targetUid)))
+        }
+        assertEquals(3L, reader.open(spec(key)))
+        val got=ByteArray(3); assertEquals(3,reader.read(got,0,3)); assertArrayEquals(bytes,got)
+        reader.close(); assertEquals(0,f.audio.active)
+    }
+
     @Test fun lostVolumeIsStickyForTheOpenReaderAndReturnedVolumeNeedsFreshOpen() {
         val f = fixture(1); val key = "saved/one"; publish(f, key)
         val reader = f.audio.source.createDataSource()

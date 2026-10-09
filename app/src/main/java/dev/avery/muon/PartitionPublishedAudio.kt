@@ -35,6 +35,11 @@ internal class PartitionPublishedAudio(private val owner: PartitionNativeOwner,
         val expected = ready(key)
         val check: () -> Unit = { unchanged(expected) }
         check
+    }, cacheValidation = { key, cache ->
+        // An idle pool hit bypasses owner.openReady. A current journal receipt alone cannot prove
+        // that this already-resident native instance has the receipt's UID.
+        if (cache.uid != ready(key).targetUid)
+            throw IOException("Published saved-copy native identity changed")
     })
     override fun inspect(key: String): SavedAudioState {
         val expected = ready(key)
