@@ -77,6 +77,30 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
             return candidate
         } finally { database.endTransaction() }
     }
+    /** New replacement reservation. Old/uncertain directories remain untouched; ready routing must
+     * use the migration journal, never a reservation alone. Concurrent attempts need journal CAS. */
+    @Synchronized fun reserveFresh(key:String):CachePartitionAllocation {
+        requireKey(key)
+        database.beginTransaction()
+        try {
+            val existing=lookup(key)
+            val candidate=allocation(key,newDirectory())
+            if (candidate==existing || directory(candidate).exists()) throw IOException("Replacement directory is not fresh")
+            if (existing==null) {
+                database.compileStatement("INSERT INTO partitions VALUES(?,?)").use {
+                    it.bindBlob(1,savedCatalogSortKey(key)); it.bindString(2,candidate.directory)
+                    check(it.executeInsert()!=-1L) { "Replacement reservation failed" }
+                }
+            } else {
+                database.compileStatement("UPDATE partitions SET directory=? WHERE key=?").use {
+                    it.bindString(1,candidate.directory); it.bindBlob(2,savedCatalogSortKey(key))
+                    check(it.executeUpdateDelete()==1) { "Replacement reservation changed" }
+                }
+            }
+            database.setTransactionSuccessful()
+            return candidate
+        } finally { database.endTransaction() }
+    }
     /** Path validation alone is not ownership or permission to modify a directory. */
     fun directory(candidate:CachePartitionAllocation):File {
         allocation(candidate.key,candidate.directory)

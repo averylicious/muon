@@ -120,6 +120,20 @@ internal object CacheMigrationPreparation {
         return MigrationCopyEvidence(total,before.ranges.size)
     }
 
+    /** Fresh full comparison after clean destination close/reopen. Caller still holds the same
+     * source/availability/writer/eviction barrier; this receipt alone never permits source removal. */
+    fun verify(source: Cache, target: Cache, key: String, checkpoint: () -> Unit): MigrationCopyEvidence {
+        if (source === target) throw IOException("Verification needs a separate destination")
+        val before=snapshot(source,key,checkpoint)
+        if (!before.same(snapshot(target,key,checkpoint))) throw IOException("Reopened migration replacement differs")
+        var bytes=0L
+        for (range in before.ranges) { compare(source,target,key,range,checkpoint); bytes=Math.addExact(bytes,range.length) }
+        checkpoint()
+        if (!before.same(snapshot(source,key,checkpoint)) || !before.same(snapshot(target,key,checkpoint)))
+            throw IOException("Migration resources changed during reopened verification")
+        return MigrationCopyEvidence(bytes,before.ranges.size)
+    }
+
     private fun spec(key: String, range: MigrationRange) = DataSpec.Builder()
         .setUri(Uri.parse("muon-migration://local/resource")).setKey(key)
         .setPosition(range.position).setLength(range.length).build()
