@@ -91,7 +91,7 @@ internal object LegacyResourceProjection {
                 throw IOException("Legacy resource has missing or unsupported indexed spans")
         } }
         if(indexed!=spans.size) throw IOException("Legacy selected span census differs")
-        live(); return ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,::live)
+        live(); return ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,live)
     }
     /** Bounded schema/identity observation. Caller still owns the actual storage barrier. */
     fun validate(directory:File,uid:Long,index:SQLiteDatabase,checkpoint:()->Unit):()->Unit {

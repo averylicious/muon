@@ -79,4 +79,25 @@ class BarrierSavedAudioTest {
         }
         assertEquals(1,visits); assertTrue(barrier.quiescent)
     }
+    @Test fun scalarProjectionUnknownDirectoryCloseRetainsActualOwnershipAndSharedPermit() {
+        val directory=java.nio.file.Files.createTempDirectory("muon-projection-close")
+        val actual=java.nio.file.Files.newDirectoryStream(directory)
+        val ownership=MigrationIoOwnership(directories={
+            object:java.nio.file.DirectoryStream<java.nio.file.Path> {
+                override fun iterator()=actual.iterator()
+                override fun close():Unit=throw IOException("Injected unknown actual directory close")
+            }
+        })
+        try {
+            val tracked=ownership.directory(directory); val barrier=SavedStorageBarrier()
+            val base=saved(DataSource.Factory { ByteArrayDataSource(byteArrayOf(1)) })
+            val audio=BarrierSavedAudio(object:SavedAudio by base {
+                override fun inspect(key:String):SavedAudioState { tracked.close(); throw AssertionError("Unknown close was swallowed") }
+            },barrier)
+            val failure=assertThrows(MigrationIoUncertain::class.java) { audio.inspect("a") }
+            assertSame(ownership,failure.ownership); assertFalse(ownership.quiescent)
+            assertEquals(1,barrier.active); assertThrows(IOException::class.java) { barrier.exclusive() }
+        } finally { actual.close(); java.nio.file.Files.delete(directory) }
+    }
+
 }
