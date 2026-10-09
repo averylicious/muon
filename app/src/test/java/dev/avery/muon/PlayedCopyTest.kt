@@ -130,6 +130,7 @@ class PlayedCopyTest {
             copyPlayedWithinLimit(source(cache,upstream),spec(key)) { 512_000 }
         }
         assertNotNull(unknown.owner)
+        assertThrows(java.io.IOException::class.java) { unknown.owner.cache() }
         assertEquals(1,opens); assertEquals(1,closes)
         assertTrue(cache.getCachedSpans(key).isNotEmpty())
         // Disposable fixture retires its raw participant; production must retain, never retry it.

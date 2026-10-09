@@ -68,6 +68,7 @@ internal class Shelf private constructor(private val legacyCache:SimpleCache?, v
     val savedSource: DataSource.Factory get() = audio.source
 
     @Volatile private var playedSourceUncertain:PlayedCopyWriter?=null
+    internal val hasUncertainPlayedSource:Boolean get()=playedSourceUncertain!=null
     internal fun retainUncertainPlayedSource(owner:PlayedCopyWriter) { if(playedSourceUncertain==null) playedSourceUncertain=owner }
     @Volatile private var moveReaderUncertain=false
     /** A failed move file close is process-local uncertainty, not permission to retry/delete. */
@@ -941,6 +942,11 @@ internal object OfflineStore {
             return refused("Muon doesn't support that download command, so nothing was changed.")
         // Includes the phone service: ordinary Add/Remove must not bypass uncertainty merely
         // because they carry no move token. Refuse before manager budgets or receipts are touched.
+        if(shelf?.hasUncertainPlayedSource==true && action in moveExcludedActions) {
+            refusedMoveCommand(intent)
+            return refused("Saved-copy storage is paused because a played-copy source couldn't close. " +
+                "Existing copies were kept; fully stop Muon before trying again.")
+        }
         if(shelf?.hasUncertainMoveReader==true && action in moveExcludedActions) {
             refusedMoveCommand(intent)
             return refused("Saved-copy storage is paused because a move file couldn't close. " +

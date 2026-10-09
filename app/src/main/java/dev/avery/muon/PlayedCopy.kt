@@ -18,10 +18,12 @@ internal class PlayedCopyCloseUncertain(val owner:PlayedCopyWriter,cause:Throwab
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class PlayedCopyWriter(private val source:CacheDataSource,private val spec:DataSpec,
     private val limit:()->Long) {
+    private val used=java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var cancelled=false
     fun cancel() { cancelled=true }
     private fun check() { if(cancelled) throw InterruptedIOException("Played copy cancelled") }
     fun cache() {
+        if(!used.compareAndSet(false,true)) throw IOException("Played-copy writer already consumed; retry is unsupported")
         check() // No open/close if cancelled at installation.
         var attempted=false
         var failure:Throwable?=null

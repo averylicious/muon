@@ -88,6 +88,19 @@ class MoveCommandAdmissionTest {
         } finally { database.close() }
     }
 
+    @Test fun uncertainPlayedSourceRefusesOrdinaryPhoneRemovalBeforeActualManagerAndIndex() {
+        val controller=service()
+        val source=androidx.media3.datasource.cache.CacheDataSource.Factory().setCache(phone.cache).createDataSourceForDownloading()
+        phone.retainUncertainPlayedSource(PlayedCopyWriter(source,
+            androidx.media3.datasource.DataSpec.Builder().setUri("https://fixture.invalid/played").setKey(playedKey("fixture")).build()) { 512_000 })
+        controller.get().onStartCommand(removal(),0,1); awaitSettled(phone.manager)
+        assertEquals(Download.STATE_COMPLETED,phone.manager.downloadIndex.getDownload(kept)?.state)
+        assertTrue(phone.cache.isCached(kept,0,payload.size.toLong()))
+        assertFalse(phone.available())
+        assertEquals("Saved-copy storage is paused because a played-copy source couldn't close. " +
+            "Existing copies were kept; fully stop Muon before trying again.",ShadowToast.getTextOfLatestToast())
+    }
+
     @Test fun uncertainVerificationReaderRefusesOrdinaryPhoneRemovalBeforeActualManagerAndIndex() {
         val controller=service(); phone.retainUncertainMoveReader()
         val store=OfflineStore.get(app); val epoch=store.moveCommandEpoch.get()
