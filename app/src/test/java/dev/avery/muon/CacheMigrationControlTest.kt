@@ -114,4 +114,45 @@ class CacheMigrationControlTest {
         assertThrows(IOException::class.java) { control.run(source,"saved",publisher,{Long.MAX_VALUE},{}) }
         assertEquals(0L,catalog.count()); assertNull(journal.find("saved"))
     }
+    @Test fun cancelAndDeadlineCoverRealClosedLegacyProjectionBeforeTargetReservation() {
+        for(cancel in listOf(true,false)) {
+            val sourceRoot=folders.newFolder(); val source=cache(sourceRoot); val original=seed(source,"saved")
+            val before=original.readBytes(); val uid=source.uid; source.release()
+            val root=folders.newFolder(); var clock=0L; var checked=0; var opened=0
+            val control=CacheMigrationControl(1000,nanoTime={clock})
+            val barrier=SavedStorageBarrier()
+            android.database.sqlite.SQLiteDatabase.openDatabase(database.readableDatabase.path,null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { read ->
+                CachePartitionCatalog(root).use { catalog -> CacheMigrationJournal(root).use { journal ->
+                    val publication=CacheMigrationPublication(catalog,journal,{ opened++; cache(it) })
+                    assertThrows(InterruptedIOException::class.java) {
+                        BarrierCacheMigration(barrier).runProjected(control,"saved",publication,{Long.MAX_VALUE},{}) { checkpoint ->
+                            LegacyResourceProjection.read(sourceRoot,uid,"saved",read,{
+                                checked++
+                                if(checked==3) { if(cancel) control.cancel() else clock=1_000_000_000 }
+                                checkpoint()
+                            })
+                        }
+                    }
+                    assertEquals(if(cancel) MigrationWorkPhase.Cancelled else MigrationWorkPhase.Expired,control.progress.phase)
+                    assertEquals(3,checked); assertEquals(0,opened); assertEquals(0L,catalog.count())
+                    assertNull(journal.find("saved")); assertTrue(barrier.quiescent)
+                    assertArrayEquals(before,original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(sourceRoot))
+                } }
+            }
+        }
+    }
+    @Test fun priorCancellationSkipsPreparationAndProjectionWithoutQuarantiningKnownGate()=fixture { _,original,catalog,journal,publisher ->
+        val control=CacheMigrationControl(1000,nanoTime={0L}); control.cancel()
+        val barrier=SavedStorageBarrier(); var prepares=0; var projections=0
+        assertThrows(InterruptedIOException::class.java) {
+            BarrierCacheMigration(barrier,{prepares++}).runProjected(control,"saved",publisher,{Long.MAX_VALUE},{}) {
+                projections++; throw AssertionError("Cancelled projection executed")
+            }
+        }
+        assertEquals(0,prepares); assertEquals(0,projections); assertTrue(barrier.quiescent)
+        assertEquals(MigrationWorkPhase.Cancelled,control.progress.phase); assertEquals(0L,catalog.count())
+        assertNull(journal.find("saved")); assertTrue(original.isFile)
+    }
+
 }

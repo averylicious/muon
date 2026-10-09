@@ -28,9 +28,11 @@ internal class BarrierCacheMigration(private val barrier:SavedStorageBarrier,
         var source:Cache?=null
         fun checked() { permit.check(); checkpoint(); permit.check() }
         try {
-            checked(); preparing=true; prepare(); preparing=false; checked()
-            source=sourceFactory(::checked); checked()
-            return control.run(requireNotNull(source),key,publication,availableBytes,::checked)
+            return control.runProjected(key,publication,availableBytes,::checked) { budgeted ->
+                budgeted(); preparing=true; prepare(); preparing=false; budgeted()
+                source=sourceFactory(budgeted); budgeted()
+                requireNotNull(source)
+            }
         } catch(failure:Throwable) {
             if(preparing || failure is MigrationIoUncertain || publication.ownershipUncertain) {
                 permit.quarantine(Retained(this,source,sourceFactory,publication,failure)); quarantined=true

@@ -36,7 +36,15 @@ internal class CacheMigrationControl(timeoutMillis:Long,
      * original and uncertain target through CacheMigrationPublication's existing journal behavior.
      */
     fun run(source:Cache,key:String,publication:CacheMigrationPublication,
-        availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord {
+        availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord =
+        runProjected(key,publication,availableBytes,checkpoint) { source }
+
+    /** Source projection/scanning belongs to the same single-use cancel/deadline budget as copying.
+     * The factory must use its supplied checkpoint throughout and retain unknown close ownership.
+     * This grants no storage exclusion; BarrierCacheMigration owns that separately.
+     */
+    fun runProjected(key:String,publication:CacheMigrationPublication,availableBytes:()->Long,
+        checkpoint:()->Unit,sourceFactory:((()->Unit))->Cache):MigrationRecord {
         if(!used.compareAndSet(false,true)) throw IOException("Migration control already consumed")
         val started=nanoTime()
         var bytes=0L
@@ -51,6 +59,8 @@ internal class CacheMigrationControl(timeoutMillis:Long,
         }
         try {
             progress=MigrationWorkProgress(MigrationWorkPhase.Preparing)
+            checked()
+            val source=sourceFactory(::checked)
             checked()
             for(range in CacheMigrationPreparation.ranges(source,key,::checked)) {
                 if(range.length>Long.MAX_VALUE-bytes) throw IOException("Migration copy size overflows")
