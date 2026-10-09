@@ -1,6 +1,6 @@
 # October 9: prepared durable new-save sealing (#253)
 
-Cumulative successor of OPEN #445 at `ef0e4450006e9e0b725781f23bac498470a68a34`, containing verified #444/.851 and current main `b036d91811be3c6560d55dd6f1a948d248253bc8`. #445 .852 compiled but failed its inherited Ready-priority control; the overly strict catalog guard was corrected, preserving the previously verified publication. Refreshed .853 is pending; record its final result before claiming verification. No failed/unrun check is a pass.
+Cumulative successor of OPEN #445 at `ef0e4450006e9e0b725781f23bac498470a68a34`, containing verified #444/.851 and current main `b036d91811be3c6560d55dd6f1a948d248253bc8`. #445 .852 compiled but failed its inherited Ready-priority control; the overly strict catalog guard was corrected, preserving the previously verified publication. Refreshed .853 passed at that corrected head: actual reports verified 1,059 tests per variant, zero failures/errors/skips, lint zero errors (64 warnings each), and the signed Canary APK identity/hash. No failed/unrun check is a pass.
 
 ## Completion boundary
 
@@ -12,9 +12,13 @@ The owner checks exact new-save ticket/UID/phase/current allocation/no migration
 
 ## Verification controls
 
-Nine new controls: three pool writer/reader/blocked-close/quarantine interleavings; five real new-save owner/progressive controls, including actual DownloadManager/index success and failed durable-close paths; and a Ready-cache negative control. Actual manager completion must observe Closed with zero native residency. An injected closed journal during final progress must produce a FAILED retained manager record, preserve payload and keep persisted Open non-adoptable/quarantined. Partial coverage and another active reader cannot grant completion. An existing migration-Ready resource cannot be modified in sealed-new-save mode. Unsupported alias/range requests open no native cache. All data is disposable.
+Nine new controls: three pool writer/reader/blocked-close/quarantine interleavings; five real new-save owner/progressive controls, including actual DownloadManager/index success and failed durable-close paths; and a Ready-cache negative control. Actual manager completion must observe Closed with zero native residency. A journal closed at actual native retirement, after lifecycle/coverage/quiescence checks, must produce a FAILED retained manager record, preserve payload and keep persisted Open non-adoptable/quarantined. Partial coverage and another active reader cannot grant completion. An existing migration-Ready resource cannot be modified in sealed-new-save mode. Unsupported alias/range requests open no native cache. All data is disposable.
 
 Actions is the first Android compile/test/lint; exact-head reports/APK receipt belongs on PR/#40/#253. No local Android build, phone/ADB, physical SD, process heap/startup/power-loss or hardware acceptance claim. Test-only teardown releases disposable unknown-close handles after assertions without exposing a production reset or returning quarantined permits.
+
+## Initial CI correction
+
+Android .854 at `66d05b389b949e18206a8e9eeafb2e72e77f0cf0` compiled but failed one of 1,068 debug tests. Its journal failure was injected in the progress callback, before final lifecycle validation: this established pre-seal refusal and preserved the FAILED record/bytes, but did not attempt an unknown native close. The test incorrectly expected that earlier refusal to quarantine the pool. Corrected the injection to wrap the actual owned cache's release and close the disposable journal only at native retirement, after all pre-seal checks. Production quarantine semantics and assertions are unchanged; refreshed exact-head CI must pass before claiming the new failure-path verification.
 
 ## Remaining required integration
 

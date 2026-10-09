@@ -15,7 +15,6 @@ import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
-import androidx.media3.exoplayer.offline.DownloaderFactory
 import androidx.media3.exoplayer.scheduler.Requirements
 import java.io.File
 import java.io.IOException
@@ -50,17 +49,26 @@ class PartitionSaveSealTest {
         val migration = CacheMigrationJournal(root)
         val saves = PartitionSaveJournal(root, create = true)
         var journalClosed = false
+        var failDurableClose = false
         val ticket = saves.begin(catalog.reserve(key))
         val budget = PartitionNativeBudget(1)
         val owner = PartitionNativeOwner(catalog, migration, "phone", { "phone" }, budget = budget, saves = saves)
         val opened = mutableListOf<Cache>()
         val pool = PartitionCacheLeases({ requested ->
             check(requested == key)
-            when (saves.find(key)?.phase) {
+            val cache = when (saves.find(key)?.phase) {
                 PartitionSavePhase.Reserved -> owner.openNewSave(ticket)
                 PartitionSavePhase.Closed -> owner.openSaved(key)
                 else -> error("No fresh/clean test opening authority")
             }.also(opened::add)
+            object : Cache by cache, PartitionOwnedCache by (cache as PartitionOwnedCache) {
+                override fun release() {
+                    // Inject at actual native retirement, AFTER coverage/lifecycle/quiescence checks.
+                    // Failing a progress callback instead only tests pre-seal refusal, not unknown close.
+                    if (failDurableClose) closeJournal()
+                    cache.release()
+                }
+            }
         }, capacity = 1)
         val factory = PartitionDownloadFactory(pool, DataSource.Factory { ByteArrayDataSource(payload) },
             { _, _, _ -> error("No remove command is admitted") }, sealNewSaves = true)
@@ -93,20 +101,10 @@ class PartitionSaveSealTest {
     }
     private fun request() = DownloadRequest.Builder(key, Uri.parse("http://127.0.0.1:7814/api1/fileopus/1"))
         .setCustomCacheKey(key).build()
-    private fun manager(f: Fixture, closeJournalAtEnd: Boolean = false): Pair<DownloadManager, DefaultDownloadIndex> {
+    private fun manager(f: Fixture, failDurableClose: Boolean = false): Pair<DownloadManager, DefaultDownloadIndex> {
+        f.failDurableClose = failDurableClose
         val index = DefaultDownloadIndex(database, "sealed")
-        val factory = if (!closeJournalAtEnd) f.factory else DownloaderFactory { request ->
-            val delegate = f.factory.createDownloader(request)
-            object : androidx.media3.exoplayer.offline.Downloader by delegate {
-                override fun download(progress: androidx.media3.exoplayer.offline.Downloader.ProgressListener?) {
-                    delegate.download { length, bytes, percent ->
-                        if (bytes == payload.size.toLong()) f.closeJournal()
-                        progress?.onProgress(length, bytes, percent)
-                    }
-                }
-            }
-        }
-        val manager = DownloadManager(RuntimeEnvironment.getApplication(), index, factory).also(managers::add)
+        val manager = DownloadManager(RuntimeEnvironment.getApplication(), index, f.factory).also(managers::add)
         manager.setRequirements(Requirements(0)); manager.minRetryCount = 0
         manager.resumeDownloads()
         return manager to index
@@ -148,7 +146,7 @@ class PartitionSaveSealTest {
     }
 
     @Test fun failedDurableSealMakesTheActualManagerKeepAFailedRecordAndAllAudio() {
-        val f = fixture(); val (manager, index) = manager(f, closeJournalAtEnd = true)
+        val f = fixture(); val (manager, index) = manager(f, failDurableClose = true)
         var completed = false
         manager.addListener(object : DownloadManager.Listener {
             override fun onDownloadChanged(manager: DownloadManager, download: Download, finalException: Exception?) {
