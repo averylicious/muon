@@ -7,19 +7,23 @@ import androidx.media3.datasource.cache.Cache
  * unknown raw/native close. All producers/removals/moves/played/readers must participate in the same
  * barrier before the app may use it. No source deletion or automatic retry/recovery authority.
  */
-internal class BarrierCacheMigration(private val barrier:SavedStorageBarrier) {
-    private data class Retained(val source:Cache,val publication:CacheMigrationPublication,val failure:Throwable)
+internal class BarrierCacheMigration(private val barrier:SavedStorageBarrier,
+    /** Only known-idle native retirement under exclusive ownership; failure is uncertainty. */
+    private val prepare:()->Unit={}) {
+    private data class Retained(val adapter:BarrierCacheMigration,val source:Cache,val publication:CacheMigrationPublication,val failure:Throwable)
     fun run(control:CacheMigrationControl,source:Cache,key:String,publication:CacheMigrationPublication,
         availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord {
         val permit=barrier.exclusive()
         var quarantined=false
+        var preparing=true
         try {
+            permit.check(); prepare(); preparing=false; permit.check()
             return control.run(source,key,publication,availableBytes) {
                 permit.check(); checkpoint(); permit.check()
             }
         } catch(failure:Throwable) {
-            if(failure is MigrationIoUncertain || publication.ownershipUncertain) {
-                permit.quarantine(Retained(source,publication,failure)); quarantined=true
+            if(preparing || failure is MigrationIoUncertain || publication.ownershipUncertain) {
+                permit.quarantine(Retained(this,source,publication,failure)); quarantined=true
             }
             throw failure
         } finally {

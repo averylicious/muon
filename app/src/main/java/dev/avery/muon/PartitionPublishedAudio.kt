@@ -69,5 +69,6 @@ internal class PartitionPublishedAudio(private val owner: PartitionNativeOwner,
             after = page.last().ticket.allocation.key
         }
     }
+    internal fun trimIdle() { requireOpen(); pool.trimIdle() }
     override fun close() { stopped = true; pool.close() }
 }

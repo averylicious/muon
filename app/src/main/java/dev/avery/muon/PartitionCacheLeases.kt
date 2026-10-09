@@ -126,6 +126,20 @@ internal class PartitionCacheLeases(private val open: (String) -> Cache,
             throw failure
         }
     }
+    /** Known-idle retirement without stopping this pool. Requires the caller's exclusive global
+     * barrier; active/opening/closing entries refuse rather than being forcibly evicted. */
+    fun trimIdle() {
+        val idle=synchronized(this) {
+            if(stopped || !healthy || pins!=0 || entries.values.any { it.closing || it.cache==null })
+                throw IOException("Partition pool cannot establish idle retirement")
+            entries.values.toList().onEach { it.closing=true }
+        }
+        var failure:Throwable?=null
+        for(entry in idle) try { release(entry) } catch(caught:Throwable) {
+            if(failure==null) failure=caught else if(caught!==failure) failure!!.addSuppressed(caught)
+        }
+        failure?.let { throw it }
+    }
     override fun close() {
         val idle=synchronized(this) {
             stopped=true
