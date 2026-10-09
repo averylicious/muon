@@ -75,6 +75,29 @@ class ReadOnlyLegacySavedAudioTest {
         assertThrows(IOException::class.java) { f.audio().inspect("key/0") }
         assertTrue(f.barrier.quiescent); assertArrayEquals(payload,f.originals.first().readBytes())
     }
+    @Test fun validLargeOptionalMetadataPlaysNativelyButTransitionReaderCurrentlyRefusesAudio() {
+        val f=Fixture()
+        val native=SimpleCache(f.root,NoOpCacheEvictor(),database)
+        try {
+            native.checkInitialization()
+            native.applyContentMetadataMutations("key/0",ContentMetadataMutations().set("optional-large-field",
+                ByteArray(LEGACY_PROJECTION_METADATA_BYTES+1) { 7 }))
+            val reader=LegacySavedAudio(native).source.createDataSource()
+            try {
+                assertEquals(4L,reader.open(spec()))
+                val bytes=ByteArray(4); assertEquals(4,reader.read(bytes,0,4)); assertArrayEquals(payload,bytes)
+            } finally { reader.close() }
+        } finally { native.release() }
+        val transition=f.audio(); assertTrue(transition.contains("key/0"))
+        assertThrows(IOException::class.java) { transition.inspect("key/0") }
+        val reader=transition.source.createDataSource()
+        assertThrows(IOException::class.java) { reader.open(spec()) }; reader.close()
+        assertTrue(f.barrier.quiescent); assertFalse(SimpleCache.isCacheFolderLocked(f.root))
+        assertArrayEquals(payload,f.originals.single().readBytes())
+        // Characterizes an unresolved compatibility gap, NOT desired future behavior. Metadata
+        // budget refusal is appropriate for exact migration; playback needs a bounded scalar path.
+    }
+
     @Test fun unsupportedInventoryIdentityRefusesWithoutSilentlySkippingOrTruncatingIt() {
         val f=Fixture(); database.writableDatabase.execSQL("UPDATE ${f.table} SET id=-1 WHERE key='key/0'")
         var calls=0; assertThrows(IOException::class.java) { f.audio().forEachKey { calls++; true } }
