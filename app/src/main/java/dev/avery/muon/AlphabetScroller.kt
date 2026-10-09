@@ -48,6 +48,10 @@ internal fun sectionLetter(title: String): String {
 internal fun scrollerIndex(fraction: Float, count: Int): Int =
     if (count <= 0) 0 else (fraction.coerceIn(0f, 1f) * (count - 1)).roundToInt()
 
+/** A resized viewport can be shorter than the handle/bubble; pin it at zero in that case. */
+internal fun scrollerOffset(center: Float, element: Float, viewport: Float): Float =
+    (center - element / 2).coerceIn(0f, (viewport - element).coerceAtLeast(0f))
+
 /**
  * A draggable handle over the list's thumb, for jumping through an alphabetical list, and a bubble
  * with the letter under the finger. It exists only while the thumb is showing, so the rest of the
@@ -77,7 +81,7 @@ internal fun BoxScope.AlphabetScroller(indicator: ScrollIndicator, count: Int, s
         val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
         val end = if (rtl) Alignment.TopStart else Alignment.TopEnd
         Box(Modifier.align(end)
-            .offset { IntOffset(0, ((frozenCenter ?: center(height) ?: 0f) - touch / 2).coerceIn(0f, height - touch).roundToInt()) }
+            .offset { IntOffset(0, scrollerOffset(frozenCenter ?: center(height) ?: 0f, touch, height).roundToInt()) }
             .size(SCROLLER_TOUCH)
             .clearAndSetSemantics {}
             .pointerInput(indicator) {
@@ -115,7 +119,7 @@ internal fun BoxScope.AlphabetScroller(indicator: ScrollIndicator, count: Int, s
             Box(Modifier.align(end)
                 .offset {
                     val x = if (end == Alignment.TopStart) gap else -gap
-                    IntOffset(x.roundToInt(), ((center(height) ?: 0f) - bubble / 2).coerceIn(0f, height - bubble).roundToInt())
+                    IntOffset(x.roundToInt(), scrollerOffset(center(height) ?: 0f, bubble, height).roundToInt())
                 }
                 .size(BUBBLE).clip(CircleShape).background(colors.primaryContainer)
                 .clearAndSetSemantics {},

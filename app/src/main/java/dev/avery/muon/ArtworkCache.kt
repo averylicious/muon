@@ -1,5 +1,8 @@
 package dev.avery.muon
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import android.content.Context
 import java.io.File
 import java.security.MessageDigest
@@ -35,15 +38,26 @@ internal fun artworkIdentities(endpoint: ServerEndpoint, tracks: List<TauonTrack
     return identities
 }
 
+internal data class ArtworkRequest(val url: String, val identity: String?) {
+    fun memoryKey(size: Int) = ArtworkMemoryKey(url, identity, size)
+}
+
+internal data class ArtworkMemoryKey(val url: String, val identity: String?, val size: Int)
+
 /**
  * The identities of the library now loaded, published by the app before any artwork of it loads. An
  * address with no known identity is never read from or written to disk; it is still fetched and kept
  * in memory as before.
  */
 internal object ArtworkIdentities {
-    @Volatile private var current: Map<String, String> = emptyMap()
-    fun publish(identities: Map<String, String>) { current = identities }
-    fun of(url: String): String? = current[url]
+    // Observable by Artwork and ArtworkTheme; an equal library snapshot does not restart loads.
+    private var current by mutableStateOf<Map<String, String>>(emptyMap())
+    @Synchronized fun publish(identities: Map<String, String>) { current = identities }
+    fun request(url: String) = ArtworkRequest(url, current[url])
+
+    /** Short memory/publication operations only. Disk IO stays outside this lock. */
+    @Synchronized fun <T> ifCurrent(request: ArtworkRequest, block: () -> T): T? =
+        if (current[request.url] == request.identity) block() else null
 }
 
 /**
