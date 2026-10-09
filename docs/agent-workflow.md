@@ -77,3 +77,7 @@ task. The [parallel-track protocol](parallel-tracks.md) lets main and the experi
 proceed without routine Claude coordination. An explicitly allocated audit
 Claude session is separate from the user's experimental session; never
 resume the latter. The workflow does not automatically launch other agents.
+
+## Continuing engineering runs
+
+Follow [continuous engineering](continuous-engineering.md). Reviewable PR boundaries remain, but the old “bite-sized” / one-slice-per-turn cap is removed. After verification and durable checkpointing, continue the next authorized actionable task while capacity allows; stop only for the documented completion, blocker, quota-reserve or user-pause conditions.
