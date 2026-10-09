@@ -38,4 +38,18 @@ class AlphabetScrollerTest {
         assertEquals(9, scrollerIndex(1.7f, 10))
         assertEquals(0, scrollerIndex(0.5f, 0))
     }
+    @Test fun aViewportShorterThanTheHandleOrBubbleHasNoNegativeClampRange() {
+        for (element in listOf(48f, 56f)) {
+            assertEquals(0f, scrollerOffset(24f, element, 0f), 0f)
+            assertEquals(0f, scrollerOffset(24f, element, 20f), 0f)
+            assertEquals(0f, scrollerOffset(100f, element, element), 0f)
+        }
+    }
+
+    @Test fun normalViewportOffsetsFollowTheCenterAndStayInsideBothEdges() {
+        assertEquals(76f, scrollerOffset(100f, 48f, 400f), 0f)
+        assertEquals(0f, scrollerOffset(-10f, 48f, 400f), 0f)
+        assertEquals(352f, scrollerOffset(450f, 48f, 400f), 0f)
+        assertEquals(344f, scrollerOffset(450f, 56f, 400f), 0f)
+    }
 }
