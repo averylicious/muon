@@ -60,7 +60,9 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
                 return length
             } catch(failure:Throwable) {
                 // DataSource requires close even after failed open. Never drop a pin on unknown close.
-                try { finish() } catch(closeFailure:Throwable) { if(closeFailure!==failure) failure.addSuppressed(closeFailure) }
+                if(failure is PartitionOwnershipUncertain) {
+                    phase=Phase.Uncertain; pin?.quarantine(failure)
+                } else try { finish() } catch(closeFailure:Throwable) { if(closeFailure!==failure) failure.addSuppressed(closeFailure) }
                 throw failure
             }
         }
@@ -73,8 +75,11 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
                 val count=source!!.read(buffer,offset,length)
                 validate!!.invoke()
                 return count
-            } catch(failure:Throwable) { lost=true; throw failure }
-            finally { phase=Phase.Open }
+            } catch(failure:Throwable) {
+                lost=true
+                if(failure is PartitionOwnershipUncertain) { phase=Phase.Uncertain; pin?.quarantine(failure) }
+                throw failure
+            } finally { if(phase!=Phase.Uncertain) phase=Phase.Open }
         }
         @Synchronized override fun getUri():Uri?=if(lost || phase==Phase.Idle || phase==Phase.Uncertain) null else source?.uri
         @Synchronized override fun getResponseHeaders():Map<String,List<String>> =

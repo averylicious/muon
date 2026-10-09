@@ -109,10 +109,16 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
                     if(savedAudioState(lease.cache,key).coverage!=SavedCoverage.Full)
                         throw IOException("Save cannot complete without full declared coverage")
                 }
-            } catch(caught:Throwable) { failure=caught }
+            } catch(caught:Throwable) {
+                failure=caught
+                if(caught is PartitionOwnershipUncertain) {
+                    synchronized(lock) { uncertain=true }
+                    lease?.quarantine(caught); storage?.quarantine(caught)
+                }
+            }
             finally {
                 try {
-                    if(lease!=null) {
+                    if(lease!=null && !uncertain) {
                         if(backend!=null) {
                             if(tracker?.clean()==false) throw IOException("Partition source or sink close remains uncertain")
                             backend.checkQuiescent()

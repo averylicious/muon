@@ -65,6 +65,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
     private val saves:PartitionSaveJournal?=null) {
     init { require(volume.isNotEmpty()) }
     @Volatile private var healthy=true
+    @Volatile private var uncertainty:PartitionOwnershipUncertain?=null
     private class SaveLifecycle(val journal:PartitionSaveJournal,val ticket:PartitionSaveTicket)
     private class Handles(val permit:PartitionNativeBudget.Permit,val save:SaveLifecycle?) {
         var saveStarted=false
@@ -88,7 +89,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
     /** Read-only routing observation, not a barrier or completion/deletion authority. A later reservation
      * cannot replace or invalidate the verified allocation recorded by Ready. */
     @Synchronized fun readyRoute(key:String):MigrationRecord? {
-        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        if(!healthy) throw requireNotNull(uncertainty)
         available()
         val ready=journal.ready(key) ?: return null
         val uid=requireNotNull(ready.targetUid)
@@ -105,7 +106,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
     }
     /** Bounded journal page; the caller must filter Ready and recheck identity before exposing it. */
     @Synchronized fun routePage(after:String?):List<MigrationRecord> {
-        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        if(!healthy) throw requireNotNull(uncertainty)
         available(); return journal.page(after)
     }
     @Synchronized fun openReady(key:String):Cache {
@@ -115,7 +116,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
     /** New saves never fabricate migration verification. The caller must already own the exact
      * reservation/request and destructive-command barrier. This does not mean download complete. */
     @Synchronized fun openNewSave(ticket:PartitionSaveTicket):Cache {
-        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        if(!healthy) throw requireNotNull(uncertainty)
         available(); val journal=saves ?: throw IOException("New-save ownership is not configured")
         val row=journal.find(ticket.allocation.key)
         if(row?.ticket!=ticket || row.phase!=PartitionSavePhase.Reserved || row.uid!=null ||
@@ -125,7 +126,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
     }
     /** A persisted Open/Opening/Uncertain allocation is deliberately not adopted after restart. */
     @Synchronized fun openSaved(key:String):Cache {
-        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        if(!healthy) throw requireNotNull(uncertainty)
         available(); val journal=saves ?: throw IOException("New-save ownership is not configured")
         val row=journal.find(key) ?: throw IOException("Save ownership is missing")
         if(row.phase!=PartitionSavePhase.Closed || catalog.find(key)!=row.ticket.allocation || this.journal.find(key)!=null)
@@ -135,7 +136,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
     /** Clean new-save identity only, never completion/publication authority. Read adapters must also
      * require their exact bounded COMPLETED manager record. Interrupted writers are not adopted. */
     @Synchronized fun closedSaveRoute(key:String):PartitionSaveRecord? {
-        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        if(!healthy) throw requireNotNull(uncertainty)
         available(); val saves=this.saves ?: throw IOException("New-save ownership is not configured")
         val row=saves.find(key) ?: return null
         if(row.phase!=PartitionSavePhase.Closed) return null
@@ -144,7 +145,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         return row
     }
     @Synchronized fun saveRoutePage(after:String?):List<PartitionSaveRecord> {
-        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        if(!healthy) throw requireNotNull(uncertainty)
         available(); return (saves ?: throw IOException("New-save ownership is not configured")).page(after)
     }
     /** Read-only reopen preserves Closed. It must not use openSaved's writer lifecycle, which records
@@ -160,7 +161,8 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         var uid:Long?=null
         var failed=false
         return { directory -> synchronized(this) {
-            if(!healthy || failed) throw IOException("Migration factory unavailable")
+            if(!healthy) throw requireNotNull(uncertainty)
+            if(failed) throw IOException("Migration factory unavailable")
             available()
             try {
                 val first=allocation==null
@@ -235,7 +237,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
             else try {
                 available(); h.metadata?.close(); h.database?.close(); h.permit.closed()
             } catch(cleanup:Throwable) { quarantine(h,cleanup); if(cleanup!==failure) failure.addSuppressed(cleanup) }
-            throw failure
+            throw uncertainty ?: failure
         }
     }
     private fun markUncertain(h:Handles,failure:Throwable) {
@@ -243,17 +245,23 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         try { h.save?.journal?.uncertain(requireNotNull(h.save).ticket) }
         catch(recordFailure:Throwable) { if(recordFailure!==failure) failure.addSuppressed(recordFailure) }
     }
-    private fun quarantine(h:Handles,failure:Throwable) { healthy=false; h.permit.quarantine(h); markUncertain(h,failure) }
+    private fun quarantine(h:Handles,failure:Throwable) {
+        h.permit.quarantine(h); markUncertain(h,failure)
+        if(uncertainty==null) uncertainty=PartitionOwnershipUncertain(h,failure)
+        healthy=false
+    }
     private inner class Owned(private val h:Handles,private val bytes:File,private val metadata:File,
         private val key:String,private val nativeUid:Long):Cache by requireNotNull(h.facade),PartitionOwnedCache {
         private var ended=false
         private var uncertain=false
         @Synchronized override fun checkQuiescent() {
-            if(ended || uncertain) throw IOException("Partition lifecycle unavailable")
+            if(uncertain || !healthy) throw requireNotNull(uncertainty)
+            if(ended) throw IOException("Partition lifecycle unavailable")
             requireNotNull(h.facade).checkOwnerRelease()
         }
         @Synchronized override fun checkNewSave(key:String,sealed:Boolean) {
-            if(uncertain || !healthy || sealed!=ended || key!=this.key)
+            if(uncertain || !healthy) throw requireNotNull(uncertainty)
+            if(sealed!=ended || key!=this.key)
                 throw IOException("New-save native lifecycle differs")
             available()
             val save=h.save ?: throw IOException("Partition was not opened as a new save")
@@ -265,7 +273,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         }
         @Synchronized override fun release() {
             if(ended) return
-            if(uncertain) throw IOException("Partition close remains uncertain")
+            if(uncertain) throw requireNotNull(uncertainty)
             try {
                 available()
                 val facade=requireNotNull(h.facade); val native=requireNotNull(h.native); val db=requireNotNull(h.database)
@@ -281,7 +289,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
                 available(); db.close()
                 h.save?.journal?.closed(requireNotNull(h.save).ticket,nativeUid)
                 h.permit.closed(); ended=true
-            } catch(failure:Throwable) { uncertain=true; quarantine(h,failure); throw failure }
+            } catch(failure:Throwable) { uncertain=true; quarantine(h,failure); throw requireNotNull(uncertainty) }
         }
     }
 }

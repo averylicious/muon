@@ -98,7 +98,13 @@ internal class PartitionCacheLeases(private val open: (String) -> Cache,
             retiring?.let { release(it) }
             reserved?.let { entry ->
                 val cache=try { open(key) } catch (failure: Throwable) {
-                    synchronized(this) { if (entries[key]===entry) entries.remove(key); pins-- }
+                    synchronized(this) {
+                        if(failure is PartitionOwnershipUncertain) {
+                            // No Cache returned, but its factory still owns possibly-live handles.
+                            // Keep this opening slot/pin counted; close must not retry that factory.
+                            entry.retained[0]=failure; healthy=false
+                        } else { if(entries[key]===entry) entries.remove(key); pins-- }
+                    }
                     throw failure
                 }
                 val permitted=synchronized(this) {
@@ -122,8 +128,9 @@ internal class PartitionCacheLeases(private val open: (String) -> Cache,
         } catch (failure: Throwable) {
             // Unknown native release leaves its slot counted and prevents new admission. Do not open
             // replacement instances over the bound or attempt to delete files to recover capacity.
-            synchronized(this) { healthy=false }
-            throw failure
+            val unknown=if(failure is PartitionOwnershipUncertain) failure else PartitionOwnershipUncertain(entry,failure)
+            synchronized(this) { healthy=false; if(entry.retained[0]==null) entry.retained[0]=unknown }
+            throw unknown
         }
     }
     /** Known-idle retirement without stopping this pool. Requires the caller's exclusive global

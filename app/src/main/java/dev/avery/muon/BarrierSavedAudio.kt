@@ -16,7 +16,12 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
         val permit=barrier.shared()
         var quarantined=false
         try { permit.check(); return work(permit).also { permit.check() } }
-        catch(failure:MigrationIoUncertain) { permit.quarantine(failure); quarantined=true; throw failure }
+        catch(failure:Throwable) {
+            if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain) {
+                permit.quarantine(failure); quarantined=true
+            }
+            throw failure
+        }
         finally { if(!quarantined) permit.close() }
     }
     override fun contains(key:String)=operation { audio.contains(key) }
@@ -42,10 +47,15 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
             if(phase==Phase.Open) {
                 phase=Phase.Listener
                 try { checked(); child!!.addTransferListener(listener); checked() }
-                catch(failure:Throwable) { lost=true; throw failure }
-                finally { phase=Phase.Open }
+                catch(failure:Throwable) { retainUnknown(failure); lost=true; throw failure }
+                finally { if(phase!=Phase.Uncertain) phase=Phase.Open }
             }
             listeners[slot]=listener
+        }
+        private fun retainUnknown(failure:Throwable) {
+            if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain) {
+                phase=Phase.Uncertain; permit?.quarantine(failure)
+            }
         }
         private fun checked() {
             if(lost) throw IOException("Saved storage reader lost availability; close before reopening")
@@ -61,7 +71,9 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
                 checked(); val length=child!!.open(spec); checked()
                 phase=Phase.Open; return length
             } catch(failure:Throwable) {
-                try { finish() } catch(cleanup:Throwable) { if(cleanup!==failure) failure.addSuppressed(cleanup) }
+                if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain) {
+                    phase=Phase.Uncertain; permit?.quarantine(failure)
+                } else try { finish() } catch(cleanup:Throwable) { if(cleanup!==failure) failure.addSuppressed(cleanup) }
                 throw failure
             }
         }
@@ -69,8 +81,8 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
             check(phase==Phase.Open) { "Saved storage reader not open or busy" }
             phase=Phase.Reading
             try { checked(); val count=child!!.read(buffer,offset,length); checked(); return count }
-            catch(failure:Throwable) { lost=true; throw failure }
-            finally { phase=Phase.Open }
+            catch(failure:Throwable) { retainUnknown(failure); lost=true; throw failure }
+            finally { if(phase!=Phase.Uncertain) phase=Phase.Open }
         }
         @Synchronized override fun getUri():Uri?=if(lost || phase==Phase.Idle || phase==Phase.Uncertain) null else child?.uri
         @Synchronized override fun getResponseHeaders():Map<String,List<String>> =

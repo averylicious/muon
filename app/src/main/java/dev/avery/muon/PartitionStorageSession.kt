@@ -47,7 +47,14 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     val downloaders:DownloaderFactory=PartitionCommandDownloader(commands,writers,upstream,barrier)
     private fun <T> operation(work:()->T):T {
         val permit=barrier.shared()
-        try { requireOpen(); permit.check(); return work().also { permit.check() } } finally { permit.close() }
+        var quarantined=false
+        try { requireOpen(); permit.check(); return work().also { permit.check() } }
+        catch(failure:Throwable) {
+            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) {
+                uncertain=true; permit.quarantine(failure); quarantined=true
+            }
+            throw failure
+        } finally { if(!quarantined) permit.close() }
     }
     fun prepare(request:DownloadRequest)=operation {
         commands.reconcileCompleted(completionIndex::find)
@@ -90,7 +97,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             checkpoint()
         } }
         catch(failure:Throwable) {
-            if(publication.ownershipUncertain || failure is MigrationIoUncertain) uncertain=true
+            if(publication.ownershipUncertain || failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain) uncertain=true
             throw failure
         }
     }
@@ -110,7 +117,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                 checkpoint()
             }) { checked -> LegacyResourceProjection.read(directory,uid,key,index,checked) }
         } catch(failure:Throwable) {
-            if(publication.ownershipUncertain || failure is MigrationIoUncertain) uncertain=true
+            if(publication.ownershipUncertain || failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain) uncertain=true
             throw failure
         }
     }

@@ -34,7 +34,7 @@ internal class BarrierCacheMigration(private val barrier:SavedStorageBarrier,
                 requireNotNull(source)
             }
         } catch(failure:Throwable) {
-            if(preparing || failure is MigrationIoUncertain || publication.ownershipUncertain) {
+            if(preparing || failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || publication.ownershipUncertain) {
                 permit.quarantine(Retained(this,source,sourceFactory,publication,failure)); quarantined=true
             }
             throw failure
