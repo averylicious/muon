@@ -23,6 +23,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     private val native:PartitionNativeOwner,database:DatabaseProvider,indexName:String,
     legacy:SavedAudio,upstream:DataSource.Factory,unclaimed:(String)->Boolean,
     private val available:()->Boolean,private val barrier:SavedStorageBarrier):Closeable {
+    internal fun usesBarrier(candidate:SavedStorageBarrier):Boolean = candidate===barrier
     @Volatile private var stopped=false
     @Volatile private var closing=false
     @Volatile private var uncertain=false
