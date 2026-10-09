@@ -45,8 +45,9 @@ class PartitionSaveCommandsTest {
         fun commands(cap:Int=capacity)=PartitionSaveCommands(catalog,saves,migration,owner,{free},{available},cap)
         val commands=commands()
         val pool=PartitionCacheLeases(commands::open,capacity=2)
+        val barrier=SavedStorageBarrier()
         var upstreams=0
-        val factory=PartitionCommandDownloader(commands,pool,DataSource.Factory { upstreams++; ByteArrayDataSource(payload) })
+        val factory=PartitionCommandDownloader(commands,pool,DataSource.Factory { upstreams++; ByteArrayDataSource(payload) },barrier=barrier)
     }
     private fun fixture(cap:Int=DOWNLOAD_COMMAND_COUNT)=Fixture(cap).also(fixtures::add)
     private fun request(id:String="saved/one",data:ByteArray=byteArrayOf(1))=
@@ -72,6 +73,23 @@ class PartitionSaveCommandsTest {
         managers.asReversed().forEach { it.release() }
         fixtures.asReversed().forEach { it.pool.close(); it.saves.close(); it.migration.close(); it.catalog.close() }
         database.close()
+    }
+    @Test fun globalExclusionFailsActualManagerTaskWithoutDeletingRecordOrKillingHandler() {
+        val f=fixture(); val (manager,index)=manager(f); val bad=request(); val command=f.commands.prepare(bad)
+        assertTrue(f.commands.forward(command,bad,null)); f.commands.delivered(command,true)
+        val exclusive=f.barrier.exclusive()
+        try {
+            manager.addDownload(bad)
+            await(manager) { index.getDownload(bad.id)?.state==Download.STATE_FAILED }
+            assertEquals(bad,index.getDownload(bad.id)?.request); assertEquals(0,f.upstreams)
+            assertEquals(0,f.budget.resident); assertEquals(PartitionSavePhase.Reserved,f.saves.find(bad.id)?.phase)
+            assertTrue(f.commands.terminal(requireNotNull(index.getDownload(bad.id))))
+        } finally { exclusive.close() }
+        val good=request("saved/after-exclusive"); val next=f.commands.prepare(good)
+        assertTrue(f.commands.forward(next,good,null)); f.commands.delivered(next,true); manager.addDownload(good)
+        await(manager) { index.getDownload(good.id)?.state==Download.STATE_COMPLETED }
+        assertEquals(Download.STATE_FAILED,index.getDownload(bad.id)?.state)
+        assertEquals(0,f.barrier.active); assertEquals(1,f.upstreams)
     }
     @Test fun capacityUnsupportedAndClaimedRequestsRefuseBeforeAnyNativeOrExtraReservation() {
         val f=fixture(1); f.commands.prepare(request())
