@@ -66,6 +66,21 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
             if(i!=fields.size) throw IOException("Completed-save index layout is missing")
         }
     }
+    /** Pre-manager fresh-ID refusal must not hydrate a possibly enormous retained request. Any
+     * state counts, with no initialization/migration and no data/string projection except input ID.
+     */
+    @Synchronized fun holdsId(key:String):Boolean {
+        if(key.length.toLong()*2>MIGRATION_KEY_BYTES || !key.startsWith(NEW_SAVE_PREFIX))
+            throw IOException("Save ID exceeds supported budget")
+        try {
+            val db=provider.readableDatabase; schema(db)
+            return db.rawQuery("SELECT 1 FROM $table WHERE id=? LIMIT 2",arrayOf(key)).use { cursor ->
+                val found=cursor.moveToFirst()
+                if(found && cursor.moveToNext()) throw IOException("Save ID is not unique")
+                found
+            }
+        } catch(failure:SQLiteException) { throw IOException("Save ID census unavailable",failure) }
+    }
     @Synchronized fun find(key:String):PartitionSaveCompletion? {
         if(key.length.toLong()*2>MIGRATION_KEY_BYTES || !key.startsWith(NEW_SAVE_PREFIX))
             throw IOException("Completed-save lookup key exceeds its supported budget")

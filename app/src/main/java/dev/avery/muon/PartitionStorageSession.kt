@@ -57,6 +57,17 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     fun abandon(command:PartitionSaveCommands.Command,request:DownloadRequest)=operation { commands.abandon(command,request) }
     fun forward(command:PartitionSaveCommands.Command,request:DownloadRequest,previous:Download?)=
         operation { commands.forward(command,request,previous) }
+    /** Hold actual shared admission across the service/manager call and its acknowledgement.
+     * A false return is known refusal before mutation; a throwing call is unconfirmed, even if
+     * manager delivery happened just before the exception. Caller must not report false after Add.
+     */
+    fun deliver(command:PartitionSaveCommands.Command,request:DownloadRequest,previous:Download?,
+        start:()->Boolean):Boolean=operation {
+        if(!commands.forward(command,request,previous)) return@operation false
+        var returned=false; var accepted=false
+        try { accepted=start(); returned=true; accepted }
+        finally { commands.delivered(command,accepted,unconfirmed=!returned) }
+    }
     fun delivered(command:PartitionSaveCommands.Command,accepted:Boolean,unconfirmed:Boolean=false)=
         operation { commands.delivered(command,accepted,unconfirmed) }
     fun terminal(download:Download)=operation { commands.terminal(download) }
