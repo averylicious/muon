@@ -826,7 +826,7 @@ internal object OfflineStore {
      * Default startup still selects legacy until all opt-in/recovery/mutation routing is complete. */
     private fun deliverPartitionCommand(context:Context,intent:Intent?,shelf:Shelf,start:(Intent?)->Int):Int {
         check(Looper.myLooper()==Looper.getMainLooper()) { "Partition command admission requires main" }
-        if(intent==null || intent.action==null || intent.action==DownloadService.ACTION_INIT || intent.action==DownloadService.ACTION_RESTART)
+        if(intent==null || intent.action==null || intent.action==DownloadService.ACTION_INIT)
             return start(intent)
         val store=current()
         val token=intent.getStringExtra(SAVE_DELIVERY_TOKEN)
