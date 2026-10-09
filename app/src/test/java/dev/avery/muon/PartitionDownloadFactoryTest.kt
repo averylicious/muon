@@ -196,4 +196,23 @@ class PartitionDownloadFactoryTest {
         assertThrows(IOException::class.java) { deny.createDownloader(request()).remove() }
         assertEquals(5L,cached()); assertEquals(0,pool.active)
     }
+    @Test fun stoppedPoolNativeReleaseFailureKeepsItsOriginalErrorAndIsNeverRetried() {
+        prepare(); var releases=0
+        pool=PartitionCacheLeases({ name ->
+            val actual=owner.openReady(name).also { owned+=it }
+            object:Cache by actual,PartitionOwnedCache {
+                override fun checkQuiescent()=(actual as PartitionOwnedCache).checkQuiescent()
+                override fun release() { releases++; actual.release(); throw IOException("Native release receipt unknown") }
+            }
+        },capacity=1)
+        val task=factory().createDownloader(request())
+        val failure=assertThrows(IOException::class.java) { task.download { _,_,_ -> pool.close() } }
+        // The pin already ended before native release. Quarantine must not replace this exception
+        // with an ended-pin assertion or retry a possibly completed native release.
+        assertEquals("Native release receipt unknown",failure.message); assertEquals(1,releases)
+        assertEquals(0,pool.active); assertEquals(1,pool.resident); assertEquals(0,budget.resident)
+        assertThrows(IOException::class.java) { pool.acquire(key) }
+        pool.close(); assertEquals(1,releases)
+    }
+
 }

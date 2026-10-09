@@ -76,8 +76,8 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
         database.beginTransaction()
         try {
             checkOwner(uid,key)
-            val size=// Inspect bounded scalar lengths before projecting any payload into a CursorWindow.
-            database.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM (SELECT length(value) AS bytes FROM chunks ORDER BY ordinal LIMIT ${METADATA_MAX_CHUNKS+1})",null).use {
+            // Inspect bounded scalar lengths before projecting any payload into a CursorWindow.
+            val size=database.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM (SELECT length(value) AS bytes FROM chunks ORDER BY ordinal LIMIT ${METADATA_MAX_CHUNKS+1})",null).use {
                 if(!it.moveToFirst()) throw IOException("Partition metadata size unavailable")
                 val count=it.getLong(0); val bytes=it.getLong(1)
                 if(count<=0 || count>METADATA_MAX_CHUNKS || bytes<0 || bytes>METADATA_PAYLOAD_BYTES) throw IOException("Partition metadata exceeds its budget")
