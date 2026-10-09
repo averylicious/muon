@@ -81,15 +81,14 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         if(!file.isFile || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
             throw IOException("Partition database identity differs")
     }
-    /** Read-only routing observation, not a barrier or completion/deletion authority. A stale
-     * reservation must fail even when a previously opened native instance is still resident. */
+    /** Read-only routing observation, not a barrier or completion/deletion authority. A later reservation
+     * cannot replace or invalidate the verified allocation recorded by Ready. */
     @Synchronized fun readyRoute(key:String):MigrationRecord? {
         if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
         available()
         val ready=journal.ready(key) ?: return null
         val uid=requireNotNull(ready.targetUid)
-        if(uid==ready.ticket.sourceUid || catalog.find(key)!=ready.ticket.allocation || saves?.find(key)!=null)
-            throw IOException("Ready partition identity differs from its current reservation")
+        if(uid==ready.ticket.sourceUid) throw IOException("Ready partition aliases its source UID")
         return ready
     }
     /** Bounded journal page; the caller must filter Ready and recheck identity before exposing it. */

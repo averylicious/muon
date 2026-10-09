@@ -3,6 +3,7 @@
 package dev.avery.muon
 
 import android.net.Uri
+import android.database.sqlite.SQLiteDatabase
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -121,13 +122,14 @@ class PartitionPublishedAudioTest {
         assertEquals(PartitionSavePhase.Closed, f.saves.find("saved/new")?.phase)
     }
 
-    @Test fun collidingNewSaveClaimRefusesAnOtherwiseReadyRouteBeforeNativeAdmission() {
+    @Test fun laterReservationOrNewSaveClaimCannotInvalidateOrReplaceTheVerifiedPublishedCopy() {
         val f = fixture(1); val key = "saved/collision"; val ready = publish(f, key)
-        f.saves.begin(ready.ticket.allocation)
-        assertThrows(IOException::class.java) { f.audio.contains(key) }
-        assertThrows(IOException::class.java) { f.audio.inspect(key) }
-        assertThrows(IOException::class.java) { f.owner.openReady(key) }
-        assertEquals(0, f.budget.resident)
+        val replacement = f.catalog.reserveFresh(key)
+        val ticket = f.saves.begin(replacement)
+        assertTrue(f.audio.contains(key))
+        assertEquals(SavedCoverage.Full, f.audio.inspect(key).coverage)
+        assertThrows(IOException::class.java) { f.owner.openNewSave(ticket) }
+        assertFalse(f.catalog.directory(replacement).exists())
         assertEquals(ready, f.journal.ready(key))
         assertArrayEquals(bytes, original(f, key).readBytes())
     }
@@ -164,7 +166,12 @@ class PartitionPublishedAudioTest {
             override fun onTransferStart(s: DataSource, spec: DataSpec, network: Boolean) = Unit
             override fun onTransferEnd(s: DataSource, spec: DataSpec, network: Boolean) = Unit
             override fun onBytesTransferred(s: DataSource, spec: DataSpec, network: Boolean, count: Int) {
-                f.catalog.reserveFresh(key)
+                // Controlled publication loss, not an ordinary new reservation. Ready is immutable
+                // through the public journal API; inject corruption using disposable native SQLite.
+                SQLiteDatabase.openDatabase(File(f.root, "migration-journal-v1.db").path, null,
+                    SQLiteDatabase.OPEN_READWRITE).use { db ->
+                    db.execSQL("UPDATE migrations SET phase=?", arrayOf(MigrationPhase.Uncertain.ordinal))
+                }
             }
         })
         try {
@@ -180,7 +187,8 @@ class PartitionPublishedAudioTest {
         f.audio.close(); assertEquals(0, f.budget.resident)
         nativeBytes.forEach { (file, payload) -> assertArrayEquals(payload, file.readBytes()) }
         assertArrayEquals(bytes, original(f, key).readBytes())
-        assertEquals(ready, f.journal.ready(key))
+        assertNull(f.journal.ready(key))
+        assertEquals(MigrationPhase.Uncertain, f.journal.find(key)?.phase)
     }
 
     @Test fun lostVolumeIsStickyForTheOpenReaderAndReturnedVolumeNeedsFreshOpen() {
