@@ -6,4 +6,4 @@ import java.io.IOException
  * resource exists. Keep this bounded owner and the caller's storage permit until process teardown;
  * do not retry cleanup, adopt a replacement or make an exclusive operation appear safe. */
 internal class PartitionOwnershipUncertain(val owner:Any,cause:Throwable):
-    IOException("Partition native ownership remains uncertain",cause)
+    IOException(cause.message ?: "Partition native ownership remains uncertain",cause)
