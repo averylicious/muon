@@ -138,6 +138,14 @@ class PartitionShelfServiceTest {
             }
         }
     }
+    @Test fun actualServiceKeepsPinnedPrivateRestartForegroundObligationWithoutNewDownload() {
+        Fixture(false).use { f ->
+            val service=f.service()
+            service.onStartCommand(Intent(app,f.phone.service).setAction("androidx.media3.exoplayer.downloadService.action.RESTART"),0,1)
+            assertNotNull(shadowOf(service).lastForegroundNotification)
+            assertTrue(f.phone.manager.currentDownloads.isEmpty()); f.preserved()
+        }
+    }
     @Test fun expiredUnclaimedServiceIntentReleasesOnlyPreparedReceiptAndNeverReplays() {
         Fixture(false).use { f ->
             val service=f.service(); val old=request("expired"); var result:SaveDeliveryResult?=null

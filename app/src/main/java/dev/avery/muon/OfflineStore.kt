@@ -824,9 +824,13 @@ internal object OfflineStore {
      * intents refuse BEFORE Media3; exact current save delivery alone can forward Add. No old full
      * record is loaded for admission and the partition session holds its gate through the real call.
      * Default startup still selects legacy until all opt-in/recovery/mutation routing is complete. */
+    // Pinned DownloadService.java 70-72/623-635/1124: this private protocol action changes no
+    // downloads but IMPLICITLY requests foreground startup. Preserve it verbatim; converting to
+    // INIT would discard that foreground obligation. Recheck with the pinned source on upgrades.
+    private const val PARTITION_SERVICE_RESTART_ACTION="androidx.media3.exoplayer.downloadService.action.RESTART"
     private fun deliverPartitionCommand(context:Context,intent:Intent?,shelf:Shelf,start:(Intent?)->Int):Int {
         check(Looper.myLooper()==Looper.getMainLooper()) { "Partition command admission requires main" }
-        if(intent==null || intent.action==null || intent.action==DownloadService.ACTION_INIT)
+        if(intent==null || intent.action==null || intent.action==DownloadService.ACTION_INIT || intent.action==PARTITION_SERVICE_RESTART_ACTION)
             return start(intent)
         val store=current()
         val token=intent.getStringExtra(SAVE_DELIVERY_TOKEN)
