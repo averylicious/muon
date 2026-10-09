@@ -186,7 +186,9 @@ class SavedLibraryModelTest {
         // The case is revocation of PENDING work. A fast real IO worker can otherwise finish
         // before the next test-thread command, legitimately applying an already-complete result.
         val gate = LibraryModel::class.java.getDeclaredField("savedMutex").apply { isAccessible = true }.get(model) as Mutex
-        assertTrue(gate.tryLock())
+        // Cancelled IO work may still be unwinding its real mutex after the UI result.
+        // Wait for actual ownership, rather than treating a transient occupied mutex as failure.
+        pumpUntil { gate.tryLock() }
         try {
             model.prepareSavedPlayback(ref) { applied++; assertTrue(it is SavedPlaybackResult.Ready) }
             model.cancelSavedPlayback()
@@ -194,7 +196,9 @@ class SavedLibraryModelTest {
         } finally { gate.unlock() }
         pumpUntil { !model.savedPreparing }
         assertEquals(1, applied)
-        assertTrue(gate.tryLock())
+        // Cancelled IO work may still be unwinding its real mutex after the UI result.
+        // Wait for actual ownership, rather than treating a transient occupied mutex as failure.
+        pumpUntil { gate.tryLock() }
         try {
             model.prepareSavedPlayback(ref) { applied++ }
             model.refreshSaved()
