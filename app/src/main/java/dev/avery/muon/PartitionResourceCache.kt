@@ -47,6 +47,8 @@ internal data class PartitionResourceLimits(
  *   and no other code holds or uses it. This class never adopts a directory: [open] refuses a cache that
  *   already names another key, but inspecting it uses the supported key-set copy, so it cannot bound or
  *   make safe an already-open legacy or untrusted index. Never wrap the legacy cache.
+ * - Optional persistent metadata lives OUTSIDE the native scanned byte directory, is owned by this
+ *   wrapper and bound to the same key/native UID. It must never be shared with another native instance.
  * - Readers of cached (non-hole) spans have no release event in the Cache API, so [release] cannot know
  *   about them. The caller must keep its own reader lease until every reader is closed.
  * - Listener and evictor callbacks may read but must not start or commit writes on this instance.
@@ -64,6 +66,7 @@ internal class PartitionResourceCache private constructor(
     private val cache: SimpleCache,
     val key: String,
     private val limits: PartitionResourceLimits,
+    private val persistent: PartitionContentMetadata?,
     private var spans: Int,
     /** A resource that held metadata but no bytes when admitted: Media3 would drop it on a hole release. */
     private var bareMetadata: Boolean,
@@ -89,15 +92,19 @@ internal class PartitionResourceCache private constructor(
          * over [limits].
          */
         @Throws(IOException::class)
-        fun open(cache: SimpleCache, key: String, limits: PartitionResourceLimits = PartitionResourceLimits()): PartitionResourceCache =
+        fun open(cache: SimpleCache, key: String, limits: PartitionResourceLimits = PartitionResourceLimits(),
+            persistent:PartitionContentMetadata?=null): PartitionResourceCache =
             synchronized(cache) {
                 if (key.length.toLong() * 2 > limits.keyBytes) throw IOException("Partition key exceeds its budget")
                 cache.checkInitialization()
                 for (name in cache.keys) if (name != key) throw IOException("Partition holds another resource")
-                val metadata = measured(cache.getContentMetadata(key), limits)
+                persistent?.checkOwner(cache.uid,key)
+                if(persistent!=null && (cache.getContentMetadata(key) as? DefaultContentMetadata)?.entrySet()?.isNotEmpty()!=false)
+                    throw IOException("Native metadata cannot be silently adopted into the separate store")
+                val metadata = measured(persistent?.read() ?: cache.getContentMetadata(key), limits)
                 val count = cache.getCachedSpans(key).size
                 if (count > limits.spans) throw IOException("Partition resource is too fragmented")
-                PartitionResourceCache(cache, key, limits, count, count == 0 && metadata.entrySet().isNotEmpty())
+                PartitionResourceCache(cache, key, limits, persistent, count, persistent==null && count == 0 && metadata.entrySet().isNotEmpty())
             }
 
         /** The metadata as Media3 stores it, within budget; anything else is refused unchanged. */
@@ -118,7 +125,9 @@ internal class PartitionResourceCache private constructor(
 
     override fun getUid(): Long = synchronized(cache) { live(); cache.uid }
 
-    override fun getKeys(): Set<String> = synchronized(cache) { live(); cache.keys }
+    override fun getKeys(): Set<String> = synchronized(cache) {
+        live(); if(persistent?.read()?.entrySet()?.isNotEmpty()==true) setOf(key) else cache.keys
+    }
 
     override fun getCacheSpace(): Long = synchronized(cache) { live(); cache.cacheSpace }
 
@@ -133,7 +142,9 @@ internal class PartitionResourceCache private constructor(
     override fun getCachedBytes(key: String, position: Long, length: Long): Long =
         synchronized(cache) { mine(key); cache.getCachedBytes(key, position, length) }
 
-    override fun getContentMetadata(key: String): ContentMetadata = synchronized(cache) { mine(key); cache.getContentMetadata(key) }
+    override fun getContentMetadata(key: String): ContentMetadata = synchronized(cache) { mine(key); metadata() }
+
+    private fun metadata():ContentMetadata=persistent?.read() ?: cache.getContentMetadata(key)
 
     // ---- listeners: fixed slots ----
 
@@ -193,6 +204,8 @@ internal class PartitionResourceCache private constructor(
         mine(key)
         range(position,length)
         writable()
+        if(persistent!=null) try { measured(persistent.read(),limits) }
+            catch(failure:Exception) { uncertain=true; throw Cache.CacheException(failure) }
         // Acquiring and then releasing a hole on a bytes-less resource makes Media3 drop its metadata.
         if (bareMetadata) throw Cache.CacheException("Partition resource holds only metadata; it is kept read-only")
         if (holes.count { it != null } + holesReserved >= limits.holes) throw Cache.CacheException("Partition write-lock budget is full")
@@ -244,8 +257,8 @@ internal class PartitionResourceCache private constructor(
             throw Cache.CacheException("Committed length exceeds the started range")
         if(!file.isFile || file.canonicalFile!=file.absoluteFile || file.length()!=length)
             throw Cache.CacheException("Committed file identity or byte length differs")
-        val declared = try { ContentMetadata.getContentLength(cache.getContentMetadata(key)) }
-            catch (failure: RuntimeException) { uncertain = true; throw failure }
+        val declared = try { ContentMetadata.getContentLength(metadata()) }
+            catch (failure: Exception) { uncertain = true; throw failure }
         if (length > 0 && declared != C.LENGTH_UNSET.toLong() && pending.position + length > declared)
             throw Cache.CacheException("Committed bytes would exceed the declared length")
         files[slot] = null
@@ -268,7 +281,8 @@ internal class PartitionResourceCache private constructor(
     override fun removeResource(key: String): Unit = synchronized(cache) {
         mine(key)
         quiet()
-        try { cache.removeResource(key) } catch (failure: RuntimeException) { uncertain = true; throw failure }
+        try { cache.removeResource(key); persistent?.write(DefaultContentMetadata.EMPTY) }
+        catch (failure: Exception) { uncertain = true; throw failure }
         finally { recount() }
     }
 
@@ -280,7 +294,7 @@ internal class PartitionResourceCache private constructor(
             it.position == span.position && it.length == span.length && it.file != null && it.file == span.file
         } ?: throw IllegalArgumentException("Not a current span of this partition")
         // The last span's removal makes Media3 drop the resource's metadata too: use removeResource for that.
-        if (spans <= 1 && (cache.getContentMetadata(key) as? DefaultContentMetadata)?.entrySet()?.isEmpty() != true)
+        if (persistent==null && spans <= 1 && (metadata() as? DefaultContentMetadata)?.entrySet()?.isEmpty() != true)
             throw IllegalStateException("Removing the last span would drop the resource's metadata")
         try { cache.removeSpan(current) } catch (failure: RuntimeException) { uncertain = true; throw failure }
         finally { recount() }
@@ -292,15 +306,17 @@ internal class PartitionResourceCache private constructor(
     override fun applyContentMetadataMutations(key: String, mutations: ContentMetadataMutations): Unit = synchronized(cache) {
         mine(key)
         writable()
-        val current = try { measured(cache.getContentMetadata(key), limits) } catch (e: IOException) { throw Cache.CacheException(e) }
+        val current = try { measured(metadata(), limits) } catch (e: IOException) { throw Cache.CacheException(e) }
         // The exact result Media3 will store, computed without storing it; every unknown field carries over.
         val after = try { measured(current.copyWithMutationsApplied(mutations), limits) } catch (e: IOException) { throw Cache.CacheException(e) }
         // Metadata with no bytes and no write lock is dropped by Media3 on the next hole release or reopen.
-        if (spans == 0 && holes.all { it == null }) throw Cache.CacheException("Partition metadata needs bytes or a held write lock")
+        if (persistent==null && spans == 0 && holes.all { it == null }) throw Cache.CacheException("Partition metadata needs bytes or a held write lock")
         val length = ContentMetadata.getContentLength(after)
         if (length != C.LENGTH_UNSET.toLong() && length < retainedEnd())
             throw Cache.CacheException("A declared length below the retained bytes would hide them")
-        try { cache.applyContentMetadataMutations(key, mutations) } catch (failure: Exception) { uncertain = true; throw failure }
+        try {
+            if(persistent!=null) persistent.write(after) else cache.applyContentMetadataMutations(key, mutations)
+        } catch (failure: Exception) { uncertain = true; throw failure }
         if (bareMetadata && spans > 0) bareMetadata = false
     }
 
@@ -314,6 +330,7 @@ internal class PartitionResourceCache private constructor(
             throw IllegalStateException("Partition still has write locks, pending files or listeners")
         released = true
         cache.release()
+        persistent?.close()
     }
 
     // ---- checks ----
