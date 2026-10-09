@@ -15,9 +15,15 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
     private val outputs:MoveFileOutputs=MoveFileOutputs.Real,
     private val inputs:(File)->java.io.RandomAccessFile={java.io.RandomAccessFile(it,"r")}) {
     private var healthy=true
+    private var running=false
     private data class Quarantine(val cache:Cache,val files:MigrationIoOwnership)
     private var retained:Quarantine?=null
     @Synchronized fun migrate(source:Cache,key:String,checkpoint:()->Unit):MigrationRecord {
+        if(running) throw IOException("Migration operation already active")
+        running=true
+        try { return migrateOwned(source,key,checkpoint) } finally { running=false }
+    }
+    private fun migrateOwned(source:Cache,key:String,checkpoint:()->Unit):MigrationRecord {
         if(!healthy) throw IOException("Migration coordinator unavailable after uncertain native ownership")
         checkpoint()
         val sourceUid=source.uid

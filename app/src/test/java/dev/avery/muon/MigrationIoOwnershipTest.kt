@@ -123,6 +123,7 @@ class MigrationIoOwnershipTest {
         runner=CacheMigrationPublication(f.catalog,f.journal,f.opener(),outputs=outputs)
         assertThrows(MigrationIoUncertain::class.java) { runner.migrate(f.source,f.key,{}) }
         assertEquals(1,closeCalls); assertEquals(1,f.budget.resident)
+        assertEquals(MigrationPhase.Uncertain,f.journal.find(f.key)?.phase)
         assertArrayEquals(f.payload,f.original.readBytes())
     }
     @Test fun sameHandleReentrantCloseSuppressedByCallbackStaysUncertain() {
