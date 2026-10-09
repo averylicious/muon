@@ -15,7 +15,7 @@ internal class PartitionMigrationWork(private val executor:Executor,
     private var terminal=MigrationWorkProgress(MigrationWorkPhase.Waiting)
     private var terminalKey:String?=null
     @get:Synchronized val progress:MigrationWorkProgress get()=
-        active?.let { if(it.uncertainSubmission) MigrationWorkProgress(MigrationWorkPhase.Uncertain,it.control.progress.copyBytes) else it.control.progress } ?: terminal
+        active?.let { if(it.uncertainSubmission) it.control.progress.copy(phase=MigrationWorkPhase.Uncertain) else it.control.progress } ?: terminal
     @get:Synchronized val key:String? get()=active?.key ?: terminalKey
     @get:Synchronized val busy:Boolean get()=active!=null
     /** Caller owes the user's explicit opt-in. False refuses before scheduling/claiming/mutating;
@@ -51,9 +51,9 @@ internal class PartitionMigrationWork(private val executor:Executor,
             val observed=attempt.control.progress
             result=when {
                 failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain ->
-                    MigrationWorkProgress(MigrationWorkPhase.Uncertain,observed.copyBytes)
+                    observed.copy(phase=MigrationWorkPhase.Uncertain)
                 observed.phase in setOf(MigrationWorkPhase.Cancelled,MigrationWorkPhase.Expired,MigrationWorkPhase.Failed,MigrationWorkPhase.Uncertain) -> observed
-                else -> MigrationWorkProgress(MigrationWorkPhase.Failed,observed.copyBytes)
+                else -> observed.copy(phase=MigrationWorkPhase.Failed)
             }
         } finally { synchronized(this) {
             if(active===attempt) {

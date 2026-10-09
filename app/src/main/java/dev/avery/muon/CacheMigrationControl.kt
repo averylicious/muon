@@ -7,7 +7,9 @@ import java.io.InterruptedIOException
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal enum class MigrationWorkPhase { Waiting, Preparing, Running, Ready, Cancelled, Expired, Failed, Uncertain }
-internal data class MigrationWorkProgress(val phase:MigrationWorkPhase, val copyBytes:Long=0)
+/** copyBytes is the planned extent; writtenBytes counts accepted writes only. Even equal counts
+ * are not verified/durable completion: only Ready establishes publication. */
+internal data class MigrationWorkProgress(val phase:MigrationWorkPhase, val copyBytes:Long=0, val writtenBytes:Long=0)
 
 /** Single-use synchronous control for an explicitly opted-in resource, not a scheduler or source
  * exclusion barrier. Caller runs off the UI thread and holds source/volume/writer/reader/removal and
@@ -50,6 +52,7 @@ internal class CacheMigrationControl(timeoutMillis:Long,
         if(!used.compareAndSet(false,true)) throw IOException("Migration control already consumed")
         val started=acceptedNanos ?: nanoTime()
         var bytes=0L
+        var written=0L
         var terminal=MigrationWorkPhase.Failed
         fun budget() {
             if(cancelled.get()) { terminal=MigrationWorkPhase.Cancelled; throw InterruptedIOException("Migration cancelled") }
@@ -74,14 +77,18 @@ internal class CacheMigrationControl(timeoutMillis:Long,
             checked()
             if(free<0 || free<bytes+headroomBytes) throw IOException("Insufficient migration temporary space")
             progress=MigrationWorkProgress(MigrationWorkPhase.Running,bytes)
-            val ready=publication.migrate(source,key,::checked)
+            val ready=publication.migrateWithProgress(source,key,{ count ->
+                if(count<written || count>bytes) throw IOException("Migration write progress differs from planned extent")
+                written=count
+                progress=MigrationWorkProgress(MigrationWorkPhase.Running,bytes,written)
+            },::checked)
             // The durable publication is the commit point. A later cancellation does not turn a
             // successful migration into a failure or authorize deleting either copy.
-            progress=MigrationWorkProgress(MigrationWorkPhase.Ready,bytes)
+            progress=MigrationWorkProgress(MigrationWorkPhase.Ready,bytes,written)
             return ready
         } catch(failure:Throwable) {
             progress=MigrationWorkProgress(
-                if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || publication.ownershipUncertain) MigrationWorkPhase.Uncertain else terminal,bytes)
+                if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || publication.ownershipUncertain) MigrationWorkPhase.Uncertain else terminal,bytes,written)
             throw failure
         }
     }

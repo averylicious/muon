@@ -72,7 +72,8 @@ internal object CacheMigrationPreparation {
 
     fun copy(source: Cache, target: Cache, key: String, checkpoint: () -> Unit,
         outputs: MoveFileOutputs = MoveFileOutputs.Real,
-        ownership: MigrationIoOwnership = MigrationIoOwnership(outputs)): MigrationCopyEvidence {
+        ownership: MigrationIoOwnership = MigrationIoOwnership(outputs),
+        written:(Long)->Unit={}): MigrationCopyEvidence {
         if (source === target) throw IOException("Migration needs a separate destination")
         val before = snapshot(source,key,checkpoint)
         val empty = snapshot(target,key,checkpoint)
@@ -97,6 +98,8 @@ internal object CacheMigrationPreparation {
                         if (count <= 0) throw IOException("Migration source bytes became unavailable")
                         sink.write(buffer,0,count)
                         left -= count
+                        // Accepted writes only; not durability, verification or source cleanup authority.
+                        written(Math.addExact(total,range.length-left))
                     }
                 } finally {
                     // A failed read/cancellation can leave a committed partial replacement. It never

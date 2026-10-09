@@ -58,10 +58,42 @@ class CacheMigrationControlTest {
         val before=original.readBytes(); val control=CacheMigrationControl(1000,headroomBytes=1024,nanoTime={0L})
         val ready=control.run(source,"saved",publisher,{151_024L},{})
         assertEquals(MigrationPhase.Ready,ready.phase); assertEquals(ready,journal.ready("saved"))
-        assertEquals(MigrationWorkProgress(MigrationWorkPhase.Ready,150_000),control.progress)
+        assertEquals(MigrationWorkProgress(MigrationWorkPhase.Ready,150_000,150_000),control.progress)
         control.cancel(); assertEquals(MigrationWorkPhase.Ready,control.progress.phase)
         assertThrows(IOException::class.java) { control.run(source,"saved",publisher,{Long.MAX_VALUE},{}) }
         assertArrayEquals(before,original.readBytes())
+    }
+    @Test fun cancellationAfterOneAcceptedChunkReportsActualWritesButNeverReady()=fixture { source,original,_,journal,publisher ->
+        val before=original.readBytes(); val control=CacheMigrationControl(1000,nanoTime={0L})
+        assertThrows(InterruptedIOException::class.java) {
+            control.run(source,"saved",publisher,{Long.MAX_VALUE},{
+                val state=control.progress
+                if(state.writtenBytes>0) {
+                    assertEquals(MigrationWorkPhase.Running,state.phase)
+                    assertEquals(150_000L,state.copyBytes)
+                    assertTrue(state.writtenBytes<state.copyBytes)
+                    assertNull(journal.ready("saved"))
+                    control.cancel()
+                }
+            })
+        }
+        assertEquals(MigrationWorkPhase.Cancelled,control.progress.phase)
+        assertEquals(65_536L,control.progress.writtenBytes)
+        assertEquals(150_000L,control.progress.copyBytes)
+        assertNull(journal.ready("saved")); assertArrayEquals(before,original.readBytes())
+    }
+    @Test fun fullWriteProgressIsStillRunningThroughReopenAndVerification()=fixture { source,original,_,journal,publisher ->
+        val before=original.readBytes(); val control=CacheMigrationControl(1000,nanoTime={0L}); var fullBeforeReady=false
+        control.run(source,"saved",publisher,{Long.MAX_VALUE},{
+            if(control.progress.writtenBytes==150_000L) {
+                fullBeforeReady=true
+                assertEquals(MigrationWorkPhase.Running,control.progress.phase)
+                assertNull(journal.ready("saved"))
+            }
+        })
+        assertTrue(fullBeforeReady)
+        assertEquals(MigrationWorkProgress(MigrationWorkPhase.Ready,150_000,150_000),control.progress)
+        assertNotNull(journal.ready("saved")); assertArrayEquals(before,original.readBytes())
     }
     @Test fun cancelledBeforeExecutionNeverReservesOrOpensTarget()=fixture { source,original,catalog,journal,publisher ->
         val before=original.readBytes(); val control=CacheMigrationControl(1000,nanoTime={0L}); control.cancel()

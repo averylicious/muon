@@ -22,12 +22,15 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
     // Native release may throw before closing. Keep the exact returned owner, not only a flag/error.
     // At most one can remain: healthy=false refuses every later attempt on this adapter.
     private var retainedNative:Cache?=null
-    @Synchronized fun migrate(source:Cache,key:String,checkpoint:()->Unit):MigrationRecord {
+    @Synchronized fun migrate(source:Cache,key:String,checkpoint:()->Unit):MigrationRecord =
+        migrateWithProgress(source,key,{},checkpoint)
+    /** One synchronous scalar callback, no observer/event queue. A write receipt is never Ready. */
+    @Synchronized fun migrateWithProgress(source:Cache,key:String,written:(Long)->Unit,checkpoint:()->Unit):MigrationRecord {
         if(running) throw IOException("Migration operation already active")
         running=true
-        try { return migrateOwned(source,key,checkpoint) } finally { running=false }
+        try { return migrateOwned(source,key,written,checkpoint) } finally { running=false }
     }
-    private fun migrateOwned(source:Cache,key:String,checkpoint:()->Unit):MigrationRecord {
+    private fun migrateOwned(source:Cache,key:String,written:(Long)->Unit,checkpoint:()->Unit):MigrationRecord {
         if(!healthy) throw IOException("Migration coordinator unavailable after uncertain native ownership")
         checkpoint()
         val sourceUid=source.uid
@@ -55,7 +58,7 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
             try {
                 uid=first.uid
                 if(uid<0) throw IOException("Migration target identity unavailable")
-                copied=CacheMigrationPreparation.copy(source,first,key,::checked,ownership=files)
+                copied=CacheMigrationPreparation.copy(source,first,key,::checked,ownership=files,written=written)
             } finally { retiring(first,files) }
             checked()
             val reopened=opening(directory,sourceUid)
