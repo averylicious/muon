@@ -5,6 +5,8 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteException
 import android.net.Uri
+import androidx.media3.common.C
+import androidx.media3.common.util.Util
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadRequest
@@ -77,8 +79,12 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
                 if(id!=key) throw IOException("Completed-save lookup identity differs")
                 if(c.getLong(11)!=0L || c.getLong(12)!=0L)
                     throw IOException("Completed-save row has invalid stop/failure state")
-                val request=DownloadRequest.Builder(id,Uri.parse(c.getString(3))).setMimeType(c.getString(2))
-                    .setCustomCacheKey(c.getString(5)).setData(c.getBlob(6)).build()
+                val uri=Uri.parse(c.getString(3)); val mime=c.getString(2); val customKey=c.getString(5)
+                // Reject before DownloadRequest's constructor can throw on adaptive custom keys.
+                if(customKey!=key || Util.inferContentTypeForUriAndMimeType(uri,mime)!=C.CONTENT_TYPE_OTHER)
+                    throw IOException("Completed-save row is not the exact full progressive request")
+                val request=DownloadRequest.Builder(id,uri).setMimeType(mime)
+                    .setCustomCacheKey(customKey).setData(c.getBlob(6)).build()
                 val complete=PartitionSaveCompletion.from(Download(request,c.getInt(7),c.getLong(8),c.getLong(9),
                     c.getLong(10),c.getInt(11),c.getInt(12)))
                 if(c.moveToNext()) throw IOException("Completed-save identity is not unique")
