@@ -104,7 +104,7 @@ internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean
         Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall,
             color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant, textAlign = TextAlign.End,
             maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
-        DownloadBadge(downloadMark(endpoint, t))
+        // No saved-copy badge on a live song (#213): a copy kept under its number may be another song.
     }
 }
 
