@@ -211,6 +211,25 @@ class OfflineReaderContainmentTest {
         source.close()
     }
 
+    @Test fun boundedReadAheadChecksEveryRealCardRefillAndNeverFallsBackAfterLoss() {
+        val source=SavedReadAheadSource(offlineSource(),4)
+        assertEquals(8L,source.open(stream(onCard)))
+        val file=opened(files).single();val checks=cardChecks;val first=ByteArray(1)
+        assertEquals(1,source.read(first,0,1));assertEquals(1,first[0].toInt())
+        assertEquals(checks+1,cardChecks);assertEquals(1,file.reads)
+        cardUp=false
+        // These three bytes are already owned RAM, not a read of the removed card.
+        val ram=ByteArray(3);assertEquals(3,source.read(ram,0,3))
+        assertArrayEquals(byteArrayOf(2,3,4),ram);assertEquals(1,file.reads);assertEquals(checks+1,cardChecks)
+        assertThrows(IOException::class.java) { source.read(ByteArray(1),0,1) }
+        assertEquals(1,file.reads);assertEquals(checks+2,cardChecks)
+        cardUp=true;assertThrows(IOException::class.java) { source.read(ByteArray(1),0,1) }
+        source.close();assertEquals(1,file.closes)
+        source.open(stream(onCard));assertArrayEquals(cardBytes,readAll(source));source.close()
+        assertTrue(opened(upstreams).isEmpty());assertTrue(card.completed(id(onCard)))
+        assertTrue(card.cache.isCached(id(onCard),0,cardBytes.size.toLong()))
+    }
+
     // ---- fixtures ----
 
     private fun offlineSource() = OfflineDataSource { request ->
