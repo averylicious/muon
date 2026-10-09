@@ -123,6 +123,19 @@ class CacheMigrationPublicationTest {
             }
         }
     }
+    @Test fun metadataOnlyNativeCleanupCannotTurnAnIncompleteReplacementIntoAReadyRoute() {
+        val source=cache(); val key="metadata-only"
+        source.applyContentMetadataMutations(key,ContentMetadataMutations().set("future",byteArrayOf(4,7,9)))
+        val root=folders.newFolder()
+        CachePartitionCatalog(root).use { catalog -> CacheMigrationJournal(root).use { journal ->
+            val runner=CacheMigrationPublication(catalog,journal,::cache)
+            assertThrows(IOException::class.java) { runner.migrate(source,key,{}) }
+            assertNull(journal.ready(key)); assertEquals(MigrationPhase.Uncertain,journal.find(key)?.phase)
+            assertArrayEquals(byteArrayOf(4,7,9),source.getContentMetadata(key).get("future",null as ByteArray?))
+            assertTrue(source.getCachedSpans(key).isEmpty())
+        } }
+    }
+
     @Test fun lateSourceMetadataChangeOrAppearingForeignFolderDoesNotPublishOrAdopt() {
         val source=cache(); val key="saved"; seed(source,key,0,byteArrayOf(1,2)); val original=originals(source,key)
         val root=folders.newFolder(); var calls=0
