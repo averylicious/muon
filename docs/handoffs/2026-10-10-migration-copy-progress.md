@@ -1,0 +1,9 @@
+# #253 actual migration copy progress
+
+Main-track cumulative candidate after #475 startup guard and #474 owned worker. Dedicated codex/migration-copy-progress-oct10 / muon-migration-copy-progress-oct10. Includes refreshed main's portable #476 checkpoint. GPT-6 / Codex desktop implementation/self-check; exact variant/effort not reported. Claude unavailable; no device commands.
+
+MigrationWorkProgress now distinguishes planned copy extent (copyBytes) from accepted writes (writtenBytes). The actual 64 KiB copy loop reports cumulative successful writes synchronously; no event/history queue or metadata/Throwable retention is added. Cancellation/failure/uncertain worker status preserves both bounded scalar counts. Accepted writes, even equal to planned size, do not prove close, byte verification or durable publication; only Ready means the existing exact journal commit succeeded. Reopen/verification still reports Running at full written count. Partial-write failure does not invent a successful count. Originals and uncertain replacement ownership remain intact.
+
+Actual native copy controls cancel after one accepted 64 KiB chunk, confirm the original bytes and no Ready row, and observe full written progress before reopen/verification/publication completes. Existing full-publication control now checks both counts. CI is first Android compile; final-head report/APK receipts must be checked on the PR.
+
+Prepared migration worker/progress and startup guard do not enable partition mode or clear #253. Off-main production binding, app-wide played/cache/cover/move/removal lifetime, safe destructive policy, opt-in/progress/recovery UI and final acceptance remain. Existing source stack stays OPEN under inherited acceptance. No Stable tag/release, source cleanup/adoption or experimental changes.
