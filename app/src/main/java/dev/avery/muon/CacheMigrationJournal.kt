@@ -18,6 +18,15 @@ internal data class MigrationRecord(val ticket:MigrationTicket, val phase:Migrat
  * A Ready row still needs matching native UID and current volume/ownership before use. */
 internal class CacheMigrationJournal(root:File, private val token:()->String={UUID.randomUUID().toString()}) : Closeable {
     private val schema="CREATE TABLE migrations(key BLOB PRIMARY KEY NOT NULL, directory TEXT UNIQUE NOT NULL, token TEXT UNIQUE NOT NULL, source_uid INTEGER NOT NULL, phase INTEGER NOT NULL, target_uid INTEGER, bytes INTEGER, ranges INTEGER)"
+    // Bounded projections reject corruption BEFORE CursorWindow loads payload. Invalid nullable
+    // numeric types use a small text sentinel so they cannot masquerade as legitimate SQL NULL.
+    private val projection=(listOf(
+        "CASE WHEN typeof(key)='blob' AND length(key)<=$MIGRATION_KEY_BYTES THEN key ELSE NULL END",
+        "CASE WHEN typeof(directory)='text' AND length(CAST(directory AS BLOB))=36 THEN directory ELSE NULL END",
+        "CASE WHEN typeof(token)='text' AND length(CAST(token AS BLOB))=36 THEN token ELSE NULL END",
+        "CASE WHEN typeof(source_uid)='integer' THEN source_uid ELSE NULL END",
+        "CASE WHEN typeof(phase)='integer' THEN phase ELSE NULL END")+
+        listOf("target_uid","bytes","ranges").map { "CASE WHEN typeof($it) IN ('integer','null') THEN $it ELSE 'invalid' END" }).joinToString(",")
     private val database:SQLiteDatabase
     private var verifiedHere:MigrationTicket?=null
     init {
@@ -82,7 +91,7 @@ internal class CacheMigrationJournal(root:File, private val token:()->String={UU
     }
     private fun lookup(key:String):MigrationRecord?=database.rawQueryWithFactory({_,driver,table,query ->
         query.bindBlob(1,savedCatalogSortKey(key)); SQLiteCursor(driver,table,query)
-    },"SELECT key,directory,token,source_uid,phase,target_uid,bytes,ranges FROM migrations WHERE key=?",null,"migrations").use {
+    },"SELECT $projection FROM migrations WHERE key=?",null,"migrations").use {
         if(it.moveToFirst()) decode(it) else null
     }
     @Synchronized fun find(key:String):MigrationRecord? { identity(key); return lookup(key) }
@@ -170,7 +179,7 @@ internal class CacheMigrationJournal(root:File, private val token:()->String={UU
         val where=if(after==null) "" else " WHERE key>?"
         return database.rawQueryWithFactory({_,driver,table,query ->
             after?.let { query.bindBlob(1,savedCatalogSortKey(it)) }; SQLiteCursor(driver,table,query)
-        },"SELECT key,directory,token,source_uid,phase,target_uid,bytes,ranges FROM migrations$where ORDER BY key LIMIT $PARTITION_LOCATOR_WINDOW",null,"migrations").use {
+        },"SELECT $projection FROM migrations$where ORDER BY key LIMIT $PARTITION_LOCATOR_WINDOW",null,"migrations").use {
             val rows=ArrayList<MigrationRecord>(PARTITION_LOCATOR_WINDOW)
             while(it.moveToNext()) rows+=decode(it)
             rows

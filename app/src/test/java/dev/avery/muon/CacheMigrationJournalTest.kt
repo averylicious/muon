@@ -102,4 +102,45 @@ class CacheMigrationJournalTest {
             assertEquals(fresh,catalog.find("kept")); assertArrayEquals(byteArrayOf(7),original.readBytes())
         }
     }
+    @Test fun oversizedUuidOrPageKeyRefusesBeforeCursorLoadingWithoutErasingItsTicket() {
+        for(field in listOf("directory","token","key")) {
+            val root=folders.newFolder(); CacheMigrationJournal(root).use { it.begin(allocation("kept"),1,null) }
+            val file=File(root,"migration-journal-v1.db")
+            SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+                if(field=="key") db.execSQL("UPDATE migrations SET key=zeroblob(3145728)")
+                else db.execSQL("UPDATE migrations SET $field=?",arrayOf("\u0000"+"x".repeat(3145728)))
+            }
+            CacheMigrationJournal(root).use { journal ->
+                if(field!="key") assertThrows(IOException::class.java) { journal.find("kept") }
+                assertThrows(IOException::class.java) { journal.page() }
+            }
+            SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+                db.rawQuery("SELECT length(CAST($field AS BLOB)) FROM migrations",null).use {
+                    assertTrue(it.moveToFirst()); assertEquals(if(field=="key") 3145728 else 3145729,it.getInt(0))
+                }
+            }
+        }
+    }
+    @Test fun malformedNumericReceiptFieldsCannotBeProjectedAsLegitimateMissingValues() {
+        for(field in listOf("source_uid","phase","target_uid","bytes","ranges")) {
+            val root=folders.newFolder()
+            CacheMigrationJournal(root).use { journal ->
+                val ticket=journal.begin(allocation("kept"),1,null)
+                journal.verified(ticket,2,MigrationCopyEvidence(1,1)); journal.publish(ticket)
+            }
+            val file=File(root,"migration-journal-v1.db")
+            SQLiteDatabase.openOrCreateDatabase(file,null).use { it.execSQL("UPDATE migrations SET $field=?",arrayOf("\u0000"+"x".repeat(3145728))) }
+            CacheMigrationJournal(root).use { journal ->
+                assertThrows(IOException::class.java) { journal.find("kept") }
+                assertThrows(IOException::class.java) { journal.ready("kept") }
+                assertThrows(IOException::class.java) { journal.page() }
+            }
+            SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+                db.rawQuery("SELECT typeof($field),length(CAST($field AS BLOB)) FROM migrations",null).use {
+                    assertTrue(it.moveToFirst()); assertEquals("text",it.getString(0)); assertEquals(3145729,it.getInt(1))
+                }
+            }
+        }
+    }
+
 }

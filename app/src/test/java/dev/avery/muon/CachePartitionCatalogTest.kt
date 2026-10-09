@@ -125,4 +125,24 @@ class CachePartitionCatalogTest {
             assertEquals(1L,reopened.count())
         }
     }
+    @Test fun oversizedLocatorOrPageKeyRefusesBeforeCursorLoadingAndKeepsTheOriginalRow() {
+        for(keyField in listOf(false,true)) {
+            val root=folders.newFolder(); CachePartitionCatalog(root).use { it.reserve("kept") }
+            val file=File(root,"partition-locators-v1.db")
+            SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+                if(keyField) db.execSQL("UPDATE partitions SET key=zeroblob(3145728)")
+                else db.execSQL("UPDATE partitions SET directory=?",arrayOf("\u0000"+"x".repeat(3145728)))
+            }
+            CachePartitionCatalog(root).use { catalog ->
+                if(!keyField) assertThrows(IOException::class.java) { catalog.find("kept") }
+                assertThrows(IOException::class.java) { catalog.page() }; assertEquals(1L,catalog.count())
+            }
+            SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+                db.rawQuery("SELECT length(CAST(${if(keyField) "key" else "directory"} AS BLOB)) FROM partitions",null).use {
+                    assertTrue(it.moveToFirst()); assertEquals(if(keyField) 3145728 else 3145729,it.getInt(0))
+                }
+            }
+        }
+    }
+
 }

@@ -14,6 +14,9 @@ internal data class CachePartitionAllocation(val key:String, val directory:Strin
 internal class CachePartitionCatalog(private val root:File, private val newDirectory:()->String={ UUID.randomUUID().toString() }) : Closeable {
     private val schema="CREATE TABLE partitions(key BLOB PRIMARY KEY NOT NULL, directory TEXT UNIQUE NOT NULL)"
     private val resources=File(root,"resources")
+    // Bound payload BEFORE CursorWindow projection. TEXT length alone stops at embedded NUL.
+    private val boundedDirectory="CASE WHEN typeof(directory)='text' AND length(CAST(directory AS BLOB))=36 THEN directory ELSE NULL END"
+    private val boundedKey="CASE WHEN typeof(key)='blob' AND length(key)<=$MIGRATION_KEY_BYTES THEN key ELSE NULL END"
     private val database:SQLiteDatabase
     init {
         check(root.isDirectory || root.mkdirs()) { "No private partition directory" }
@@ -53,8 +56,11 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
     }
     private fun lookup(key:String):CachePartitionAllocation? = database.rawQueryWithFactory({ _,driver,table,query ->
         query.bindBlob(1,savedCatalogSortKey(key)); SQLiteCursor(driver,table,query)
-    },"SELECT directory FROM partitions WHERE key=?",null,"partitions").use { cursor ->
-        if (!cursor.moveToFirst()) null else allocation(key,cursor.getString(0))
+    },"SELECT $boundedDirectory FROM partitions WHERE key=?",null,"partitions").use { cursor ->
+        if (!cursor.moveToFirst()) null else {
+            if(cursor.getType(0)!=android.database.Cursor.FIELD_TYPE_STRING) throw IOException("Partition locator invalid")
+            allocation(key,cursor.getString(0))
+        }
     }
     @Synchronized fun find(key:String):CachePartitionAllocation? { requireKey(key); return lookup(key) }
 
@@ -121,9 +127,13 @@ internal class CachePartitionCatalog(private val root:File, private val newDirec
         val where=if (after==null) "" else " WHERE key>?"
         return database.rawQueryWithFactory({ _,driver,table,query ->
             after?.let { query.bindBlob(1,savedCatalogSortKey(it)) }; SQLiteCursor(driver,table,query)
-        },"SELECT key,directory FROM partitions$where ORDER BY key LIMIT $PARTITION_LOCATOR_WINDOW",null,"partitions").use { cursor ->
+        },"SELECT $boundedKey,$boundedDirectory FROM partitions$where ORDER BY key LIMIT $PARTITION_LOCATOR_WINDOW",null,"partitions").use { cursor ->
             val rows=ArrayList<CachePartitionAllocation>(PARTITION_LOCATOR_WINDOW)
-            while (cursor.moveToNext()) rows+=allocation(savedCatalogText(cursor.getBlob(0)),cursor.getString(1))
+            while (cursor.moveToNext()) {
+                if(cursor.getType(0)!=android.database.Cursor.FIELD_TYPE_BLOB || cursor.getType(1)!=android.database.Cursor.FIELD_TYPE_STRING)
+                    throw IOException("Partition page identity invalid")
+                rows+=allocation(savedCatalogText(cursor.getBlob(0)),cursor.getString(1))
+            }
             rows
         }
     }
