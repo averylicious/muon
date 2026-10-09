@@ -44,13 +44,13 @@ class PartitionCompletedAudioTest {
     private inner class Fixture(private val capacity:Int) {
         val root=folders.newFolder(); val catalog=CachePartitionCatalog(root)
         val migrations=CacheMigrationJournal(root); val saves=PartitionSaveJournal(root,create=true)
-        val index=DefaultDownloadIndex(database,"completed_${fixtures.size}")
+        val indexName="completed_${fixtures.size}"
+        val index=DefaultDownloadIndex(database,indexName).also { it.getDownloads().close() }
         var volume:String?="card"
         val budget=PartitionNativeBudget(capacity)
         fun owner()=PartitionNativeOwner(catalog,migrations,"card",{volume},budget=budget,saves=saves)
         val owner=owner()
-        fun audio(owner:PartitionNativeOwner=this.owner)=PartitionCompletedAudio(owner,
-            { key -> index.getDownload(key)?.let { PartitionSaveCompletion.from(it) } },capacity)
+        fun audio(owner:PartitionNativeOwner=this.owner)=PartitionCompletedAudio(owner,database,indexName,capacity)
         val audio=audio()
         val writers=mutableListOf<PartitionCacheLeases>()
     }

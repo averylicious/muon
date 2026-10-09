@@ -1,6 +1,7 @@
 @file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 package dev.avery.muon
 
+import androidx.media3.database.DatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.ContentMetadata
@@ -38,6 +39,8 @@ internal data class PartitionSaveCompletion private constructor(val key:String,v
  */
 internal class PartitionCompletedAudio(private val owner:PartitionNativeOwner,
     private val completion:(String)->PartitionSaveCompletion?,capacity:Int=PARTITION_NATIVE_INSTANCES):SavedAudio,Closeable {
+    constructor(owner:PartitionNativeOwner,database:DatabaseProvider,indexName:String,
+        capacity:Int=PARTITION_NATIVE_INSTANCES):this(owner,PartitionCompletionIndex(database,indexName)::find,capacity)
     private data class Route(val saved:PartitionSaveRecord,val complete:PartitionSaveCompletion)
     @Volatile private var stopped=false
     internal val resident:Int get()=pool.resident
