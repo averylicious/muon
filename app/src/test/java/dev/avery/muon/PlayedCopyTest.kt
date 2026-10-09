@@ -115,6 +115,50 @@ class PlayedCopyTest {
         assertEquals(0L, cache.cacheSpace)
     }
 
+    @Test fun readFailureWithUnknownCloseKeepsActualCopyAndNeverRetriesCloseOrOpen() {
+        val cache=open(512_000); var opens=0; var reads=0; var closes=0
+        val raw=ByteArrayDataSource(ByteArray(256_000))
+        val upstream=object:DataSource by raw {
+            override fun open(spec:DataSpec):Long { opens++; return raw.open(spec) }
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                if(++reads==2) throw java.io.IOException("Injected read failure")
+                return raw.read(buffer,offset,length)
+            }
+            override fun close():Unit { closes++; throw java.io.IOException("Injected unknown close") }
+        }
+        val unknown=assertThrows(PlayedCopyCloseUncertain::class.java) {
+            copyPlayedWithinLimit(source(cache,upstream),spec(key)) { 512_000 }
+        }
+        assertNotNull(unknown.owner)
+        assertEquals(1,opens); assertEquals(1,closes)
+        assertTrue(cache.getCachedSpans(key).isNotEmpty())
+        // Disposable fixture retires its raw participant; production must retain, never retry it.
+        raw.close()
+    }
+    @Test fun oversizeWithUnknownCloseKeepsSpansInsteadOfTakingKnownCloseCleanupPath() {
+        val budget=CacheWriter.DEFAULT_BUFFER_SIZE_BYTES.toLong(); val cache=open(budget)
+        val raw=ByteArrayDataSource(ByteArray((budget*4).toInt())); var closes=0
+        val upstream=object:DataSource by raw {
+            override fun open(spec:DataSpec):Long { raw.open(spec); return C.LENGTH_UNSET.toLong() }
+            override fun close():Unit { closes++; throw java.io.IOException("Injected close failure") }
+        }
+        assertThrows(PlayedCopyCloseUncertain::class.java) {
+            copyPlayedWithinLimit(source(cache,upstream),spec(key)) { budget }
+        }
+        assertEquals(1,closes); assertTrue(cache.getCachedSpans(key).isNotEmpty())
+        raw.close()
+    }
+
+    @Test fun quarantinedActualEvictorRefusesClearResizeAndNativeSpanEviction() {
+        val evictor=PlayedSongEvictor(512_000) {}
+        val cache=SimpleCache(folders.newFolder(),evictor,database).also { caches+=it; it.checkInitialization() }
+        seed(cache,key,ByteArray(256)); seed(cache,"explicit-download",ByteArray(64))
+        evictor.quarantine(); evictor.resize(1); evictor.clear()
+        seed(cache,playedKey("another"),ByteArray(128))
+        assertTrue(cache.isCached(key,0,256)); assertTrue(cache.isCached(playedKey("another"),0,128))
+        assertTrue(cache.isCached("explicit-download",0,64))
+    }
+
     @Test fun startupTrimsOldOversizedPlayedCopyButPreservesExplicitDownload() {
         val folder = folders.newFolder()
         val cache = open(128, folder)

@@ -11,7 +11,6 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.Cache
-import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.database.StandaloneDatabaseProvider
@@ -68,12 +67,14 @@ internal class Shelf private constructor(private val legacyCache:SimpleCache?, v
     /** Reads one saved copy and nothing else (#213): no upstream and no sink, so a missing byte fails. */
     val savedSource: DataSource.Factory get() = audio.source
 
+    @Volatile private var playedSourceUncertain:PlayedCopyWriter?=null
+    internal fun retainUncertainPlayedSource(owner:PlayedCopyWriter) { if(playedSourceUncertain==null) playedSourceUncertain=owner }
     @Volatile private var moveReaderUncertain=false
     /** A failed move file close is process-local uncertainty, not permission to retry/delete. */
     internal fun retainUncertainMoveReader() { moveReaderUncertain=true }
     internal val hasUncertainMoveReader:Boolean get()=moveReaderUncertain
     /** Checked at each decision (#179 S1); see [cardPresent] for the card. */
-    override fun available(): Boolean = !moveReaderUncertain && runCatching(present).getOrDefault(false)
+    override fun available(): Boolean = !moveReaderUncertain && playedSourceUncertain==null && runCatching(present).getOrDefault(false)
 
     override fun completed(id: String): Boolean =
         runCatching { partition?.containsId(id,completedOnly=true) ?: (manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED) }.getOrDefault(false)
@@ -373,7 +374,7 @@ internal object OfflineStore {
                 // Not before the phone index has been read: a fresh key must be one no row names (#213).
                 if (owner.isCancelled || !store.playedClaims.known || hasPlayedCopyFrom(store, id, song)) return@runCatching
                 val call = AtomicReference<Call?>()
-                val writer = AtomicReference<CacheWriter?>()
+                val writer = AtomicReference<PlayedCopyWriter?>()
                 owner.onCancel { writer.get()?.cancel(); call.get()?.cancel() }
                 val origin = id.substringBeforeLast('/')
                 val number = id.substringAfterLast('/')
@@ -400,6 +401,12 @@ internal object OfflineStore {
                             if (owner.isCancelled) copy.cancel()
                         }) { store.prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT) }
                 } catch (failure: Throwable) {
+                    if(failure is PlayedCopyCloseUncertain) {
+                        store.phone.retainUncertainPlayedSource(failure.owner)
+                        store.played.quarantine()
+                        playedWork.quarantine(failure.owner)
+                        throw failure // Unknown close grants no deletion, retry or live owner swap.
+                    }
                     // The key was made for this copy alone, on this worker, in no cache and named by no row,
                     // and no Muon writer gives a row a played-copy key, so nothing else owns it.
                     if (store.playedClaims.removable(key)) runCatching { store.cache.removeResource(key) }

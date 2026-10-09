@@ -45,8 +45,16 @@ internal class PlayedCopyWork(
     private var resize: (() -> Unit)? = null
     private var active: Pair<String, PlayedCopyCancellation>? = null
     private var scheduled = false
+    private var retained:Any?=null
+    /** One exact uncertain source survives; discard queued closures and refuse maintenance/retry. */
+    fun quarantine(owner:Any)=synchronized(lock) {
+        if(retained==null) retained=owner
+        pending=null; clear=null; resize=null
+    }
+    val isUncertain:Boolean get()=synchronized(lock) { retained!=null }
 
     fun copy(id: String, run: (PlayedCopyCancellation) -> Unit) = synchronized(lock) {
+        if(retained!=null) return@synchronized
         val running = active
         if (running?.first == id && !running.second.isCancelled) return@synchronized
         pending = Copy(id, run)
@@ -55,6 +63,7 @@ internal class PlayedCopyWork(
 
     fun clear(run: () -> Unit) {
         val cancel = synchronized(lock) {
+            if(retained!=null) return
             pending = null
             clear = run
             schedule()
@@ -65,6 +74,7 @@ internal class PlayedCopyWork(
 
     fun resize(run: () -> Unit) {
         val cancel = synchronized(lock) {
+            if(retained!=null) return
             resize = run
             schedule()
             active?.second
@@ -74,7 +84,7 @@ internal class PlayedCopyWork(
 
     /** Called under lock; only a single draining task is ever submitted. */
     private fun schedule() {
-        if (scheduled || (pending == null && clear == null && resize == null)) return
+        if (retained!=null || scheduled || (pending == null && clear == null && resize == null)) return
         scheduled = true
         try { worker.execute(::drain) } catch (e: RuntimeException) { scheduled = false; throw e }
     }

@@ -111,6 +111,22 @@ class PlayedCopyWorkTest {
         assertTrue(worker.tasks.isEmpty())
     }
 
+    @Test fun unknownSourceOwnershipDiscardsQueuedWorkAndNeverRunsMaintenanceOrRetry() {
+        val exact=Any()
+        work.copy("active") {
+            work.copy("waiting") { fail("Unknown source must refuse next copy") }
+            work.clear { fail("Unknown source must refuse clear") }
+            work.resize { fail("Unknown source must refuse resize") }
+            work.quarantine(exact)
+        }
+        worker.next()
+        assertTrue(work.isUncertain); assertTrue(worker.tasks.isEmpty())
+        work.quarantine(Any())
+        assertSame(exact,PlayedCopyWork::class.java.getDeclaredField("retained").apply { isAccessible=true }.get(work))
+        work.copy("retry") { fail("No retry") }; work.clear { fail("No clear") }; work.resize { fail("No resize") }
+        assertTrue(worker.tasks.isEmpty()); assertTrue(timer.queue.isEmpty())
+    }
+
     @Test fun cancellationIsIdempotentAndCancelsLateInstalledOperation() {
         val token = PlayedCopyCancellation()
         token.cancel()

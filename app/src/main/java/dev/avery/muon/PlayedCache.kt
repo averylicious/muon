@@ -46,6 +46,9 @@ internal object PlayedCacheState {
 internal class PlayedSongEvictor(limit: Long, private val removable: (String) -> Boolean = { true },
     private val order: PlayedSpanOrder = MemoryPlayedSpanOrder(), private val report: (Long) -> Unit) : CacheEvictor {
     @Volatile private var limit = limit
+    @Volatile private var uncertain=false
+    /** No played-key eviction/clear after an actual source close is unknown. */
+    fun quarantine() { uncertain=true }
     private var size = 0L
     private var cache: Cache? = null
 
@@ -98,7 +101,7 @@ internal class PlayedSongEvictor(limit: Long, private val removable: (String) ->
         val active = cache ?: return
         synchronized(active) {
             var guard = order.count
-            while (guard-- > 0) {
+            while (!uncertain && guard-- > 0) {
                 val key = order.oldest(null, removable) ?: return
                 active.removeResource(key)
             }
@@ -115,7 +118,7 @@ internal class PlayedSongEvictor(limit: Long, private val removable: (String) ->
     /** Oldest songs first, never the one being written. */
     private fun evict(cache: Cache, required: Long, keep: String?) {
         var guard = order.count
-        while (size + required > limit && guard-- > 0) {
+        while (!uncertain && size + required > limit && guard-- > 0) {
             val oldest = order.oldest(keep, removable) ?: return
             cache.removeResource(oldest)
         }
