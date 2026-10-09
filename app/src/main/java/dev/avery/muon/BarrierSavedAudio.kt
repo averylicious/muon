@@ -14,7 +14,10 @@ import java.io.IOException
 internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrier:SavedStorageBarrier):SavedAudio {
     private fun <T> operation(work:(SavedStorageBarrier.Lease)->T):T {
         val permit=barrier.shared()
-        try { permit.check(); return work(permit).also { permit.check() } } finally { permit.close() }
+        var quarantined=false
+        try { permit.check(); return work(permit).also { permit.check() } }
+        catch(failure:MigrationIoUncertain) { permit.quarantine(failure); quarantined=true; throw failure }
+        finally { if(!quarantined) permit.close() }
     }
     override fun contains(key:String)=operation { audio.contains(key) }
     override fun inspect(key:String)=operation { audio.inspect(key) }

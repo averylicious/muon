@@ -34,43 +34,10 @@ internal object LegacyResourceProjection {
         ownership:MigrationIoOwnership=MigrationIoOwnership()):Cache {
         if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES || !index.isReadOnly)
             throw IOException("Legacy projection needs a bounded identity and read-only database")
+        val live=validate(directory,uid,index,checkpoint)
         val hex=java.lang.Long.toHexString(uid)
-        fun live() {
-            checkpoint()
-            if(!directory.isDirectory || directory.absoluteFile!=directory.canonicalFile ||
-                SimpleCache.isCacheFolderLocked(directory)) throw IOException("Legacy source is not closed and exclusively observed")
-            val marker=File(directory,"$hex.uid")
-            if(!Files.isRegularFile(marker.toPath(),LinkOption.NOFOLLOW_LINKS) || marker.length()!=0L)
-                throw IOException("Legacy cache identity unavailable")
-        }
-        live()
         val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
-        val versions=DatabaseProvider.TABLE_PREFIX+"Versions"
-        for(feature in listOf(VersionTable.FEATURE_CACHE_CONTENT_METADATA,VersionTable.FEATURE_CACHE_FILE_METADATA)) {
-            index.rawQuery("SELECT CASE WHEN typeof(version)='integer' THEN version ELSE NULL END FROM $versions WHERE feature=? AND instance_uid=? LIMIT 2",arrayOf(feature.toString(),hex)).use { c ->
-                if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0)!=1L || c.moveToNext())
-                    throw IOException("Unsupported legacy cache version")
-            }
-        }
-        val contentSql="CREATE TABLE $content (id INTEGER PRIMARY KEY NOT NULL,key TEXT NOT NULL,metadata BLOB NOT NULL)"
-        val filesSql="CREATE TABLE $files (name TEXT PRIMARY KEY NOT NULL,length INTEGER NOT NULL,last_touch_timestamp INTEGER NOT NULL)"
-        var tables=0; var objects=0
-        index.rawQuery("SELECT CASE WHEN length(CAST(type AS BLOB))<=8 THEN type ELSE NULL END,"+
-            "CASE WHEN length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END,"+
-            "CASE WHEN length(CAST(sql AS BLOB))<=1024 THEN sql ELSE NULL END FROM sqlite_master WHERE tbl_name IN (?,?) LIMIT 5",
-            arrayOf(content,files)).use { c ->
-            while(c.moveToNext()) {
-                live(); if(++objects>3) throw IOException("Unknown legacy cache objects")
-                when {
-                    c.getString(0)=="table" && c.getString(1)==content && c.getString(2)==contentSql -> tables++
-                    c.getString(0)=="table" && c.getString(1)==files && c.getString(2)==filesSql -> tables++
-                    c.getString(0)=="index" && c.getString(1)=="sqlite_autoindex_${files}_1" && c.isNull(2) -> Unit
-                    else -> throw IOException("Unknown legacy cache schema")
-                }
-            }
-        }
-        if(tables!=2) throw IOException("Legacy native tables missing")
         var contentId=-1L; var metadata:DefaultContentMetadata?=null
         index.rawQuery("SELECT id,CASE WHEN typeof(key)='text' AND length(CAST(key AS BLOB))<=${MIGRATION_KEY_BYTES*2} THEN key ELSE NULL END,"+
             "CASE WHEN typeof(metadata)='blob' AND length(metadata)<=$LEGACY_PROJECTION_METADATA_BYTES THEN metadata ELSE NULL END FROM $content WHERE key=? LIMIT 2",
@@ -125,6 +92,48 @@ internal object LegacyResourceProjection {
         } }
         if(indexed!=spans.size) throw IOException("Legacy selected span census differs")
         live(); return ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,::live)
+    }
+    /** Bounded schema/identity observation. Caller still owns the actual storage barrier. */
+    fun validate(directory:File,uid:Long,index:SQLiteDatabase,checkpoint:()->Unit):()->Unit {
+        if(uid<0 || !index.isReadOnly) throw IOException("Legacy source needs read-only identity")
+        val hex=java.lang.Long.toHexString(uid)
+        fun live() {
+            checkpoint()
+            if(!directory.isDirectory || directory.absoluteFile!=directory.canonicalFile ||
+                SimpleCache.isCacheFolderLocked(directory)) throw IOException("Legacy source is not closed and exclusively observed")
+            val marker=File(directory,"$hex.uid")
+            if(!Files.isRegularFile(marker.toPath(),LinkOption.NOFOLLOW_LINKS) || marker.length()!=0L)
+                throw IOException("Legacy cache identity unavailable")
+        }
+        live()
+        val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
+        val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
+        val versions=DatabaseProvider.TABLE_PREFIX+"Versions"
+        for(feature in listOf(VersionTable.FEATURE_CACHE_CONTENT_METADATA,VersionTable.FEATURE_CACHE_FILE_METADATA)) {
+            index.rawQuery("SELECT CASE WHEN typeof(version)='integer' THEN version ELSE NULL END FROM $versions WHERE feature=? AND instance_uid=? LIMIT 2",arrayOf(feature.toString(),hex)).use { c ->
+                if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0)!=1L || c.moveToNext())
+                    throw IOException("Unsupported legacy cache version")
+            }
+        }
+        val contentSql="CREATE TABLE $content (id INTEGER PRIMARY KEY NOT NULL,key TEXT NOT NULL,metadata BLOB NOT NULL)"
+        val filesSql="CREATE TABLE $files (name TEXT PRIMARY KEY NOT NULL,length INTEGER NOT NULL,last_touch_timestamp INTEGER NOT NULL)"
+        var tables=0; var objects=0
+        index.rawQuery("SELECT CASE WHEN length(CAST(type AS BLOB))<=8 THEN type ELSE NULL END,"+
+            "CASE WHEN length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END,"+
+            "CASE WHEN length(CAST(sql AS BLOB))<=1024 THEN sql ELSE NULL END FROM sqlite_master WHERE tbl_name IN (?,?) LIMIT 5",
+            arrayOf(content,files)).use { c ->
+            while(c.moveToNext()) {
+                live(); if(++objects>3) throw IOException("Unknown legacy cache objects")
+                when {
+                    c.getString(0)=="table" && c.getString(1)==content && c.getString(2)==contentSql -> tables++
+                    c.getString(0)=="table" && c.getString(1)==files && c.getString(2)==filesSql -> tables++
+                    c.getString(0)=="index" && c.getString(1)=="sqlite_autoindex_${files}_1" && c.isNull(2) -> Unit
+                    else -> throw IOException("Unknown legacy cache schema")
+                }
+            }
+        }
+        if(tables!=2) throw IOException("Legacy native tables missing")
+        return ::live
     }
     private fun decode(bytes:ByteArray):DefaultContentMetadata {
         val values=LinkedHashMap<String,ByteArray>()
