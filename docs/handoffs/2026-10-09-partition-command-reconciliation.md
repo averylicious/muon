@@ -1,0 +1,11 @@
+# #253 bounded command retirement
+
+Successor of OPEN #467, branch `codex/partition-completion-reconcile-oct9`, isolated worktree `muon-partition-completion-reconcile-oct9`; main checkpoint `6cf983183f83e6a2d498aa5744c7896e3802bdd8` included. GPT-6 / Codex desktop implementation and author self-check, exact variant/effort not reported. Claude unavailable; no phone access this cycle.
+
+A partition task can release its shared permit, then lose completion-callback admission to an exclusive migration. `PartitionSaveCommands.reconcileCompleted` scans only its bounded current scalar receipts through `PartitionCompletionIndex`'s pinned, bounded SQL projection. Only matching key/exact request digest plus the current owned Closed journal ticket retires a receipt. Closed alone, a different full request or missing completion preserves it. Session preparation reconciles before admitting another save; callers can also explicitly reconcile after the gate becomes available. No raw Download/request payload list or callback history is retained. Reconciliation changes only current-process accounting, never audio, reservations, rows, covers, migration readiness or removal authority.
+
+`abandon` separately retires an exact Prepared token refused before forwarding. Its durable reservation remains, cannot be reused/adopted, and any submitted/forwarding/unconfirmed token is refused. This supplies the eventual actual service/queue-refusal path without releasing ownership merely because delivery was uncertain.
+
+Actual manager/index/native controls use a one-receipt budget: complete two exact saves with the first callback deliberately omitted; changed persisted raw request must not release a receipt; known pre-forward refusal preserves reservation and cannot abandon an unconfirmed command. CI compile/unit/lint and final-head report/APK receipts are pending until recorded on the PR.
+
+These session components remain unselected in OfflineStore. Default production legacy behavior is unchanged. #253 still requires complete shelf selection before native creation, actual command/service/played/cover/move/removal/barrier integration, opt-in controls and restart recovery. User acceptance stack remains OPEN. No Stable release/tag or experimental changes.
