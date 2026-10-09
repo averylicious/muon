@@ -1,0 +1,13 @@
+# #253 disk-spooled status bootstrap — 2026-10-09
+
+Continuation of #425 on the unmerged main-audit acceptance stack. GPT-6 / Codex desktop implemented/self-checked; exact variant/effort not exposed. Allocated audit Claude exhausted/idle; no phone/experimental access.
+
+`OfflineStore.watch` no longer accumulates every compact DownloadStatus in a JVM list or a whole-library Runnable. One native raw row at a time is projected into a fresh private scratch SQLite spool, published only after the complete cursor and its close succeed. Each application-looper turn reads at most16 compact statuses and schedules at most one next turn. No raw song/request metadata is retained by the spool.
+
+Live-event IDs are exact UTF-16 disk tombstones, replacing the transient changed-ID set. Their database is separate from the worker's status spool, so a native cursor held during snapshot close cannot block the main callback on the worker's database transaction. Newer removals/state changes always suppress captured statuses; live callbacks continue after bootstrap ends. Any incomplete source/derived evidence refuses publication rather than restore stale rows. The snapshot has no download/index/audio mutation authority.
+
+Settings explicitly reports Loading saved copy totals until both shelf snapshots finish, or Saved copy totals unavailable after failure. It hides the unconfirmed download bar segment while preserving access to saved copies. A late publication failure can leave previously published status windows; they are not reported as complete totals. Original audio/index rows remain unchanged. Scratch databases are closed/deleted on completion/failure; a killed process can leave unused private scratch files, never restart authority.
+
+Native tests preserve all real raw records through73-row paging, verify16-status bounds, exact tombstones before/after capture including long/NUL/surrogate names, and refuse an incomplete cursor close. Existing actual-manager bootstrap tests exercise removal/state races and live continuation on this runtime wiring. Also check the preceding byte ledger's insert result before declaring accounting exact. CI first compile/full tests/lint; final receipts on PR/coordinator checkpoint. UAT pending: cold-start Settings loading/count/bytes, saved access during bootstrap, completion/removal/moves and restart. No phone latency/heap claim.
+
+Still required: the lifetime Compose status map, native SimpleCache content/metadata/span retention, naming/all-key and destructive extent snapshots. Page-cache requests are not exact native/process heap bounds; one raw native row/compact legacy ID still costs memory. #401 still needs authorized device comparison. App PRs stay open; no app merge/Stable/tag/publication.
