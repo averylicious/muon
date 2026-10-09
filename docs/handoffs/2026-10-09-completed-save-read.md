@@ -10,6 +10,10 @@ Prepared `PartitionCompletedAudio` composes a clean owned new-save journal alloc
 
 Nine tests exercise actual native caches/journals/SQLite/index/read sources, including real DownloadManager save→seal→COMPLETED→new-owner read, bounded paged enumeration, mismatched length/alias, active writer, index change during read, stale allocation/cached old UID, sticky volume loss and drain-after-stop. CI is first compile/test/lint; final-head actual receipts belong on PR/issues. Test fixtures use disposable bytes; no production heap/performance claim.
 
+## Initial CI correction
+
+Initial run37924000685 compiled production/tests and ran1,085Debug tests: one fixture failed because Media3 correctly requires FAILED to carry a nonzero failure reason. Corrected the fixture to use FAILURE_REASON_UNKNOWN for FAILED; all eight other new cases passed at that head. Refreshed final-head CI/report/APK must establish both variants/lint; initial failure is not a pass.
+
 ## Remaining engineering
 
 Not selected by app services yet. The mandatory completion lookup still needs a bounded production index projection BEFORE arbitrary persisted request materialization, under the actual app-wide source/writer/removal/move/eviction/availability barrier. Compose legacy, migration Ready and completed-new-save routing without wrong fallback. Then bind service commands/manager callbacks/cover acknowledgements, define explicit interrupted-allocation recovery, implement bounded space/deadline/cancel/progress migration and opt-in controls, and investigate the legacy full-index transition peak. This component does not clear #253 or release Stable. #230 defined legacy engineering is separate from its pending UAT; full #179/provenance remain user-deferred.

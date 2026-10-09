@@ -59,7 +59,7 @@ class PartitionCompletedAudioTest {
         DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/api1/fileopus/1"))
             .setCustomCacheKey(key).setData(data).build()
     private fun row(request:DownloadRequest,length:Long=payload.size.toLong(),state:Int=Download.STATE_COMPLETED)=
-        Download(request,state,1,1,length,0,Download.FAILURE_REASON_NONE)
+        Download(request,state,1,1,length,0,if(state==Download.STATE_FAILED) Download.FAILURE_REASON_UNKNOWN else Download.FAILURE_REASON_NONE)
     private fun spec(key:String="saved/one")=DataSpec.Builder().setUri("muon-saved:fixture").setKey(key).build()
     private fun seed(f:Fixture,key:String="saved/one",
         ticket:PartitionSaveTicket=f.saves.begin(f.catalog.reserve(key))):PartitionSaveRecord {
