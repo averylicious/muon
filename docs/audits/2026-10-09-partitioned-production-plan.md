@@ -1,6 +1,6 @@
 # Partitioned storage: production integration map (#253)
 
-Source-based next work from complete #439 atd673461d87e4024432e3dc7c4c7c20911c0e21f8; latest compile is pending at this draft. This is a proposed implementation map, not evidence of enabled production behavior. Read the [checkpoint](../handoffs/2026-10-09-native-cache-checkpoint.md) for actual receipts, authorization and ownership. Keep each row independently reviewable and checkpoint before another; app acceptance stack stays OPEN.
+Source-based next work from complete #439 at `d673461d87e4024432e3dc7c4c7c20911c0e21f8`; Android .841 and Branch direction passed, and actual reports/APK verification confirmed 1,035 tests per variant. This is a proposed implementation map, not evidence of enabled production behavior. Read the [checkpoint](../handoffs/2026-10-09-native-cache-checkpoint.md) for actual receipts, authorization and ownership. Keep each row independently reviewable and checkpoint before another; app acceptance stack stays OPEN.
 
 ## Existing contracts that must actually change
 
