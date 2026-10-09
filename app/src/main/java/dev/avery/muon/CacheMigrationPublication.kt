@@ -83,12 +83,14 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
     }
     private fun opening(directory:File,sourceUid:Long):Cache=try {
         open(directory).also {
+            // Also retain a returned handle whose UID query itself throws.
+            retainedNative=it
             // An alias of the source is not an independently owned target. Do not release it: that
             // could close the caller's source and its active readers. Refuse all further admission.
             if(it.uid==sourceUid) {
-                retainedNative=it
                 throw IOException("Migration target aliases the source")
             }
+            retainedNative=null
         }
     } catch(failure:Throwable) { healthy=false; throw failure }
     private fun closing(cache:Cache) {

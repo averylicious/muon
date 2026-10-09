@@ -1,6 +1,6 @@
 # Migration uncertainty is retained and reported (#253)
 
-Cumulative successor of OPEN#461 at85a3e330ddac0cac20a69d7229246b90c7b1312a. Source review found publication marked native-release failure unhealthy but did not itself retain the exact returned native Cache. It now keeps that one owner (and a returned source alias without releasing it); unhealthy state refuses every later attempt, so no unbounded retained list forms. The production native-budget layer remains independently required.
+Cumulative successor of OPEN#461 at85a3e330ddac0cac20a69d7229246b90c7b1312a. Source review found publication marked native-release failure unhealthy but did not itself retain the exact returned native Cache. It now keeps that one owner (a returned source alias, or a returned handle whose UID lookup throws, without releasing it); unhealthy state refuses every later attempt, so no unbounded retained list forms. The production native-budget layer remains independently required.
 
 CacheMigrationControl now reports Uncertain when raw source/output/directory close is unknown or publication native ownership is uncertain, even if cancellation was also requested. Ordinary known cancellation/deadline still report Cancelled/Expired; a durable Ready receipt remains Ready. This scalar status is not repair, permission to delete bytes or a recovery proof.
 
