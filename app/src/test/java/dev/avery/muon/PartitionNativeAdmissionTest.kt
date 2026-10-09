@@ -76,6 +76,15 @@ class PartitionNativeAdmissionTest {
             assertThrows(IOException::class.java) { inspect(f) }; kept(f)
         }
     }
+    @Test fun embeddedNulCannotBypassKeyOrFilenameCursorWindowBudgets() {
+        val oversized="\u0000"+"x".repeat(3*1024*1024)
+        for(files in listOf(false,true)) {
+            val f=fixture()
+            database.writableDatabase.execSQL("UPDATE ${table(f,files)} SET ${if(files) "name" else "key"}=?",arrayOf(oversized))
+            // A TEXT length guard would stop at NUL and load a >2MiB row instead of this refusal.
+            assertThrows(IOException::class.java) { inspect(f) }; kept(f)
+        }
+    }
     @Test fun nativeSpanBudgetRefusesBeforeLoadingAnOverfullIndex() {
         val f=fixture(2); assertThrows(IOException::class.java) { inspect(f,PartitionResourceLimits(spans=1)) }; kept(f)
         assertEquals(PartitionNativeEvidence(6,2),inspect(f)); kept(f)

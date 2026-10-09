@@ -52,8 +52,9 @@ internal object PartitionNativeAdmission {
         }
         if(tables!=2) throw IOException("Native partition tables missing")
         var contentId:Long?=null
+        // BLOB byte length includes NUL suffixes (SQLite length(TEXT) stops at the first NUL).
         // Scalar/CASE gates prevent loading oversized native metadata/keys into a CursorWindow.
-        index.rawQuery("SELECT id,CASE WHEN typeof(key)='text' AND length(key)<=8192 THEN key ELSE NULL END,"+
+        index.rawQuery("SELECT id,CASE WHEN typeof(key)='text' AND length(CAST(key AS BLOB))<=${MIGRATION_KEY_BYTES*2} THEN key ELSE NULL END,"+
             "CASE WHEN typeof(metadata)='blob' AND length(metadata)=4 THEN metadata ELSE NULL END FROM $content LIMIT 2",null).use { rows ->
             if(rows.moveToFirst()) {
                 checkpoint()
@@ -66,7 +67,7 @@ internal object PartitionNativeAdmission {
         }
         val names=LinkedHashMap<String,SpanFile>()
         var total=0L
-        index.rawQuery("SELECT CASE WHEN typeof(name)='text' AND length(name)<=128 THEN name ELSE NULL END,length,last_touch_timestamp FROM $files LIMIT ${limits.spans+1}",null).use { rows ->
+        index.rawQuery("SELECT CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END,length,last_touch_timestamp FROM $files LIMIT ${limits.spans+1}",null).use { rows ->
             while(rows.moveToNext()) {
                 checkpoint()
                 if(names.size>=limits.spans || rows.getType(0)!=Cursor.FIELD_TYPE_STRING || rows.getType(1)!=Cursor.FIELD_TYPE_INTEGER ||
