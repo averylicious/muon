@@ -56,8 +56,11 @@ internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val s
     /** Reads one saved copy and nothing else (#213): no upstream and no sink, so a missing byte fails. */
     val savedSource: DataSource.Factory get() = audio.source
 
+    @Volatile private var moveReaderUncertain=false
+    /** A failed verification close is process-local uncertainty, not permission to retry/delete. */
+    internal fun retainUncertainMoveReader() { moveReaderUncertain=true }
     /** Checked at each decision (#179 S1); see [cardPresent] for the card. */
-    override fun available(): Boolean = runCatching(present).getOrDefault(false)
+    override fun available(): Boolean = !moveReaderUncertain && runCatching(present).getOrDefault(false)
 
     override fun completed(id: String): Boolean =
         runCatching { manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED }.getOrDefault(false)
@@ -101,6 +104,8 @@ internal object OfflineStore {
         val playedClaims: PlayedClaims = PlayedClaims.none(),
         val moves: DownloadMoveReceipts = DownloadMoveReceipts(),
         val marks: DownloadMarkLedger? = null) {
+        /** At most two final byte comparisons; uncertain actual readers remain owned until teardown. */
+        val moveComparisons=MoveByteComparison()
         /** The phone's cache, which also holds the played-song copies. */
         var bootstrapPending = 0 // Application looper only.
         var bootstrapFailed = false
@@ -1204,40 +1209,15 @@ internal object OfflineStore {
 
     /**
      * Whether [to] holds exactly [from]'s bytes for [spec], read now from both caches in bounded blocks.
-     * Neither reader has an upstream or a sink: a missing or locked byte fails, and no replacement audio is fetched or
-     * written. Cache reads may still touch metadata or reconcile stale spans. A check at this moment only, not a guarantee against later changes.
+     * Saved-only readers have no upstream or sink: missing bytes fail without replacement audio.
+     * Exact readers stay owned through real close; failed close refuses handover and further shelf
+     * operations. Legacy cache reads may still touch/reconcile metadata. This is not a later writer lock.
      */
     private fun sameBytes(spec: DataSpec, from: Shelf, to: Shelf): Boolean {
-        val source = CacheDataSource.Factory().setCache(from.cache).createDataSource()
-        val target = CacheDataSource.Factory().setCache(to.cache).createDataSource()
-        return try {
-            source.open(spec)
-            target.open(spec)
-            val expected = ByteArray(64 * 1024)
-            val actual = ByteArray(expected.size)
-            var left = spec.length
-            while (left > 0) {
-                if (!canMove(from, to)) return false
-                val count = minOf(left, expected.size.toLong()).toInt()
-                if (!readFully(source, expected, count) || !readFully(target, actual, count)) return false
-                for (i in 0 until count) if (expected[i] != actual[i]) return false
-                left -= count
-            }
-            true
-        } finally {
-            runCatching { source.close() }
-            runCatching { target.close() }
+        val owner=current() ?: throw IOException("Move verification owner unavailable")
+        return owner.moveComparisons.compare(spec,from.savedSource,to.savedSource,{canMove(from,to)}) {
+            from.retainUncertainMoveReader(); to.retainUncertainMoveReader()
         }
-    }
-
-    private fun readFully(source: DataSource, buffer: ByteArray, count: Int): Boolean {
-        var done = 0
-        while (done < count) {
-            val read = source.read(buffer, done, count - done)
-            if (read <= 0) return false
-            done += read
-        }
-        return true
     }
 
     /** Removes every download from the available shelves; an unavailable card keeps its own (#179 S1). */

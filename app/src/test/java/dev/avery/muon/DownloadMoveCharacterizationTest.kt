@@ -291,6 +291,37 @@ class DownloadMoveCharacterizationTest {
         assertNotNull(sourceIndex.getDownload(id))
     }
 
+    @Test fun matchingCompletionWithUnknownSavedReaderCloseKeepsBothRecordsAndNeverQueuesSourceRemoval() {
+        var failClose=false; var unknownCloses=0
+        val actual=mutableListOf<androidx.media3.datasource.DataSource>()
+        val files=androidx.media3.datasource.DataSource.Factory {
+            val child=androidx.media3.datasource.FileDataSource.Factory().createDataSource().also(actual::add)
+            object:androidx.media3.datasource.DataSource by child {
+                override fun close() {
+                    if(failClose) { unknownCloses++; throw java.io.IOException("Injected saved verification close") }
+                    child.close()
+                }
+            }
+        }
+        card=Shelf(card.cache,card.manager,card.service,LegacySavedAudio(card.cache,files)) { onCardCheck(); true }
+        val store=OfflineStore.get(app); store.card=card
+        try {
+            completeSource(bytes); OfflineStore.move(app,toCard=true)
+            awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1,startedCommands().count { it.action==DownloadService.ACTION_ADD_DOWNLOAD })
+            val completed=Download(request,Download.STATE_COMPLETED,0L,0L,bytes.size.toLong(),
+                Download.STOP_REASON_NONE,Download.FAILURE_REASON_NONE)
+            targetIndex.putDownload(completed); admitCopiedAdd(); failClose=true
+            assertFalse(OfflineStore.completeMovedCopyNow(app,store,card,completed))
+            assertTrue(startedCommands().isEmpty()); assertEquals(1,unknownCloses)
+            assertEquals(1,store.moveComparisons.active); assertFalse(phone.available()); assertFalse(card.available())
+            assertEquals(request,sourceIndex.getDownload(id)?.request); assertEquals(request,targetIndex.getDownload(id)?.request)
+            assertArrayEquals(bytes,targetBytes()); assertArrayEquals(bytes,requireNotNull(phone.cache.getCachedSpans(id).first().file).readBytes())
+            OfflineStore.move(app,toCard=true); awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(startedCommands().isEmpty()); assertEquals(1,unknownCloses)
+        } finally { actual.forEach { it.close() } }
+    }
+
     @Test fun onlyTrackedByteIdenticalCompletionRequestsSourceRemoval() {
         completeSource(bytes)
         OfflineStore.move(app, toCard = true)
