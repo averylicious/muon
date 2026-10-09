@@ -22,7 +22,8 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     private val saves:PartitionSaveJournal,private val migrations:CacheMigrationJournal,
     private val native:PartitionNativeOwner,database:DatabaseProvider,indexName:String,
     legacy:SavedAudio,upstream:DataSource.Factory,unclaimed:(String)->Boolean,
-    private val available:()->Boolean,private val barrier:SavedStorageBarrier):Closeable {
+    private val available:()->Boolean,private val barrier:SavedStorageBarrier,
+    commandCapacity:Int=DOWNLOAD_COMMAND_COUNT):Closeable {
     internal fun usesBarrier(candidate:SavedStorageBarrier):Boolean = candidate===barrier
     @Volatile private var stopped=false
     @Volatile private var closing=false
@@ -31,10 +32,11 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         if(stopped || closing || uncertain || !available()) throw IOException("Partition storage session unavailable")
     }
     private val commands=PartitionSaveCommands(catalog,saves,migrations,native,unclaimed,
-        { !stopped && !closing && !uncertain && available() })
+        { !stopped && !closing && !uncertain && available() },capacity=commandCapacity)
     private val writers=PartitionCacheLeases(commands::open,capacity=2)
     private val published=PartitionPublishedAudio(native,capacity=2)
-    private val completed=PartitionCompletedAudio(native,database,indexName,capacity=2)
+    private val completionIndex=PartitionCompletionIndex(database,indexName)
+    private val completed=PartitionCompletedAudio(native,completionIndex::find,capacity=2)
     private val mixed=MixedSavedAudio(native,legacy,published,completed)
     val audio:SavedAudio=BarrierSavedAudio(object:SavedAudio {
         override val source=DataSource.Factory { requireOpen(); mixed.source.createDataSource() }
@@ -47,7 +49,12 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         val permit=barrier.shared()
         try { requireOpen(); permit.check(); return work().also { permit.check() } } finally { permit.close() }
     }
-    fun prepare(request:DownloadRequest)=operation { commands.prepare(request) }
+    fun prepare(request:DownloadRequest)=operation {
+        commands.reconcileCompleted(completionIndex::find)
+        commands.prepare(request)
+    }
+    fun reconcileCompleted():Int=operation { commands.reconcileCompleted(completionIndex::find) }
+    fun abandon(command:PartitionSaveCommands.Command,request:DownloadRequest)=operation { commands.abandon(command,request) }
     fun forward(command:PartitionSaveCommands.Command,request:DownloadRequest,previous:Download?)=
         operation { commands.forward(command,request,previous) }
     fun delivered(command:PartitionSaveCommands.Command,accepted:Boolean,unconfirmed:Boolean=false)=

@@ -49,6 +49,19 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
         entries[command.token]=Entry(command,identity)
         return command
     }
+    /** Known refusal BEFORE forwarding retires only this exact unused process token. Its durable
+     * reservation stays untouched and cannot be reused/adopted/deleted. Submitted or uncertain
+     * commands require terminal evidence instead; a queue refusal cannot erase their ownership.
+     */
+    @Synchronized fun abandon(command:Command,request:DownloadRequest):Boolean {
+        live()
+        val entry=entries[command.token] ?: return false
+        if(entry.command!=command || entry.phase!=Phase.Prepared) return false
+        owned(entry)
+        if(partitionSaveRequestKey(request)!=command.ticket.allocation.key ||
+            !MessageDigest.isEqual(entry.digest,partitionSaveRequestDigest(request))) return false
+        entries.remove(command.token); return true
+    }
     /** Before manager.addDownload; invalid/replayed tokens never touch a manager/index/cover. */
     @Synchronized fun forward(command:Command,request:DownloadRequest,previous:Download?):Boolean {
         val entry=entries[command.token] ?: return false
@@ -85,6 +98,31 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
             PartitionSavePhase.Closed -> native.openSaved(key)
             else -> throw IOException("Save has no known clean opening authority")
         }
+    }
+    /** A completion callback can lose shared admission to an exclusive migration after its task
+     * closed. Reconcile only bounded current receipts against the exact persisted COMPLETED row.
+     * No full Download/data payload is retained, and Closed alone cannot retire a submitted command.
+     * This releases scalar process accounting only; it never grants reopen/removal/cover authority.
+     */
+    @Synchronized fun reconcileCompleted(completion:(String)->PartitionSaveCompletion?):Int {
+        live()
+        var retired=0
+        val iterator=entries.values.iterator()
+        while(iterator.hasNext()) {
+            val entry=iterator.next()
+            if(entry.phase==Phase.Prepared) continue
+            val key=entry.command.ticket.allocation.key
+            owned(entry)
+            if(saves.find(key)?.phase!=PartitionSavePhase.Closed) continue
+            val complete=completion(key) ?: continue
+            if(complete.key!=key) throw IOException("Completion reconciliation returned another key")
+            val expected=entry.digest.joinToString("") { "%02x".format(it) }
+            if(complete.requestDigest!=expected) continue
+            owned(entry)
+            if(saves.find(key)?.phase!=PartitionSavePhase.Closed) continue
+            iterator.remove(); retired++
+        }
+        return retired
     }
     /** Exact terminal callback releases only scalar process receipts, never bytes/rows/covers. */
     @Synchronized fun terminal(download:Download):Boolean {

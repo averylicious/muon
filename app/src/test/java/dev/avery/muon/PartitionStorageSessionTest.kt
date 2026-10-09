@@ -40,7 +40,7 @@ class PartitionStorageSessionTest {
     private val fixtures=mutableListOf<Fixture>()
     private val managers=mutableListOf<DownloadManager>()
     private val payload=byteArrayOf(2,4,6,8)
-    private inner class Fixture {
+    private inner class Fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT) {
         val root=folders.newFolder(); val catalog=CachePartitionCatalog(root)
         val migrations=CacheMigrationJournal(root); val saves=PartitionSaveJournal(root,create=true)
         val budget=PartitionNativeBudget(1); val barrier=SavedStorageBarrier()
@@ -52,7 +52,7 @@ class PartitionStorageSessionTest {
         val native=PartitionNativeOwner(catalog,migrations,"card",{if(available) "card" else null},budget=budget,saves=saves)
         val session=PartitionStorageSession(catalog,saves,migrations,native,database,name,LegacySavedAudio(legacy),
             DataSource.Factory { ByteArrayDataSource(payload) },
-            { key -> legacy.getCachedBytes(key,0,Long.MAX_VALUE)==0L && index.getDownload(key)==null },{available},barrier)
+            { key -> legacy.getCachedBytes(key,0,Long.MAX_VALUE)==0L && index.getDownload(key)==null },{available},barrier,commandCapacity)
         fun seed(key:String):File {
             val hole=requireNotNull(legacy.startReadWrite(key,0,payload.size.toLong()))
             val file:File
@@ -63,7 +63,7 @@ class PartitionStorageSessionTest {
         }
         fun migrate(key:String)=session.migrate(CacheMigrationControl(1000,nanoTime={0L}),legacy,key,{Long.MAX_VALUE},{})
     }
-    private fun fixture()=Fixture().also(fixtures::add)
+    private fun fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT)=Fixture(commandCapacity).also(fixtures::add)
     private fun spec(key:String)=DataSpec.Builder().setUri("muon-saved:test").setKey(key).build()
     private fun read(f:Fixture,key:String):ByteArray {
         val reader=f.session.audio.source.createDataSource()
@@ -117,6 +117,59 @@ class PartitionStorageSessionTest {
         assertTrue(f.session.terminal(requireNotNull(f.index.getDownload(request.id))))
         assertEquals(PartitionSavePhase.Closed,f.saves.find(request.id)?.phase)
         assertArrayEquals(payload,read(f,request.id)); assertTrue(f.barrier.quiescent)
+    }
+    @Test fun knownPreForwardRefusalRetiresOnlyExactPreparedTokenAndPreservesReservedOwnership() {
+        val f=fixture(1)
+        fun request(key:String,data:ByteArray=byteArrayOf(3,5))=DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/api1/fileopus/1"))
+            .setCustomCacheKey(key).setData(data).build()
+        val first=request("saved/refused"); val token=f.session.prepare(first); val reservation=f.saves.find(first.id)
+        assertFalse(f.session.abandon(token,request(first.id,byteArrayOf(3,9))))
+        assertTrue(f.session.abandon(token,first)); assertFalse(f.session.abandon(token,first))
+        assertEquals(reservation,f.saves.find(first.id)); assertNotNull(f.catalog.find(first.id))
+        assertThrows(IOException::class.java) { f.session.prepare(first) }
+        val next=request("saved/next"); val command=f.session.prepare(next)
+        assertTrue(f.session.forward(command,next,null)); f.session.delivered(command,false,unconfirmed=true)
+        assertFalse(f.session.abandon(command,next))
+        assertThrows(PartitionCacheBusy::class.java) { f.session.prepare(request("saved/another")) }
+        assertNull(f.index.getDownload(first.id)); assertNull(f.index.getDownload(next.id))
+    }
+    @Test fun missingCompletionCallbackCanReconcileExactPersistedRowBeforeNextSaveWithinOneReceiptBudget() {
+        val f=fixture(1); val manager=DownloadManager(RuntimeEnvironment.getApplication(),f.index,f.session.downloaders).also(managers::add)
+        manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads()
+        fun request(key:String)=DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/api1/fileopus/1"))
+            .setCustomCacheKey(key).setData(byteArrayOf(3,5)).build()
+        val first=request("saved/first"); val command=f.session.prepare(first)
+        assertTrue(f.session.forward(command,first,null)); f.session.delivered(command,true); manager.addDownload(first)
+        await(manager) { f.index.getDownload(first.id)?.state==Download.STATE_COMPLETED }
+        val before=requireNotNull(f.index.getDownload(first.id)); val saved=f.saves.find(first.id)
+        // Deliberately no terminal callback. The next real preparation reconciles its bounded row.
+        val second=request("saved/second"); val next=f.session.prepare(second)
+        assertEquals(saved,f.saves.find(first.id)); assertEquals(before.request,f.index.getDownload(first.id)?.request)
+        assertArrayEquals(payload,read(f,first.id))
+        assertTrue(f.session.forward(next,second,null)); f.session.delivered(next,true); manager.addDownload(second)
+        await(manager) { f.index.getDownload(second.id)?.state==Download.STATE_COMPLETED }
+        assertEquals(1,f.session.reconcileCompleted()); assertEquals(0,f.session.reconcileCompleted())
+        assertArrayEquals(payload,read(f,second.id)); assertTrue(f.barrier.quiescent)
+    }
+    @Test fun closedJournalWithoutExactCompletedRequestNeverFreesItsSubmittedReceipt() {
+        val f=fixture(1); val manager=DownloadManager(RuntimeEnvironment.getApplication(),f.index,f.session.downloaders).also(managers::add)
+        manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads()
+        val request=DownloadRequest.Builder("saved/first",Uri.parse("http://127.0.0.1:7814/api1/fileopus/1"))
+            .setCustomCacheKey("saved/first").setData(byteArrayOf(3,5)).build()
+        val command=f.session.prepare(request)
+        assertTrue(f.session.forward(command,request,null)); f.session.delivered(command,true); manager.addDownload(request)
+        await(manager) { f.index.getDownload(request.id)?.state==Download.STATE_COMPLETED }
+        val original=requireNotNull(f.index.getDownload(request.id))
+        val other=DownloadRequest.Builder(request.id,request.uri)
+            .setCustomCacheKey(request.customCacheKey).setData(byteArrayOf(3,9)).build()
+        f.index.putDownload(Download(other,Download.STATE_COMPLETED,original.startTimeMs,original.updateTimeMs,
+            original.contentLength,0,0))
+        assertEquals(0,f.session.reconcileCompleted())
+        val next=DownloadRequest.Builder("saved/second",request.uri).setCustomCacheKey("saved/second").build()
+        assertThrows(PartitionCacheBusy::class.java) { f.session.prepare(next) }
+        assertNull(f.saves.find(next.id)); assertEquals(other,f.index.getDownload(request.id)?.request)
+        f.index.putDownload(original)
+        assertEquals(1,f.session.reconcileCompleted()); assertArrayEquals(payload,read(f,request.id))
     }
     @Test fun shutdownRefusesReaderAtEofAndIdleReaderCannotReopenClosedSession() {
         val f=fixture(); f.seed("old"); val reader=f.session.audio.source.createDataSource()
