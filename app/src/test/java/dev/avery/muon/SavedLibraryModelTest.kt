@@ -16,6 +16,7 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloaderFactory
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.sync.Mutex
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -182,13 +183,22 @@ class SavedLibraryModelTest {
         model.listenOffline(); pumpUntil { !model.busy && model.offline }
         val ref = model.saved.single().ref
         var applied = 0
-        model.prepareSavedPlayback(ref) { applied++; assertTrue(it is SavedPlaybackResult.Ready) }
-        model.cancelSavedPlayback()
-        model.prepareSavedPlayback(ref) { applied++; assertTrue(it is SavedPlaybackResult.Ready) }
+        // The case is revocation of PENDING work. A fast real IO worker can otherwise finish
+        // before the next test-thread command, legitimately applying an already-complete result.
+        val gate = LibraryModel::class.java.getDeclaredField("savedMutex").apply { isAccessible = true }.get(model) as Mutex
+        assertTrue(gate.tryLock())
+        try {
+            model.prepareSavedPlayback(ref) { applied++; assertTrue(it is SavedPlaybackResult.Ready) }
+            model.cancelSavedPlayback()
+            model.prepareSavedPlayback(ref) { applied++; assertTrue(it is SavedPlaybackResult.Ready) }
+        } finally { gate.unlock() }
         pumpUntil { !model.savedPreparing }
         assertEquals(1, applied)
-        model.prepareSavedPlayback(ref) { applied++ }
-        model.refreshSaved()
+        assertTrue(gate.tryLock())
+        try {
+            model.prepareSavedPlayback(ref) { applied++ }
+            model.refreshSaved()
+        } finally { gate.unlock() }
         pumpUntil { !model.savedBusy }
         assertFalse(model.savedPreparing)
         assertEquals(1, applied)
