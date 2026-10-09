@@ -71,7 +71,10 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
             if(key!=command.ticket.allocation.key || !MessageDigest.isEqual(entry.digest,partitionSaveRequestDigest(request)) ||
                 saves.find(key)?.phase!=PartitionSavePhase.Reserved || !unclaimed(key)) return false
             entry.phase=Phase.Forwarding; true
-        } catch(_:Exception) { false }
+        } catch(failure:Exception) {
+            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) throw failure
+            false
+        }
     }
     /** Service-return acknowledgement is distinct from persisted audio. Unknown forwarding stays owned. */
     @Synchronized fun delivered(command:Command,accepted:Boolean,unconfirmed:Boolean=false) {
@@ -131,7 +134,10 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
         if(entry.phase==Phase.Prepared || !MessageDigest.isEqual(entry.digest,partitionSaveRequestDigest(download.request))) return false
         if(download.state!=Download.STATE_COMPLETED && download.state!=Download.STATE_FAILED) return false
         if(download.state==Download.STATE_COMPLETED) {
-            try { partitionSaveRequestKey(download.request); owned(entry) } catch(_:Exception) { return false }
+            try { partitionSaveRequestKey(download.request); owned(entry) } catch(failure:Exception) {
+                if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) throw failure
+                return false
+            }
             if(saves.find(download.request.id)?.phase!=PartitionSavePhase.Closed) return false
         }
         entries.remove(entry.command.token); return true
