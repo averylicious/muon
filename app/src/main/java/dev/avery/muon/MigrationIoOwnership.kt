@@ -4,6 +4,9 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.nio.file.DirectoryStream
+import java.nio.file.Files
+import java.nio.file.Path
 
 /** One synchronous migration attempt, at most two comparison readers or one reader/one output.
  * A factory must clean up its own failed creation. Unknown close keeps the actual handle, stops
@@ -11,7 +14,8 @@ import java.io.RandomAccessFile
  * its native cache instead of releasing the cache over possibly active file operations.
  */
 internal class MigrationIoOwnership(private val outputs:MoveFileOutputs=MoveFileOutputs.Real,
-    private val inputs:(File)->RandomAccessFile={RandomAccessFile(it,"r")}) {
+    private val inputs:(File)->RandomAccessFile={RandomAccessFile(it,"r")},
+    private val directories:(Path)->DirectoryStream<Path>={Files.newDirectoryStream(it)}) {
     private val handles=arrayOfNulls<Closeable>(3)
     private val uncertain=BooleanArray(3)
     private val closing=BooleanArray(3)
@@ -23,6 +27,13 @@ internal class MigrationIoOwnership(private val outputs:MoveFileOutputs=MoveFile
         if(slot<0) throw IOException("Migration file ownership budget is full")
         opening=true
         try { return create().also { handles[slot]=it } } finally { opening=false }
+    }
+    fun directory(path:Path):DirectoryStream<Path> {
+        val raw=open { directories(path) }
+        return object:DirectoryStream<Path> {
+            override fun iterator()=raw.iterator()
+            override fun close()=this@MigrationIoOwnership.close(raw)
+        }
     }
     fun input(file:File):RandomAccessFile=open { inputs(file) }
     fun output(file:File):MoveFileOutput {

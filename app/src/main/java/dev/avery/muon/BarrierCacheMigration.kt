@@ -3,32 +3,39 @@ package dev.avery.muon
 
 import androidx.media3.datasource.cache.Cache
 
-/** Prepared migration adapter: source/native lifetime is borrowed but its exclusion permit survives
- * unknown raw/native close. All producers/removals/moves/played/readers must participate in the same
- * barrier before the app may use it. No source deletion or automatic retry/recovery authority.
+/** Prepared migration adapter: source/native lifetime is borrowed but exclusion survives unknown
+ * raw/native close. All production participants must share this gate before use. No source deletion,
+ * forced close or automatic retry/recovery authority. Projection opens only AFTER exclusive admission.
  */
 internal class BarrierCacheMigration(private val barrier:SavedStorageBarrier,
     /** Only known-idle native retirement under exclusive ownership; failure is uncertainty. */
     private val prepare:()->Unit={}) {
-    private data class Retained(val adapter:BarrierCacheMigration,val source:Cache,val publication:CacheMigrationPublication,val failure:Throwable)
+    private data class Retained(val adapter:BarrierCacheMigration,val source:Cache?,
+        val sourceFactory:Any,val publication:CacheMigrationPublication,val failure:Throwable)
     fun run(control:CacheMigrationControl,source:Cache,key:String,publication:CacheMigrationPublication,
-        availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord {
+        availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord =
+        runProjected(control,key,publication,availableBytes,checkpoint) { source }
+
+    /** A bounded read-only legacy source may need inspection before it exists as a Cache. Acquire
+     * exclusive ownership first; factory uses the supplied checked callback throughout projection.
+     * Failed creation must clean up known handles or throw MigrationIoUncertain retaining unknowns.
+     */
+    fun runProjected(control:CacheMigrationControl,key:String,publication:CacheMigrationPublication,
+        availableBytes:()->Long,checkpoint:()->Unit,sourceFactory:((()->Unit))->Cache):MigrationRecord {
         val permit=barrier.exclusive()
         var quarantined=false
         var preparing=true
+        var source:Cache?=null
+        fun checked() { permit.check(); checkpoint(); permit.check() }
         try {
-            permit.check(); prepare(); preparing=false; permit.check()
-            return control.run(source,key,publication,availableBytes) {
-                permit.check(); checkpoint(); permit.check()
-            }
+            checked(); prepare(); preparing=false; checked()
+            source=sourceFactory(::checked); checked()
+            return control.run(requireNotNull(source),key,publication,availableBytes,::checked)
         } catch(failure:Throwable) {
             if(preparing || failure is MigrationIoUncertain || publication.ownershipUncertain) {
-                permit.quarantine(Retained(this,source,publication,failure)); quarantined=true
+                permit.quarantine(Retained(this,source,sourceFactory,publication,failure)); quarantined=true
             }
             throw failure
-        } finally {
-            // Quarantine deliberately retains the permit; never let its refusal replace the cause.
-            if(!quarantined) permit.close()
-        }
+        } finally { if(!quarantined) permit.close() }
     }
 }

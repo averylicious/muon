@@ -30,7 +30,8 @@ internal const val LEGACY_PROJECTION_METADATA_BYTES=512*1024
  * (possibly expensive for a large cache); only <=256 selected spans and <=512KiB metadata survive.
  */
 internal object LegacyResourceProjection {
-    fun read(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit):Cache {
+    fun read(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
+        ownership:MigrationIoOwnership=MigrationIoOwnership()):Cache {
         if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES || !index.isReadOnly)
             throw IOException("Legacy projection needs a bounded identity and read-only database")
         val hex=java.lang.Long.toHexString(uid)
@@ -81,13 +82,13 @@ internal object LegacyResourceProjection {
             if(c.moveToNext()) throw IOException("Legacy key is not unique")
         }
         val spans=ArrayList<CacheSpan>(); var children=0; var marker=false
-        Files.newDirectoryStream(directory.toPath()).use { entries -> for(path in entries) {
+        ownership.directory(directory.toPath()).use { entries -> for(path in entries) {
             live(); if(++children>11 || Files.isSymbolicLink(path)) throw IOException("Unknown legacy directory layout")
             val name=path.fileName.toString()
             if(name=="$hex.uid" && Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS)) { marker=true; continue }
             if(name.length!=1 || name[0] !in '0'..'9' || !Files.isDirectory(path,LinkOption.NOFOLLOW_LINKS))
                 throw IOException("Unsupported legacy root entry")
-            Files.newDirectoryStream(path).use { leaves -> for(leaf in leaves) {
+            ownership.directory(path).use { leaves -> for(leaf in leaves) {
                 live(); val filename=leaf.fileName.toString()
                 if(filename.length>128 || !Files.isRegularFile(leaf,LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(leaf))
                     throw IOException("Unsupported legacy span layout")

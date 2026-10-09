@@ -13,6 +13,8 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.DirectoryStream
+import java.nio.file.Path
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -132,6 +134,29 @@ class LegacyResourceProjectionTest {
         Files.createSymbolicLink(link.toPath(),folders.newFolder().toPath())
         try { assertThrows(IOException::class.java) { f.project() } } finally { Files.delete(link.toPath()) }
         assertArrayEquals(payload,f.original.readBytes())
+    }
+    @Test fun unknownDirectoryCloseRetainsExclusiveGateAndRefusesBeforeTargetReservation() {
+        val f=Fixture(); val gate=SavedStorageBarrier(); val raw=mutableListOf<DirectoryStream<Path>>()
+        val ownership=MigrationIoOwnership(directories={ path ->
+            val actual=Files.newDirectoryStream(path).also(raw::add)
+            object:DirectoryStream<Path> by actual { override fun close():Unit=throw IOException("Injected unknown directory close") }
+        })
+        val root=folders.newFolder()
+        try { CachePartitionCatalog(root).use { catalog -> CacheMigrationJournal(root).use { journal ->
+            var opens=0; val publisher=CacheMigrationPublication(catalog,journal,{ opens++; cache(it) })
+            val failure=assertThrows(MigrationIoUncertain::class.java) {
+                BarrierCacheMigration(gate).runProjected(CacheMigrationControl(1000,nanoTime={0L}),"selected",publisher,{Long.MAX_VALUE},{}) { checked ->
+                    LegacyResourceProjection.read(f.root,f.uid,"selected",f.db(),checked,ownership)
+                }
+            }
+            assertFalse(failure.ownership.quiescent); assertEquals(1,gate.active)
+            assertThrows(IOException::class.java) { gate.shared() }
+            assertEquals(0,opens); assertEquals(0L,catalog.count()); assertNull(journal.find("selected"))
+            assertArrayEquals(payload,f.original.readBytes())
+        } } } finally {
+            // Test-only actual disposable handles; never retry the uncertain production wrapper.
+            raw.asReversed().forEach { it.close() }
+        }
     }
     @Test fun activeNativeAndWritableDatabaseAreRefusedAndBorrowedCheckpointRemainsEffective() {
         val f=Fixture(); var available=true

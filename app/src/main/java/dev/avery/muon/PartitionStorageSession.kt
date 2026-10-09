@@ -1,6 +1,7 @@
 @file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 package dev.avery.muon
 
+import android.database.sqlite.SQLiteDatabase
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.Cache
@@ -9,6 +10,7 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloaderFactory
 import java.io.Closeable
 import java.io.IOException
+import java.io.File
 
 /** Prepared shelf composition, NOT selected by OfflineStore. The app-level owner must supply ONE
  * shared barrier, the process native budget via native, an exact legacy/index/cover claim census,
@@ -69,6 +71,26 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             checkpoint()
         } }
         catch(failure:Throwable) {
+            if(publication.ownershipUncertain || failure is MigrationIoUncertain) uncertain=true
+            throw failure
+        }
+    }
+    /** Read-only transition path: no legacy SimpleCache is constructed before projection. The
+     * caller supplies its correct readonly DB/UID/root and must keep that DB alive until return. */
+    fun migrateLegacy(control:CacheMigrationControl,directory:File,uid:Long,key:String,index:SQLiteDatabase,
+        availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord {
+        requireOpen()
+        val publication=CacheMigrationPublication(catalog,migrations,native.migrationTarget(key))
+        val adapter=BarrierCacheMigration(barrier) {
+            requireOpen(); writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+        }
+        return try {
+            adapter.runProjected(control,key,publication,availableBytes,{
+                requireOpen()
+                if(saves.find(key)!=null) throw IOException("Migration cannot replace a new-save claim")
+                checkpoint()
+            }) { checked -> LegacyResourceProjection.read(directory,uid,key,index,checked) }
+        } catch(failure:Throwable) {
             if(publication.ownershipUncertain || failure is MigrationIoUncertain) uncertain=true
             throw failure
         }

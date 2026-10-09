@@ -2,6 +2,7 @@
 package dev.avery.muon
 
 import android.net.Uri
+import android.database.sqlite.SQLiteDatabase
 import android.os.Looper
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.ByteArrayDataSource
@@ -43,7 +44,8 @@ class PartitionStorageSessionTest {
         val root=folders.newFolder(); val catalog=CachePartitionCatalog(root)
         val migrations=CacheMigrationJournal(root); val saves=PartitionSaveJournal(root,create=true)
         val budget=PartitionNativeBudget(1); val barrier=SavedStorageBarrier()
-        val legacy=SimpleCache(folders.newFolder(),NoOpCacheEvictor(),database).also { it.checkInitialization() }
+        val legacyRoot=folders.newFolder()
+        val legacy=SimpleCache(legacyRoot,NoOpCacheEvictor(),database).also { it.checkInitialization() }
         val name="storage_session_"+fixtures.size
         val index=DefaultDownloadIndex(database,name).also { it.getDownloads().close() }
         var available=true
@@ -83,6 +85,18 @@ class PartitionStorageSessionTest {
         managers.asReversed().forEach { it.release() }
         try { fixtures.asReversed().forEach { it.session.close(); it.legacy.release(); it.saves.close(); it.migrations.close(); it.catalog.close() } }
         finally { database.close() }
+    }
+    @Test fun composedReadonlyLegacyMigrationNeverReopensFullNativeSourceAndKeepsOriginal() {
+        val f=fixture(); val original=f.seed("readonly"); val uid=f.legacy.uid; f.legacy.release()
+        SQLiteDatabase.openDatabase(database.readableDatabase.path,null,SQLiteDatabase.OPEN_READONLY).use { read ->
+            val ready=f.session.migrateLegacy(CacheMigrationControl(1000,nanoTime={0L}),f.legacyRoot,uid,"readonly",read,{Long.MAX_VALUE},{
+                assertFalse(SimpleCache.isCacheFolderLocked(f.legacyRoot))
+                assertThrows(IOException::class.java) { f.barrier.shared() }
+            })
+            assertEquals(MigrationPhase.Ready,ready.phase)
+        }
+        assertArrayEquals(payload,read(f,"readonly")); assertArrayEquals(payload,original.readBytes())
+        assertFalse(SimpleCache.isCacheFolderLocked(f.legacyRoot))
     }
     @Test fun composedLegacyMigrationAndPublishedRoutesPreserveOriginalBytes() {
         val f=fixture(); val original=f.seed("old")
