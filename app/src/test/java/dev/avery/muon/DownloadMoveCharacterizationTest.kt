@@ -145,39 +145,59 @@ class DownloadMoveCharacterizationTest {
         assertEquals(request, addRequest(startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }))
     }
 
-    /**
-     * #230: a destination file whose sync or close fails is not committed, the copy is not handed over and
-     * the source stays; a later move with a healthy output still completes. Only the output is injected:
-     * the move, CacheDataSource, CacheWriter, caches and indexes are real.
-     */
-    @Test fun aDestinationFileThatIsNotWrittenOutIsNeitherCommittedNorHandedOver() {
-        for (failing in listOf("sync", "close")) {
-            OfflineStore.moveOutputs = MoveFileOutputs { file ->
-                val real = MoveFileOutputs.Real.open(file)
-                object : MoveFileOutput {
-                    override fun write(buffer: ByteArray, offset: Int, length: Int) = real.write(buffer, offset, length)
-                    override fun flush() = real.flush()
-                    override fun sync() { if (failing == "sync") throw java.io.IOException("Injected sync failure"); real.sync() }
-                    override fun close() { real.close(); if (failing == "close") throw java.io.IOException("Injected close failure") }
-                }
+    /** A known sync failure closes and discards only its own uncommitted file; a retry remains safe. */
+    @Test fun aDestinationSyncFailureKeepsTheSourceAndKnownCleanupAllowsRetry() {
+        OfflineStore.moveOutputs = MoveFileOutputs { file ->
+            val real = MoveFileOutputs.Real.open(file)
+            object : MoveFileOutput {
+                override fun write(buffer: ByteArray, offset: Int, length: Int) = real.write(buffer, offset, length)
+                override fun flush() = real.flush()
+                override fun sync() { throw java.io.IOException("Injected sync failure") }
+                override fun close() = real.close()
             }
-            if (failing == "sync") completeSource(bytes)
-            OfflineStore.move(app, toCard = true)
-            awaitMover()
-            shadowOf(Looper.getMainLooper()).idle()
-            assertTrue(failing, startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
-            assertNull(failing, targetIndex.getDownload(id))
-            assertTrue("$failing: nothing was committed to the destination", card.cache.getCachedSpans(id).isEmpty())
-            assertEquals("1 copy couldn't be moved. Its saved entry was kept.", ShadowToast.getTextOfLatestToast())
-            assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
-            assertNotNull(sourceIndex.getDownload(id))
         }
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().none { it.action == DownloadService.ACTION_ADD_DOWNLOAD })
+        assertNull(targetIndex.getDownload(id))
+        assertTrue(card.cache.getCachedSpans(id).isEmpty())
+        assertArrayEquals(bytes, requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+        assertNotNull(sourceIndex.getDownload(id))
+        assertFalse(OfflineStore.get(app).moveCopies.retained)
+        assertTrue(phone.available()); assertTrue(card.available())
         OfflineStore.moveOutputs = MoveFileOutputs.Real
         OfflineStore.move(app, toCard = true)
-        awaitMover()
-        shadowOf(Looper.getMainLooper()).idle()
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
         assertArrayEquals(bytes, targetBytes())
         assertEquals(request, addRequest(startedCommands().single { it.action == DownloadService.ACTION_ADD_DOWNLOAD }))
+    }
+
+    @Test fun anActuallyOpenFailedOutputIsRetainedWithItsStagingFileAndStopsFurtherMoves() {
+        var actual:MoveFileOutput?=null; var staging:File?=null; var opens=0; var closes=0
+        OfflineStore.moveOutputs=MoveFileOutputs { file ->
+            staging=file; val raw=MoveFileOutputs.Real.open(file); actual=raw; opens++
+            object:MoveFileOutput {
+                override fun write(buffer:ByteArray,offset:Int,length:Int)=raw.write(buffer,offset,length)
+                override fun flush()=raw.flush()
+                override fun sync()=raw.sync()
+                override fun close() { closes++; throw java.io.IOException("Actual output stays open") }
+            }
+        }
+        try {
+            completeSource(bytes)
+            OfflineStore.move(app,toCard=true); awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(startedCommands().none { it.action==DownloadService.ACTION_ADD_DOWNLOAD })
+            assertNull(targetIndex.getDownload(id)); assertNotNull(sourceIndex.getDownload(id))
+            assertTrue(card.cache.getCachedSpans(id).isEmpty())
+            assertArrayEquals(bytes,requireNotNull(staging).readBytes())
+            assertArrayEquals(bytes,requireNotNull(phone.cache.getCachedSpans(id).single().file).readBytes())
+            assertTrue(OfflineStore.get(app).moveCopies.retained)
+            assertFalse(phone.available()); assertFalse(card.available())
+            OfflineStore.move(app,toCard=true); awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1,opens); assertEquals(1,closes)
+            assertTrue(startedCommands().isEmpty()); assertTrue(requireNotNull(staging).exists())
+        } finally { actual?.close() } // Fixture-only cleanup; production never retries an unknown close.
     }
 
     @Test fun normalMoveCopiesExactBytesThenPostsOneAddWhileSourceRemains() {

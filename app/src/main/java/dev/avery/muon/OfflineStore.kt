@@ -57,7 +57,7 @@ internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val s
     val savedSource: DataSource.Factory get() = audio.source
 
     @Volatile private var moveReaderUncertain=false
-    /** A failed verification close is process-local uncertainty, not permission to retry/delete. */
+    /** A failed move file close is process-local uncertainty, not permission to retry/delete. */
     internal fun retainUncertainMoveReader() { moveReaderUncertain=true }
     internal val hasUncertainMoveReader:Boolean get()=moveReaderUncertain
     /** Checked at each decision (#179 S1); see [cardPresent] for the card. */
@@ -107,6 +107,8 @@ internal object OfflineStore {
         val marks: DownloadMarkLedger? = null) {
         /** At most two final byte comparisons; uncertain actual readers remain owned until teardown. */
         val moveComparisons=MoveByteComparison()
+        /** The serial copy retains exact raw participants if any actual close remains unknown. */
+        val moveCopies=MoveCopyLifetime()
         /** The phone's cache, which also holds the played-song copies. */
         var bootstrapPending = 0 // Application looper only.
         var bootstrapFailed = false
@@ -872,7 +874,7 @@ internal object OfflineStore {
         // because they carry no move token. Refuse before manager budgets or receipts are touched.
         if(shelf?.hasUncertainMoveReader==true && action in moveExcludedActions) {
             refusedMoveCommand(intent)
-            return refused("Saved-copy storage is paused because a move reader couldn't close. " +
+            return refused("Saved-copy storage is paused because a move file couldn't close. " +
                 "Both copies were kept; fully stop Muon before trying again.")
         }
         // Before token admission/invalidation: a refusal must not authorize an original's removal.
@@ -1135,9 +1137,6 @@ internal object OfflineStore {
             "handed over. The originals were kept.")
     }
 
-    /** Thrown from the copy's progress callback once [copy]'s owner no longer wants it; see [copy]. */
-    private class MoveCopyStopped : java.io.IOException("The move stopped owning this copy")
-
     /**
      * Writes one finished download's bytes from [from]'s cache into [to]'s, under the same key. [keepGoing]
      * is asked before the first write and after every block the writer caches; once it says no, writing
@@ -1181,24 +1180,12 @@ internal object OfflineStore {
                 "Existing destination bytes differ from the source"
             }
         }
-        // No upstream: a byte missing from the source fails the copy rather than reaching the network.
-        val reader = CacheDataSource.Factory().setCache(from.cache).setCacheWriteDataSinkFactory(null)
-        // Destination files go through a strict sink (#230): each is committed only after its own flush,
-        // sync and close succeed, and any failure is kept even where Media3 closes quietly.
-        val sinks = ArrayList<StrictMoveSink>()
-        val writer = CacheDataSource.Factory().setCache(to.cache).setUpstreamDataSourceFactory(reader)
-            .setCacheWriteDataSinkFactory { StrictMoveSink(to.cache, moveOutputs).also(sinks::add) }
-            .createDataSourceForDownloading()
-        if (!keepGoing()) throw MoveCopyStopped()
-        // Throwing from the progress callback ends cache(), which closes its source and releases its hole
-        // lock first, as PlayedCopy's budget check relies on; the bytes committed so far are kept.
-        CacheWriter(writer, DataSpec.Builder().setUri(download.request.uri).setKey(id).build(), null) { _, _, _ ->
-            if (!keepGoing()) throw MoveCopyStopped()
-        }.cache()
-        // CacheWriter returning is not evidence its output was written out: require each destination file
-        // this copy opened to have been flushed, synced, closed and committed without a failure.
-        sinks.firstOrNull { it.failure != null }?.let { throw IOException("A moved file wasn't written out", it.failure) }
-        require(sinks.all { it.clean }) { "A moved file wasn't fully written out" }
+        // No network fallback. Exact read/write components survive CacheWriter's quiet-close paths.
+        val owner=current() ?: throw IOException("Move copy owner unavailable")
+        owner.moveCopies.copy(DataSpec.Builder().setUri(download.request.uri).setKey(id).build(),
+            from.savedSource,to.cache,moveOutputs,keepGoing,{
+                from.retainUncertainMoveReader(); to.retainUncertainMoveReader()
+            })
         // CacheWriter keeps whatever the target already held for this key, so only an exact copy counts (#230).
         require(sameBytes(DataSpec.Builder().setUri(download.request.uri).setKey(id).setLength(length).build(), from, to)) {
             "Copy differs from its source"

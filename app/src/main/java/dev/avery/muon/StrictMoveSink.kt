@@ -48,15 +48,15 @@ internal fun interface MoveFileOutputs {
  * when its caller closes it quietly.
  *
  * One file is open at a time, written through one bounded buffer; each open is one span file, unfragmented.
- * A file that failed before being committed is deleted: it was reserved by this sink and never entered the
+ * A file that failed before being committed is deleted only when the caller proves its closure: it was reserved by this sink and never entered the
  * cache. A file whose commit itself failed is left alone, since the cache may already partly know it.
  * Nothing else is ever deleted. A sync asks for storage, as the platform allows; it is not a transaction,
  * crash recovery or proof the bytes will survive a removed card or a crash (#179).
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class StrictMoveSink(private val cache: Cache, private val outputs: MoveFileOutputs = MoveFileOutputs.Real) : DataSink {
-    // A migration tracker can withhold cleanup when the output's actual closure is unknown.
-    // Existing legacy callers keep their established behavior; no new deletion is authorized.
+    // A move/migration tracker can withhold cleanup when the output's actual closure is unknown.
+    // Callers without a tracker keep their established behavior; no new deletion is authorized.
     private var discardUncommitted: () -> Boolean = { true }
     constructor(cache: Cache, outputs: MoveFileOutputs, discardUncommitted: () -> Boolean) : this(cache, outputs) {
         this.discardUncommitted = discardUncommitted
@@ -126,7 +126,7 @@ internal class StrictMoveSink(private val cache: Cache, private val outputs: Mov
                 throw record(e)
             }
         }
-        if (discardUncommitted()) reserved.delete() // Unknown migration closure preserves its owned staging file.
+        if (discardUncommitted()) reserved.delete() // Unknown actual closure preserves its owned staging file.
         throw problem?.let(::record) ?: IOException("An earlier move write failed", earlier)
     }
 
