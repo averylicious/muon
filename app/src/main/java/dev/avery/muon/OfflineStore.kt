@@ -173,8 +173,15 @@ internal object OfflineStore {
     }
 
     private fun create(context: Context, owner: StorageStartup<Store>.Opening): Store {
-        val database = owner.own { StandaloneDatabaseProvider(context) }
         val prefs = context.getSharedPreferences("storage", Context.MODE_PRIVATE)
+        // Freeze explicit authority before opening ANY provider/cache. Partition startup is staged:
+        // unavailable integration refuses here, without silently constructing the full legacy index.
+        return StorageBackendSelection.read(prefs).open(legacy = { createLegacy(context, owner, prefs) })
+    }
+
+    private fun createLegacy(context: Context, owner: StorageStartup<Store>.Opening,
+        prefs: android.content.SharedPreferences): Store {
+        val database = owner.own { StandaloneDatabaseProvider(context) }
         val limit = prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT)
         val main = Handler(Looper.getMainLooper())
         PlayedCacheState.limit = limit
