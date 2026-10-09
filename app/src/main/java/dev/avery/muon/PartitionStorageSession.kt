@@ -60,6 +60,12 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         commands.reconcileCompleted(completionIndex::find)
         commands.prepare(request)
     }
+    fun containsId(id:String,completedOnly:Boolean=false)=operation { completionIndex.containsId(id,completedOnly) }
+    fun prepared(request:DownloadRequest)=operation { commands.prepared(request) }
+    fun abandonPrepared(request:DownloadRequest):Boolean=operation {
+        val command=commands.prepared(request) ?: return@operation false
+        commands.abandon(command,request)
+    }
     fun reconcileCompleted():Int=operation { commands.reconcileCompleted(completionIndex::find) }
     fun abandon(command:PartitionSaveCommands.Command,request:DownloadRequest)=operation { commands.abandon(command,request) }
     fun forward(command:PartitionSaveCommands.Command,request:DownloadRequest,previous:Download?)=

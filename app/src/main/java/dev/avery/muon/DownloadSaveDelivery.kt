@@ -33,7 +33,8 @@ internal class DownloadSaveDelivery(
     init { require(capacity >= 0 && maximum >= 0 && timeout > 0) }
     private class Item(val request: DownloadRequest, val cover: String, var claimed: Boolean = false)
     private class Batch(val shelf: Shelf, val started: Long, val items: LinkedHashMap<String, Item>,
-        val cover: (String, String) -> Boolean, val finished: (SaveDeliveryResult) -> Unit) {
+        val cover: (String, String) -> Boolean, val refused:(DownloadRequest)->Unit,
+        val finished: (SaveDeliveryResult) -> Unit) {
         val total = items.size
         var accepted = 0
         var missingCovers = 0
@@ -53,12 +54,24 @@ internal class DownloadSaveDelivery(
             bytes += cost
         }
         val items = LinkedHashMap<String, Item>()
-        for ((request, address) in requests) items[UUID.randomUUID().toString()] = Item(request, address)
-        val pending = Batch(shelf, clock(), items, cover, finished)
+        val partition=shelf.partition
+        fun refused(request:DownloadRequest) { if(partition!=null) partition.abandonPrepared(request) }
+        try {
+            for ((request, address) in requests) {
+                partition?.prepareSave(request)
+                items[UUID.randomUUID().toString()] = Item(request, address)
+            }
+        } catch(failure:Exception) {
+            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) throw failure
+            items.values.forEach { runCatching { refused(it.request) } }
+            return null // Known pre-forward refusal; reservations/original bytes remain untouched.
+        }
+        val pending = Batch(shelf, clock(), items, cover, ::refused, finished)
         pending.deadline = Runnable { expire(pending) }
         batch = pending
         if (!runCatching { timer.postDelayed(pending.deadline, timeout) }.getOrDefault(false)) {
             batch = null
+            items.values.forEach { runCatching { pending.refused(it.request) } }
             items.clear()
             return null
         }
@@ -90,6 +103,7 @@ internal class DownloadSaveDelivery(
             if (!runCatching { current.cover(item.request.id, item.cover) }.getOrDefault(false))
                 current.missingCovers++
         }
+        if(!accepted && !unconfirmed) runCatching { current.refused(item.request) }
         if (unconfirmed) current.unconfirmed++
         if (current.items.isEmpty()) finish(current, 0)
     }
@@ -106,6 +120,9 @@ internal class DownloadSaveDelivery(
     private fun finish(current: Batch, unconfirmed: Int) {
         batch = null
         timer.removeCallbacks(current.deadline)
+        // Expired unsent/unclaimed intents cannot gain authority later; release only exact unused
+        // Prepared process receipts. Claimed/unconfirmed delivery remains owned, not retried/erased.
+        current.items.values.filter { !it.claimed }.forEach { runCatching { current.refused(it.request) } }
         current.items.clear()
         // Clear the producer's slot before notifying, even if a notification callback fails.
         runCatching { current.finished(SaveDeliveryResult(current.total, current.accepted,

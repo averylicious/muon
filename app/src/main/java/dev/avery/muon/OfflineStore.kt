@@ -40,8 +40,20 @@ import okhttp3.Request
  * new decisions (#179 S1, [ShelfState]); whether its downloads survive removal is not established.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val service: Class<out DownloadService>,
-    val audio: SavedAudio, private val present: () -> Boolean = { true }) : ShelfState {
+internal class Shelf private constructor(private val legacyCache:SimpleCache?, val manager: DownloadManager,
+    val service: Class<out DownloadService>, val audio: SavedAudio, private val present: () -> Boolean,
+    internal val partition:OwnedPartitionShelf?) : ShelfState {
+    constructor(cache:SimpleCache,manager:DownloadManager,service:Class<out DownloadService>,
+        audio:SavedAudio,present:()->Boolean={true}):this(cache,manager,service,audio,present,null)
+    /** Legacy-only operations must refuse, never open the full index or mutate a migration source. */
+    val cache:SimpleCache get()=legacyCache ?: throw java.io.IOException("This shelf uses owned partition storage")
+    fun managerForService():DownloadManager=partition?.managerForService() ?: manager
+    companion object {
+        /** The root must be prepared off main BEFORE making this main-thread manager binding.
+         * OfflineStore selection remains explicit and is not enabled by this factory. */
+        fun partitioned(owner:OwnedPartitionShelf,service:Class<out DownloadService>,present:()->Boolean={true})=
+            Shelf(null,owner.initializeManager(),service,owner.audio,{owner.isAvailable && present()},owner)
+    }
     constructor(cache: SimpleCache, manager: DownloadManager, service: Class<out DownloadService>,
         present: () -> Boolean = { true }) : this(cache, manager, service, LegacySavedAudio(cache), present)
     /** Current-process service command/request retention; main-thread use only (#253). */
@@ -64,10 +76,10 @@ internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val s
     override fun available(): Boolean = !moveReaderUncertain && runCatching(present).getOrDefault(false)
 
     override fun completed(id: String): Boolean =
-        runCatching { manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED }.getOrDefault(false)
+        runCatching { partition?.containsId(id,completedOnly=true) ?: (manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED) }.getOrDefault(false)
 
     override fun holds(id: String): Boolean =
-        runCatching { manager.downloadIndex.getDownload(id) != null }.getOrDefault(false)
+        runCatching { partition?.containsId(id) ?: (manager.downloadIndex.getDownload(id) != null) }.getOrDefault(false)
 }
 
 /**
@@ -526,7 +538,8 @@ internal object OfflineStore {
                 forEachIndexRow(shelf.manager.downloadIndex) { taken.add(it.id); taken.add(it.key) }
                 // Media3 still copies its native key set here. Insert one name at a time rather than
                 // unioning that snapshot with every other shelf's names in a second Java HashSet.
-                for (key in shelf.cache.keys) taken.add(key)
+                if(shelf.partition==null) for(key in shelf.cache.keys) taken.add(key)
+                else shelf.audio.forEachKey { taken.add(it); true }
             }
             return taken
         } catch (failure: Throwable) {
@@ -779,6 +792,7 @@ internal object OfflineStore {
      * Unknown/expired/replayed or wrong-shelf requests never touch command budgets or move ownership.
      */
     internal fun deliverCommand(context: Context, intent: Intent?, shelf: Shelf?, start: (Intent?) -> Int): Int {
+        if(shelf?.partition!=null) return deliverPartitionCommand(context,intent,shelf,start)
         if (intent?.hasExtra(REMOVAL_DELIVERY_TOKEN) == true) return deliverRemoval(context, intent, shelf, start)
         if (intent?.hasExtra(SAVE_DELIVERY_TOKEN) != true)
             return start(admitCommand(context, intent, shelf))
@@ -804,6 +818,36 @@ internal object OfflineStore {
             // A service can throw after manager.addDownload: do not claim its audio was refused.
             current.saveDelivery.complete(token, accepted, unconfirmed = forwarding && !accepted)
         }
+    }
+
+    /** Prepared partition path through the SAME concrete services. Unsupported/raw/move/removal
+     * intents refuse BEFORE Media3; exact current save delivery alone can forward Add. No old full
+     * record is loaded for admission and the partition session holds its gate through the real call.
+     * Default startup still selects legacy until all opt-in/recovery/mutation routing is complete. */
+    private fun deliverPartitionCommand(context:Context,intent:Intent?,shelf:Shelf,start:(Intent?)->Int):Int {
+        check(Looper.myLooper()==Looper.getMainLooper()) { "Partition command admission requires main" }
+        if(intent==null || intent.action==null || intent.action==DownloadService.ACTION_INIT || intent.action==DownloadService.ACTION_RESTART)
+            return start(intent)
+        val store=current()
+        val token=intent.getStringExtra(SAVE_DELIVERY_TOKEN)
+        val request=if(intent.action==DownloadService.ACTION_ADD_DOWNLOAD)
+            intent.getParcelableExtra<DownloadRequest>(DownloadService.KEY_DOWNLOAD_REQUEST) else null
+        fun refused():Int=start(Intent(intent).setAction(DownloadService.ACTION_INIT))
+        if(store==null || token==null || request==null || intent.hasExtra(MOVE_COMMAND_TOKEN) ||
+            intent.hasExtra(REMOVAL_DELIVERY_TOKEN) ||
+            intent.getIntExtra(DownloadService.KEY_STOP_REASON,Download.STOP_REASON_NONE)!=Download.STOP_REASON_NONE ||
+            !store.saveDelivery.claim(token,shelf,request)) return refused()
+        var accepted=false
+        var forwarded=false
+        try {
+            if(!shelf.available() || moveExclusion.held || store.moves.removalInFlight || shelf.hasUncertainMoveReader) return refused()
+            var result:Int?=null
+            accepted=requireNotNull(shelf.partition).deliverPrepared(request) { actual ->
+                check(actual===shelf.manager) { "Partition service helper differs" }
+                forwarded=true; result=start(intent)
+            }
+            return result ?: refused()
+        } finally { store.saveDelivery.complete(token,accepted,unconfirmed=forwarded && !accepted) }
     }
 
     /**
@@ -865,6 +909,9 @@ internal object OfflineStore {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Download command admission requires main" }
         val action = intent?.action ?: return intent
         val store = current()
+        // Prepared partition delivery has its own exact owned-save route in deliverCommand. A raw
+        // admission call cannot fall through to legacy row hydration or mutation policy.
+        if(shelf?.partition!=null) return Intent(intent).setAction(DownloadService.ACTION_INIT)
         fun refused(message: String): Intent {
             notice(context, message)
             return Intent(intent).setAction(DownloadService.ACTION_INIT)

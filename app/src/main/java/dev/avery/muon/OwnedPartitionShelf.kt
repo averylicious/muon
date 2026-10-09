@@ -103,10 +103,14 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         if(!available()) throw IOException("Partition shelf is not prepared or its identity changed")
         return startup.open { throw IOException("Partition shelf resources missing") }
     }
+    val isAvailable:Boolean get()=available()
     val audio:SavedAudio get()=resources().session.audio
     fun initializeManager():DownloadManager=resources().manager.initialize()
     fun managerForService():DownloadManager=resources().manager.managerForService()
+    fun containsId(id:String,completedOnly:Boolean=false)=resources().session.containsId(id,completedOnly)
     fun prepareSave(request:DownloadRequest)=resources().manager.prepare(request)
+    fun abandonPrepared(request:DownloadRequest)=resources().manager.abandonPrepared(request)
+    fun deliverPrepared(request:DownloadRequest,start:(DownloadManager)->Unit)=resources().manager.deliverPrepared(request,start)
     fun abandon(command:PartitionSaveCommands.Command,request:DownloadRequest)=resources().manager.abandon(command,request)
     fun deliver(command:PartitionSaveCommands.Command,request:DownloadRequest,start:(DownloadManager)->Unit)=
         resources().manager.deliver(command,request,start)

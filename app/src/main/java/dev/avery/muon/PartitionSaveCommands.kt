@@ -49,6 +49,14 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
         entries[command.token]=Entry(command,identity)
         return command
     }
+    /** Exact current Prepared token only; no full payload or history is retained. Service delivery
+     * still validates/forwards atomically; lookup does not authorize Add, replay or restart. */
+    @Synchronized fun prepared(request:DownloadRequest):Command? {
+        live(); val key=partitionSaveRequestKey(request)
+        val entry=entries.values.firstOrNull { it.command.ticket.allocation.key==key } ?: return null
+        if(entry.phase!=Phase.Prepared || !MessageDigest.isEqual(entry.digest,partitionSaveRequestDigest(request))) return null
+        owned(entry); return entry.command
+    }
     /** Known refusal BEFORE forwarding retires only this exact unused process token. Its durable
      * reservation stays untouched and cannot be reused/adopted/deleted. Submitted or uncertain
      * commands require terminal evidence instead; a queue refusal cannot erase their ownership.

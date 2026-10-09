@@ -70,11 +70,16 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
      * state counts, with no initialization/migration and no data/string projection except input ID.
      */
     @Synchronized fun holdsId(key:String):Boolean {
-        if(key.length.toLong()*2>MIGRATION_KEY_BYTES || !key.startsWith(NEW_SAVE_PREFIX))
-            throw IOException("Save ID exceeds supported budget")
+        if(!key.startsWith(NEW_SAVE_PREFIX)) throw IOException("Fresh save ID is unsupported")
+        return containsId(key)
+    }
+    /** Existing legacy row IDs are observed without projecting their raw payloads/URI/metadata. */
+    @Synchronized fun containsId(key:String,completedOnly:Boolean=false):Boolean {
+        if(key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Save ID exceeds supported budget")
         try {
             val db=provider.readableDatabase; schema(db)
-            return db.rawQuery("SELECT 1 FROM $table WHERE id=? LIMIT 2",arrayOf(key)).use { cursor ->
+            return db.rawQuery("SELECT 1 FROM $table WHERE id=?"+
+                (if(completedOnly) " AND typeof(state)='integer' AND state=${Download.STATE_COMPLETED}" else "")+" LIMIT 2",arrayOf(key)).use { cursor ->
                 val found=cursor.moveToFirst()
                 if(found && cursor.moveToNext()) throw IOException("Save ID is not unique")
                 found

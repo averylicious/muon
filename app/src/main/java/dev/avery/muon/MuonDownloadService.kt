@@ -22,7 +22,7 @@ class MuonDownloadService : DownloadService(DOWNLOAD_NOTIFICATION, DownloadServi
     DOWNLOAD_CHANNEL, R.string.downloads_channel, 0) {
     private val notifications by lazy { DownloadNotificationHelper(this, DOWNLOAD_CHANNEL) }
 
-    override fun getDownloadManager(): DownloadManager = OfflineStore.get(this).phone.manager
+    override fun getDownloadManager(): DownloadManager = OfflineStore.get(this).phone.managerForService()
 
     // #230: a command that could change downloads is refused while a move is in flight, before Media3 sees it.
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
@@ -56,7 +56,7 @@ class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadServi
     // Media3 asks only when it makes this class's helper, then builds the helper with this manager and
     // reuses it for every later instance without asking again (DownloadService 596-611, Media3 1.11.0).
     override fun getDownloadManager(): DownloadManager =
-        OfflineStore.get(this).let { (it.card ?: it.phone).manager }.also { helperManager = it }
+        OfflineStore.get(this).let { (it.card ?: it.phone).managerForService() }.also { helperManager = it }
 
     override fun onCreate() {
         super.onCreate()

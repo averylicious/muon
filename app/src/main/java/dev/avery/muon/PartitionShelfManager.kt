@@ -61,6 +61,11 @@ internal class PartitionShelfManager(private val context:Context,private val dat
     fun managerForService():DownloadManager=obtain().also { attached=true }
     fun initialize():DownloadManager=obtain()
     fun prepare(request:DownloadRequest):PartitionSaveCommands.Command { live(); return session.prepare(request) }
+    fun abandonPrepared(request:DownloadRequest):Boolean { live(); return session.abandonPrepared(request) }
+    fun deliverPrepared(request:DownloadRequest,start:(DownloadManager)->Unit):Boolean {
+        live(); val command=session.prepared(request) ?: return false
+        return deliver(command,request,start)
+    }
     fun abandon(command:PartitionSaveCommands.Command,request:DownloadRequest):Boolean {
         live(); return session.abandon(command,request)
     }
@@ -71,7 +76,7 @@ internal class PartitionShelfManager(private val context:Context,private val dat
     fun deliver(command:PartitionSaveCommands.Command,request:DownloadRequest,
         start:(DownloadManager)->Unit):Boolean {
         val actual=obtain()
-        if(!actual.isInitialized) return false
+        if(!actual.isInitialized) { session.abandon(command,request); return false }
         if(completion.holdsId(request.id)) { session.abandon(command,request); return false }
         return session.deliver(command,request,null) {
             if(!commands.admit(actual,request,null)) false
