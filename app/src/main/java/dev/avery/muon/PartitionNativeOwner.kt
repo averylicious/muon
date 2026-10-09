@@ -57,10 +57,13 @@ internal interface PartitionOwnedCache { fun checkQuiescent() }
 internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
     private val journal:CacheMigrationJournal,private val volume:String,private val currentVolume:()->String?,
     private val limits:PartitionResourceLimits=PartitionResourceLimits(),
-    private val budget:PartitionNativeBudget=PartitionNativeBudget.process) {
+    private val budget:PartitionNativeBudget=PartitionNativeBudget.process,
+    private val saves:PartitionSaveJournal?=null) {
     init { require(volume.isNotEmpty()) }
     @Volatile private var healthy=true
-    private class Handles(val permit:PartitionNativeBudget.Permit) {
+    private class SaveLifecycle(val journal:PartitionSaveJournal,val ticket:PartitionSaveTicket)
+    private class Handles(val permit:PartitionNativeBudget.Permit,val save:SaveLifecycle?) {
+        var saveStarted=false
         var database:SQLiteDatabase?=null
         var native:SimpleCache?=null
         var metadata:PartitionContentMetadata?=null
@@ -86,6 +89,26 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         if(uid==ready.ticket.sourceUid) throw IOException("Ready partition aliases its source UID")
         return open(ready.ticket.allocation,uid,false)
     }
+    /** New saves never fabricate migration verification. The caller must already own the exact
+     * reservation/request and destructive-command barrier. This does not mean download complete. */
+    @Synchronized fun openNewSave(ticket:PartitionSaveTicket):Cache {
+        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        available(); val journal=saves ?: throw IOException("New-save ownership is not configured")
+        val row=journal.find(ticket.allocation.key)
+        if(row?.ticket!=ticket || row.phase!=PartitionSavePhase.Reserved || row.uid!=null ||
+            catalog.find(ticket.allocation.key)!=ticket.allocation || this.journal.find(ticket.allocation.key)!=null)
+            throw IOException("New-save reservation differs or collides with migration")
+        return open(ticket.allocation,null,true,save=SaveLifecycle(journal,ticket))
+    }
+    /** A persisted Open/Opening/Uncertain allocation is deliberately not adopted after restart. */
+    @Synchronized fun openSaved(key:String):Cache {
+        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        available(); val journal=saves ?: throw IOException("New-save ownership is not configured")
+        val row=journal.find(key) ?: throw IOException("Save ownership is missing")
+        if(row.phase!=PartitionSavePhase.Closed || catalog.find(key)!=row.ticket.allocation || this.journal.find(key)!=null)
+            throw IOException("Save has no clean owned route")
+        return open(row.ticket.allocation,requireNotNull(row.uid),false,save=SaveLifecycle(journal,row.ticket))
+    }
     /** Return a distinct adapter per migration attempt. It cannot adopt an interrupted old target. */
     fun migrationTarget(key:String):(File)->Cache {
         if(key.length.toLong()*2>limits.keyBytes) throw IOException("Partition key exceeds its budget")
@@ -109,14 +132,18 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         } }
     }
     /** Must be called under this owner's creation mutex; actual native lock also refuses duplicates. */
-    private fun open(allocation:CachePartitionAllocation,expectedUid:Long?,fresh:Boolean,forbiddenUid:Long?=null):Cache {
+    private fun open(allocation:CachePartitionAllocation,expectedUid:Long?,fresh:Boolean,forbiddenUid:Long?=null,save:SaveLifecycle?=null):Cache {
         if(allocation.key.length.toLong()*2>limits.keyBytes) throw IOException("Partition key exceeds its budget")
         available()
         val root=catalog.directory(allocation)
         val bytes=File(root,"bytes"); val index=File(root,"index"); val file=File(index,"native-v1.db")
         val metadata=File(root,"metadata")
-        val h=Handles(budget.acquire()).also { it.permit.retain(it) }
+        val h=Handles(budget.acquire(),save).also { it.permit.retain(it) }
         try {
+            if(save!=null) {
+                val prior=save.journal.opening(save.ticket); h.saveStarted=true
+                if(prior.uid!=expectedUid) throw IOException("Save lifecycle UID changed before open")
+            }
             if(fresh) {
                 if(root.exists()) throw IOException("Fresh partition already exists")
                 val parent=requireNotNull(root.parentFile)
@@ -155,16 +182,24 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
             if(fresh) h.metadata=PartitionContentMetadata(metadata,native.uid,allocation.key,create=true)
             h.facade=PartitionResourceCache.open(native,allocation.key,limits,requireNotNull(h.metadata),::available)
             available()
+            save?.let { it.journal.opened(it.ticket,native.uid) }
+            available()
             return Owned(h,bytes,metadata,allocation.key,native.uid)
         } catch(failure:Throwable) {
-            if(h.attempted) quarantine(h)
+            if(h.saveStarted) markUncertain(h,failure)
+            if(h.attempted) quarantine(h,failure)
             else try {
                 available(); h.metadata?.close(); h.database?.close(); h.permit.closed()
-            } catch(cleanup:Throwable) { quarantine(h); if(cleanup!==failure) failure.addSuppressed(cleanup) }
+            } catch(cleanup:Throwable) { quarantine(h,cleanup); if(cleanup!==failure) failure.addSuppressed(cleanup) }
             throw failure
         }
     }
-    private fun quarantine(h:Handles) { healthy=false; h.permit.quarantine(h) }
+    private fun markUncertain(h:Handles,failure:Throwable) {
+        if(!h.saveStarted) return
+        try { h.save?.journal?.uncertain(requireNotNull(h.save).ticket) }
+        catch(recordFailure:Throwable) { if(recordFailure!==failure) failure.addSuppressed(recordFailure) }
+    }
+    private fun quarantine(h:Handles,failure:Throwable) { healthy=false; h.permit.quarantine(h); markUncertain(h,failure) }
     private inner class Owned(private val h:Handles,private val bytes:File,private val metadata:File,
         private val key:String,private val nativeUid:Long):Cache by requireNotNull(h.facade),PartitionOwnedCache {
         private var ended=false
@@ -188,8 +223,10 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
                 // Release can log native persistence failure without throwing. Validate the closed
                 // index/layout AND reopen durable metadata; migration still fully rechecks bytes.
                 PartitionContentMetadata(metadata,nativeUid,key).use { PartitionResourceCache.measured(it.read(),limits) }
-                available(); db.close(); h.permit.closed(); ended=true
-            } catch(failure:Throwable) { uncertain=true; quarantine(h); throw failure }
+                available(); db.close()
+                h.save?.journal?.closed(requireNotNull(h.save).ticket,nativeUid)
+                h.permit.closed(); ended=true
+            } catch(failure:Throwable) { uncertain=true; quarantine(h,failure); throw failure }
         }
     }
 }

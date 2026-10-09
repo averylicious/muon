@@ -1,0 +1,25 @@
+# October 9: durable new-save native ownership (#253)
+
+Root solo implementation/source self-check: GPT-6 / Codex desktop; exact variant/effort not exposed. `codex/partition-save-ownership-oct9` includes complete #439 at `d673461d87e4024432e3dc7c4c7c20911c0e21f8` and main documentation checkpoint `dddef2d180f480059fbcdd9df0aefd415835c3d3`. The merge resolved only the main checkpoint's verified downloader receipt. Experiment untouched; no phone/ADB commands. Leave application PR OPEN pending acceptance. No Stable/tag, auto-merge or bypass.
+
+## Durable new-save ownership, still disabled
+
+`PartitionSaveJournal` separates new downloads from source-verified migration. Exact UTF-16 keys and UUID allocation/ticket identities persist in a private SQLite store, with bounded 16-row pages and SQL CASE/type/byte limits before cursor projection. Creation is explicit; a missing old journal is not silently recreated. Unknown schema/version/types/oversized identities refuse without repair or deletion. Replacement requires the exact current Uncertain ticket and a fresh allocation; no SQL REPLACE can erase a sibling or usable record. The journal does not declare that audio is complete or authenticate a live server entry.
+
+States are Reserved, Opening, Open, Closed and Uncertain. Only Reserved or cleanly Closed can enter Opening; the native UID is recorded before returning a new writer. Opening/Open surviving restart never authorizes adoption. A matching clean native release, closed native index inspection, durable sidecar reopen and private DB close must finish before Closed is persisted and the residency permit returns. An uncertain native/journal/volume failure keeps the row unusable and retains unknown native ownership. Busy residency refusal happens before changing the durable state and remains retryable. No forced closure, implicit recovery or deletion is provided.
+
+`PartitionNativeOwner.openNewSave` and `openSaved` require exact catalog/ticket/UID lifecycle and reject any colliding migration record. New saves never fabricate migration Ready. The shared process native budget still counts opening/open/closing/quarantined handles. The production caller must establish request identity, availability and reader/writer/destructive-command exclusion; these methods alone do not grant that authority. If the journal itself becomes unwritable, the persisted Opening/Open state remains non-routable on restart rather than inventing a successful close.
+
+## Verification
+
+Six native SQLite journal tests cover exact/paged restart state, stale replacement and cross-resource collision, explicit creation/missing-file preservation, oversized/NUL/wrong-typed row projection, unknown schema/state and invalid UID/identity transitions. Six real native owner tests cover clean close/reopen bytes and sidecar metadata without migration Ready, persisted unclean-state refusal, busy-budget retry, volume-loss quarantine, preexisting/stale target preservation, migration collision and journal-close failure. Expected combined 1,047 tests per variant requires actual reports. Actions is the first Android compile/test/lint; no local Android build, phone, measured heap/startup/performance or power-loss claim. Test-only teardown disposes disposable native handles only after assertions; production exposes no recovery/reset shortcut.
+
+Pinned native sources/API contracts are those recorded in the preceding verified [checkpoint](2026-10-09-native-cache-checkpoint.md). No new library or native Media3 schema edits. The separate app-owned journal does not change the legacy backend or saved-copy completion/identity policy.
+
+## Next production boundary and safe takeover
+
+All new native foundations remain UNWIRED. The journal/native lifecycle is only a prepared new-save ownership component. Production save allocation/command orchestration, saved/download/played backend routing, actual reader/writer/removal/eviction/source barriers, request/record/cover handover, space/cancel/deadline/progress worker, restart recovery and opt-in controls remain REQUIRED engineering. Unknown allocations stay preserved until a separately proven recovery path. Legacy full-index import peak remains unresolved. See [the production integration map](../audits/2026-10-09-partitioned-production-plan.md).
+
+No POCO is needed for disabled components. Request renewed rooted-ADB access once real production routing and opt-in controls can exercise disposable private-index/card/restart/cancel/original-byte preservation. #401 startup is still unresolved. Inherited hardware/queue/library/accessibility UAT stays open. Full #179 recovery and dependency/tool/cache provenance retain the user's explicit post-release deferrals.
+
+Claude Opus 5.5 / High finished its earlier assignment normally and is idle, last observed 78% five-hour / 92% weekly USED. Root continued solo. At takeover verify the final PR head/checks/artifact and current main/experiment/agent/quota state; the source PR/issue receipt records final idle ownership. Local session/log/worktree paths are conveniences, never prerequisites.
