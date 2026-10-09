@@ -18,6 +18,8 @@ internal data class MigrationWorkProgress(val phase:MigrationWorkPhase, val copy
  */
 internal class CacheMigrationControl(timeoutMillis:Long,
     private val headroomBytes:Long=16L*1024*1024,
+    /** Optional acceptance time includes the worker's single pending slot in the same deadline. */
+    private val acceptedNanos:Long?=null,
     private val nanoTime:()->Long=System::nanoTime) {
     private val durationNanos:Long
     private val used=AtomicBoolean(false)
@@ -46,7 +48,7 @@ internal class CacheMigrationControl(timeoutMillis:Long,
     fun runProjected(key:String,publication:CacheMigrationPublication,availableBytes:()->Long,
         checkpoint:()->Unit,sourceFactory:((()->Unit))->Cache):MigrationRecord {
         if(!used.compareAndSet(false,true)) throw IOException("Migration control already consumed")
-        val started=nanoTime()
+        val started=acceptedNanos ?: nanoTime()
         var bytes=0L
         var terminal=MigrationWorkPhase.Failed
         fun budget() {

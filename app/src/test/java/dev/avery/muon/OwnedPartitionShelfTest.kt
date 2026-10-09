@@ -66,6 +66,7 @@ class OwnedPartitionShelfTest {
         val startupField=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply { isAccessible=true }
         val startup=startupField.get(owner)
         val opened=StorageStartup::class.java.getDeclaredField("opened").apply { isAccessible=true }.get(startup) ?: return
+        (opened.javaClass.getDeclaredField("workers").apply { isAccessible=true }.get(opened) as java.util.concurrent.ExecutorService).shutdown()
         for(name in listOf("manager","session","legacy","saves","migrations","catalog")) {
             val resource=opened.javaClass.getDeclaredField(name).apply { isAccessible=true }.get(opened)
             (resource as java.io.Closeable).close()
@@ -99,6 +100,68 @@ class OwnedPartitionShelfTest {
             } finally { saved.close() }
             assertArrayEquals(payload,f.original.readBytes())
             assertFalse(SimpleCache.isCacheFolderLocked(f.legacy)); assertTrue(f.barrier.quiescent)
+        } finally { teardown(owner); f.provider.close() }
+    }
+    private fun awaitMigration(owner:OwnedPartitionShelf) {
+        val end=System.nanoTime()+TimeUnit.SECONDS.toNanos(10)
+        while(owner.migrationBusy) { check(System.nanoTime()<end) { "Migration worker did not settle" }; Thread.sleep(5) }
+    }
+    @Test fun ownedWorkerPublishesOnlyExplicitlyRequestedResourceOffMainAndPreservesOriginal() {
+        val f=Fixture(); val mainThread=Thread.currentThread(); val offMain=java.util.concurrent.atomic.AtomicBoolean()
+        val owner=f.owner(currentVolume={ if(Thread.currentThread()!==mainThread) offMain.set(true); f.volume })
+        try {
+            owner.prepare()
+            assertFalse(owner.startMigration("old",30000,explicitConsent=false)); assertEquals(0,f.budget.resident)
+            assertTrue(owner.startMigration("old",30000,explicitConsent=true)); awaitMigration(owner)
+            assertEquals(MigrationWorkPhase.Ready,owner.migrationProgress.phase); assertTrue(offMain.get())
+            CacheMigrationJournal(f.root,create=false).use { assertEquals(MigrationPhase.Ready,it.ready("old")?.phase) }
+            assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+            assertFalse(owner.cancelMigration()); assertTrue(f.barrier.quiescent)
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun pendingWorkerCancellationHasNoReservationAndNoSecondQueuedMigration() {
+        val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null
+        try {
+            owner.prepare()
+            val work=PartitionMigrationWork(java.util.concurrent.Executor { check(pending==null); pending=it },
+                {control,key -> owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
+            assertTrue(work.start("old",1000,true)); assertTrue(work.busy)
+            assertFalse(work.start("other",1000,true)); assertTrue(work.cancel())
+            requireNotNull(pending).run()
+            assertEquals(MigrationWorkPhase.Cancelled,work.progress.phase); assertFalse(work.busy)
+            CacheMigrationJournal(f.root,create=false).use { assertNull(it.find("old")) }
+            assertEquals(0,f.budget.resident); assertArrayEquals(payload,f.original.readBytes())
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun deadlineIncludesWaitingBeforeWorkerRunsWithoutClaimingOrOpeningTarget() {
+        val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null; var clock=0L
+        try {
+            owner.prepare()
+            val work=PartitionMigrationWork(java.util.concurrent.Executor { pending=it },
+                {control,key -> owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={clock})
+            assertTrue(work.start("old",1,true)); clock=2_000_000
+            requireNotNull(pending).run()
+            assertEquals(MigrationWorkPhase.Expired,work.progress.phase); assertFalse(work.busy)
+            CacheMigrationJournal(f.root,create=false).use { assertNull(it.find("old")) }
+            assertEquals(0,f.budget.resident); assertArrayEquals(payload,f.original.readBytes())
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun knownRejectionDrainsButUnknownPostSubmissionKeepsItsSingleSlotAndCancelsCooperatively() {
+        val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null
+        try {
+            owner.prepare()
+            val rejected=PartitionMigrationWork(java.util.concurrent.Executor { throw java.util.concurrent.RejectedExecutionException() },
+                {control,key -> owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
+            assertFalse(rejected.start("old",1000,true)); assertFalse(rejected.busy)
+            assertEquals(MigrationWorkPhase.Failed,rejected.progress.phase)
+            val unknown=PartitionMigrationWork(java.util.concurrent.Executor { pending=it; throw IOException("Unknown submission return") },
+                {control,key -> owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
+            assertFalse(unknown.start("old",1000,true)); assertTrue(unknown.busy)
+            assertEquals(MigrationWorkPhase.Uncertain,unknown.progress.phase)
+            assertFalse(unknown.start("other",1000,true)); requireNotNull(pending).run()
+            assertTrue(unknown.busy); assertEquals(MigrationWorkPhase.Uncertain,unknown.progress.phase)
+            CacheMigrationJournal(f.root,create=false).use { assertNull(it.find("old")) }
+            assertEquals(0,f.budget.resident); assertArrayEquals(payload,f.original.readBytes())
         } finally { teardown(owner); f.provider.close() }
     }
     @Test fun resumedShelfReadsReadyCopyWithoutReopeningLegacyCacheOrInventingNewMigration() {

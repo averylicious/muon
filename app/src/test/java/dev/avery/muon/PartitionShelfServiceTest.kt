@@ -66,6 +66,7 @@ class PartitionShelfServiceTest {
             // this exact fixture manager, never a production replacement/reset mechanism.
             val manager=made.javaClass.getDeclaredField("manager").apply { isAccessible=true }.get(made)
             manager.javaClass.getDeclaredField("attached").apply { isAccessible=true }.setBoolean(manager,false)
+            (made.javaClass.getDeclaredField("workers").apply { isAccessible=true }.get(made) as java.util.concurrent.ExecutorService).shutdown()
             for(name in listOf("manager","session","legacy","saves","migrations","catalog"))
                 (made.javaClass.getDeclaredField(name).apply { isAccessible=true }.get(made) as java.io.Closeable).close()
         }

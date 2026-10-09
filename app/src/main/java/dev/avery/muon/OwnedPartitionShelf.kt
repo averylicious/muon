@@ -35,7 +35,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private val identities=arrayOfNulls<Any>(journalNames.size)
     private class Resources(val legacy:LegacyTransitionOwner,val catalog:CachePartitionCatalog,
         val migrations:CacheMigrationJournal,val saves:PartitionSaveJournal,val session:PartitionStorageSession,
-        val manager:PartitionShelfManager)
+        val manager:PartitionShelfManager,val workers:java.util.concurrent.ExecutorService,val work:PartitionMigrationWork)
     private fun exactDirectory(file:File) {
         if(!file.isDirectory || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
             throw IOException("Partition shelf directory identity differs")
@@ -102,7 +102,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             val session=owner.own { PartitionStorageSession(catalog,saves,migrations,native,database,indexName,
                 audio,upstream,{ name -> !audio.contains(name) && !index.holdsId(name) && unclaimed(name) },::available,barrier) }
             val manager=owner.own { PartitionShelfManager(context.applicationContext,database,indexName,session,barrier) }
-            Resources(legacy,catalog,migrations,saves,session,manager)
+            val workers=owner.own { java.util.concurrent.Executors.newSingleThreadExecutor() }
+            val work=owner.own { PartitionMigrationWork(workers,{ control,name ->
+                legacy.migrate(session,control,name,{ directory.usableSpace }) { located() }
+            },::available) }
+            Resources(legacy,catalog,migrations,saves,session,manager,workers,work)
         }; phase=Phase.Ready }
         catch(failure:Throwable) {
             phase=Phase.Uncertain; barrier.invalidate(); throw failure
@@ -123,6 +127,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun abandon(command:PartitionSaveCommands.Command,request:DownloadRequest)=resources().manager.abandon(command,request)
     fun deliver(command:PartitionSaveCommands.Command,request:DownloadRequest,start:(DownloadManager)->Unit)=
         resources().manager.deliver(command,request,start)
+    val migrationProgress:MigrationWorkProgress get()=resources().work.progress
+    val migrationBusy:Boolean get()=resources().work.busy
+    fun startMigration(name:String,timeoutMillis:Long,explicitConsent:Boolean)=
+        resources().work.start(name,timeoutMillis,explicitConsent)
+    fun cancelMigration()=resources().work.cancel()
     fun migrate(control:CacheMigrationControl,name:String,availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord {
         val made=resources()
         return made.legacy.migrate(made.session,control,name,availableBytes) { located(); checkpoint(); located() }
