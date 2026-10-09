@@ -14,10 +14,11 @@ internal class MigrationIoOwnership(private val outputs:MoveFileOutputs=MoveFile
     private val inputs:(File)->RandomAccessFile={RandomAccessFile(it,"r")}) {
     private val handles=arrayOfNulls<Closeable>(3)
     private val uncertain=BooleanArray(3)
+    private val closing=BooleanArray(3)
     private var opening=false
-    val quiescent:Boolean get()=handles.all { it==null }
+    val quiescent:Boolean get()=!opening && handles.all { it==null } && !uncertain.any { it } && !closing.any { it }
     private fun <T:Closeable> open(create:()->T):T {
-        if(opening || uncertain.any { it }) throw IOException("Migration file ownership is busy or uncertain")
+        if(opening || closing.any { it } || uncertain.any { it }) throw IOException("Migration file ownership is busy or uncertain")
         val slot=handles.indexOfFirst { it==null }
         if(slot<0) throw IOException("Migration file ownership budget is full")
         opening=true
@@ -36,9 +37,20 @@ internal class MigrationIoOwnership(private val outputs:MoveFileOutputs=MoveFile
     fun close(handle:Closeable) {
         val slot=handles.indexOfFirst { it===handle }
         if(slot<0) return // Already proved closed.
-        if(uncertain[slot]) throw MigrationIoUncertain(this,null)
-        try { handle.close(); handles[slot]=null }
-        catch(failure:Throwable) { uncertain[slot]=true; throw MigrationIoUncertain(this,failure) }
+        if(uncertain[slot] || closing[slot]) {
+            uncertain[slot]=true
+            throw MigrationIoUncertain(this,null)
+        }
+        closing[slot]=true
+        try {
+            handle.close()
+            // A callback may suppress a refused reentrant close. That cannot erase uncertainty.
+            if(uncertain[slot]) throw MigrationIoUncertain(this,null)
+            handles[slot]=null
+        } catch(failure:Throwable) {
+            uncertain[slot]=true
+            throw MigrationIoUncertain(this,failure)
+        } finally { closing[slot]=false }
     }
 }
 

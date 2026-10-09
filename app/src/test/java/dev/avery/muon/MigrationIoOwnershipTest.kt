@@ -105,6 +105,47 @@ class MigrationIoOwnershipTest {
         assertThrows(IOException::class.java) { runner.migrate(f.source,f.key,{}) }; assertEquals(2,opens)
         assertArrayEquals(f.payload,f.original.readBytes())
     }
+    @Test fun suppressedReentrantCloseCannotEraseUnknownHandleOrRetireNativeSlot() {
+        val f=fixture(); var closeCalls=0
+        lateinit var runner:CacheMigrationPublication
+        val outputs=MoveFileOutputs { file ->
+            uncommittedOutputFiles+=file
+            val raw=MoveFileOutputs.Real.open(file).also(rawOutputs::add)
+            object:MoveFileOutput by raw {
+                override fun close() {
+                    closeCalls++
+                    // Reenter publication while closing; it must not start a second native attempt.
+                    assertThrows(IOException::class.java) { runner.migrate(f.source,f.key,{}) }
+                    throw IOException("Injected callback close remains unknown")
+                }
+            }
+        }
+        runner=CacheMigrationPublication(f.catalog,f.journal,f.opener(),outputs=outputs)
+        assertThrows(MigrationIoUncertain::class.java) { runner.migrate(f.source,f.key,{}) }
+        assertEquals(1,closeCalls); assertEquals(1,f.budget.resident)
+        assertArrayEquals(f.payload,f.original.readBytes())
+    }
+    @Test fun sameHandleReentrantCloseSuppressedByCallbackStaysUncertain() {
+        lateinit var tracker:MigrationIoOwnership
+        lateinit var raw:MoveFileOutput
+        var calls=0
+        val path=folders.newFile()
+        val output=MoveFileOutputs.Real.open(path).also(rawOutputs::add)
+        raw=object:MoveFileOutput by output {
+            override fun close() {
+                calls++
+                assertThrows(MigrationIoUncertain::class.java) { tracker.close(raw) }
+                assertFalse(tracker.quiescent)
+                assertThrows(IOException::class.java) { tracker.output(folders.newFile()) }
+                // Intentionally suppress the callback refusal and return normally.
+            }
+        }
+        tracker=MigrationIoOwnership(MoveFileOutputs { raw })
+        val tracked=tracker.output(path)
+        assertThrows(MigrationIoUncertain::class.java) { tracked.close() }
+        assertFalse(tracker.quiescent); assertEquals(1,calls)
+        assertThrows(MigrationIoUncertain::class.java) { tracked.close() }; assertEquals(1,calls)
+    }
     @Test fun knownClosedWriteFailureRetiresNativeTargetAndAllowsFreshAttempt() {
         val f=fixture(); var fail=true
         val outputs=MoveFileOutputs { file ->
