@@ -16,7 +16,11 @@ internal class PartitionCacheBusy : IOException("Saved storage is busy; try agai
 internal class PartitionCacheLeases(private val open: (String) -> Cache,
     private val capacity: Int = PARTITION_NATIVE_INSTANCES, private val leaseLimit: Int = PARTITION_ACTIVE_LEASES) : Closeable {
     init { require(capacity in 1..PARTITION_NATIVE_INSTANCES); require(leaseLimit in 1..PARTITION_ACTIVE_LEASES) }
-    internal class Entry(val key: String) { var cache: Cache?=null; var pins=1; var closing=false }
+    internal class Entry(val key: String) {
+        var cache: Cache?=null; var pins=1; var closing=false
+        var writing=false; var exclusive=false
+        val retained=arrayOfNulls<Any>(PARTITION_ACTIVE_LEASES)
+    }
     private val entries = java.util.LinkedHashMap<String,Entry>(capacity,0.75f,true)
     private var pins=0
     private var stopped=false
@@ -25,12 +29,26 @@ internal class PartitionCacheLeases(private val open: (String) -> Cache,
     val active: Int @Synchronized get()=pins
 
     /** Caller owns this pin until all its reader/writer-hole/listener uses end. Never release cache directly. */
-    inner class Lease internal constructor(private val entry: Entry, val cache: Cache) : Closeable {
+    inner class Lease internal constructor(private val entry: Entry, val cache: Cache,private val writer:Boolean) : Closeable {
         private var ended=false
+        private var quarantined=false
+        /** Keep uncertain source/sink/task handles and this pin, in fixed bounded slots. No new
+         * admission is allowed; shutdown still does not force-close possibly active uses. */
+        fun quarantine(handles:Any)=synchronized(this@PartitionCacheLeases) {
+            // Native release may already have failed after close consumed this pin; its entry
+            // and owned factory remain quarantined. Do not mask that failure with a second one.
+            if(ended) return@synchronized
+            if(!quarantined) {
+                val slot=entry.retained.indexOfFirst { it==null }
+                check(slot>=0); entry.retained[slot]=handles; quarantined=true; healthy=false
+            }
+        }
         override fun close() {
             val retire=synchronized(this@PartitionCacheLeases) {
                 if (ended) return
+                if(quarantined) throw IOException("Partition pin remains uncertain")
                 ended=true
+                if(writer) { entry.writing=false; entry.exclusive=false }
                 entry.pins--; pins--
                 if (stopped && entry.pins==0 && !entry.closing) { entry.closing=true; true } else false
             }
@@ -38,7 +56,10 @@ internal class PartitionCacheLeases(private val open: (String) -> Cache,
         }
     }
 
-    fun acquire(key: String): Lease {
+    fun acquire(key:String):Lease=acquire(key,false,false)
+    /** One writer per key. Destructive work additionally excludes all readers until return. */
+    fun acquireWriter(key:String,exclusive:Boolean=false):Lease=acquire(key,true,exclusive)
+    private fun acquire(key: String,writer:Boolean,exclusive:Boolean): Lease {
         if (key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Partition key exceeds memory budget")
         // Bounded contention retries; never accumulates requests while all native slots are pinned.
         repeat(3) {
@@ -48,12 +69,13 @@ internal class PartitionCacheLeases(private val open: (String) -> Cache,
                 checkAdmission()
                 entries[key]?.let { current ->
                     val cache=current.cache
-                    if (cache==null || current.closing) throw PartitionCacheBusy()
+                    if (cache==null || current.closing || current.exclusive || (writer && current.writing) || (exclusive && current.pins>0)) throw PartitionCacheBusy()
+                    if(writer) { current.writing=true; current.exclusive=exclusive }
                     current.pins++; pins++
-                    return Lease(current,cache)
+                    return Lease(current,cache,writer)
                 }
                 if (entries.size<capacity) {
-                    reserved=Entry(key).also { entries[key]=it; pins++ }
+                    reserved=Entry(key).also { it.writing=writer; it.exclusive=exclusive; entries[key]=it; pins++ }
                 } else {
                     retiring=entries.values.firstOrNull { it.pins==0 && it.cache!=null && !it.closing }
                         ?.also { it.closing=true } ?: throw PartitionCacheBusy()
@@ -70,7 +92,7 @@ internal class PartitionCacheLeases(private val open: (String) -> Cache,
                     if (stopped || !healthy) { entry.pins=0; pins--; entry.closing=true; false } else true
                 }
                 if (!permitted) { release(entry); throw IOException("Partition pool stopped during creation") }
-                return Lease(entry,cache)
+                return Lease(entry,cache,writer)
             }
         }
         throw PartitionCacheBusy()

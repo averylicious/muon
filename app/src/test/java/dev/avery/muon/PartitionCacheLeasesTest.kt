@@ -116,4 +116,27 @@ class PartitionCacheLeasesTest {
         assertTrue(dirs.getValue("preserved").walkTopDown().any { it.name.endsWith(".v3.exo") })
         pool.close() // Never deletes files to recover the uncertain capacity.
     }
+    @Test fun writerPinAllowsReadersButExcludesOtherWritersAndRemovalExcludesEveryReader() {
+        val pool=PartitionCacheLeases(::open,capacity=1)
+        val writer=pool.acquireWriter("a"); val reader=pool.acquire("a")
+        assertSame(writer.cache,reader.cache)
+        assertThrows(PartitionCacheBusy::class.java) { pool.acquireWriter("a") }
+        assertThrows(PartitionCacheBusy::class.java) { pool.acquireWriter("a",exclusive=true) }
+        writer.close()
+        assertThrows(PartitionCacheBusy::class.java) { pool.acquireWriter("a",exclusive=true) }
+        reader.close()
+        val removal=pool.acquireWriter("a",exclusive=true)
+        assertThrows(PartitionCacheBusy::class.java) { pool.acquire("a") }
+        assertThrows(PartitionCacheBusy::class.java) { pool.acquireWriter("a") }
+        removal.close(); pool.acquire("a").close(); pool.close(); assertEquals(0,pool.resident)
+    }
+    @Test fun quarantinedTaskRetainsItsPinAndHandlesAndStopsAdmissionWithoutForcedClosure() {
+        val pool=PartitionCacheLeases(::open,capacity=1); val writer=pool.acquireWriter("a")
+        writer.quarantine(Any()); writer.quarantine(Any())
+        assertEquals(1,pool.active); assertEquals(1,pool.resident)
+        assertThrows(IOException::class.java) { pool.acquire("b") }
+        pool.close(); assertEquals(1,pool.resident); assertTrue(writer.cache.isCached("a",0,1))
+        assertThrows(IOException::class.java) { writer.close() }; assertEquals(1,pool.active)
+    }
+
 }

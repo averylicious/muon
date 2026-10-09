@@ -40,6 +40,9 @@ internal class PartitionNativeBudget(private val capacity:Int=PARTITION_NATIVE_I
     }
 }
 
+/** Lifecycle evidence for the supported owned backend, not a generic legacy Cache. */
+internal interface PartitionOwnedCache { fun checkQuiescent() }
+
 /** UNWIRED owned factory for known private partitions, never a legacy/adopted cache. Each allocation
  * owns bytes/, index/native-v1.db and metadata/content-v1.db as siblings. Public Media3 APIs alone
  * create/update native schemas. Ready opens require the journal UID plus pre-open native and sidecar
@@ -163,9 +166,13 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
     }
     private fun quarantine(h:Handles) { healthy=false; h.permit.quarantine(h) }
     private inner class Owned(private val h:Handles,private val bytes:File,private val metadata:File,
-        private val key:String,private val nativeUid:Long):Cache by requireNotNull(h.facade) {
+        private val key:String,private val nativeUid:Long):Cache by requireNotNull(h.facade),PartitionOwnedCache {
         private var ended=false
         private var uncertain=false
+        @Synchronized override fun checkQuiescent() {
+            if(ended || uncertain) throw IOException("Partition lifecycle unavailable")
+            requireNotNull(h.facade).checkOwnerRelease()
+        }
         @Synchronized override fun release() {
             if(ended) return
             if(uncertain) throw IOException("Partition close remains uncertain")
