@@ -1,0 +1,9 @@
+# Move publication fix checkpoint — 2026-09-30
+
+Main fbfeaa21f751b30884205e210865bcb0ee4ffed4 includes #232 MIT/hobby/as-is disclosure and #233 verified move/remove characterization. #233 run390 passed: 392 XML tests per variant, five new cases, no skips/errors/failures; artifacts recovered. Actual command ordering/partial spans are proved by disposable production fixtures, not delivered Android services or user data loss. Public secret review/control evidence is in docs/audits/2026-09-30-public-readiness.md. GitHub secret scanning/push protection enabled; no confirmed credential leak within the recorded scope.
+
+Current branch codex/move-publication-ownership adds batch ownership/invalidation around production move. No late Add after preexisting Remove/RemoveAll, later explicit move allowed. Does not clean partial spans or cancel an in-flight copy; #230 remains partly open. #179/#213/#225 remain significant separate work. [Report](../audits/2026-09-30-move-publication.md). CI is pending at initial push; exact final-head results and outgoing state on PR/#181 supersede this snapshot.
+
+Phone QA is pending for this behavior-changing PR; leave it open. All earlier app QA PRs remain open and independent, not a tested combined candidate. No device, user/Claude experimental checkout, audit Claude session, Stable publication/tag or artifact cleanup used. Main-to-experiment forwarding belongs to its owner at a clean boundary.
+
+Aggregate checkpoint #231 was refreshed with main b77619 and public recovery/dependency evidence at dce1daa602f5467c6a34624242381c8e2aeae26a. Main then advanced via #233: #231 needs another destination refresh and exact-head checks before landing. Its report includes full previous PR heads and gates. Next bounded work: preserve source/target concurrent ownership for failed/cancelled copies, or optional-copy #225 cancellation/scheduling. Do not silently remove unindexed data or release absent SD caches.
