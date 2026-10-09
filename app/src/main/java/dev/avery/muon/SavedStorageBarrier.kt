@@ -14,6 +14,9 @@ internal class SavedStorageBarrier(private val budget:Int=16) {
     private var invalid=false
     @get:Synchronized val active:Int get()=slots.count { it!=null }
     @get:Synchronized val quiescent:Boolean get()=slots.all { it==null }
+    /** Snapshot for UI/service refusal only; an actual operation still must acquire its lease. */
+    @get:Synchronized val allowsShared:Boolean get()=accepting && !invalid &&
+        slots.any { it==null } && slots.none { it?.exclusive==true }
     @Synchronized fun stopAdmission() { accepting=false }
     @Synchronized fun invalidate() { accepting=false; invalid=true }
     @Synchronized fun shared():Lease=acquire(false)

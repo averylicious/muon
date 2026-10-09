@@ -88,6 +88,25 @@ class MoveCommandAdmissionTest {
         } finally { database.close() }
     }
 
+    @Test fun sharedStorageGateRefusesServiceRemovalBeforeMutationAndAdmitsAfterDrain() {
+        val gate=SavedStorageBarrier()
+        phone=Shelf.ownedLegacy(phone.cache,phone.manager,phone.service,gate)
+        card=Shelf.ownedLegacy(card.cache,card.manager,card.service,gate)
+        val previous=requireNotNull(OfflineStore.current())
+        val made=OfflineStore.Store(phone,previous.art,previous.played,previous.prefs,database,{}, {},storageBarrier=gate)
+        made.card=card; storeField.set(null,made)
+        val controller=service(); val held=gate.exclusive()
+        try {
+            controller.get().onStartCommand(removal(),0,1); awaitSettled(phone.manager)
+            assertEquals(Download.STATE_COMPLETED,phone.manager.downloadIndex.getDownload(kept)?.state)
+            assertTrue(phone.cache.isCached(kept,0,payload.size.toLong()))
+            assertFalse(phone.available()); assertFalse(card.available())
+        } finally { held.close() }
+        controller.get().onStartCommand(removal(),0,2); awaitSettled(phone.manager)
+        assertNull(phone.manager.downloadIndex.getDownload(kept))
+        assertTrue(phone.cache.getCachedSpans(kept).isEmpty())
+    }
+
     @Test fun uncertainPlayedSourceRefusesOrdinaryPhoneRemovalBeforeActualManagerAndIndex() {
         val controller=service()
         val source=androidx.media3.datasource.cache.CacheDataSource.Factory().setCache(phone.cache).createDataSourceForDownloading()

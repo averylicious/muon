@@ -46,12 +46,17 @@ internal class Shelf private constructor(private val legacyCache:SimpleCache?, v
         audio:SavedAudio,present:()->Boolean={true}):this(cache,manager,service,audio,present,null)
     /** Legacy-only operations must refuse, never open the full index or mutate a migration source. */
     val cache:SimpleCache get()=legacyCache ?: throw java.io.IOException("This shelf uses owned partition storage")
+    private var admission:SavedStorageBarrier?=null // Bound once by the construction factory, before exposure.
+    internal val storagePaused:Boolean get()=admission?.allowsShared==false
     fun managerForService():DownloadManager=partition?.managerForService() ?: manager
     companion object {
+        fun ownedLegacy(cache:SimpleCache,manager:DownloadManager,service:Class<out DownloadService>,
+            barrier:SavedStorageBarrier,present:()->Boolean={true},files:DataSource.Factory?=null)=
+            Shelf(cache,manager,service,BarrierSavedAudio(LegacySavedAudio(cache,files),barrier),present).also { it.admission=barrier }
         /** The root must be prepared off main BEFORE making this main-thread manager binding.
          * OfflineStore selection remains explicit and is not enabled by this factory. */
         fun partitioned(owner:OwnedPartitionShelf,service:Class<out DownloadService>,present:()->Boolean={true})=
-            Shelf(null,owner.initializeManager(),service,owner.audio,{owner.isAvailable && present()},owner)
+            Shelf(null,owner.initializeManager(),service,owner.audio,{owner.isAvailable && present()},owner).also { it.admission=owner.storageBarrier }
     }
     constructor(cache: SimpleCache, manager: DownloadManager, service: Class<out DownloadService>,
         present: () -> Boolean = { true }) : this(cache, manager, service, LegacySavedAudio(cache), present)
@@ -75,7 +80,7 @@ internal class Shelf private constructor(private val legacyCache:SimpleCache?, v
     internal fun retainUncertainMoveReader() { moveReaderUncertain=true }
     internal val hasUncertainMoveReader:Boolean get()=moveReaderUncertain
     /** Checked at each decision (#179 S1); see [cardPresent] for the card. */
-    override fun available(): Boolean = !moveReaderUncertain && playedSourceUncertain==null && runCatching(present).getOrDefault(false)
+    override fun available(): Boolean = !moveReaderUncertain && playedSourceUncertain==null && !storagePaused && runCatching(present).getOrDefault(false)
 
     override fun completed(id: String): Boolean =
         runCatching { partition?.containsId(id,completedOnly=true) ?: (manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED) }.getOrDefault(false)
@@ -118,7 +123,9 @@ internal object OfflineStore {
         /** Played-copy keys a phone index row names, which the played cache never removes (#213). */
         val playedClaims: PlayedClaims = PlayedClaims.none(),
         val moves: DownloadMoveReceipts = DownloadMoveReceipts(),
-        val marks: DownloadMarkLedger? = null) {
+        val marks: DownloadMarkLedger? = null,
+        /** Same process gate for phone/card saved readers and eventual partition startup/writers. */
+        val storageBarrier:SavedStorageBarrier=SavedStorageBarrier()) {
         /** At most two final byte comparisons; uncertain actual readers remain owned until teardown. */
         val moveComparisons=MoveByteComparison()
         /** The serial copy retains exact raw participants if any actual close remains unknown. */
@@ -162,7 +169,7 @@ internal object OfflineStore {
 
     private fun shelf(owner: StorageStartup<Store>.Opening, context: Context, folder: File, evictor: androidx.media3.datasource.cache.CacheEvictor,
         database: StandaloneDatabaseProvider, index: String, service: Class<out DownloadService>,
-        present: () -> Boolean = { true }): Shelf {
+        barrier:SavedStorageBarrier, present: () -> Boolean = { true }): Shelf {
         val cache = owner.own { SimpleCache(folder, evictor, database) }
         val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client))
         // The manager loads no retained stopped rows at startup (#253, [ManagerStartupIndex]).
@@ -171,7 +178,7 @@ internal object OfflineStore {
             File(context.cacheDir, "muon-retained-startup-${index.ifEmpty { "phone" }}.ids"))),
             DefaultDownloaderFactory(factory, workers)) }
         manager.maxParallelDownloads = 2
-        return Shelf(cache, manager, service, present)
+        return Shelf.ownedLegacy(cache,manager,service,barrier,present)
     }
 
     private fun create(context: Context, owner: StorageStartup<Store>.Opening): Store {
@@ -183,6 +190,7 @@ internal object OfflineStore {
 
     private fun createLegacy(context: Context, owner: StorageStartup<Store>.Opening,
         prefs: android.content.SharedPreferences): Store {
+        val barrier=owner.own { SavedStorageBarrier() }
         val database = owner.own { StandaloneDatabaseProvider(context) }
         val limit = prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT)
         val main = Handler(Looper.getMainLooper())
@@ -192,7 +200,7 @@ internal object OfflineStore {
         val claims = PlayedClaims(context)
         val order = owner.own { DiskPlayedSpanOrder(File(context.noBackupFilesDir, "played-span-order-v1.db")) }
         val played = PlayedSongEvictor(limit, claims::removable, order) { used -> main.post { PlayedCacheState.used = used } }
-        val phone = shelf(owner, context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java)
+        val phone = shelf(owner, context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java, barrier)
         saver.execute {
             // If the index cannot be read, the claims stay unknown and no played copy is ever removed.
             claims.read(phone.manager.downloadIndex)
@@ -243,7 +251,7 @@ internal object OfflineStore {
             DownloadMarks.bytes = sizes.total
             DownloadMarks.bytesKnown = sizes.known
         }
-        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims, marks = marks)
+        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims, marks = marks, storageBarrier=barrier)
         watch(context, phone, made, main)
         cardFolder(context)?.let { folder ->
             // The card found now; later its availability is only ever this folder's, never another card's.
@@ -251,7 +259,7 @@ internal object OfflineStore {
             runCatching {
                 // The app's own folder on the card, made by getExternalFilesDirs above. Not the cache
                 // folder, which the cache creates on its own thread a moment later.
-                shelf(owner, context, downloads, NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java) {
+                shelf(owner, context, downloads, NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java, barrier) {
                     cardPresent(folder)
                 }
             }.getOrNull()?.let { card -> made.card = card; made.cardFolder = folder; watch(context, card, made, main) }
@@ -403,6 +411,7 @@ internal object OfflineStore {
                         }) { store.prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT) }
                 } catch (failure: Throwable) {
                     if(failure is PlayedCopyCloseUncertain) {
+                        store.storageBarrier.invalidate()
                         store.phone.retainUncertainPlayedSource(failure.owner)
                         store.played.quarantine()
                         playedWork.quarantine(failure.owner)
@@ -942,6 +951,11 @@ internal object OfflineStore {
             return refused("Muon doesn't support that download command, so nothing was changed.")
         // Includes the phone service: ordinary Add/Remove must not bypass uncertainty merely
         // because they carry no move token. Refuse before manager budgets or receipts are touched.
+        if(shelf?.storagePaused==true && action in moveExcludedActions) {
+            refusedMoveCommand(intent)
+            return refused("Saved-copy storage is draining or unavailable, so nothing was changed. " +
+                "Existing copies were kept; retry after work finishes or fully restart Muon.")
+        }
         if(shelf?.hasUncertainPlayedSource==true && action in moveExcludedActions) {
             refusedMoveCommand(intent)
             return refused("Saved-copy storage is paused because a played-copy source couldn't close. " +

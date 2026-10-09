@@ -9,7 +9,8 @@ import java.io.IOException
 
 /** Prepared adapter for MixedSavedAudio (or a borrowed legacy test reader). A permit lasts through
  * real child close, including after EOF and failed open. The caller still owns native/journal
- * lifetimes. This adapter is not selected by production shelves yet.
+ * lifetimes. Actual legacy shelves and prepared partition shelves share their store admission gate.
+ * Native construction and asynchronous mutation ownership still require separate integration.
  */
 internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrier:SavedStorageBarrier):SavedAudio {
     private fun <T> operation(work:(SavedStorageBarrier.Lease)->T):T {

@@ -26,6 +26,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     /** Complete app-wide current key/index/played/cover claim census, not merely this shelf. */
     private val unclaimed:(String)->Boolean,private val upstream:DataSource.Factory,
     private val budget:PartitionNativeBudget=PartitionNativeBudget.process) {
+    internal val storageBarrier:SavedStorageBarrier get()=barrier
     init { require(volume.isNotEmpty()) }
     private val startup=StorageStartup<Resources>()
     private enum class Phase { New,Preparing,Ready,Uncertain }
