@@ -140,24 +140,28 @@ internal object OfflineStore {
     /** The store, if something has already made it; never makes one. */
     fun current(): Store? = store
 
+    // Selected once, before any native cache/provider/service manager construction. Never retry a
+    // partial startup or exchange a manager already installed in DownloadService's static helper.
+    private val startup = StorageStartup<Store>()
     @Synchronized
-    fun get(context: Context): Store = store ?: create(context.applicationContext).also { store = it }
+    fun get(context: Context): Store = store ?: startup.open { create(context.applicationContext, it) }.also { store = it }
 
-    private fun shelf(context: Context, folder: File, evictor: androidx.media3.datasource.cache.CacheEvictor,
+    private fun shelf(owner: StorageStartup<Store>.Opening, context: Context, folder: File, evictor: androidx.media3.datasource.cache.CacheEvictor,
         database: StandaloneDatabaseProvider, index: String, service: Class<out DownloadService>,
         present: () -> Boolean = { true }): Shelf {
-        val cache = SimpleCache(folder, evictor, database)
+        val cache = owner.own { SimpleCache(folder, evictor, database) }
         val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client))
         // The manager loads no retained stopped rows at startup (#253, [ManagerStartupIndex]).
-        val manager = DownloadManager(context, ManagerStartupIndex(RetainedDownloadIndex(DefaultDownloadIndex(database, index),
+        val workers = owner.own { Executors.newFixedThreadPool(2) }
+        val manager = owner.own { DownloadManager(context, ManagerStartupIndex(RetainedDownloadIndex(DefaultDownloadIndex(database, index),
             File(context.cacheDir, "muon-retained-startup-${index.ifEmpty { "phone" }}.ids"))),
-            DefaultDownloaderFactory(factory, Executors.newFixedThreadPool(2)))
+            DefaultDownloaderFactory(factory, workers)) }
         manager.maxParallelDownloads = 2
         return Shelf(cache, manager, service, present)
     }
 
-    private fun create(context: Context): Store {
-        val database = StandaloneDatabaseProvider(context)
+    private fun create(context: Context, owner: StorageStartup<Store>.Opening): Store {
+        val database = owner.own { StandaloneDatabaseProvider(context) }
         val prefs = context.getSharedPreferences("storage", Context.MODE_PRIVATE)
         val limit = prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT)
         val main = Handler(Looper.getMainLooper())
@@ -165,9 +169,9 @@ internal object OfflineStore {
         // Downloads stay until removed: only played-song copies are ever evicted, oldest first, and none that
         // a download row names, nor any until the phone's index has been read (#213).
         val claims = PlayedClaims(context)
-        val played = PlayedSongEvictor(limit, claims::removable,
-            DiskPlayedSpanOrder(File(context.noBackupFilesDir, "played-span-order-v1.db"))) { used -> main.post { PlayedCacheState.used = used } }
-        val phone = shelf(context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java)
+        val order = owner.own { DiskPlayedSpanOrder(File(context.noBackupFilesDir, "played-span-order-v1.db")) }
+        val played = PlayedSongEvictor(limit, claims::removable, order) { used -> main.post { PlayedCacheState.used = used } }
+        val phone = shelf(owner, context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java)
         saver.execute {
             // If the index cannot be read, the claims stay unknown and no played copy is ever removed.
             claims.read(phone.manager.downloadIndex)
@@ -175,11 +179,11 @@ internal object OfflineStore {
         }
         val art = DownloadArt(File(context.filesDir, "downloads-art"))
         // Covers are fetched one at a time, beside the downloads rather than in their way.
-        val artwork = DownloadArtworkWork(Executors.newSingleThreadExecutor(), art::fetchEntry, art::removeEntry)
+        val artwork = DownloadArtworkWork(owner.own { Executors.newSingleThreadExecutor() }, art::fetchEntry, art::removeEntry)
         val sizes = DownloadByteTotals(context)
-        val marks = DownloadMarkLedger(File(context.noBackupFilesDir, "download-marks-v1.db")) {
+        val marks = owner.own { DownloadMarkLedger(File(context.noBackupFilesDir, "download-marks-v1.db")) {
             main.post { DownloadMarks.countsKnown = false }
-        }
+        } }
         fun record(download: DownloadStatus) {
             val id = download.id
             val mark = when (download.state) {
@@ -226,7 +230,7 @@ internal object OfflineStore {
             runCatching {
                 // The app's own folder on the card, made by getExternalFilesDirs above. Not the cache
                 // folder, which the cache creates on its own thread a moment later.
-                shelf(context, downloads, NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java) {
+                shelf(owner, context, downloads, NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java) {
                     cardPresent(folder)
                 }
             }.getOrNull()?.let { card -> made.card = card; made.cardFolder = folder; watch(context, card, made, main) }
