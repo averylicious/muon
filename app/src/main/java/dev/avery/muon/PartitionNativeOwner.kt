@@ -81,13 +81,25 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         if(!file.isFile || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
             throw IOException("Partition database identity differs")
     }
-    @Synchronized fun openReady(key:String):Cache {
+    /** Read-only routing observation, not a barrier or completion/deletion authority. A stale
+     * reservation must fail even when a previously opened native instance is still resident. */
+    @Synchronized fun readyRoute(key:String):MigrationRecord? {
         if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
         available()
-        val ready=journal.ready(key) ?: throw IOException("Partition has no verified ready route")
+        val ready=journal.ready(key) ?: return null
         val uid=requireNotNull(ready.targetUid)
-        if(uid==ready.ticket.sourceUid) throw IOException("Ready partition aliases its source UID")
-        return open(ready.ticket.allocation,uid,false)
+        if(uid==ready.ticket.sourceUid || catalog.find(key)!=ready.ticket.allocation || saves?.find(key)!=null)
+            throw IOException("Ready partition identity differs from its current reservation")
+        return ready
+    }
+    /** Bounded journal page; the caller must filter Ready and recheck identity before exposing it. */
+    @Synchronized fun routePage(after:String?):List<MigrationRecord> {
+        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        available(); return journal.page(after)
+    }
+    @Synchronized fun openReady(key:String):Cache {
+        val ready=readyRoute(key) ?: throw IOException("Partition has no verified ready route")
+        return open(ready.ticket.allocation,requireNotNull(ready.targetUid),false)
     }
     /** New saves never fabricate migration verification. The caller must already own the exact
      * reservation/request and destructive-command barrier. This does not mean download complete. */
