@@ -14,6 +14,7 @@ import java.io.OutputStream
 
 private const val METADATA_CHUNK_BYTES=64*1024
 private const val METADATA_PAYLOAD_BYTES=MIGRATION_METADATA_BYTES+4+MIGRATION_METADATA_FIELDS*8
+private const val METADATA_MAX_CHUNKS=(METADATA_PAYLOAD_BYTES+METADATA_CHUNK_BYTES-1)/METADATA_CHUNK_BYTES
 
 /** Exact bounded metadata for ONE known private partition, outside SimpleCache's scanned byte folder.
  * Own SQLite schema, never Media3's schema. UID/key mismatch or unreadable/corrupt payload refuses;
@@ -65,7 +66,7 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
     }
     @Synchronized fun checkOwner(nativeUid:Long,name:String) {
         if(nativeUid!=uid || name!=key) throw IOException("Partition metadata belongs to another cache")
-        database.rawQuery("SELECT singleton,uid,key FROM owner",null).use {
+        database.rawQuery("SELECT singleton,uid,CASE WHEN typeof(key)='blob' AND length(key)<=$MIGRATION_KEY_BYTES THEN key ELSE NULL END FROM owner LIMIT 2",null).use {
             if(!it.moveToFirst() || it.getType(0)!=Cursor.FIELD_TYPE_INTEGER || it.getLong(0)!=1L ||
                 it.getType(1)!=Cursor.FIELD_TYPE_INTEGER || it.getLong(1)!=uid || it.getType(2)!=Cursor.FIELD_TYPE_BLOB ||
                 savedCatalogText(it.getBlob(2))!=key || it.moveToNext()) throw IOException("Partition metadata ownership changed")
@@ -75,13 +76,14 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
         database.beginTransaction()
         try {
             checkOwner(uid,key)
-            val size=database.rawQuery("SELECT COUNT(*),COALESCE(SUM(length(value)),0) FROM chunks",null).use {
+            val size=// Inspect bounded scalar lengths before projecting any payload into a CursorWindow.
+            database.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM (SELECT length(value) AS bytes FROM chunks ORDER BY ordinal LIMIT ${METADATA_MAX_CHUNKS+1})",null).use {
                 if(!it.moveToFirst()) throw IOException("Partition metadata size unavailable")
                 val count=it.getLong(0); val bytes=it.getLong(1)
-                if(count<=0 || count>(METADATA_PAYLOAD_BYTES+METADATA_CHUNK_BYTES-1)/METADATA_CHUNK_BYTES || bytes<0 || bytes>METADATA_PAYLOAD_BYTES) throw IOException("Partition metadata exceeds its budget")
+                if(count<=0 || count>METADATA_MAX_CHUNKS || bytes<0 || bytes>METADATA_PAYLOAD_BYTES) throw IOException("Partition metadata exceeds its budget")
                 count
             }
-            val result=database.rawQuery("SELECT ordinal,value FROM chunks ORDER BY ordinal",null).use { rows ->
+            val result=database.rawQuery("SELECT ordinal,CASE WHEN typeof(value)='blob' AND length(value) BETWEEN 1 AND $METADATA_CHUNK_BYTES THEN value ELSE NULL END FROM chunks ORDER BY ordinal LIMIT ${METADATA_MAX_CHUNKS+1}",null).use { rows ->
                 val input=DataInputStream(Chunks(rows,size))
                 val count=input.readInt()
                 if(count !in 0..MIGRATION_METADATA_FIELDS) throw IOException("Partition metadata field budget exceeded")

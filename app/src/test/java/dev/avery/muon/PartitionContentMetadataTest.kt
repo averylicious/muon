@@ -212,4 +212,24 @@ class PartitionContentMetadataTest {
         val fresh=native(folders.newFolder()); val other=PartitionContentMetadata(directory(),fresh.uid,"other",create=true)
         assertThrows(IOException::class.java) { PartitionResourceCache.open(fresh,key,persistent=other) }; assertTrue(fresh.keys.isEmpty()); other.close()
     }
+    @Test fun oversizedOwnerKeyRefusesBeforeLoadingItIntoTheCursorWindowAndKeepsTheRecord() {
+        val root=directory(); PartitionContentMetadata(root,23,"audio",create=true).close()
+        sql(root) { it.execSQL("UPDATE owner SET key=zeroblob(3145728)") }
+        assertThrows(IOException::class.java) { PartitionContentMetadata(root,23,"audio") }
+        sql(root) { db -> db.rawQuery("SELECT length(key) FROM owner",null).use { assertTrue(it.moveToFirst()); assertEquals(3145728,it.getInt(0)) } }
+    }
+    @Test fun oversizedOrWrongTypedChunksRefuseBeforeCursorProjectionWithoutReplacingTheirPayload() {
+        for(blob in listOf(true,false)) {
+            val root=directory(); PartitionContentMetadata(root,23,"audio",create=true).close()
+            sql(root) { db ->
+                if(blob) db.execSQL("UPDATE chunks SET value=zeroblob(3145728)")
+                else db.execSQL("UPDATE chunks SET value=?",arrayOf("\u0000"+"x".repeat(3145728)))
+            }
+            PartitionContentMetadata(root,23,"audio").use { store -> assertThrows(IOException::class.java) { store.read() } }
+            sql(root) { db -> db.rawQuery("SELECT length(CAST(value AS BLOB)) FROM chunks",null).use {
+                assertTrue(it.moveToFirst()); assertEquals(if(blob) 3145728 else 3145729,it.getInt(0))
+            } }
+        }
+    }
+
 }
