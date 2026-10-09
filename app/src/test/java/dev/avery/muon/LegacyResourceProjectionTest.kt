@@ -101,6 +101,16 @@ class LegacyResourceProjectionTest {
         assertArrayEquals(byteArrayOf(5,6),foreign.readBytes()); assertArrayEquals(payload,f.original.readBytes())
         assertFalse(SimpleCache.isCacheFolderLocked(f.root))
     }
+    @Test fun oversizedVersionAndSpanScalarPayloadsRefuseBeforeCursorWindow() {
+        val f=Fixture(); val hex=java.lang.Long.toHexString(f.uid)
+        database.writableDatabase.execSQL("UPDATE ExoPlayerVersions SET version=zeroblob(8388608) WHERE feature=? AND instance_uid=?",
+            arrayOf(VersionTable.FEATURE_CACHE_CONTENT_METADATA,hex))
+        assertThrows(IOException::class.java) { f.project() }
+        VersionTable.setVersion(database.writableDatabase,VersionTable.FEATURE_CACHE_CONTENT_METADATA,hex,1)
+        database.writableDatabase.execSQL("UPDATE ExoPlayerCacheFileMetadata$hex SET length=zeroblob(8388608)")
+        assertThrows(IOException::class.java) { f.project() }
+        assertArrayEquals(payload,f.original.readBytes())
+    }
     @Test fun malformedFieldLengthsAndDuplicateKeysRefuseWithoutAllocationOrRepair() {
         val f=Fixture()
         val bytes=ByteArrayOutputStream().also { buffer -> DataOutputStream(buffer).use { it.writeInt(1); it.writeUTF("bad"); it.writeInt(Int.MAX_VALUE) } }.toByteArray()

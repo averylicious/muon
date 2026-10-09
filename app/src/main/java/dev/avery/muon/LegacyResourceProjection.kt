@@ -47,7 +47,7 @@ internal object LegacyResourceProjection {
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
         val versions=DatabaseProvider.TABLE_PREFIX+"Versions"
         for(feature in listOf(VersionTable.FEATURE_CACHE_CONTENT_METADATA,VersionTable.FEATURE_CACHE_FILE_METADATA)) {
-            index.rawQuery("SELECT version FROM $versions WHERE feature=? AND instance_uid=? LIMIT 2",arrayOf(feature.toString(),hex)).use { c ->
+            index.rawQuery("SELECT CASE WHEN typeof(version)='integer' THEN version ELSE NULL END FROM $versions WHERE feature=? AND instance_uid=? LIMIT 2",arrayOf(feature.toString(),hex)).use { c ->
                 if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0)!=1L || c.moveToNext())
                     throw IOException("Unsupported legacy cache version")
             }
@@ -100,7 +100,7 @@ internal object LegacyResourceProjection {
                 if(spans.size>=MIGRATION_RANGES) throw IOException("Legacy resource fragmentation exceeds projection budget")
                 val length=leaf.toFile().length()
                 if(length<=0 || length>Long.MAX_VALUE-position) throw IOException("Legacy span extent differs")
-                val touch=index.rawQuery("SELECT length,last_touch_timestamp FROM $files WHERE name=? LIMIT 2",arrayOf(filename)).use { c ->
+                val touch=index.rawQuery("SELECT CASE WHEN typeof(length)='integer' THEN length ELSE NULL END,CASE WHEN typeof(last_touch_timestamp)='integer' THEN last_touch_timestamp ELSE NULL END FROM $files WHERE name=? LIMIT 2",arrayOf(filename)).use { c ->
                     if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0)!=length ||
                         c.getType(1)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(1)<0) throw IOException("Legacy span index differs")
                     val value=c.getLong(1); if(c.moveToNext()) throw IOException("Legacy span index is not unique"); value
