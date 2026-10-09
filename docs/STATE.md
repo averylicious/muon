@@ -1,6 +1,6 @@
 # Muon: current state
 
-Current engineering/check continuation: [October9 composed storage and measured startup checkpoint](handoffs/2026-10-09-storage-engineering-checkpoint.md). It supersedes earlier snapshots below: OPEN #449–#464 (docs-only #462 separately) add exact command ownership, bounded completed-index reads, mixed routes, migration controls/uncertain-file ownership and composed shared-gate lifetime, plus bounded read-only legacy projection/playback/inventory and cancellation through the scan; independent #451 startup fix is integrated in #458. New #464 fixes production move-verification close failures, including mid-fragment errors. Production partition mode remains disabled and #253 still needs engineering. App acceptance remains OPEN; continuous engineering proceeds across verified checkpoints.
+Current engineering/check continuation: [October9 composed storage and measured startup checkpoint](handoffs/2026-10-09-storage-engineering-checkpoint.md). It supersedes earlier snapshots below: OPEN #449–#465 (docs-only #462 separately) add exact command ownership, bounded completed-index reads, mixed routes, migration controls/uncertain-file ownership and composed shared-gate lifetime, plus bounded read-only legacy projection/playback/inventory and cancellation through the scan; independent #451 startup fix is integrated in #458. New #464 fixes production move-verification close failures, including mid-fragment errors; #465 retains actual copy readers/output and uncertain staging. Production partition mode remains disabled and #253 still needs engineering. App acceptance remains OPEN; continuous engineering proceeds across verified checkpoints.
 
 Standing execution clarification (user-approved 2026-10-09): [continue authorized engineering across verified boundaries](continuous-engineering.md). The old one-slice-per-turn / “bite-sized” cap is removed. Commit/PR/CI/checkpoint boundaries do not themselves end a turn; continue while actionable authorized work and capacity remain. Stop for completed engineering/acceptance-only work, a blocker preventing all useful work, a prudent capacity reserve, or user pause. Existing review, merge, track and device-authorization safeguards remain.
 
@@ -28,7 +28,7 @@ Previous completed boundary: [October8 command admission/runtime checkpoint](han
 
 A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
 
-_Last updated: 2026-10-08, move engineering completion and explicit release-trust deferral, by GPT-6 (Codex desktop; exact variant/effort not exposed). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
+_Last updated: 2026-10-09, continuing storage engineering and new move-reader-close finding, by GPT-6 (Codex desktop; exact variant/effort not exposed). See [progress and release gates](audits/2026-09-30-progress.md) and #181 for newer evidence._
 
 ## Where things are
 

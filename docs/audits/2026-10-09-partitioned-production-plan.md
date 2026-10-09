@@ -1,6 +1,6 @@
 # Partitioned storage: production integration map (#253)
 
-Source-based next work from complete #439 at `d673461d87e4024432e3dc7c4c7c20911c0e21f8`; Android .841 and Branch direction passed, and actual reports/APK verification confirmed 1,035 tests per variant. This is a proposed implementation map, not evidence of enabled production behavior. Read the [checkpoint](../handoffs/2026-10-09-native-cache-checkpoint.md) for actual receipts, authorization and ownership. Keep changes independently reviewable and checkpoint their evidence, then continue authorized engineering without another prompt; app acceptance stack stays OPEN.
+Read the [current storage checkpoint](../handoffs/2026-10-09-storage-engineering-checkpoint.md) first for exact heads/receipts, ownership and the finite engineering/UAT gate. The inspected#439 baseline below is historical. Follow-on#449–#461 compose/test command, read, migration, lifetime and bounded read-only legacy support without selecting partition mode in production. #463 exposes uncertain migration status honestly; #464/#465 additionally fix production move verification/copy actual close lifetime. Prepared components are not evidence of enabled app behavior. Checkpoint verified outcomes before continuing; there is no per-turn slice cap. Application acceptance stack remains OPEN.
 
 ## October 9 current follow-on
 
