@@ -139,4 +139,48 @@ class PartitionCacheLeasesTest {
         assertThrows(IOException::class.java) { writer.close() }; assertEquals(1,pool.active)
     }
 
+    @Test fun cleanWriterRetirementIsAtomicAndCannotTakeAnotherReadersPin() {
+        val pool=PartitionCacheLeases(::open,capacity=1)
+        val writer=pool.acquireWriter("kept"); val reader=pool.acquire("kept")
+        assertFalse(writer.tryRetireWriter()); assertEquals(2,pool.active); assertEquals(1,live)
+        assertThrows(IOException::class.java) { reader.tryRetireWriter() }
+        reader.close(); assertTrue(writer.tryRetireWriter())
+        assertEquals(0,pool.active); assertEquals(0,pool.resident); assertEquals(0,live)
+        assertThrows(IOException::class.java) { writer.tryRetireWriter() }
+        pool.acquire("kept").use { assertTrue(it.cache.isCached("kept",0,1)) }
+        pool.close(); assertEquals(0,live)
+    }
+    @Test fun closingWriterKeepsItsSlotAndBlocksReopenUntilActualNativeCloseReturns() {
+        val entered=java.util.concurrent.CountDownLatch(1); val resume=java.util.concurrent.CountDownLatch(1)
+        val pool=PartitionCacheLeases({ key ->
+            val cache=open(key)
+            object:Cache by cache {
+                override fun release() { entered.countDown(); check(resume.await(5,java.util.concurrent.TimeUnit.SECONDS)); cache.release() }
+            }
+        },capacity=1)
+        val writer=pool.acquireWriter("kept")
+        val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            val result=worker.submit<Boolean> { writer.tryRetireWriter() }
+            assertTrue(entered.await(5,java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(0,pool.active); assertEquals(1,pool.resident); assertEquals(1,live)
+            assertThrows(PartitionCacheBusy::class.java) { pool.acquire("kept") }
+            assertThrows(PartitionCacheBusy::class.java) { pool.acquire("other") }
+            resume.countDown(); assertTrue(result.get(5,java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(0,pool.resident); assertEquals(0,live)
+        } finally { resume.countDown(); worker.shutdownNow(); assertTrue(worker.awaitTermination(5,java.util.concurrent.TimeUnit.SECONDS)); pool.close() }
+    }
+    @Test fun uncertainWriterRetirementKeepsTheEntryAndNeverGrantsCompletionOrReadmission() {
+        val pool=PartitionCacheLeases({ key ->
+            val cache=open(key)
+            object:Cache by cache { override fun release() { throw IOException("Unknown retirement") } }
+        },capacity=1)
+        val writer=pool.acquireWriter("kept")
+        assertThrows(IOException::class.java) { writer.tryRetireWriter() }
+        assertEquals(0,pool.active); assertEquals(1,pool.resident); assertEquals(1,live)
+        assertThrows(IOException::class.java) { pool.acquire("kept") }
+        assertThrows(IOException::class.java) { writer.tryRetireWriter() }
+        pool.close(); assertTrue(dirs.getValue("kept").walkTopDown().any { it.name.endsWith(".exo") })
+    }
+
 }

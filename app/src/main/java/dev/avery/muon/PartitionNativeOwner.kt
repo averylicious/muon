@@ -41,7 +41,11 @@ internal class PartitionNativeBudget(private val capacity:Int=PARTITION_NATIVE_I
 }
 
 /** Lifecycle evidence for the supported owned backend, not a generic legacy Cache. */
-internal interface PartitionOwnedCache { fun checkQuiescent() }
+internal interface PartitionOwnedCache {
+    fun checkQuiescent()
+    /** Only the actual new-save native owner can establish this lifecycle; generic/Ready caches refuse. */
+    fun checkNewSave(key:String,sealed:Boolean=false) { throw IOException("Not an owned new-save lifecycle") }
+}
 
 /** UNWIRED owned factory for known private partitions, never a legacy/adopted cache. Each allocation
  * owns bytes/, index/native-v1.db and metadata/content-v1.db as siblings. Public Media3 APIs alone
@@ -218,6 +222,17 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         @Synchronized override fun checkQuiescent() {
             if(ended || uncertain) throw IOException("Partition lifecycle unavailable")
             requireNotNull(h.facade).checkOwnerRelease()
+        }
+        @Synchronized override fun checkNewSave(key:String,sealed:Boolean) {
+            if(uncertain || !healthy || sealed!=ended || key!=this.key)
+                throw IOException("New-save native lifecycle differs")
+            available()
+            val save=h.save ?: throw IOException("Partition was not opened as a new save")
+            val row=save.journal.find(key)
+            val phase=if(sealed) PartitionSavePhase.Closed else PartitionSavePhase.Open
+            if(row?.ticket!=save.ticket || row.phase!=phase || row.uid!=nativeUid ||
+                catalog.find(key)!=save.ticket.allocation || journal.find(key)!=null)
+                throw IOException("New-save claim changed before completion")
         }
         @Synchronized override fun release() {
             if(ended) return

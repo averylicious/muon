@@ -1,0 +1,23 @@
+# October 9: prepared durable new-save sealing (#253)
+
+Cumulative successor of OPEN #445 at `ef0e4450006e9e0b725781f23bac498470a68a34`, containing verified #444/.851 and current main `b036d91811be3c6560d55dd6f1a948d248253bc8`. #445 .852 compiled but failed its inherited Ready-priority control; the overly strict catalog guard was corrected, preserving the previously verified publication. Refreshed .853 is pending; record its final result before claiming verification. No failed/unrun check is a pass.
+
+## Completion boundary
+
+`PartitionCacheLeases.Lease.tryRetireWriter` atomically marks a sole writer's entry closing before dropping its pin. New admission cannot race the native close or replace a still-counted closing instance. Another reader returns false with all pins unchanged; no force-close. Known successful native release returns true; failed release retains the entry/native budget and stops new admission. Reader, stale or quarantined pins cannot grant this receipt.
+
+`PartitionDownloadFactory` has a prepared `sealNewSaves` mode, default false and NOT used by app services. It requires full-resource fresh-looking request ID/key equality, the actual owned new-save ticket/UID/current lifecycle (not a generic or migration-Ready cache), full declared coverage, known actual file/upstream/sink closure and quiescence. Only then can it retire the writer, persist the owned native close and recheck Closed identity before returning to DownloadManager. A clean reader-contention failure returns busy and remains retryable; unknown source/native/journal close quarantines rather than reporting success. Clean Closed still does not fabricate migration Ready or authenticate remote audio.
+
+The owner checks exact new-save ticket/UID/phase/current allocation/no migration collision before work and after durable closure. These observations do not create an atomic transaction across independent databases or replace the production app-wide command/writer/removal/source/eviction barrier. Unsupported requests still need admission before the real manager constructs a downloader; this slice is not that production gate.
+
+## Verification controls
+
+Nine new controls: three pool writer/reader/blocked-close/quarantine interleavings; five real new-save owner/progressive controls, including actual DownloadManager/index success and failed durable-close paths; and a Ready-cache negative control. Actual manager completion must observe Closed with zero native residency. An injected closed journal during final progress must produce a FAILED retained manager record, preserve payload and keep persisted Open non-adoptable/quarantined. Partial coverage and another active reader cannot grant completion. An existing migration-Ready resource cannot be modified in sealed-new-save mode. Unsupported alias/range requests open no native cache. All data is disposable.
+
+Actions is the first Android compile/test/lint; exact-head reports/APK receipt belongs on PR/#40/#253. No local Android build, phone/ADB, physical SD, process heap/startup/power-loss or hardware acceptance claim. Test-only teardown releases disposable unknown-close handles after assertions without exposing a production reset or returning quarantined permits.
+
+## Remaining required integration
+
+The app continues selecting legacy reads/downloads/played/moves/removals. Prepared Ready reads and sealed new saves remain disabled. Next establish the app-level coordinator and exact new-save allocation/request/service-command/cover/completion ownership, then select mixed legacy/published routes under its barrier. Preserve the actual manager row/cover when destructive work refuses: admission must precede manager removal, not just Downloader.remove. Integrate played writes, moves and source/eviction exclusion, bounded space/deadline/cancel/progress migration, restart failure recovery and explicit opt-in controls. Legacy full-index transition peak and #401 startup cause/fix remain unresolved engineering. Existing #230 legacy scope stays complete/UAT pending; new backend must preserve it.
+
+Root sole writer, GPT-6 / Codex desktop implementation and author source self-check (exact variant/effort not exposed), not independent review. Claude stays idle, dated high quota not assumed reset; experimental checkout/session untouched. Keep all cumulative app PRs OPEN pending inherited UAT, no independent overlapping squash or Stable/tag/auto-merge/bypass. No POCO needed at this disabled boundary; notify the user with specific candidate/checks when opt-in/recovery routing warrants disposable rooted-device checks. Hardware/library/TalkBack UAT, full#179 and provenance deferrals remain separate.

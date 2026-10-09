@@ -43,6 +43,20 @@ internal class PartitionCacheLeases(private val open: (String) -> Cache,
                 check(slot>=0); entry.retained[slot]=handles; quarantined=true; healthy=false
             }
         }
+        /** Atomically stop admission for this sole writer and close the native owner before
+         * reporting success. False means another reader still owns it; this pin is unchanged.
+         * A failed native close keeps its bounded entry/quarantine and never returns success. */
+        fun tryRetireWriter():Boolean {
+            synchronized(this@PartitionCacheLeases) {
+                if(ended || quarantined || !writer || entry.closing || !entry.writing || entries[entry.key]!==entry)
+                    throw IOException("Partition writer cannot establish clean retirement")
+                if(entry.pins!=1) return false
+                ended=true; entry.writing=false; entry.exclusive=false
+                entry.pins--; pins--; entry.closing=true
+            }
+            release(entry)
+            return true
+        }
         override fun close() {
             val retire=synchronized(this@PartitionCacheLeases) {
                 if (ended) return

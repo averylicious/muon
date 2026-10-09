@@ -85,6 +85,16 @@ class PartitionDownloadFactoryTest {
         assertEquals(5L,androidx.media3.datasource.cache.ContentMetadata.getContentLength(reopened.getContentMetadata(key)))
         reopened.release(); assertEquals(0,budget.resident)
     }
+    @Test fun sealedNewSaveModeCannotWriteOrCompleteAnExistingMigrationReadyCache() {
+        prepare(); var upstreamOpens=0
+        val sealed=PartitionDownloadFactory(pool,DataSource.Factory { upstreamOpens++; ByteArrayDataSource(payload) },
+            {_,_,_ -> fail("No removal") },sealNewSaves=true)
+        val freshLooking=DownloadRequest.Builder(key,request().uri).setCustomCacheKey(key).build()
+        assertThrows(IOException::class.java) { sealed.createDownloader(freshLooking).download(null) }
+        assertEquals(0,upstreamOpens); assertEquals(0,pool.active); assertEquals(0L,cached())
+        assertNotNull(journal.ready(key))
+        assertArrayEquals(byteArrayOf(8),legacy.getContentMetadata(key).get("kept",null as ByteArray?))
+    }
     @Test fun completedCacheDoesNotNeedAnotherUpstreamOpenAndFullRequestDataIsNotRetained() {
         prepare(); val calls=AtomicInteger()
         val upstream=DataSource.Factory { calls.incrementAndGet(); ByteArrayDataSource(payload) }

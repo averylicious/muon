@@ -34,6 +34,9 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
     private val upstream:DataSource.Factory,
     private val removeAdmitted:(id:String,key:String,cache:Cache)->Unit,
     private val files:DataSource.Factory=FileDataSource.Factory(),
+    /** Prepared new-save mode: full coverage + actual durable owner close before manager completion.
+     * The production caller must separately own exact request/command/cover/completion admission. */
+    private val sealNewSaves:Boolean=false,
     private val sinks:(Cache)->DataSink.Factory={CacheDataSink.Factory().setCache(it)}) : DownloaderFactory {
     override fun createDownloader(request:DownloadRequest):Downloader {
         val uri=request.uri; val key=request.customCacheKey ?: uri.toString()
@@ -42,6 +45,8 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
             throw IOException("Partition download identity exceeds its budget")
         if(Util.inferContentTypeForUriAndMimeType(uri,request.mimeType)!=C.CONTENT_TYPE_OTHER || request.streamKeys.isNotEmpty() || request.timeRange!=null)
             throw IOException("Partition downloads support progressive audio only")
+        if(sealNewSaves && (request.id!=key || !key.startsWith(NEW_SAVE_PREFIX) || request.byteRange!=null))
+            throw IOException("Sealed saves require a fresh full-resource request/key")
         // Retain only bounded scalar identity/range, never request.data or a collection of stream keys.
         val range=request.byteRange
         return Task(request.id,key,uri,range?.offset ?: 0,range?.length ?: C.LENGTH_UNSET.toLong())
@@ -91,8 +96,14 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
                 lease=pool.acquireWriter(key,exclusive)
                 backend=lease.cache as? PartitionOwnedCache ?: throw IOException("Downloader requires an owned partition")
                 backend.checkQuiescent()
+                if(sealNewSaves && !exclusive) backend.checkNewSave(key)
                 tracker=ClosureTracker()
                 work(lease.cache,tracker)
+                if(sealNewSaves && !exclusive) {
+                    backend.checkNewSave(key)
+                    if(savedAudioState(lease.cache,key).coverage!=SavedCoverage.Full)
+                        throw IOException("Save cannot complete without full declared coverage")
+                }
             } catch(caught:Throwable) { failure=caught }
             finally {
                 try {
@@ -101,7 +112,13 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
                             if(tracker?.clean()==false) throw IOException("Partition source or sink close remains uncertain")
                             backend.checkQuiescent()
                         }
-                        lease.close()
+                        if(sealNewSaves && !exclusive && failure==null) {
+                            if(!lease.tryRetireWriter()) {
+                                // All I/O is known closed; contention is not unknown native closure.
+                                // Keep the other reader and report failure instead of completing early.
+                                lease.close(); failure=PartitionCacheBusy()
+                            } else backend!!.checkNewSave(key,sealed=true)
+                        } else lease.close()
                     }
                 } catch(closeFailure:Throwable) {
                     synchronized(lock) { uncertain=true }
