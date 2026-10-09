@@ -17,6 +17,8 @@ import java.io.IOException
 internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
     /** Capture exact routing before a pin; recheck it around I/O, never skip close on route loss. */
     private val validation:(String)->(() -> Unit)={ { } },
+    /** Recheck the acquired native identity even when an idle cached instance is reused. */
+    private val cacheValidation:(String,Cache)->Unit={ _,_ -> },
     /** Internal fixture seam. The production default is the actual read-only Media3 cache source. */
     private val readers:(Cache)->DataSource={ cache -> CacheDataSource.Factory().setCache(cache)
         .setUpstreamDataSourceFactory(null).setCacheWriteDataSinkFactory(null).createDataSource() }) : DataSource.Factory {
@@ -50,6 +52,7 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
                 validate!!.invoke()
                 pin=pool.acquire(key) // Before any source can observe a cached span/file.
                 validate!!.invoke()
+                cacheValidation(key,pin!!.cache)
                 val opened=readers(pin!!.cache)
                 source=opened
                 for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)

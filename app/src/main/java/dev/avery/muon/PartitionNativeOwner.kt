@@ -124,6 +124,27 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
             throw IOException("Save has no clean owned route")
         return open(row.ticket.allocation,requireNotNull(row.uid),false,save=SaveLifecycle(journal,row.ticket))
     }
+    /** Clean new-save identity only, never completion/publication authority. Read adapters must also
+     * require their exact bounded COMPLETED manager record. Interrupted writers are not adopted. */
+    @Synchronized fun closedSaveRoute(key:String):PartitionSaveRecord? {
+        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        available(); val saves=this.saves ?: throw IOException("New-save ownership is not configured")
+        val row=saves.find(key) ?: return null
+        if(row.phase!=PartitionSavePhase.Closed) return null
+        if(catalog.find(key)!=row.ticket.allocation || journal.find(key)!=null)
+            throw IOException("Closed save allocation changed or collides with migration")
+        return row
+    }
+    @Synchronized fun saveRoutePage(after:String?):List<PartitionSaveRecord> {
+        if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
+        available(); return (saves ?: throw IOException("New-save ownership is not configured")).page(after)
+    }
+    /** Read-only reopen preserves Closed. It must not use openSaved's writer lifecycle, which records
+     * Opening/Open and would turn an interrupted reader into an apparently interrupted writer. */
+    @Synchronized fun openClosedSaveRead(key:String):Cache {
+        val row=closedSaveRoute(key) ?: throw IOException("Save has no clean owned route")
+        return open(row.ticket.allocation,requireNotNull(row.uid),false)
+    }
     /** Return a distinct adapter per migration attempt. It cannot adopt an interrupted old target. */
     fun migrationTarget(key:String):(File)->Cache {
         if(key.length.toLong()*2>limits.keyBytes) throw IOException("Partition key exceeds its budget")

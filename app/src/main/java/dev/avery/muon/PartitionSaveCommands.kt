@@ -30,28 +30,6 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
     private val entries=LinkedHashMap<String,Entry>()
     val active:Int @Synchronized get()=entries.size
     private fun live() { if(!available()) throw IOException("Saved volume unavailable") }
-    private fun supported(request:DownloadRequest):String {
-        val key=request.customCacheKey
-        if(key==null || key!=request.id || !key.startsWith(NEW_SAVE_PREFIX) ||
-            key.length.toLong()*2>MIGRATION_KEY_BYTES || request.uri.toString().length.toLong()*2>MIGRATION_KEY_BYTES ||
-            (request.mimeType?.length ?: 0).toLong()*2>MIGRATION_KEY_BYTES ||
-            request.keySetId!=null || request.streamKeys.isNotEmpty() || request.byteRange!=null || request.timeRange!=null ||
-            Util.inferContentTypeForUriAndMimeType(request.uri,request.mimeType)!=C.CONTENT_TYPE_OTHER || !moveCommandFits(request))
-            throw IOException("Save command needs a bounded full progressive request")
-        return key
-    }
-    /** Length-prefixed UTF-16 scalars/raw data, fixed digest retained. Not remote-audio authentication. */
-    private fun digest(request:DownloadRequest):ByteArray {
-        val hash=MessageDigest.getInstance("SHA-256")
-        fun number(n:Int) { for(shift in 24 downTo 0 step 8) hash.update((n ushr shift).toByte()) }
-        fun text(s:String?) {
-            if(s==null) { number(-1); return }; number(s.length)
-            for(c in s) { hash.update((c.code ushr 8).toByte()); hash.update(c.code.toByte()) }
-        }
-        text(request.id); text(request.uri.toString()); text(request.customCacheKey); text(request.mimeType)
-        number(request.data.size); hash.update(request.data)
-        return hash.digest()
-    }
     private fun owned(entry:Entry) {
         live()
         val ticket=entry.command.ticket
@@ -59,12 +37,12 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
             migrations.find(ticket.allocation.key)!=null) throw IOException("Save command allocation changed")
     }
     @Synchronized fun prepare(request:DownloadRequest):Command {
-        live(); val key=supported(request)
+        live(); val key=partitionSaveRequestKey(request)
         if(entries.size>=capacity) throw PartitionCacheBusy()
         if(entries.values.any { it.command.ticket.allocation.key==key } || catalog.find(key)!=null ||
             saves.find(key)!=null || migrations.find(key)!=null || !unclaimed(key))
             throw IOException("Save key is already owned or its census is unavailable")
-        val identity=digest(request)
+        val identity=partitionSaveRequestDigest(request)
         val ticket=saves.begin(catalog.reserve(key))
         val command=Command(UUID.randomUUID().toString(),ticket)
         owned(Entry(command,identity))
@@ -76,8 +54,8 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
         val entry=entries[command.token] ?: return false
         if(entry.command!=command || entry.phase!=Phase.Prepared || previous!=null) return false
         return try {
-            val key=supported(request); owned(entry)
-            if(key!=command.ticket.allocation.key || !MessageDigest.isEqual(entry.digest,digest(request)) ||
+            val key=partitionSaveRequestKey(request); owned(entry)
+            if(key!=command.ticket.allocation.key || !MessageDigest.isEqual(entry.digest,partitionSaveRequestDigest(request)) ||
                 saves.find(key)?.phase!=PartitionSavePhase.Reserved || !unclaimed(key)) return false
             entry.phase=Phase.Forwarding; true
         } catch(_:Exception) { false }
@@ -92,10 +70,10 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
     }
     /** Validate the actual full manager request before constructing its native downloader. */
     @Synchronized fun download(request:DownloadRequest) {
-        val key=supported(request)
+        val key=partitionSaveRequestKey(request)
         val entry=entries.values.firstOrNull { it.command.ticket.allocation.key==key } ?: throw IOException("No current save command")
         owned(entry)
-        if(entry.phase==Phase.Prepared || !MessageDigest.isEqual(entry.digest,digest(request)))
+        if(entry.phase==Phase.Prepared || !MessageDigest.isEqual(entry.digest,partitionSaveRequestDigest(request)))
             throw IOException("Save request was not forwarded by its exact owner")
     }
     @Synchronized fun open(key:String):Cache {
@@ -111,13 +89,36 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
     /** Exact terminal callback releases only scalar process receipts, never bytes/rows/covers. */
     @Synchronized fun terminal(download:Download):Boolean {
         val entry=entries.values.firstOrNull { it.command.ticket.allocation.key==download.request.id } ?: return false
-        try { supported(download.request) } catch(_:Exception) { return false }
-        if(entry.phase==Phase.Prepared || !MessageDigest.isEqual(entry.digest,digest(download.request))) return false
+        try { partitionSaveRequestKey(download.request) } catch(_:Exception) { return false }
+        if(entry.phase==Phase.Prepared || !MessageDigest.isEqual(entry.digest,partitionSaveRequestDigest(download.request))) return false
         if(download.state!=Download.STATE_COMPLETED && download.state!=Download.STATE_FAILED) return false
         if(download.state==Download.STATE_COMPLETED) {
-            try { supported(download.request); owned(entry) } catch(_:Exception) { return false }
+            try { partitionSaveRequestKey(download.request); owned(entry) } catch(_:Exception) { return false }
             if(saves.find(download.request.id)?.phase!=PartitionSavePhase.Closed) return false
         }
         entries.remove(entry.command.token); return true
     }
+}
+
+internal fun partitionSaveRequestKey(request:DownloadRequest):String {
+    val key=request.customCacheKey
+    if(key==null || key!=request.id || !key.startsWith(NEW_SAVE_PREFIX) ||
+        key.length.toLong()*2>MIGRATION_KEY_BYTES || request.uri.toString().length.toLong()*2>MIGRATION_KEY_BYTES ||
+        (request.mimeType?.length ?: 0).toLong()*2>MIGRATION_KEY_BYTES ||
+        request.keySetId!=null || request.streamKeys.isNotEmpty() || request.byteRange!=null || request.timeRange!=null ||
+        Util.inferContentTypeForUriAndMimeType(request.uri,request.mimeType)!=C.CONTENT_TYPE_OTHER || !moveCommandFits(request))
+        throw IOException("Save command needs a bounded full progressive request")
+    return key
+}
+/** Length-prefixed UTF-16 scalars/raw data, fixed digest retained. Not remote-audio authentication. */
+internal fun partitionSaveRequestDigest(request:DownloadRequest):ByteArray {
+    val hash=MessageDigest.getInstance("SHA-256")
+    fun number(n:Int) { for(shift in 24 downTo 0 step 8) hash.update((n ushr shift).toByte()) }
+    fun text(s:String?) {
+        if(s==null) { number(-1); return }; number(s.length)
+        for(c in s) { hash.update((c.code ushr 8).toByte()); hash.update(c.code.toByte()) }
+    }
+    text(request.id); text(request.uri.toString()); text(request.customCacheKey); text(request.mimeType)
+    number(request.data.size); hash.update(request.data)
+    return hash.digest()
 }
