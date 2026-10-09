@@ -28,21 +28,27 @@ import kotlin.math.abs
 internal fun ArtworkTheme(item: MediaItem?, content: @Composable () -> Unit) {
     val base = MaterialTheme.colorScheme
     val url = item?.mediaMetadata?.artworkUri?.toString()
+    val request = url?.let { ArtworkIdentities.request(it) }
     val context = LocalContext.current
     // Kept while the next cover's colour is worked out, so a skip fades rather than flashing the default.
     var seed by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(url) {
-        if (url == null) { seed = null; return@LaunchedEffect }
-        artworkSeed(context, url)?.let { seed = it }
+    var seededRequest by remember { mutableStateOf<ArtworkRequest?>(null) }
+    LaunchedEffect(request) {
+        if (request == null) { seed = null; seededRequest = null; return@LaunchedEffect }
+        artworkSeed(context, request)?.let { colour ->
+            ArtworkIdentities.ifCurrent(request) { seed = colour; seededRequest = request }
+        }
     }
+    // Keep the established fade between URLs, but do not keep a reused URL's previous song colour.
+    val usableSeed = seed.takeUnless { seededRequest?.url == url && seededRequest != request }
     val dark = base.background.luminance() < 0.5f
-    val target = seed?.let { artworkScheme(base, it, dark, pureBlack = base.background == Color.Black) } ?: base
+    val target = usableSeed?.let { artworkScheme(base, it, dark, pureBlack = base.background == Color.Black) } ?: base
     MaterialTheme(colorScheme = animated(target), typography = MaterialTheme.typography, content = content)
 }
 
 /** The cover's seed colour, or null if it cannot be read. Off the main thread. */
-private suspend fun artworkSeed(context: android.content.Context, url: String): Int? = withContext(Dispatchers.Default) {
-    val bitmap = artworkBitmap(context, url) ?: return@withContext null
+private suspend fun artworkSeed(context: android.content.Context, request: ArtworkRequest): Int? = withContext(Dispatchers.Default) {
+    val bitmap = artworkBitmap(context, request) ?: return@withContext null
     runCatching {
         val step = maxOf(1, minOf(bitmap.width, bitmap.height) / 48)
         val pixels = ArrayList<Int>()
