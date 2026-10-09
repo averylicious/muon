@@ -71,7 +71,8 @@ internal object CacheMigrationPreparation {
     }
 
     fun copy(source: Cache, target: Cache, key: String, checkpoint: () -> Unit,
-        outputs: MoveFileOutputs = MoveFileOutputs.Real): MigrationCopyEvidence {
+        outputs: MoveFileOutputs = MoveFileOutputs.Real,
+        ownership: MigrationIoOwnership = MigrationIoOwnership(outputs)): MigrationCopyEvidence {
         if (source === target) throw IOException("Migration needs a separate destination")
         val before = snapshot(source,key,checkpoint)
         val empty = snapshot(target,key,checkpoint)
@@ -83,9 +84,9 @@ internal object CacheMigrationPreparation {
                 ?: throw IOException("Migration destination is busy")
             if (hole.isCached) throw IOException("Migration destination changed")
             try {
-                val sink = StrictMoveSink(target,outputs)
+                val sink = StrictMoveSink(target,MoveFileOutputs(ownership::output)) { ownership.quiescent }
                 val spec = spec(key,range)
-                val reader = RangeReader(source,key,range)
+                val reader = RangeReader(source,key,range,ownership)
                 try {
                     sink.open(spec)
                     val buffer = ByteArray(64 * 1024)
@@ -112,7 +113,7 @@ internal object CacheMigrationPreparation {
         before.fields.forEach { mutations.set(it.name,it.bytes) }
         target.applyContentMetadataMutations(key,mutations)
         if (!before.same(snapshot(target,key,checkpoint))) throw IOException("Migration replacement metadata or extent differs")
-        for (range in before.ranges) compare(source,target,key,range,checkpoint)
+        for (range in before.ranges) compare(source,target,key,range,checkpoint,ownership)
         checkpoint()
         if (!before.same(snapshot(source,key,checkpoint)) || !before.same(snapshot(target,key,checkpoint)))
             throw IOException("Migration resources changed during verification")
@@ -122,12 +123,13 @@ internal object CacheMigrationPreparation {
 
     /** Fresh full comparison after clean destination close/reopen. Caller still holds the same
      * source/availability/writer/eviction barrier; this receipt alone never permits source removal. */
-    fun verify(source: Cache, target: Cache, key: String, checkpoint: () -> Unit): MigrationCopyEvidence {
+    fun verify(source: Cache, target: Cache, key: String, checkpoint: () -> Unit,
+        ownership: MigrationIoOwnership = MigrationIoOwnership()): MigrationCopyEvidence {
         if (source === target) throw IOException("Verification needs a separate destination")
         val before=snapshot(source,key,checkpoint)
         if (!before.same(snapshot(target,key,checkpoint))) throw IOException("Reopened migration replacement differs")
         var bytes=0L
-        for (range in before.ranges) { compare(source,target,key,range,checkpoint); bytes=Math.addExact(bytes,range.length) }
+        for (range in before.ranges) { compare(source,target,key,range,checkpoint,ownership); bytes=Math.addExact(bytes,range.length) }
         checkpoint()
         if (!before.same(snapshot(source,key,checkpoint)) || !before.same(snapshot(target,key,checkpoint)))
             throw IOException("Migration resources changed during reopened verification")
@@ -137,9 +139,10 @@ internal object CacheMigrationPreparation {
     private fun spec(key: String, range: MigrationRange) = DataSpec.Builder()
         .setUri(Uri.parse("muon-migration://local/resource")).setKey(key)
         .setPosition(range.position).setLength(range.length).build()
-    private fun compare(source: Cache, target: Cache, key: String, range: MigrationRange, checkpoint: () -> Unit) {
-        val left = RangeReader(source,key,range)
-        val right = RangeReader(target,key,range)
+    private fun compare(source: Cache, target: Cache, key: String, range: MigrationRange, checkpoint: () -> Unit,
+        ownership: MigrationIoOwnership) {
+        val left = RangeReader(source,key,range,ownership)
+        val right = RangeReader(target,key,range,ownership)
         try {
             val a = ByteArray(64 * 1024)
             val b = ByteArray(64 * 1024)
@@ -155,7 +158,8 @@ internal object CacheMigrationPreparation {
     }
     /** Read retained span files through the supported cached-span API. CacheDataSource obeys declared
      * length, which would skip original partial bytes beyond inconsistent legacy length metadata. */
-    private class RangeReader(private val cache: Cache, private val key: String, range: MigrationRange) : Closeable {
+    private class RangeReader(private val cache: Cache, private val key: String, range: MigrationRange,
+        private val ownership:MigrationIoOwnership) : Closeable {
         private var position = range.position
         private var remaining = range.length
         private var file: RandomAccessFile? = null
@@ -172,11 +176,11 @@ internal object CacheMigrationPreparation {
                 if (span.position < 0 || span.position > position || span.length <= position-span.position)
                     throw IOException("Migration span extent invalid")
                 val within = position-span.position
-                val opened = RandomAccessFile(span.file ?: throw IOException("Migration span file missing"),"r")
+                val opened = ownership.input(span.file ?: throw IOException("Migration span file missing"))
                 try {
                     if (opened.length() < span.length) throw IOException("Migration span file truncated")
                     opened.seek(within)
-                } catch (failure: Throwable) { opened.close(); throw failure }
+                } catch (failure: Throwable) { ownership.close(opened); throw failure }
                 file = opened
                 spanRemaining = minOf(remaining,span.length-within)
             }
@@ -184,10 +188,10 @@ internal object CacheMigrationPreparation {
             val read = requireNotNull(file).read(buffer,offset,wanted)
             if (read <= 0) throw IOException("Migration span bytes unreadable")
             remaining -= read; position += read; spanRemaining -= read
-            if (spanRemaining == 0L) { val old=file; file=null; old?.close() }
+            if (spanRemaining == 0L) close()
             return read
         }
-        override fun close() { val old=file; file=null; old?.close() }
+        override fun close() { val old=file; if(old!=null) ownership.close(old); file=null }
     }
 
     private fun readExactly(reader: RangeReader, buffer: ByteArray, length: Int) {

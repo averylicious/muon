@@ -55,6 +55,12 @@ internal fun interface MoveFileOutputs {
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class StrictMoveSink(private val cache: Cache, private val outputs: MoveFileOutputs = MoveFileOutputs.Real) : DataSink {
+    // A migration tracker can withhold cleanup when the output's actual closure is unknown.
+    // Existing legacy callers keep their established behavior; no new deletion is authorized.
+    private var discardUncommitted: () -> Boolean = { true }
+    constructor(cache: Cache, outputs: MoveFileOutputs, discardUncommitted: () -> Boolean) : this(cache, outputs) {
+        this.discardUncommitted = discardUncommitted
+    }
     private var file: File? = null
     private var output: MoveFileOutput? = null
     private var written = 0L
@@ -85,7 +91,7 @@ internal class StrictMoveSink(private val cache: Cache, private val outputs: Mov
             output = outputs.open(reserved)
             written = 0
         } catch (e: IOException) {
-            file?.delete() // Reserved by this sink and never committed: no other bytes.
+            if (discardUncommitted()) file?.delete() // Only this sink's uncommitted reservation, after known cleanup.
             file = null
             throw record(e)
         }
@@ -120,7 +126,7 @@ internal class StrictMoveSink(private val cache: Cache, private val outputs: Mov
                 throw record(e)
             }
         }
-        reserved.delete() // Never committed: this sink's own reserved file, not anyone else's bytes.
+        if (discardUncommitted()) reserved.delete() // Unknown migration closure preserves its owned staging file.
         throw problem?.let(::record) ?: IOException("An earlier move write failed", earlier)
     }
 

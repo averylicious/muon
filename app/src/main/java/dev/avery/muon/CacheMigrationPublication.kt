@@ -11,8 +11,12 @@ import java.io.IOException
  * Neither originals nor uncertain replacements are deleted. A Ready receipt is not removal authority.
  * Pending journal rows survive restart; each retry uses a new target, never adopts a partial one. */
 internal class CacheMigrationPublication(private val catalog:CachePartitionCatalog,
-    private val journal:CacheMigrationJournal,private val open:(File)->Cache) {
+    private val journal:CacheMigrationJournal,private val open:(File)->Cache,
+    private val outputs:MoveFileOutputs=MoveFileOutputs.Real,
+    private val inputs:(File)->java.io.RandomAccessFile={java.io.RandomAccessFile(it,"r")}) {
     private var healthy=true
+    private data class Quarantine(val cache:Cache,val files:MigrationIoOwnership)
+    private var retained:Quarantine?=null
     @Synchronized fun migrate(source:Cache,key:String,checkpoint:()->Unit):MigrationRecord {
         if(!healthy) throw IOException("Migration coordinator unavailable after uncertain native ownership")
         checkpoint()
@@ -30,6 +34,7 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
             if(row?.ticket!=ticket || row.phase==MigrationPhase.Ready || row.phase==MigrationPhase.Uncertain)
                 throw IOException("Migration ticket no longer owns this copy")
         }
+        val files=MigrationIoOwnership(outputs,inputs)
         try {
             checked()
             val directory=catalog.directory(candidate)
@@ -40,16 +45,16 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
             try {
                 uid=first.uid
                 if(uid<0) throw IOException("Migration target identity unavailable")
-                copied=CacheMigrationPreparation.copy(source,first,key,::checked)
-            } finally { closing(first) }
+                copied=CacheMigrationPreparation.copy(source,first,key,::checked,ownership=files)
+            } finally { retiring(first,files) }
             checked()
             val reopened=opening(directory,sourceUid)
             val verified:MigrationCopyEvidence
             try {
                 if(reopened.uid!=uid) throw IOException("Migration target identity changed on reopen")
-                verified=CacheMigrationPreparation.verify(source,reopened,key,::checked)
+                verified=CacheMigrationPreparation.verify(source,reopened,key,::checked,ownership=files)
                 if(verified!=copied) throw IOException("Migration copy receipt changed")
-            } finally { closing(reopened) }
+            } finally { retiring(reopened,files) }
             checked()
             journal.verified(ticket,uid,verified)
             checked()
@@ -58,6 +63,13 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
             try { journal.uncertain(ticket) } catch(recordFailure:Throwable) { failure.addSuppressed(recordFailure) }
             throw failure
         }
+    }
+    private fun retiring(cache:Cache,files:MigrationIoOwnership) {
+        if(!files.quiescent) {
+            healthy=false; retained=Quarantine(cache,files)
+            throw MigrationIoUncertain(files,null)
+        }
+        closing(cache)
     }
     private fun opening(directory:File,sourceUid:Long):Cache=try {
         open(directory).also {
