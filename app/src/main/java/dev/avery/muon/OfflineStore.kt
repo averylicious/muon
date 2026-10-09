@@ -59,6 +59,7 @@ internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val s
     @Volatile private var moveReaderUncertain=false
     /** A failed verification close is process-local uncertainty, not permission to retry/delete. */
     internal fun retainUncertainMoveReader() { moveReaderUncertain=true }
+    internal val hasUncertainMoveReader:Boolean get()=moveReaderUncertain
     /** Checked at each decision (#179 S1); see [cardPresent] for the card. */
     override fun available(): Boolean = !moveReaderUncertain && runCatching(present).getOrDefault(false)
 
@@ -867,6 +868,13 @@ internal object OfflineStore {
         // index. Muon sends neither; its Remove all sends a checked removal per row.
         if (action in unsupportedActions)
             return refused("Muon doesn't support that download command, so nothing was changed.")
+        // Includes the phone service: ordinary Add/Remove must not bypass uncertainty merely
+        // because they carry no move token. Refuse before manager budgets or receipts are touched.
+        if(shelf?.hasUncertainMoveReader==true && action in moveExcludedActions) {
+            refusedMoveCommand(intent)
+            return refused("Saved-copy storage is paused because a move reader couldn't close. " +
+                "Both copies were kept; fully stop Muon before trying again.")
+        }
         // Before token admission/invalidation: a refusal must not authorize an original's removal.
         // Read the old row as well: Media3 Add/Remove can hydrate a row omitted at startup. Failure
         // refuses the command, rather than accounting only the small new Add or the Remove's ID.

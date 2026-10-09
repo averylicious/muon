@@ -88,6 +88,22 @@ class MoveCommandAdmissionTest {
         } finally { database.close() }
     }
 
+    @Test fun uncertainVerificationReaderRefusesOrdinaryPhoneRemovalBeforeActualManagerAndIndex() {
+        val controller=service(); phone.retainUncertainMoveReader()
+        val store=OfflineStore.get(app); val epoch=store.moveCommandEpoch.get()
+        controller.get().onStartCommand(removal(),0,1); awaitSettled(phone.manager)
+        assertEquals(Download.STATE_COMPLETED,phone.manager.downloadIndex.getDownload(kept)?.state)
+        assertTrue(phone.cache.isCached(kept,0,payload.size.toLong()))
+        assertEquals(epoch,store.moveCommandEpoch.get())
+        for(action in listOf(DownloadService.ACTION_RESUME_DOWNLOADS,DownloadService.ACTION_SET_REQUIREMENTS)) {
+            val intent=android.content.Intent(action)
+            assertEquals(DownloadService.ACTION_INIT,OfflineStore.admitCommand(app,intent,phone)?.action)
+        }
+        val pause=android.content.Intent(DownloadService.ACTION_PAUSE_DOWNLOADS)
+        assertSame(pause,OfflineStore.admitCommand(app,pause,phone))
+        assertFalse(phone.available()); assertNotNull(phone.manager.downloadIndex.getDownload(kept))
+    }
+
     @Test fun aRemovalDeliveredDuringAMoveIsRefusedKeepingRowAndBytesThenAdmittedAfter() {
         val hold = holdMover()
         OfflineStore.move(app, toCard = true) // Admitted: both managers quiet. Its work waits behind the hold.
