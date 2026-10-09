@@ -15,7 +15,7 @@ import java.nio.file.Path
  */
 internal class MigrationIoOwnership(private val outputs:MoveFileOutputs=MoveFileOutputs.Real,
     private val inputs:(File)->RandomAccessFile={RandomAccessFile(it,"r")},
-    private val directories:(Path)->DirectoryStream<Path>={Files.newDirectoryStream(it)}) {
+    private val directories:(Path)->DirectoryStream<Path> = {Files.newDirectoryStream(it)}) {
     private val handles=arrayOfNulls<Closeable>(3)
     private val uncertain=BooleanArray(3)
     private val closing=BooleanArray(3)

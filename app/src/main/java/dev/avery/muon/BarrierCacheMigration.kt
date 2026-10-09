@@ -24,11 +24,11 @@ internal class BarrierCacheMigration(private val barrier:SavedStorageBarrier,
         availableBytes:()->Long,checkpoint:()->Unit,sourceFactory:((()->Unit))->Cache):MigrationRecord {
         val permit=barrier.exclusive()
         var quarantined=false
-        var preparing=true
+        var preparing=false
         var source:Cache?=null
         fun checked() { permit.check(); checkpoint(); permit.check() }
         try {
-            checked(); prepare(); preparing=false; checked()
+            checked(); preparing=true; prepare(); preparing=false; checked()
             source=sourceFactory(::checked); checked()
             return control.run(requireNotNull(source),key,publication,availableBytes,::checked)
         } catch(failure:Throwable) {
