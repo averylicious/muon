@@ -345,11 +345,11 @@ class ReaderRouteCompositionTest {
         val manager = DownloadManager(RuntimeEnvironment.getApplication(),
             RecordingIndex(index, generation, DefaultDownloadIndex(database, index)),
             DownloaderFactory { error("Fixture must not start a downloader") }).also(managers::add)
-        return Shelf(cache, manager, MuonDownloadService::class.java).also { shelf ->
+        return Shelf(cache, manager, MuonDownloadService::class.java,
+            audio = LegacySavedAudio(cache, DataSource.Factory { Wrapper(folder, FileDataSource()).also { wrappers.add(it) } })).also { shelf ->
             // The only seams: the cache-read source (a real FileDataSource, wrapped) and an upstream
             // that fails if ever reached, replacing the OkHttp one before any source is created.
             // Saved copies read through savedSource, which has no upstream at all (#213).
-            shelf.savedSource.setCacheReadDataSourceFactory { Wrapper(folder, FileDataSource()).also { wrappers.add(it) } }
             shelf.stream = DataSource.Factory { FailingUpstream() }
         }
     }

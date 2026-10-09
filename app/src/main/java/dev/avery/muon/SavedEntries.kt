@@ -321,18 +321,8 @@ internal class PlayedClaims private constructor(@Volatile private var claimed: S
 
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun savedCoverage(cache: Cache, key: String): Pair<SavedCoverage, Long> {
-    // Supported scalar query: SimpleCache sums its native spans without cloning a TreeSet.
-    // All cached bytes still count, including spans beyond an unknown/declared content length.
-    val bytes = cache.getCachedBytes(key, 0, Long.MAX_VALUE)
-    check(bytes >= 0) { "Invalid cached byte total" }
-    val length = ContentMetadata.getContentLength(cache.getContentMetadata(key))
-    val coverage = when {
-        bytes == 0L -> SavedCoverage.Missing
-        length == C.LENGTH_UNSET.toLong() || length <= 0 -> SavedCoverage.UnknownLength
-        cache.isCached(key, 0, length) -> SavedCoverage.Full
-        else -> SavedCoverage.Partial
-    }
-    return coverage to bytes
+    val state = savedAudioState(cache, key)
+    return state.coverage to state.bytes
 }
 
 /** "http://host:port" from a download's request address or a "origin/track" provenance; display only. */
@@ -346,39 +336,59 @@ internal fun savedOrigin(address: String?): String? = address?.let {
  * are listed only when complete: a partial one is a copy still being made, or one given up on.
  * Reads the index and the cache's in-memory state: call it off the main thread.
  */
+// Cache overloads preserve legacy characterization fixtures; production uses SavedAudio directly.
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, cache: Cache, played: PlayedClaims?,
     ownsCover: (String) -> Boolean): List<SavedEntry> =
-    savedInventory(shelf, { downloads.asSequence() }, cache, played, ownsCover)
+    savedInventory(shelf, downloads, LegacySavedAudio(cache), played, ownsCover)
+
+internal fun savedInventory(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
+    ownsCover: (String) -> Boolean): List<SavedEntry> =
+    savedInventory(shelf, index, LegacySavedAudio(cache), played, ownsCover)
+
+internal fun forEachSavedEntry(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
+    ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
+    checkpoint: () -> Unit = {}, ownership: ((Download) -> Boolean)? = null,
+    playedKeys: (((String) -> Boolean) -> Unit)? = null, emit: (SavedEntry) -> Unit) =
+    forEachSavedEntry(shelf, index, LegacySavedAudio(cache), played, ownsCover, include, checkpoint,
+        ownership, playedKeys, emit)
+
+internal fun countCompleteSavedCopies(shelf: SavedShelf, index: DownloadIndex, cache: Cache,
+    includePlayed: Boolean, playedKeys: (((String) -> Boolean) -> Unit)? = null): Long =
+    countCompleteSavedCopies(shelf, index, LegacySavedAudio(cache), includePlayed, playedKeys)
+
+internal fun savedInventory(shelf: SavedShelf, downloads: List<Download>, audio: SavedAudio, played: PlayedClaims?,
+    ownsCover: (String) -> Boolean): List<SavedEntry> =
+    savedInventory(shelf, { downloads.asSequence() }, audio, played, ownsCover)
 
 /**
  * Inventory over one rewindable index result: raw request data is projected one row at a time rather
  * than retained as a second full collection. Every row still participates in ownership, even one that
- * cannot be shown. The cursor closes on either successful projection or a failed cache/index read.
+ * cannot be shown. The cursor closes on either successful projection or a failed storage/index read.
  * This does not bound native cursor windows, key names, cache metadata or the final display list.
  */
-internal fun savedInventory(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
+internal fun savedInventory(shelf: SavedShelf, index: DownloadIndex, audio: SavedAudio, played: PlayedClaims?,
     ownsCover: (String) -> Boolean): List<SavedEntry> = ArrayList<SavedEntry>().also { entries ->
-    forEachSavedEntry(shelf, index, cache, played, ownsCover) { entries += it }
+    forEachSavedEntry(shelf, index, audio, played, ownsCover) { entries += it }
 }
 
 /** Streaming projection for a transactional consumer; a failed scan must never publish a prefix. */
-internal fun forEachSavedEntry(shelf: SavedShelf, index: DownloadIndex, cache: Cache, played: PlayedClaims?,
+internal fun forEachSavedEntry(shelf: SavedShelf, index: DownloadIndex, audio: SavedAudio, played: PlayedClaims?,
     ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
     checkpoint: () -> Unit = {}, ownership: ((Download) -> Boolean)? = null,
     playedKeys: (((String) -> Boolean) -> Unit)? = null, emit: (SavedEntry) -> Unit) = index.getDownloads().use { cursor ->
     projectSavedInventory(shelf, {
         cursor.moveToPosition(-1)
         sequence { while (cursor.moveToNext()) { checkpoint(); yield(cursor.download) } }
-    }, cache, played, ownsCover, include, checkpoint, ownership, playedKeys, emit)
+    }, audio, played, ownsCover, include, checkpoint, ownership, playedKeys, emit)
 }
 
-private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
+private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, audio: SavedAudio, played: PlayedClaims?,
     ownsCover: (String) -> Boolean): List<SavedEntry> = ArrayList<SavedEntry>().also { entries ->
-    projectSavedInventory(shelf, downloads, cache, played, ownsCover) { entries += it }
+    projectSavedInventory(shelf, downloads, audio, played, ownsCover) { entries += it }
 }
 
-private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, cache: Cache, played: PlayedClaims?,
+private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, audio: SavedAudio, played: PlayedClaims?,
     ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
     checkpoint: () -> Unit = {}, ownership: ((Download) -> Boolean)? = null,
     playedKeys: (((String) -> Boolean) -> Unit)? = null, emit: (SavedEntry) -> Unit) {
@@ -389,7 +399,8 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
         val key = keyOf(download)
         val ref = SavedRef.download(shelf, request.id, key) ?: continue
         if (!include(ref)) continue
-        val (coverage, bytes) = savedCoverage(cache, key)
+        val state = audio.inspect(key)
+        val (coverage, bytes) = state
         // Only a new save's own cover is shown, and only for the row it was fetched for (see DownloadArt).
         val newSave = request.id.startsWith(NEW_SAVE_PREFIX) && request.customCacheKey == request.id
         emit(SavedEntry(ref, decodeSavedSong(request.data), savedOrigin(request.uri.toString()), download.state,
@@ -397,16 +408,17 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
             stoppedAfterRestart = download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON,
             storedMetadataTooLarge = request.data.size > TRACK_METADATA_MAX_BYTES))
     }
-    // Played copies live only in the phone's cache; [played] is null for any other shelf.
+    // Played copies live only in the phone's storage; [played] is null for any other shelf.
     if (played != null) {
         fun projectPlayed(key: String): Boolean {
             if (!key.startsWith(PLAYED_PREFIX)) return true
             checkpoint()
             val ref = SavedRef.played(key) ?: return true
             if (!include(ref)) return true
-            val (coverage, bytes) = savedCoverage(cache, key)
+            val state = audio.inspect(key)
+            val (coverage, bytes) = state
             if (coverage != SavedCoverage.Full) return true
-            val metadata = cache.getContentMetadata(key)
+            val metadata = state.metadata
             val from = metadata.get(SAVED_FROM_METADATA, null as String?) ?: key.removePrefix(PLAYED_PREFIX)
             val songData = metadata.get(SONG_METADATA, null as ByteArray?)
             emit(SavedEntry(ref, songData?.let(::decodeSavedSong),
@@ -415,7 +427,7 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
             return true
         }
         if (playedKeys != null) playedKeys(::projectPlayed)
-        else for (key in cache.keys.sorted()) projectPlayed(key)
+        else audio.forEachKey(::projectPlayed)
     }
 }
 
@@ -427,7 +439,7 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
  * derived disk census; the default enumeration remains a small fixture/legacy seam. Native cache
  * content/metadata/span residency is separate.
  */
-internal fun countCompleteSavedCopies(shelf: SavedShelf, index: DownloadIndex, cache: Cache,
+internal fun countCompleteSavedCopies(shelf: SavedShelf, index: DownloadIndex, audio: SavedAudio,
     includePlayed: Boolean, playedKeys: (((String) -> Boolean) -> Unit)? = null): Long {
     var count = 0L
     index.getDownloads().use { cursor ->
@@ -437,16 +449,16 @@ internal fun countCompleteSavedCopies(shelf: SavedShelf, index: DownloadIndex, c
                 SavedRef.download(shelf, download.request.id, keyOf(download)) == null) continue
             val canPlay = download.state == Download.STATE_COMPLETED ||
                 (download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON)
-            val coverage = savedCoverage(cache, keyOf(download)).first
+            val coverage = audio.inspect(keyOf(download)).coverage
             if (canPlay && coverage == SavedCoverage.Full) count++
         }
     }
     if (includePlayed && shelf == SavedShelf.Phone) {
         fun countPlayed(key: String): Boolean {
-            if (SavedRef.played(key) != null && savedCoverage(cache, key).first == SavedCoverage.Full) count++
+            if (SavedRef.played(key) != null && audio.inspect(key).coverage == SavedCoverage.Full) count++
             return true
         }
-        if (playedKeys != null) playedKeys(::countPlayed) else for (key in cache.keys) countPlayed(key)
+        if (playedKeys != null) playedKeys(::countPlayed) else audio.forEachKey(::countPlayed)
     }
     return count
 }

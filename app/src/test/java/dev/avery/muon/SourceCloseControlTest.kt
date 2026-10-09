@@ -78,11 +78,11 @@ class SourceCloseControlTest {
         manager = DownloadManager(RuntimeEnvironment.getApplication(), index,
             DefaultDownloaderFactory(androidx.media3.datasource.cache.CacheDataSource.Factory().setCache(cache),
                 java.util.concurrent.Executor { it.run() }))
-        shelf = Shelf(cache, manager, MuonDownloadService::class.java)
+        shelf = Shelf(cache, manager, MuonDownloadService::class.java,
+            audio = LegacySavedAudio(cache, DataSource.Factory { Wrapper(FileDataSource()).also { wrappers.add(it) } }))
         // The only seams: the cache-read source (a real FileDataSource, wrapped) and an upstream that
         // fails if ever reached, replacing the OkHttp one before any source is created.
         // Saved copies read through savedSource, which has no upstream at all (#213).
-        shelf.savedSource.setCacheReadDataSourceFactory { Wrapper(FileDataSource()).also { wrappers.add(it) } }
         shelf.stream = DataSource.Factory { FailingUpstream() }
         seedCompletedDownload()
     }

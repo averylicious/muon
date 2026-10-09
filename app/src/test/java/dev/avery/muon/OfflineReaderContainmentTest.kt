@@ -256,10 +256,10 @@ class OfflineReaderContainmentTest {
         cache.checkInitialization()
         return Shelf(cache, DownloadManager(app, DefaultDownloadIndex(database, name),
             DownloaderFactory { error("Fixture must not start a downloader/network") }),
-            MuonDownloadService::class.java, present).also { shelf ->
+            MuonDownloadService::class.java,
+            audio = LegacySavedAudio(cache, DataSource.Factory { CountingFile().also(files::add) }), present = present).also { shelf ->
             // The only seams: the real FileDataSource, counted, and an in-memory upstream instead of OkHttp.
             // Saved copies read through savedSource, which has no upstream at all (#213); live songs stream.
-            shelf.savedSource.setCacheReadDataSourceFactory { CountingFile().also(files::add) }
             shelf.stream = DataSource.Factory { Upstream().also(upstreams::add) }
             shelves += shelf
         }

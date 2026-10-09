@@ -41,7 +41,9 @@ import okhttp3.Request
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val service: Class<out DownloadService>,
-    private val present: () -> Boolean = { true }) : ShelfState {
+    val audio: SavedAudio, private val present: () -> Boolean = { true }) : ShelfState {
+    constructor(cache: SimpleCache, manager: DownloadManager, service: Class<out DownloadService>,
+        present: () -> Boolean = { true }) : this(cache, manager, service, LegacySavedAudio(cache), present)
     /** Current-process service command/request retention; main-thread use only (#253). */
     internal var commands = DownloadCommandBudget()
 
@@ -52,8 +54,7 @@ internal class Shelf(val cache: SimpleCache, val manager: DownloadManager, val s
     @Volatile var stream: DataSource.Factory = OkHttpDataSource.Factory(Transport.client)
 
     /** Reads one saved copy and nothing else (#213): no upstream and no sink, so a missing byte fails. */
-    val savedSource: CacheDataSource.Factory = CacheDataSource.Factory().setCache(cache)
-        .setUpstreamDataSourceFactory(null).setCacheWriteDataSinkFactory(null)
+    val savedSource: DataSource.Factory get() = audio.source
 
     /** Checked at each decision (#179 S1); see [cardPresent] for the card. */
     override fun available(): Boolean = runCatching(present).getOrDefault(false)
@@ -544,7 +545,7 @@ internal object OfflineStore {
         val shelves = listOfNotNull(SavedShelf.Phone to store.phone,
             store.card?.takeIf { it.available() }?.let { SavedShelf.Card to it })
         for ((name, shelf) in shelves) runCatching {
-            entries += savedInventory(name, shelf.manager.downloadIndex, shelf.cache,
+            entries += savedInventory(name, shelf.manager.downloadIndex, shelf.audio,
                 played = store.playedClaims.takeIf { name == SavedShelf.Phone }) { store.art.hasEntry(it) }
         }
         return sortSaved(entries)
@@ -562,7 +563,7 @@ internal object OfflineStore {
         for ((name, shelf) in shelves) {
             checkpoint()
             SavedOwnerProjection.open(context, shelf.manager.downloadIndex, checkpoint).use { owners ->
-                forEachSavedEntry(name, shelf.manager.downloadIndex, shelf.cache,
+                forEachSavedEntry(name, shelf.manager.downloadIndex, shelf.audio,
                     if (name == SavedShelf.Phone) store.playedClaims else null,
                     { store.art.hasEntry(it) }, include, checkpoint, ownership = owners::soleOwner,
                     playedKeys = if (name == SavedShelf.Phone && store.played.hasDiskOrder) store.played::forEachKey else null,
@@ -580,7 +581,7 @@ internal object OfflineStore {
             store.card?.takeIf { it.available() }?.let { SavedShelf.Card to it })
         return shelves.sumOf { (name, shelf) ->
             // Match savedEntries: a failed shelf contributes nothing, never its partial scan.
-            runCatching { countCompleteSavedCopies(name, shelf.manager.downloadIndex, shelf.cache,
+            runCatching { countCompleteSavedCopies(name, shelf.manager.downloadIndex, shelf.audio,
                 includePlayed = name == SavedShelf.Phone,
                 playedKeys = if (name == SavedShelf.Phone && store.played.hasDiskOrder) store.played::forEachKey else null) }.getOrDefault(0L)
         }
@@ -606,7 +607,7 @@ internal object OfflineStore {
     fun admitsSaved(context: Context, ref: SavedRef): Boolean = runCatching {
         val store = get(context)
         when (ref.source) {
-            SavedSource.Played -> ref.key in store.cache.keys
+            SavedSource.Played -> store.phone.audio.contains(ref.key)
             SavedSource.Download -> {
                 val shelf = (if (ref.shelf == SavedShelf.Card) store.card else store.phone) ?: return@runCatching false
                 if (!shelf.available()) return@runCatching false
