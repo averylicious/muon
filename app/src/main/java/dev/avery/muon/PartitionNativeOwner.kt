@@ -95,6 +95,14 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         if(uid==ready.ticket.sourceUid) throw IOException("Ready partition aliases its source UID")
         return ready
     }
+    /** Read choice only. A new-save claim in ANY phase blocks legacy fallback; Ready migration
+     * takes precedence even if a later reservation/save claim appears. Pending migrations preserve
+     * the original legacy route. This observation does not establish a source exclusion barrier. */
+    @Synchronized fun savedReadRoute(key:String):PartitionReadRoute {
+        readyRoute(key)?.let { return PartitionReadRoute.Published(it) }
+        val saved=(saves ?: throw IOException("Mixed saved routing needs the save journal")).find(key)
+        return if(saved==null) PartitionReadRoute.Legacy else PartitionReadRoute.NewSave(saved)
+    }
     /** Bounded journal page; the caller must filter Ready and recheck identity before exposing it. */
     @Synchronized fun routePage(after:String?):List<MigrationRecord> {
         if(!healthy) throw IOException("Partition owner stopped after uncertain native ownership")
