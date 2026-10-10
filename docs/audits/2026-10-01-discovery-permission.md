@@ -1,0 +1,9 @@
+# Permission-gated discovery state and lifetime
+
+Inspected main `17309b11dd339dd833a8bf135b1b30b2d0f273a7`. ConnectScreen leaves probe null when access is denied, but combineDiscovery treats null as searching. The page therefore displays an indefinite phantom scan. The denied effect did not stop/clear a previous NSD scan, and startup relied on the initially-true permission snapshot until resume refreshed it.
+
+The focused fix checks actual permission at composition/start, returns an idle empty combined result while denied, stops/resets NSD/probe state, gates auto-connect and disables Scan again with an explanatory label until access is granted. Existing single-server auto-connect and subnet/probe behavior stay unchanged. This is not proof of a permission bypass: LibraryModel checks the actual grant, and the OS enforces it. A5's observed fresh-install miss remains unproven/unresolved.
+
+Three pure reducer regressions cover initial denial, stale completed/in-flight results and re-grant. They do not execute Compose lifecycle, NSD, an OS permission dialog or LAN sockets. CI is first compile; final exact-head checks and artifact are recorded on the PR. User phone QA remains pending: fresh Connect before grant has the Allow card/no spinner/stale servers; decline stays idle; granting starts discovery; revoke/return clears old scan/results; discovered and manual connection still work; earlier Android behavior is unchanged. Do not use the phone or change its settings without current authorization.
+
+Preserve #206 probe cancellation/client changes when combining LanProbe edits. Shared #39 auto-connect trust policy and stored-address/network reuse remain unchanged. No user/Claude experiment worktree/session touched. Implementation and author source self-check: GPT-6 / Codex desktop (Sol), effort not reported; no independent review or measured performance claim.
