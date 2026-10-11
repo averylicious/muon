@@ -126,9 +126,9 @@ internal object OfflineStore {
         /** Same process gate for phone/card saved readers and eventual partition startup/writers. */
         val storageBarrier:SavedStorageBarrier=SavedStorageBarrier()) {
         /** At most two final byte comparisons; uncertain actual readers remain owned until teardown. */
-        val moveComparisons=MoveByteComparison()
+        val moveComparisons=MoveByteComparison(barrier=storageBarrier)
         /** The serial copy retains exact raw participants if any actual close remains unknown. */
-        val moveCopies=MoveCopyLifetime()
+        val moveCopies=MoveCopyLifetime(storageBarrier)
         /** The phone's cache, which also holds the played-song copies. */
         var bootstrapPending = 0 // Application looper only.
         var bootstrapFailed = false

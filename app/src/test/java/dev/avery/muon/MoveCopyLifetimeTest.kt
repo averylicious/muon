@@ -57,18 +57,65 @@ class MoveCopyLifetimeTest {
             assertEquals(1,closes);assertEquals(1,notices)
         } finally { actual.forEach { it.close() } }
     }
-    @Test fun failedTargetFileFactoryClosesExistingSourceAndReleasesKnownOwnerForRetry() {
+    @Test fun failedTargetFileFactoryRetainsUnreturnedOwnershipAfterClosingKnownSource() {
         val source=source();val target=cache();val owner=MoveCopyLifetime();var closes=0
         val factory=DataSource.Factory {
             val raw=LegacySavedAudio(source).source.createDataSource()
             object:DataSource by raw { override fun close() { closes++;raw.close() } }
         }
         assertThrows(IOException::class.java) {
-            owner.copy(spec(),factory,target,MoveFileOutputs.Real,{true},{fail("Known cleanup")},
+            owner.copy(spec(),factory,target,MoveFileOutputs.Real,{true},{},
                 DataSource.Factory { throw IOException("Injected target factory refusal") })
         }
-        assertEquals(1,closes);assertFalse(owner.retained);assertEquals(0L,target.cacheSpace)
-        owner.copy(spec(),LegacySavedAudio(source).source,target,MoveFileOutputs.Real,{true},{fail("Healthy cleanup")})
-        assertFalse(owner.retained);assertEquals(8L,source.cacheSpace);assertEquals(8L,target.cacheSpace)
+        assertEquals(1,closes);assertTrue(owner.retained);assertEquals(0L,target.cacheSpace)
+        assertThrows(IOException::class.java) {
+            owner.copy(spec(),LegacySavedAudio(source).source,target,MoveFileOutputs.Real,{true},{})
+        }
+        assertEquals(8L,source.cacheSpace);assertEquals(0L,target.cacheSpace)
+    }
+
+    @Test fun destinationCloseStillOwnsGlobalAdmissionAfterSourceReaderHasClosed() {
+        val source=source(); val target=cache(); val gate=SavedStorageBarrier()
+        val owner=MoveCopyLifetime(gate); var checked=0
+        val outputs=MoveFileOutputs { file ->
+            val actual=java.io.FileOutputStream(file)
+            object:java.io.OutputStream() {
+                override fun write(value:Int)=actual.write(value)
+                override fun write(bytes:ByteArray,offset:Int,length:Int)=actual.write(bytes,offset,length)
+                override fun close() {
+                    checked++
+                    assertEquals(1,gate.active) // The independent upstream reader has drained.
+                    assertThrows(IOException::class.java) { gate.exclusive() }
+                    actual.close()
+                }
+            }
+        }
+        owner.copy(spec(),BarrierSavedAudio(LegacySavedAudio(source),gate).source,target,outputs,{true},{fail("Known close")})
+        assertTrue(checked>0); assertTrue(gate.quiescent); assertFalse(owner.retained)
+        assertEquals(8L,source.cacheSpace); assertEquals(8L,target.cacheSpace)
+    }
+    @Test fun exclusiveAdmissionRefusesCopyBeforeEitherFactoryAllocates() {
+        val gate=SavedStorageBarrier(); val lock=gate.exclusive(); val owner=MoveCopyLifetime(gate)
+        var created=0; val factory=DataSource.Factory { created++; throw AssertionError("Allocation before admission") }
+        try {
+            assertThrows(IOException::class.java) { owner.copy(spec(),factory,cache(),MoveFileOutputs.Real,{true},{},factory) }
+            assertEquals(0,created); assertFalse(owner.retained); assertEquals(1,gate.active)
+        } finally { lock.close() }
+        assertTrue(gate.quiescent)
+    }
+    @Test fun unreturnedActualFileReaderKeepsCopyPermitAndStopsFurtherStorageAdmission() {
+        val source=source(); val target=cache(); val gate=SavedStorageBarrier(); val owner=MoveCopyLifetime(gate)
+        val file=folders.newFile().apply { writeBytes(bytes) }; val actual=java.io.FileInputStream(file)
+        var notices=0
+        try {
+            assertThrows(IOException::class.java) {
+                owner.copy(spec(),LegacySavedAudio(source).source,target,MoveFileOutputs.Real,{true},{notices++},
+                    DataSource.Factory { check(actual.channel.isOpen); throw IOException("Unreturned file reader") })
+            }
+            assertTrue(actual.channel.isOpen); assertEquals(1,actual.read())
+            assertTrue(owner.retained); assertEquals(1,gate.active); assertEquals(1,notices)
+            assertThrows(IOException::class.java) { gate.shared() }
+            assertArrayEquals(bytes,file.readBytes()); assertEquals(8L,source.cacheSpace)
+        } finally { actual.close() }
     }
 }

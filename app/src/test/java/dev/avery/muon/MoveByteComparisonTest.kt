@@ -44,12 +44,12 @@ class MoveByteComparisonTest {
         var checks=0
         assertFalse(owner.compare(spec(),files(payload),files(payload),{++checks<3},{})); assertEquals(0,owner.active)
     }
-    @Test fun targetFactoryFailureClosesAlreadyCreatedSourceAndReleasesKnownOwnership() {
+    @Test fun targetFactoryFailureClosesKnownSourceButRetainsUnreturnedOwnership() {
         val owner=MoveByteComparison(); var closes=0
         assertThrows(IOException::class.java) {
             owner.compare(spec(),files(payload,closed={closes++}),DataSource.Factory { throw IOException("Creation refused") },{true},{})
         }
-        assertEquals(1,closes); assertEquals(0,owner.active)
+        assertEquals(1,closes); assertEquals(1,owner.active)
     }
     @Test fun bothUnknownRealFileClosesRetainOneSlotAndBlockRetryWithoutReclosingEither() {
         val owner=MoveByteComparison(); val actual=mutableListOf<DataSource>(); var closes=0; var notices=0
@@ -76,5 +76,41 @@ class MoveByteComparisonTest {
             }
             true
         },{})); assertEquals(0,owner.active)
+    }
+
+    @Test fun bothActualFileClosesKeepGlobalPermitUntilVerificationFinishes() {
+        val gate=SavedStorageBarrier(); val owner=MoveByteComparison(barrier=gate); var closed=0
+        val checkClose={
+            closed++; assertEquals(1,gate.active)
+            assertThrows(IOException::class.java) { gate.exclusive() }; Unit
+        }
+        assertTrue(owner.compare(spec(),files(payload,closed=checkClose),files(payload,closed=checkClose),{true},{}))
+        assertEquals(2,closed); assertTrue(gate.quiescent); assertEquals(0,owner.active)
+    }
+    @Test fun cancellationClosesBothKnownReadersAndReturnsGlobalPermit() {
+        val gate=SavedStorageBarrier(); val owner=MoveByteComparison(barrier=gate); var checks=0; var closes=0
+        assertFalse(owner.compare(spec(),files(payload,closed={closes++}),files(payload,closed={closes++}),{++checks<3},{}))
+        assertEquals(2,closes); assertTrue(gate.quiescent); assertEquals(0,owner.active)
+    }
+    @Test fun actualUnknownCloseRetainsGlobalPermitAndExactFilesWithoutRetry() {
+        val gate=SavedStorageBarrier(); val owner=MoveByteComparison(barrier=gate)
+        val actual=mutableListOf<DataSource>(); var notices=0
+        try {
+            assertThrows(IOException::class.java) {
+                owner.compare(spec(),files(payload,true,actual),files(payload),{true},{notices++})
+            }
+            assertEquals(1,owner.active); assertEquals(1,gate.active); assertEquals(1,notices)
+            assertThrows(IOException::class.java) { gate.exclusive() }
+            assertThrows(IOException::class.java) { gate.shared() }
+        } finally { actual.forEach { it.close() } }
+    }
+    @Test fun exclusiveAdmissionRefusesVerificationBeforeEitherFactoryAllocates() {
+        val gate=SavedStorageBarrier(); val owner=MoveByteComparison(barrier=gate); val lock=gate.exclusive()
+        var created=0; val factory=DataSource.Factory { created++; throw AssertionError("Allocation before admission") }
+        try {
+            assertThrows(IOException::class.java) { owner.compare(spec(),factory,factory,{true},{}) }
+            assertEquals(0,created); assertEquals(0,owner.active)
+        } finally { lock.close() }
+        assertTrue(gate.quiescent)
     }
 }
