@@ -47,6 +47,7 @@ internal class Shelf private constructor(private val legacyCache:SimpleCache?, v
     val cache:SimpleCache get()=legacyCache ?: throw java.io.IOException("This shelf uses owned partition storage")
     private var admission:SavedStorageBarrier?=null // Bound once by the construction factory, before exposure.
     internal val storagePaused:Boolean get()=admission?.allowsShared==false
+    internal val storageAdmission:SavedStorageBarrier? get()=admission
     fun managerForService():DownloadManager=partition?.managerForService() ?: manager
     companion object {
         fun ownedLegacy(cache:SimpleCache,manager:DownloadManager,service:Class<out DownloadService>,
@@ -466,7 +467,7 @@ internal object OfflineStore {
      * (#253). A failed read throws. Off the main thread.
      */
     private fun readCensus(context: Context, shelf: Shelf): DiskOwnershipCensus =
-        DiskOwnershipCensus.read(context, shelf.manager.downloadIndex,shelf.admission)
+        DiskOwnershipCensus.read(context, shelf.manager.downloadIndex,shelf.storageAdmission)
 
     /** Runs saved-copy requests and their checks off the main thread, one at a time. */
     private val saver = Executors.newSingleThreadExecutor()
