@@ -691,14 +691,34 @@ internal object OfflineStore {
                 SavedRemoval.NotOwned ->
                     notice(context, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
                 SavedRemoval.Busy ->
-                    notice(context, "A move is under way, so that copy wasn't removed. " +
-                        "Try again when the move finishes.")
+                    notice(context, "Saved storage is busy, so that copy wasn't removed. Try again later.")
+                SavedRemoval.Failed ->
+                    notice(context, "Muon couldn't confirm that saved copy was removed. Restart Muon before retrying.")
             }
         }
     }
 
     /** [Sent]: handed to the service for acknowledgement, not yet removed. [Waiting]: another removal batch pending. */
-    internal enum class SavedRemoval { Sent, Unavailable, NotOwned, Busy, Waiting }
+    internal enum class SavedRemoval { Sent, Unavailable, NotOwned, Busy, Waiting, Failed }
+
+    /** The actual explicit played-cache mutation, not merely an enqueue/snapshot check. */
+    internal fun removePlayedCopy(key:String,cache:androidx.media3.datasource.cache.Cache,
+        barrier:SavedStorageBarrier,removable:(String)->Boolean,onUncertain:()->Unit):SavedRemoval {
+        val permit=try { barrier.shared() } catch(_:java.io.IOException) { return SavedRemoval.Busy }
+        var uncertain=false
+        try {
+            permit.check()
+            if(!removable(key)) return SavedRemoval.NotOwned
+            cache.removeResource(key)
+            permit.check()
+            return SavedRemoval.Sent
+        } catch(failure:Throwable) {
+            uncertain=true
+            permit.quarantine(arrayOf(cache,key,failure))
+            try { onUncertain() } catch(callback:Throwable) { if(callback!==failure) failure.addSuppressed(callback) }
+            return SavedRemoval.Failed
+        } finally { if(!uncertain) permit.close() }
+    }
 
     /** [removeSaved]'s checks and command, on the calling thread; reads one index row. */
     internal fun removeSavedNow(context: Context, ref: SavedRef): SavedRemoval {
@@ -706,10 +726,9 @@ internal object OfflineStore {
         if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
-            if (!store.playedClaims.removable(ref.key)) return SavedRemoval.NotOwned
-            // A copy being written is under a fresh key of its own; SimpleCache serializes removals.
-            runCatching { store.cache.removeResource(ref.key) }
-            return SavedRemoval.Sent
+            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removable) {
+                store.played.quarantine()
+            }
         }
         // #230: no removal reaches a manager while a move reads and writes copies. The song's own hand-over is
         // revoked now, so the move does not add it once it finishes (#234); the removal itself is not kept
