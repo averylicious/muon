@@ -9,8 +9,9 @@ import java.util.concurrent.RejectedExecutionException
  */
 internal class PartitionMigrationWork(private val executor:Executor,
     private val migrate:(CacheMigrationControl,String)->MigrationRecord,
-    private val available:()->Boolean,private val nanoTime:()->Long=System::nanoTime) {
-    private class Attempt(val key:String,val control:CacheMigrationControl) { var uncertainSubmission=false }
+    private val available:()->Boolean,private val nanoTime:()->Long=System::nanoTime,
+    private val knownRejectionBeforeSubmission:Boolean=false) {
+    private class Attempt(val key:String,val control:CacheMigrationControl) { var uncertainSubmission=false; var finished=false }
     private var active:Attempt?=null
     private var terminal=MigrationWorkProgress(MigrationWorkPhase.Waiting)
     private var terminalKey:String?=null
@@ -18,21 +19,24 @@ internal class PartitionMigrationWork(private val executor:Executor,
         active?.let { if(it.uncertainSubmission) it.control.progress.copy(phase=MigrationWorkPhase.Uncertain) else it.control.progress } ?: terminal
     @get:Synchronized val key:String? get()=active?.key ?: terminalKey
     @get:Synchronized val busy:Boolean get()=active!=null
-    /** Caller owes the user's explicit opt-in. False refuses before scheduling/claiming/mutating;
-     * success is submission only, never a Ready receipt. The actual storage owner rechecks authority.
+    /** Caller owes the user's explicit opt-in. False means known refusal or unconfirmed submission (inspect busy/progress);
+     * true means known submission/execution, never by itself a Ready receipt. The actual storage owner rechecks authority.
      */
     @Synchronized fun start(key:String,timeoutMillis:Long,explicitConsent:Boolean):Boolean {
         if(!explicitConsent || active!=null || key.length.toLong()*2>MIGRATION_KEY_BYTES || !available()) return false
         val control=CacheMigrationControl(timeoutMillis,acceptedNanos=nanoTime(),nanoTime=nanoTime)
         val attempt=Attempt(key,control); active=attempt
         try { executor.execute { run(attempt) } }
-        catch(_:RejectedExecutionException) {
-            if(active===attempt) { active=null; terminalKey=key; terminal=MigrationWorkProgress(MigrationWorkPhase.Failed) }
-            return false // Owned standard executor refused before scheduling.
-        } catch(_:Throwable) {
-            // An arbitrary executor can throw after submission. Keep the slot, cancel cooperatively
-            // and do not reinterpret an unknown acceptance as permission to start a second writer.
-            if(active===attempt) { attempt.uncertainSubmission=true; control.cancel() }
+        catch(failure:Throwable) {
+            // An inline executor may finish the exact operation and then throw. Completion proves
+            // execution, not that it succeeded; its actual progress remains the outcome.
+            if(attempt.finished) return true
+            if(failure is RejectedExecutionException && knownRejectionBeforeSubmission) {
+                if(active===attempt) { active=null; terminalKey=key; terminal=MigrationWorkProgress(MigrationWorkPhase.Failed) }
+            } else if(active===attempt) {
+                // A rejection type alone does not prove non-delivery by an arbitrary executor.
+                attempt.uncertainSubmission=true; control.cancel()
+            }
             return false
         }
         return true
@@ -42,6 +46,11 @@ internal class PartitionMigrationWork(private val executor:Executor,
         attempt.control.cancel(); return true
     }
     private fun run(attempt:Attempt) {
+        synchronized(this) {
+            // start owns this monitor until execute returns. A late accepted runnable sees unknown
+            // submission before any callback, journal allocation or file I/O can start.
+            if(active!==attempt || attempt.uncertainSubmission || attempt.finished) return
+        }
         var result=MigrationWorkProgress(MigrationWorkPhase.Failed)
         try {
             migrate(attempt.control,attempt.key)
@@ -56,6 +65,7 @@ internal class PartitionMigrationWork(private val executor:Executor,
                 else -> observed.copy(phase=MigrationWorkPhase.Failed)
             }
         } finally { synchronized(this) {
+            attempt.finished=true
             if(active===attempt) {
                 terminalKey=attempt.key; terminal=result
                 if(result.phase==MigrationWorkPhase.Uncertain || attempt.uncertainSubmission)

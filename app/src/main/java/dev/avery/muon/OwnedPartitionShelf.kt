@@ -106,7 +106,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             val workers=owner.own { java.util.concurrent.Executors.newSingleThreadExecutor() }
             val work=owner.own { PartitionMigrationWork(workers,{ control,name ->
                 legacy.migrate(session,control,name,{ directory.usableSpace }) { located() }
-            },::available) }
+            },::available,knownRejectionBeforeSubmission=true) }
             Resources(legacy,catalog,migrations,saves,session,manager,workers,work)
         }; phase=Phase.Ready }
         catch(failure:Throwable) {

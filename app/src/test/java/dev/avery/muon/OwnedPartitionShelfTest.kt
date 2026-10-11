@@ -151,7 +151,7 @@ class OwnedPartitionShelfTest {
         try {
             owner.prepare()
             val rejected=PartitionMigrationWork(java.util.concurrent.Executor { throw java.util.concurrent.RejectedExecutionException() },
-                {control,key -> owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
+                {control,key -> owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L},knownRejectionBeforeSubmission=true)
             assertFalse(rejected.start("old",1000,true)); assertFalse(rejected.busy)
             assertEquals(MigrationWorkPhase.Failed,rejected.progress.phase)
             val unknown=PartitionMigrationWork(java.util.concurrent.Executor { pending=it; throw IOException("Unknown submission return") },
@@ -162,6 +162,58 @@ class OwnedPartitionShelfTest {
             assertTrue(unknown.busy); assertEquals(MigrationWorkPhase.Uncertain,unknown.progress.phase)
             CacheMigrationJournal(f.root,create=false).use { assertNull(it.find("old")) }
             assertEquals(0,f.budget.resident); assertArrayEquals(payload,f.original.readBytes())
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun acceptedThenRejectedRunnableNeverInvokesMigrationOrReleasesItsSlot() {
+        val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null; var migrations=0
+        try {
+            owner.prepare()
+            val work=PartitionMigrationWork(java.util.concurrent.Executor { pending=it; throw java.util.concurrent.RejectedExecutionException("Accepted first") },
+                { control,key -> migrations++; owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
+            assertFalse(work.start("old",1000,true)); assertTrue(work.busy)
+            requireNotNull(pending).run(); requireNotNull(pending).run()
+            assertEquals(0,migrations); assertTrue(work.busy); assertEquals(MigrationWorkPhase.Uncertain,work.progress.phase)
+            assertFalse(work.start("other",1000,true))
+            CacheMigrationJournal(f.root,create=false).use { assertNull(it.find("old")) }
+            assertEquals(0,f.budget.resident); assertArrayEquals(payload,f.original.readBytes())
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun inlineActualReadyThenExecutorThrowReportsKnownExecutionWithoutRewritingOutcome() {
+        val f=Fixture(); val owner=f.owner(); var migrations=0
+        try {
+            owner.prepare()
+            val work=PartitionMigrationWork(java.util.concurrent.Executor { it.run(); throw IOException("After completion") },
+                { control,key -> migrations++; owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
+            assertTrue(work.start("old",1000,true)); assertFalse(work.busy)
+            assertEquals(1,migrations); assertEquals(MigrationWorkPhase.Ready,work.progress.phase)
+            CacheMigrationJournal(f.root,create=false).use { assertEquals(MigrationPhase.Ready,it.ready("old")?.phase) }
+            assertArrayEquals(payload,f.original.readBytes())
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun replayingAnAlreadyFinishedRunnableCannotBeginAnotherActualMigration() {
+        val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null; var migrations=0
+        try {
+            owner.prepare()
+            val work=PartitionMigrationWork(java.util.concurrent.Executor { pending=it },
+                { control,key -> migrations++; owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
+            assertTrue(work.start("old",1000,true)); requireNotNull(pending).run()
+            val ready=CacheMigrationJournal(f.root,create=false).use { it.ready("old") }
+            requireNotNull(pending).run()
+            assertEquals(1,migrations); assertFalse(work.busy); assertEquals(MigrationWorkPhase.Ready,work.progress.phase)
+            CacheMigrationJournal(f.root,create=false).use { assertEquals(ready,it.ready("old")) }
+            assertArrayEquals(payload,f.original.readBytes())
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun inlineActualFailureThenExecutorThrowDoesNotPretendNoSubmissionOccurred() {
+        val f=Fixture(); val owner=f.owner(); var migrations=0
+        try {
+            owner.prepare()
+            val work=PartitionMigrationWork(java.util.concurrent.Executor { it.run(); throw java.util.concurrent.RejectedExecutionException("After execution") },
+                { _,_ -> migrations++; throw IOException("Known operation failure") },{owner.isAvailable},nanoTime={0L})
+            assertTrue(work.start("old",1000,true)); assertEquals(1,migrations)
+            assertFalse(work.busy); assertEquals(MigrationWorkPhase.Failed,work.progress.phase)
+            CacheMigrationJournal(f.root,create=false).use { assertNull(it.find("old")) }
+            assertArrayEquals(payload,f.original.readBytes())
         } finally { teardown(owner); f.provider.close() }
     }
     @Test fun resumedShelfReadsReadyCopyWithoutReopeningLegacyCacheOrInventingNewMigration() {
