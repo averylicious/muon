@@ -1,0 +1,9 @@
+# Single-name ownership checks — 2026-10-08
+
+#253 engineering slice on top of #400, including main9eb3947a98b8421c907348f06c08ca03bb0b1089. GPT-6 / Codex desktop implemented and author-self-reviewed; exact variant/effort not exposed. Claude Opus5.5/Claude Code High separately investigates manager retention; no Claude edits/review on this slice. Application PR remains open pending UAT, no Stable release/merge authorization inferred.
+
+`IndexNameProbe` reads every native index row in every state, retaining one candidate IndexRow and two saturated counters rather than the whole-index row/name maps. Only after scan/close succeeds can single-copy removal and final source/target move completion use it. Hidden oversized aliases, duplicate IDs, fallback keys and played-copy names retain the existing refusal rules. Actual request/state/byte/epoch/receipt checks before source removal are unchanged. Originals are not rewritten or discarded.
+
+This addresses two production single-name checks. Full batch/remove-all/name inventories, manager STOPPED lifetime/active tasks, native cache/content key cardinality and other queue limits remain required #253 engineering. IO remains linear, one raw row/name can be large, and no whole-process heap/performance measurement is claimed.
+
+Five new tests cover native all-state/hidden ownership equivalence,514-row full scan with constant-holder result shape, exact UTF-16/duplicate names, later-row failure and close failure. Existing production move characterization covers healthy exact completion, mismatched request, unread index and single-copy removal. CI is the first real compilation; final-head check/build receipts will be recorded on the PR/shared checkpoint. Manual acceptance remains pending: remove only a disposable sole-owned copy; normal move keeps target playable and removes source only after verified completion. Do not test with original-only data.
