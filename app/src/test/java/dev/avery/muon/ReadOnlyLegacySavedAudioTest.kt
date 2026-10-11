@@ -175,9 +175,12 @@ class ReadOnlyLegacySavedAudioTest {
         assertArrayEquals(payload,f.originals.single().readBytes())
     }
     @Test fun actualDecoderRefusesReentryAndReleasesAdmissionAfterKnownCancellation() {
-        val f=Fixture(); var checks=0; var rejected=false
+        val f=Fixture(); var rejected=false
+        // Observe the real admission phase, without guessing how many schema checkpoints run.
+        val decoder=LegacyResourceProjection::class.java.getDeclaredField("playbackDecoder")
+            .apply { isAccessible=true }.get(null) as java.util.concurrent.atomic.AtomicBoolean
         LegacyResourceProjection.readAudio(f.root,f.uid,"key/0",f.read,{
-            if(++checks==3) {
+            if(decoder.get() && !rejected) {
                 val failure=assertThrows(IOException::class.java) {
                     LegacyResourceProjection.readAudio(f.root,f.uid,"key/0",f.read,{})
                 }
@@ -185,10 +188,9 @@ class ReadOnlyLegacySavedAudioTest {
             }
         })
         assertTrue(rejected)
-        checks=0
         assertThrows(IOException::class.java) {
             LegacyResourceProjection.readAudio(f.root,f.uid,"key/0",f.read,{
-                if(++checks==3) throw IOException("Controlled cancellation during actual decode")
+                if(decoder.get()) throw IOException("Controlled cancellation during actual decode")
             })
         }
         assertEquals(SavedCoverage.Full,f.audio().inspect("key/0").coverage)
