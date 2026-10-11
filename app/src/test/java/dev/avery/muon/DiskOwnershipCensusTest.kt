@@ -147,4 +147,23 @@ class DiskOwnershipCensusTest {
         assertThrows(java.io.IOException::class.java) { census.countCompleted() }
         census.close(); assertTrue(gate.quiescent); assertEquals(1,rows().size)
     }
+
+    @Test fun callbackCannotReleaseScratchAdmissionWhileItsActualCursorIsStillOpen() {
+        put("saved/a","saved/a"); val gate=SavedStorageBarrier(); val census=DiskOwnershipCensus.read(app,index,gate)
+        census.forEachRow {
+            assertThrows(IllegalStateException::class.java) { census.close() }
+            assertEquals(1,gate.active); assertThrows(java.io.IOException::class.java) { gate.exclusive() }
+            assertTrue(census.soleOwner(it.id)); false
+        }
+        assertEquals(1,gate.active); census.close(); assertTrue(gate.quiescent)
+    }
+    @Test fun failedOpaqueSqliteQueryRetainsAuthorityOwnerInsteadOfGrantingLiveRetry() {
+        put("saved/a","saved/a"); val gate=SavedStorageBarrier(); val census=DiskOwnershipCensus.read(app,index,gate)
+        // Fixture only: force an actual database query failure; production never externally closes it.
+        val scratch=census.javaClass.getDeclaredField("db").apply { isAccessible=true }.get(census) as android.database.sqlite.SQLiteDatabase
+        scratch.close()
+        assertThrows(IllegalStateException::class.java) { census.countCompleted() }
+        assertEquals(1,gate.active); assertFalse(gate.allowsShared)
+        assertThrows(java.io.IOException::class.java) { census.close() }; assertEquals(1,rows().size)
+    }
 }
