@@ -104,4 +104,47 @@ class DiskOwnershipCensusTest {
             }
         }
     }
+
+    @Test fun actualCensusRetainsAdmissionAfterIndexScanAndUntilScratchCloses() {
+        put("saved/a","saved/a"); val gate=SavedStorageBarrier()
+        val census=DiskOwnershipCensus.read(app,StorageDownloadIndex(index,gate),gate)
+        assertEquals(1,gate.active) // Native index cursor is closed; scratch authority is still live.
+        assertTrue(census.soleOwner("saved/a"))
+        census.forEachRow { assertThrows(java.io.IOException::class.java) { gate.exclusive() }; false }
+        gate.stopAdmission(); census.close(); census.close(); assertTrue(gate.quiescent)
+        assertEquals(1,rows().size)
+    }
+    @Test fun exclusiveAdmissionRefusesBeforeScanningAnyOriginalRow() {
+        val gate=SavedStorageBarrier(); val lock=gate.exclusive(); var scans=0
+        val controlled=object:DownloadIndex by index {
+            override fun getDownloads(vararg states:Int):DownloadCursor { scans++; return index.getDownloads(*states) }
+        }
+        try {
+            assertThrows(java.io.IOException::class.java) { DiskOwnershipCensus.read(app,controlled,gate) }
+            assertEquals(0,scans); assertEquals(1,gate.active)
+        } finally { lock.close() }
+    }
+    @Test fun actualFailedScanRetainsItsAttemptAndNeverPublishesPartialAuthority() {
+        put("saved/a","saved/a"); val gate=SavedStorageBarrier(); var closes=0
+        val controlled=object:DownloadIndex by index {
+            override fun getDownloads(vararg states:Int):DownloadCursor {
+                val raw=index.getDownloads(*states)
+                return object:DownloadCursor by raw {
+                    override fun moveToNext():Boolean=throw java.io.IOException("Uncertain native scan")
+                    override fun close() { closes++; raw.close() }
+                }
+            }
+        }
+        assertThrows(java.io.IOException::class.java) { DiskOwnershipCensus.read(app,controlled,gate) }
+        assertEquals(1,closes); assertEquals(1,gate.active); assertFalse(gate.allowsShared)
+        assertThrows(java.io.IOException::class.java) { DiskOwnershipCensus.read(app,index,gate) }
+        assertEquals(1,rows().size)
+    }
+    @Test fun invalidatedCensusRefusesStaleAuthorityButKnownCloseStillDrains() {
+        put("saved/a","saved/a"); val gate=SavedStorageBarrier(); val census=DiskOwnershipCensus.read(app,index,gate)
+        gate.invalidate()
+        assertThrows(java.io.IOException::class.java) { census.soleOwner("saved/a") }
+        assertThrows(java.io.IOException::class.java) { census.countCompleted() }
+        census.close(); assertTrue(gate.quiescent); assertEquals(1,rows().size)
+    }
 }

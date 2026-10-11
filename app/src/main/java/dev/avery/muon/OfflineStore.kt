@@ -466,7 +466,7 @@ internal object OfflineStore {
      * (#253). A failed read throws. Off the main thread.
      */
     private fun readCensus(context: Context, shelf: Shelf): DiskOwnershipCensus =
-        DiskOwnershipCensus.read(context, shelf.manager.downloadIndex)
+        DiskOwnershipCensus.read(context, shelf.manager.downloadIndex,shelf.admission)
 
     /** Runs saved-copy requests and their checks off the main thread, one at a time. */
     private val saver = Executors.newSingleThreadExecutor()
