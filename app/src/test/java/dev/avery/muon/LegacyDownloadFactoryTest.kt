@@ -170,4 +170,39 @@ class LegacyDownloadFactoryTest {
         task.download(null); assertEquals(2,opens); assertEquals(2,closes)
         assertTrue(cache.isCached(key,0,5)); assertTrue(barrier.quiescent)
     }
+
+    @Test fun thrownOpaqueRemovalRetainsExactTaskAndRefusesNativeRetry() {
+        factory().createDownloader(request()).download(null); var mutations=0; var notices=0
+        val controlled=object:androidx.media3.datasource.cache.Cache by cache {
+            override fun removeResource(key:String) { mutations++; held(); throw IOException("Unknown native removal") }
+        }
+        val task=LegacyDownloadFactory(controlled,bytes(),barrier,onUncertain={notices++}).createDownloader(request())
+        assertThrows(IOException::class.java) { task.remove() }
+        assertEquals(1,mutations); assertEquals(1,notices); assertEquals(1,barrier.active)
+        assertThrows(IOException::class.java) { task.remove() }
+        assertThrows(IOException::class.java) { task.download(null) }
+        assertThrows(IOException::class.java) { factory().createDownloader(request()).remove() }
+        assertEquals(1,mutations); assertTrue(cache.isCached(key,0,5)); assertFalse(barrier.allowsShared)
+    }
+    @Test fun knownSuccessfulNativeRemovalDrainsAndCanBeFollowedByAnotherSave() {
+        val task=factory().createDownloader(request()); task.download(null)
+        var mutations=0
+        val observed=object:androidx.media3.datasource.cache.Cache by cache {
+            override fun removeResource(key:String) { mutations++; held(); cache.removeResource(key) }
+        }
+        LegacyDownloadFactory(observed,bytes(),barrier).createDownloader(request()).remove()
+        assertEquals(1,mutations); assertTrue(barrier.quiescent); assertFalse(cache.isCached(key,0,5))
+        task.download(null); assertTrue(cache.isCached(key,0,5)); assertTrue(barrier.quiescent)
+    }
+    @Test fun failedAdmissionDoesNotPoisonAHealthyNativeRemovalTask() {
+        var mutations=0
+        val observed=object:androidx.media3.datasource.cache.Cache by cache {
+            override fun removeResource(key:String) { mutations++; cache.removeResource(key) }
+        }
+        val task=LegacyDownloadFactory(observed,bytes(),barrier).createDownloader(request())
+        val lock=barrier.exclusive()
+        try { assertThrows(IOException::class.java) { task.remove() }; assertEquals(0,mutations) }
+        finally { lock.close() }
+        task.remove(); assertEquals(1,mutations); assertTrue(barrier.quiescent)
+    }
 }

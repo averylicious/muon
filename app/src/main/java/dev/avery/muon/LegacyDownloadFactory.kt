@@ -37,7 +37,7 @@ internal class LegacyDownloadFactory(private val cache:Cache,private val upstrea
         // native byte-range requests retain their existing offset/length behavior.
         return Task(request.uri,key,range?.offset ?: 0,range?.length ?: C.LENGTH_UNSET.toLong())
     }
-    private class Broken(val native:Downloader?,val tracker:ClosureTracker,val failure:Throwable?)
+    private class Broken(val task:Any,val native:Downloader?,val tracker:ClosureTracker,val failure:Throwable?)
     private inner class Task(private val uri:android.net.Uri,private val key:String,
         private val position:Long,private val length:Long):Downloader {
         private val lock=Any()
@@ -67,8 +67,8 @@ internal class LegacyDownloadFactory(private val cache:Cache,private val upstrea
             }
             synchronized(lock) { if(cancelled) throw CancellationException("Saved download cancelled") }
         }
-        override fun remove()=operate { cache.removeResource(key) }
-        private fun operate(work:(ClosureTracker)->Unit) {
+        override fun remove()=operate(opaqueMutation=true) { cache.removeResource(key) }
+        private fun operate(opaqueMutation:Boolean=false,work:(ClosureTracker)->Unit) {
             synchronized(lock) {
                 if(running || uncertain) throw IOException("Saved download is busy or uncertain")
                 running=true; started=false
@@ -76,20 +76,25 @@ internal class LegacyDownloadFactory(private val cache:Cache,private val upstrea
             var lease:SavedStorageBarrier.Lease?=null
             val tracker=ClosureTracker { lease?.check() }
             var failure:Throwable?=null
+            var entered=false
+            var returned=false
             try {
                 lease=barrier.shared(); lease.check()
-                work(tracker); lease.check()
+                entered=true
+                work(tracker); returned=true; lease.check()
             } catch(caught:Throwable) { failure=caught }
             finally {
                 try {
-                    if(!tracker.clean()) {
-                        val broken=Broken(native,tracker,failure)
+                    if(!tracker.clean() || (opaqueMutation && entered && !returned)) {
+                        // A removal has no source/sink tracker to expose its native partial result.
+                        // A throwing opaque mutation must not masquerade as known quiescence.
+                        val broken=Broken(this,native,tracker,failure)
                         synchronized(lock) { uncertain=true }
                         lease?.quarantine(broken)
                         try { onUncertain() } catch(callback:Throwable) {
                             if(failure==null) failure=callback else failure!!.addSuppressed(callback)
                         }
-                        val unknown=IOException("Saved download component close or construction is uncertain")
+                        val unknown=IOException("Saved download component construction, close or mutation is uncertain")
                         if(failure==null) failure=unknown else failure!!.addSuppressed(unknown)
                     } else lease?.close()
                 } finally { synchronized(lock) { running=false; started=false; native=null } }
