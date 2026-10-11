@@ -144,6 +144,60 @@ class SavedCoverLifetimeTest {
         tasks.removeFirst().run(); assertEquals(0,mutations)
         assertThrows(IOException::class.java) { gate.exclusive() }
     }
+    @Test fun actualDisplayReaderHoldsPermitUntilItsRealFileDescriptorCloses() {
+        val dir=Files.createTempDirectory("cover-display-known").toFile(); val gate=SavedStorageBarrier(1)
+        var closes=0
+        val art=DownloadArt(dir,barrier=gate,inputs={ file ->
+            object:java.io.FilterInputStream(java.io.FileInputStream(file)) {
+                override fun read(bytes:ByteArray,offset:Int,length:Int):Int {
+                    assertEquals(1,gate.active); assertThrows(IOException::class.java) { gate.exclusive() }
+                    return super.read(bytes,offset,length)
+                }
+                override fun close() { closes++; assertEquals(1,gate.active); super.close() }
+            }
+        })
+        try {
+            entry(dir,"active").writeBytes(byteArrayOf(6,7,8))
+            assertArrayEquals(byteArrayOf(6,7,8),art.forEntry("active"))
+            assertEquals(1,closes); assertTrue(gate.quiescent)
+            val exclusive=gate.exclusive(); assertNull(art.forEntry("active")); exclusive.close()
+            assertEquals(1,closes) // Refusal did not open another descriptor.
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun unknownActualDisplayCloseRetainsDescriptorAndRefusesRemovalWithoutRetry() {
+        val dir=Files.createTempDirectory("cover-display-unknown").toFile(); val gate=SavedStorageBarrier()
+        var raw:java.io.FileInputStream?=null; var attempts=0
+        val art=DownloadArt(dir,barrier=gate,inputs={ file ->
+            raw=java.io.FileInputStream(file)
+            object:java.io.FilterInputStream(raw!!) {
+                override fun close() { attempts++; throw IOException("Controlled actual display close unknown") }
+            }
+        })
+        val file=entry(dir,"active").apply { writeBytes(byteArrayOf(2,3,4)) }
+        try {
+            assertNull(art.forEntry("active")); assertEquals(1,attempts); assertEquals(1,gate.active)
+            assertNull(art.forEntry("active")); assertEquals(1,attempts)
+            assertThrows(IOException::class.java) { art.removeEntry("active") }
+            assertThrows(IOException::class.java) { gate.exclusive() }
+            assertArrayEquals(byteArrayOf(2,3,4),file.readBytes())
+        } finally { raw?.close(); dir.deleteRecursively() } // Only the disposable fixture closes raw FD.
+    }
+    @Test fun fileSizeCheckCannotAdmitAnUnboundedGrowingDisplaySource() {
+        val dir=Files.createTempDirectory("cover-display-cap").toFile(); val gate=SavedStorageBarrier()
+        var read=0L; var closes=0
+        val art=DownloadArt(dir,barrier=gate,inputs={
+            object:java.io.InputStream() {
+                override fun read()=1
+                override fun read(bytes:ByteArray,offset:Int,length:Int):Int { read+=length; bytes.fill(1,offset,offset+length); return length }
+                override fun close() { closes++ }
+            }
+        })
+        try {
+            entry(dir,"active").writeBytes(byteArrayOf(1))
+            assertNull(art.forEntry("active")); assertTrue(read<=4L*1024*1024+8192)
+            assertEquals(1,closes); assertTrue(gate.quiescent)
+        } finally { dir.deleteRecursively() }
+    }
     @Test fun closeReentryCannotEraseTheExactOutputEvenIfCallbackSuppressesFailure() {
         val owner=SavedCoverIo(); var attempts=0
         val output=object:java.io.OutputStream() {

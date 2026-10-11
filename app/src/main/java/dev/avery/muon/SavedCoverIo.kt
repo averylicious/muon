@@ -1,6 +1,7 @@
 package dev.avery.muon
 
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import okhttp3.Response
 import okio.BufferedSource
@@ -12,6 +13,7 @@ internal class SavedCoverIo {
     var response:Response?=null
     var source:BufferedSource?=null
     var output:OutputStream?=null
+    var input:InputStream?=null // Installed before wrapping a real cover file in an Okio source.
     private var closing=false
     private var finished=false
     private var uncertain=false
@@ -23,7 +25,10 @@ internal class SavedCoverIo {
         try {
             try { output?.close(); if(!uncertain) output=null }
             catch(error:Throwable) { uncertain=true; failure=error }
-            try { source?.close(); if(!uncertain) source=null }
+            try {
+                if(source!=null) source!!.close() else input?.close()
+                if(!uncertain) { source=null; input=null }
+            }
             catch(error:Throwable) {
                 uncertain=true
                 if(failure==null) failure=error else if(failure!==error) failure!!.addSuppressed(error)

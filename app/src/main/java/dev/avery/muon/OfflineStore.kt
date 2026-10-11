@@ -206,7 +206,7 @@ internal object OfflineStore {
             claims.read(phone.manager.downloadIndex)
             if (claims.known) playedWork.resize { played.resize(limit) }
         }
-        val art = DownloadArt(File(context.filesDir, "downloads-art"))
+        val art = DownloadArt(File(context.filesDir, "downloads-art"),barrier=barrier)
         // Covers are fetched one at a time, beside the downloads rather than in their way.
         val artwork = DownloadArtworkWork(owner.own { Executors.newSingleThreadExecutor() }, art::fetchEntry, art::removeEntry,
             barrier=barrier, knownRejectionBeforeSubmission=true)
