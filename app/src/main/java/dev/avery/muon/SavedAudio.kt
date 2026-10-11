@@ -20,7 +20,7 @@ internal interface SavedAudio {
 }
 
 internal data class SavedAudioState(val coverage: SavedCoverage, val bytes: Long,
-    val metadata: ContentMetadata)
+    val metadata: ContentMetadata, val displayMetadataLimited: Boolean = false)
 
 /** Explicit legacy implementation. Its already-open native index and keys remain unbounded (#253).
  * CacheDataSource is read-only: missing bytes cannot reach Tauon or create replacement cache files.

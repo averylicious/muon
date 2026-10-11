@@ -423,7 +423,7 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
             val songData = metadata.get(SONG_METADATA, null as ByteArray?)
             emit(SavedEntry(ref, songData?.let(::decodeSavedSong),
                 savedOrigin(from), null, coverage, bytes, ownCover = false, removable = played.removable(key),
-                storedMetadataTooLarge = songData != null && songData.size > TRACK_METADATA_MAX_BYTES))
+                storedMetadataTooLarge = state.displayMetadataLimited || (songData != null && songData.size > TRACK_METADATA_MAX_BYTES)))
             return true
         }
         if (playedKeys != null) playedKeys(::projectPlayed)

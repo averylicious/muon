@@ -27,8 +27,10 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
     }
     private val bounded=BarrierSavedAudio(object:SavedAudio {
         override val source=DataSource.Factory { Reader() }
-        override fun inspect(key:String):SavedAudioState =
-            savedAudioState(LegacyResourceProjection.read(directory,uid,key,index,checkpoint),key)
+        override fun inspect(key:String):SavedAudioState {
+            val view=LegacyResourceProjection.readAudio(directory,uid,key,index,checkpoint)
+            return savedAudioState(view.cache,key).copy(displayMetadataLimited=view.displayMetadataLimited)
+        }
         override fun contains(key:String):Boolean {
             validateKey(key); val live=checked()
             return index.rawQuery("SELECT 1 FROM $table WHERE key=? LIMIT 2",arrayOf(key)).use { c ->
@@ -82,7 +84,7 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
         override fun open(spec:DataSpec):Long {
             check(child==null && uncertainty==null) { "Legacy reader already active or uncertain" }
             val name=spec.key ?: throw IOException("Saved legacy read requires exact key")
-            val projection=try { LegacyResourceProjection.read(directory,uid,name,index,checkpoint) }
+            val projection=try { LegacyResourceProjection.readAudio(directory,uid,name,index,checkpoint).cache }
                 catch(failure:MigrationIoUncertain) { uncertainty=failure; throw failure }
             val opened=savedCacheReader(projection,files); child=opened
             for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)

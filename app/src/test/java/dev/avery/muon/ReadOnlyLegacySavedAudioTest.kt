@@ -8,10 +8,14 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.FileDataSource
 import androidx.media3.datasource.TransferListener
+import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.io.File
+import java.nio.ByteBuffer
 import java.io.IOException
 import org.junit.After
 import org.junit.Assert.*
@@ -75,7 +79,7 @@ class ReadOnlyLegacySavedAudioTest {
         assertThrows(IOException::class.java) { f.audio().inspect("key/0") }
         assertTrue(f.barrier.quiescent); assertArrayEquals(payload,f.originals.first().readBytes())
     }
-    @Test fun validLargeOptionalMetadataPlaysNativelyButTransitionReaderCurrentlyRefusesAudio() {
+    @Test fun validLargeOptionalMetadataPlaysNativelyAndInTransitionWithoutTrimmingMigration() {
         val f=Fixture()
         val native=SimpleCache(f.root,NoOpCacheEvictor(),database)
         try {
@@ -89,13 +93,106 @@ class ReadOnlyLegacySavedAudioTest {
             } finally { reader.close() }
         } finally { native.release() }
         val transition=f.audio(); assertTrue(transition.contains("key/0"))
-        assertThrows(IOException::class.java) { transition.inspect("key/0") }
+        val state=transition.inspect("key/0")
+        assertEquals(SavedCoverage.Full,state.coverage)
+        assertEquals(4L,ContentMetadata.getContentLength(state.metadata))
+        assertFalse(state.metadata.contains("optional-large-field"))
+        assertFalse(state.displayMetadataLimited)
         val reader=transition.source.createDataSource()
-        assertThrows(IOException::class.java) { reader.open(spec()) }; reader.close()
+        try {
+            assertEquals(4L,reader.open(spec())); val bytes=ByteArray(4)
+            assertEquals(4,reader.read(bytes,0,4)); assertArrayEquals(payload,bytes)
+            assertEquals(-1,reader.read(bytes,0,4))
+        } finally { reader.close() }
+        assertThrows(IOException::class.java) { LegacyResourceProjection.read(f.root,f.uid,"key/0",f.read,{}) }
+        database.readableDatabase.rawQuery("SELECT length(metadata) FROM ${f.table} WHERE key='key/0'",null).use {
+            assertTrue(it.moveToFirst()); assertTrue(it.getLong(0)>LEGACY_PROJECTION_METADATA_BYTES)
+        }
         assertTrue(f.barrier.quiescent); assertFalse(SimpleCache.isCacheFolderLocked(f.root))
         assertArrayEquals(payload,f.originals.single().readBytes())
-        // Characterizes an unresolved compatibility gap, NOT desired future behavior. Metadata
-        // budget refusal is appropriate for exact migration; playback needs a bounded scalar path.
+        // Playback omits the optional field from its temporary view; exact migration still refuses.
+        // Neither path rewrites the original serialized metadata or audio.
+    }
+
+    private fun metadata(vararg fields:Pair<String,ByteArray>)=ByteArrayOutputStream().also { output ->
+        DataOutputStream(output).use { stream ->
+            stream.writeInt(fields.size)
+            for((name,value) in fields) { stream.writeUTF(name); stream.writeInt(value.size); stream.write(value) }
+        }
+    }.toByteArray()
+    private fun Fixture.metadata(bytes:ByteArray) {
+        database.writableDatabase.execSQL("UPDATE $table SET metadata=? WHERE key='key/0'",arrayOf(bytes))
+    }
+    private fun length(value:Long=4L)=ContentMetadata.KEY_CONTENT_LENGTH to ByteBuffer.allocate(8).putLong(value).array()
+
+    @Test fun optionalValueBeforeLengthDoesNotHideLengthAndSmallDisplayTagsRemainAvailable() {
+        val f=Fixture()
+        val song=byteArrayOf(1,2,3); val origin="http://192.0.2.1:7814/api1/file/1".toByteArray()
+        f.metadata(metadata("optional" to ByteArray(LEGACY_PROJECTION_METADATA_BYTES+1),
+            SONG_METADATA to song,SAVED_FROM_METADATA to origin,length()))
+        val state=f.audio().inspect("key/0")
+        assertEquals(SavedCoverage.Full,state.coverage)
+        assertArrayEquals(song,state.metadata.get(SONG_METADATA,null as ByteArray?))
+        assertEquals(String(origin),state.metadata.get(SAVED_FROM_METADATA,null as String?))
+        assertFalse(state.displayMetadataLimited); assertTrue(f.barrier.quiescent)
+        assertArrayEquals(payload,f.originals.single().readBytes())
+    }
+    @Test fun oversizedDisplayTagsAreExplicitlyLimitedWithoutLosingSavedAudioOrInferringLength() {
+        val f=Fixture()
+        f.metadata(metadata(SONG_METADATA to ByteArray(TRACK_METADATA_MAX_BYTES+1),length()))
+        val state=f.audio().inspect("key/0")
+        assertEquals(SavedCoverage.Full,state.coverage); assertTrue(state.displayMetadataLimited)
+        assertFalse(state.metadata.contains(SONG_METADATA))
+        f.metadata(metadata("optional" to ByteArray(LEGACY_PROJECTION_METADATA_BYTES+1)))
+        assertEquals(SavedCoverage.UnknownLength,f.audio().inspect("key/0").coverage)
+        assertTrue(f.barrier.quiescent); assertArrayEquals(payload,f.originals.single().readBytes())
+    }
+    @Test fun malformedLengthDuplicateNamesAndTrailingBytesRefuseWithoutRepair() {
+        val f=Fixture()
+        val cases=listOf(metadata(ContentMetadata.KEY_CONTENT_LENGTH to byteArrayOf(1)),
+            metadata(length(),length(8)),metadata("optional" to byteArrayOf(1),"optional" to byteArrayOf(2),length()),
+            metadata(length())+byteArrayOf(1),metadata(length()).copyOf(8))
+        for(bytes in cases) {
+            f.metadata(bytes)
+            assertThrows(IOException::class.java) { f.audio().inspect("key/0") }
+            assertTrue(f.barrier.quiescent)
+            database.readableDatabase.rawQuery("SELECT metadata FROM ${f.table} WHERE key='key/0'",null).use {
+                assertTrue(it.moveToFirst()); assertArrayEquals(bytes,it.getBlob(0))
+            }
+        }
+        assertArrayEquals(payload,f.originals.single().readBytes())
+    }
+    @Test fun nativeInputCeilingRefusesValidOverBudgetBlobAndLeavesItUntouched() {
+        val f=Fixture(); val bytes=metadata("optional" to ByteArray(LEGACY_PLAYBACK_METADATA_BYTES),length())
+        f.metadata(bytes)
+        assertThrows(IOException::class.java) { f.audio().inspect("key/0") }
+        val reader=f.audio().source.createDataSource()
+        assertThrows(IOException::class.java) { reader.open(spec()) }; reader.close()
+        assertTrue(f.barrier.quiescent)
+        database.readableDatabase.rawQuery("SELECT length(metadata) FROM ${f.table} WHERE key='key/0'",null).use {
+            assertTrue(it.moveToFirst()); assertEquals(bytes.size.toLong(),it.getLong(0))
+        }
+        assertArrayEquals(payload,f.originals.single().readBytes())
+    }
+    @Test fun actualDecoderRefusesReentryAndReleasesAdmissionAfterKnownCancellation() {
+        val f=Fixture(); var checks=0; var rejected=false
+        LegacyResourceProjection.readAudio(f.root,f.uid,"key/0",f.read,{
+            if(++checks==3) {
+                val failure=assertThrows(IOException::class.java) {
+                    LegacyResourceProjection.readAudio(f.root,f.uid,"key/0",f.read,{})
+                }
+                assertTrue(failure.message!!.contains("busy")); rejected=true
+            }
+        })
+        assertTrue(rejected)
+        checks=0
+        assertThrows(IOException::class.java) {
+            LegacyResourceProjection.readAudio(f.root,f.uid,"key/0",f.read,{
+                if(++checks==3) throw IOException("Controlled cancellation during actual decode")
+            })
+        }
+        assertEquals(SavedCoverage.Full,f.audio().inspect("key/0").coverage)
+        assertTrue(f.barrier.quiescent); assertArrayEquals(payload,f.originals.single().readBytes())
     }
 
     @Test fun unsupportedInventoryIdentityRefusesWithoutSilentlySkippingOrTruncatingIt() {

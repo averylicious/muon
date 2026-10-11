@@ -19,35 +19,66 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.util.NavigableSet
 import java.util.TreeSet
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal const val LEGACY_PROJECTION_METADATA_BYTES=512*1024
+// Playback-only input ceiling, NOT migration authority. One process-wide decoder bounds the
+// additional JNI/CursorWindow/blob/Java input copies; an occupied decoder refuses without queuing.
+internal const val LEGACY_PLAYBACK_METADATA_BYTES=1024*1024
+internal data class LegacyAudioProjection(val cache:Cache,val displayMetadataLimited:Boolean)
 
 /** Prepared read-only single-resource transition route for pinned Media3 database/v3 spans. It NEVER
  * constructs SimpleCache, initializes/repairs native indexes, writes/touches/deletes originals or
  * enumerates all native records into Java. Caller supplies a READ-ONLY DB connection and holds the
  * closed legacy cache's real writer/availability/lifetime barrier throughout projection AND use.
  * This observer cannot provide that lock or adopt a live/unknown format. File traversal is streamed
- * (possibly expensive for a large cache); only <=256 selected spans and <=512KiB metadata survive.
+ * (possibly expensive for a large cache); only <=256 selected spans survive. Exact migration retains <=512KiB metadata; the playback
+ * decoder admits one <=1MiB serialized input process-wide and retains only length/display fields.
  */
 internal object LegacyResourceProjection {
+    private val playbackDecoder=AtomicBoolean(false)
     fun read(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
-        ownership:MigrationIoOwnership=MigrationIoOwnership()):Cache {
+        ownership:MigrationIoOwnership=MigrationIoOwnership()):Cache =
+        project(directory,uid,key,index,checkpoint,ownership,false).cache
+
+    /** A read-only display/playback view. Never pass its reduced metadata to migration. */
+    fun readAudio(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
+        ownership:MigrationIoOwnership=MigrationIoOwnership()):LegacyAudioProjection =
+        project(directory,uid,key,index,checkpoint,ownership,true)
+
+    private fun project(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
+        ownership:MigrationIoOwnership,audioOnly:Boolean):LegacyAudioProjection {
         if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES || !index.isReadOnly)
             throw IOException("Legacy projection needs a bounded identity and read-only database")
         val live=validate(directory,uid,index,checkpoint)
         val hex=java.lang.Long.toHexString(uid)
         val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
-        var contentId=-1L; var metadata:DefaultContentMetadata?=null
-        index.rawQuery("SELECT id,CASE WHEN typeof(key)='text' AND length(CAST(key AS BLOB))<=${MIGRATION_KEY_BYTES*2} THEN key ELSE NULL END,"+
-            "CASE WHEN typeof(metadata)='blob' AND length(metadata)<=$LEGACY_PROJECTION_METADATA_BYTES THEN metadata ELSE NULL END FROM $content WHERE key=? LIMIT 2",
-            arrayOf(key)).use { c ->
-            if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0) !in 0L..Int.MAX_VALUE.toLong() ||
-                c.getType(1)!=Cursor.FIELD_TYPE_STRING || c.getString(1)!=key || c.getType(2)!=Cursor.FIELD_TYPE_BLOB)
-                throw IOException("Legacy resource absent or exceeds projection budget")
-            contentId=c.getLong(0); metadata=decode(c.getBlob(2))
-            if(c.moveToNext()) throw IOException("Legacy key is not unique")
-        }
+        var contentId=-1L
+        var metadata:DefaultContentMetadata?=null
+        var limited=false
+        // Hold decoder admission across the whole bounded blob query and decode. A length guard
+        // also bounds SQLite's native input, not merely the Java CursorWindow projection.
+        val admitted=audioOnly && playbackDecoder.compareAndSet(false,true)
+        if(audioOnly && !admitted) throw IOException("Legacy playback metadata decoder is busy; retry")
+        try {
+            val ceiling=if(audioOnly) LEGACY_PLAYBACK_METADATA_BYTES else LEGACY_PROJECTION_METADATA_BYTES
+            index.rawQuery("SELECT id,CASE WHEN typeof(key)='text' AND length(CAST(key AS BLOB))<=${MIGRATION_KEY_BYTES*2} THEN key ELSE NULL END,"+
+                "CASE WHEN typeof(metadata)='blob' AND length(metadata)<=$ceiling THEN metadata ELSE NULL END FROM $content WHERE key=? LIMIT 2",
+                arrayOf(key)).use { c ->
+                live()
+                if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0) !in 0L..Int.MAX_VALUE.toLong() ||
+                    c.getType(1)!=Cursor.FIELD_TYPE_STRING || c.getString(1)!=key || c.getType(2)!=Cursor.FIELD_TYPE_BLOB)
+                    throw IOException("Legacy resource absent or exceeds projection budget")
+                contentId=c.getLong(0)
+                val blob=c.getBlob(2)
+                if(audioOnly) {
+                    val parsed=decodeAudio(blob,live); metadata=parsed.first; limited=parsed.second
+                } else metadata=decode(blob)
+                if(c.moveToNext()) throw IOException("Legacy key is not unique")
+                live()
+            }
+        } finally { if(admitted) playbackDecoder.set(false) }
         val spans=ArrayList<CacheSpan>(); var children=0; var marker=false
         ownership.directory(directory.toPath()).use { entries -> for(path in entries) {
             live(); if(++children>11 || Files.isSymbolicLink(path)) throw IOException("Unknown legacy directory layout")
@@ -91,7 +122,7 @@ internal object LegacyResourceProjection {
                 throw IOException("Legacy resource has missing or unsupported indexed spans")
         } }
         if(indexed!=spans.size) throw IOException("Legacy selected span census differs")
-        live(); return ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,live)
+        live(); return LegacyAudioProjection(ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,live),limited)
     }
     /** Bounded schema/identity observation. Caller still owns the actual storage barrier. */
     fun validate(directory:File,uid:Long,index:SQLiteDatabase,checkpoint:()->Unit):()->Unit {
@@ -134,6 +165,44 @@ internal object LegacyResourceProjection {
         }
         if(tables!=2) throw IOException("Legacy native tables missing")
         return ::live
+    }
+    /** Unknown optional values may be omitted from this ephemeral audio view. Exact migration
+     * continues through decode/read and refuses over-budget input instead of silently trimming it.
+     * Keep bounded native length and display fields; do not infer EOF from the last cached span.
+     */
+    private fun decodeAudio(bytes:ByteArray,checkpoint:()->Unit):Pair<DefaultContentMetadata,Boolean> {
+        val values=LinkedHashMap<String,ByteArray>()
+        val names=HashSet<String>()
+        var namesBytes=0L
+        var limited=false
+        DataInputStream(ByteArrayInputStream(bytes)).use { input ->
+            val count=input.readInt()
+            if(count !in 0..MIGRATION_METADATA_FIELDS) throw IOException("Legacy metadata field budget exceeded")
+            repeat(count) {
+                checkpoint()
+                val name=input.readUTF()
+                namesBytes+=name.length.toLong()*2
+                if(name.length.toLong()*2>MIGRATION_KEY_BYTES || namesBytes>LEGACY_PROJECTION_METADATA_BYTES || !names.add(name))
+                    throw IOException("Legacy metadata name malformed or exceeds budget")
+                val length=input.readInt()
+                if(length<0 || length>input.available()) throw IOException("Legacy metadata field malformed")
+                val keep=when(name) {
+                    ContentMetadata.KEY_CONTENT_LENGTH -> {
+                        if(length!=8) throw IOException("Legacy content length is malformed")
+                        true
+                    }
+                    SONG_METADATA,SAVED_FROM_METADATA -> length<=TRACK_METADATA_MAX_BYTES
+                    else -> false
+                }
+                if(keep) { val value=ByteArray(length); input.readFully(value); values[name]=value }
+                else {
+                    if(name==SONG_METADATA || name==SAVED_FROM_METADATA) limited=true
+                    if(input.skipBytes(length)!=length) throw IOException("Legacy metadata truncated")
+                }
+            }
+            if(input.read()!=-1) throw IOException("Legacy metadata trailing bytes")
+        }
+        return DefaultContentMetadata(values) to limited
     }
     private fun decode(bytes:ByteArray):DefaultContentMetadata {
         val values=LinkedHashMap<String,ByteArray>()
