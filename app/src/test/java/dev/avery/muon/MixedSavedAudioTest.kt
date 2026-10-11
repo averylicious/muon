@@ -156,4 +156,43 @@ class MixedSavedAudioTest {
         f.volume="card"; assertThrows(IOException::class.java) { source.read(ByteArray(1),0,1) }
         source.close(); assertArrayEquals(byteArrayOf(1,2,3),read(f,"old"))
     }
+
+    @Test fun unreturnedLegacyFactoryDescriptorSurvivesMixedAndOuterBarrierFailure() {
+        val f=fixture(); val file=folders.newFile().apply { writeBytes(byteArrayOf(7,9)) }
+        val actual=java.io.FileInputStream(file); var made=0
+        val legacy=object:SavedAudio by f.legacy {
+            override val source=DataSource.Factory { made++; check(actual.channel.isOpen); throw IOException("Unreturned legacy file") }
+        }
+        val gate=SavedStorageBarrier(); val mixed=MixedSavedAudio(f.owner,legacy,f.published,f.completed)
+        val reader=BarrierSavedAudio(mixed,gate).source.createDataSource()
+        try {
+            assertThrows(PartitionOwnershipUncertain::class.java) { reader.open(spec("old")) }
+            assertEquals(1,made); assertEquals(1,gate.active); assertFalse(gate.allowsShared)
+            assertTrue(actual.channel.isOpen); assertEquals(7,actual.read())
+            assertThrows(IOException::class.java) { reader.close() }; assertEquals(1,made)
+            assertArrayEquals(byteArrayOf(7,9),file.readBytes())
+        } finally { actual.close() }
+    }
+    @Test fun typedPartialReadDoesNotResetMixedPhaseOrReleaseOuterAdmission() {
+        val f=fixture(); val partial=java.io.FileInputStream(folders.newFile().apply { writeBytes(byteArrayOf(2)) })
+        var closes=0; val raw=androidx.media3.datasource.ByteArrayDataSource(byteArrayOf(1))
+        val actual=object:DataSource by raw {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int=throw PartitionOwnershipUncertain(partial,IOException("Partial child"))
+            override fun close() { closes++; raw.close() }
+        }
+        val legacy=object:SavedAudio by f.legacy { override val source=DataSource.Factory { actual } }
+        val gate=SavedStorageBarrier(); val reader=BarrierSavedAudio(MixedSavedAudio(f.owner,legacy,f.published,f.completed),gate).source.createDataSource()
+        try {
+            reader.open(spec("old"))
+            assertThrows(PartitionOwnershipUncertain::class.java) { reader.read(ByteArray(1),0,1) }
+            assertEquals(1,gate.active); assertFalse(gate.allowsShared); assertEquals(0,closes)
+            assertThrows(IOException::class.java) { reader.close() }; assertEquals(0,closes); assertTrue(partial.channel.isOpen)
+        } finally { raw.close(); partial.close() }
+    }
+    @Test fun knownRouteRefusalBeforeConstructionClosesNormallyAndDrainsOuterPermit() {
+        val f=fixture(); seed(f.native,"old",byteArrayOf(8)); val gate=SavedStorageBarrier()
+        val reader=BarrierSavedAudio(f.audio,gate).source.createDataSource(); f.volume=null
+        assertThrows(IOException::class.java) { reader.open(spec("old")) }; reader.close()
+        assertTrue(gate.quiescent); assertTrue(gate.allowsShared); assertTrue(f.native.isCached("old",0,1))
+    }
 }

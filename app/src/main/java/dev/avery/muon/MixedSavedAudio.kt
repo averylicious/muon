@@ -63,6 +63,10 @@ internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
         private var key:String?=null
         private var expected:PartitionReadRoute?=null
         private var lost=false
+        private var construction:Any?=null
+        private var uncertainty:Throwable?=null
+        private fun retain(failure:Throwable) { if(uncertainty==null) uncertainty=failure; phase=Phase.Uncertain }
+        private fun partial(failure:Throwable)=failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain
         private val listeners=arrayOfNulls<TransferListener>(4)
         private fun checked() {
             if(lost) throw IOException("Mixed saved reader lost its route; close before reopening")
@@ -76,7 +80,9 @@ internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
             listeners[slot]=listener
             if(phase==Phase.Open) {
                 phase=Phase.AddingListener
-                try { source!!.addTransferListener(listener) } finally { phase=Phase.Open }
+                try { source!!.addTransferListener(listener) }
+                catch(failure:Throwable) { if(partial(failure)) retain(failure); throw failure }
+                finally { if(phase!=Phase.Uncertain) phase=Phase.Open }
             }
         }
         @Synchronized override fun open(spec:DataSpec):Long {
@@ -86,14 +92,20 @@ internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
                 key=CacheKeyFactory.DEFAULT.buildCacheKey(spec)
                 expected=route(key!!)
                 checked()
-                val child=audio(expected!!).source.createDataSource()
-                source=child
+                val selected=audio(expected!!); construction=selected
+                val factory=selected.source; construction=factory
+                val child=factory.createDataSource()
+                source=child; construction=null
                 for(listener in listeners) if(listener!=null) child.addTransferListener(listener)
                 checked()
                 val length=child.open(spec.buildUpon().setKey(key).build())
                 checked(); phase=Phase.Open; return length
             } catch(failure:Throwable) {
-                try { finish() } catch(cleanup:Throwable) { if(cleanup!==failure) failure.addSuppressed(cleanup) }
+                if(construction!=null) {
+                    val unknown=PartitionOwnershipUncertain(this,failure); retain(unknown); throw unknown
+                }
+                if(partial(failure)) retain(failure)
+                else try { finish() } catch(cleanup:Throwable) { if(cleanup!==failure) failure.addSuppressed(cleanup) }
                 throw failure
             }
         }
@@ -104,8 +116,8 @@ internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
                 checked()
                 val count=source!!.read(buffer,offset,length)
                 checked(); return count
-            } catch(failure:Throwable) { lost=true; throw failure }
-            finally { phase=Phase.Open }
+            } catch(failure:Throwable) { lost=true; if(partial(failure)) retain(failure); throw failure }
+            finally { if(phase!=Phase.Uncertain) phase=Phase.Open }
         }
         @Synchronized override fun getUri():Uri?=if(lost || phase==Phase.Idle || phase==Phase.Uncertain) null else source?.uri
         @Synchronized override fun getResponseHeaders():Map<String,List<String>> =
@@ -119,7 +131,7 @@ internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
         private fun finish() {
             phase=Phase.Closing
             try { source?.close(); source=null; key=null; expected=null; lost=false; phase=Phase.Idle }
-            catch(failure:Throwable) { phase=Phase.Uncertain; throw failure }
+            catch(failure:Throwable) { retain(failure); throw PartitionOwnershipUncertain(this,failure) }
         }
     }
 }
