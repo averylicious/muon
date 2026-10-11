@@ -100,10 +100,6 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
             if(lost || phase==Phase.Idle || phase==Phase.Uncertain) emptyMap() else source?.responseHeaders.orEmpty()
         @Synchronized override fun close() {
             if(phase==Phase.Idle) return
-            if(phase==Phase.Closing) {
-                val failure=IOException("Partition reader close was reentered")
-                quarantine(failure); throw failure
-            }
             if(phase==Phase.Uncertain) throw IOException("Partition reader close is uncertain; its native pin is retained")
             check(phase==Phase.Open) { "Partition reader operation already active" }
             finish()
@@ -112,7 +108,6 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
             phase=Phase.Closing
             try {
                 source?.close()
-                if(phase==Phase.Uncertain) throw IOException("Partition reader close remained uncertain",uncertainty)
                 // Underlying readers/holes/listeners ended first. A stopped pool can now retire safely.
                 pin?.close()
                 source=null; pin=null; validate=null; lost=false; phase=Phase.Idle
