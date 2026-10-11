@@ -40,6 +40,9 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
         private var child:DataSource?=null
         private var permit:SavedStorageBarrier.Lease?=null
         private var lost=false
+        private var constructing=false
+        private var construction:Any?=null
+        private var uncertainty:Throwable?=null
         private val listeners=arrayOfNulls<TransferListener>(4)
         @Synchronized override fun addTransferListener(listener:TransferListener) {
             check(phase==Phase.Idle || phase==Phase.Open) { "Saved storage reader busy or uncertain" }
@@ -53,9 +56,14 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
             }
             listeners[slot]=listener
         }
+        private fun quarantine(failure:Throwable) {
+            if(uncertainty==null) uncertainty=failure
+            phase=Phase.Uncertain
+            permit?.quarantine(this) // Keep actual child/factory and typed partial owner together.
+        }
         private fun retainUnknown(failure:Throwable) {
             if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain) {
-                phase=Phase.Uncertain; permit?.quarantine(failure)
+                quarantine(failure)
             }
         }
         private fun checked() {
@@ -67,13 +75,16 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
             phase=Phase.Opening
             try {
                 permit=barrier.shared(); checked()
-                child=audio.source.createDataSource()
+                constructing=true; construction=audio
+                val factory=audio.source; construction=factory
+                child=factory.createDataSource()
+                constructing=false; construction=null
                 for(listener in listeners) if(listener!=null) child!!.addTransferListener(listener)
                 checked(); val length=child!!.open(spec); checked()
                 phase=Phase.Open; return length
             } catch(failure:Throwable) {
-                if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain) {
-                    phase=Phase.Uncertain; permit?.quarantine(failure)
+                if(constructing || failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain) {
+                    quarantine(failure)
                 } else try { finish() } catch(cleanup:Throwable) { if(cleanup!==failure) failure.addSuppressed(cleanup) }
                 throw failure
             }
@@ -90,6 +101,10 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
             if(lost || phase==Phase.Idle || phase==Phase.Uncertain) emptyMap() else child?.responseHeaders.orEmpty()
         @Synchronized override fun close() {
             if(phase==Phase.Idle) return
+            if(phase==Phase.Closing) {
+                val failure=IOException("Saved storage close was reentered")
+                quarantine(failure); throw failure
+            }
             if(phase==Phase.Uncertain) throw IOException("Saved storage close uncertain; ownership retained")
             check(phase==Phase.Open) { "Saved storage reader operation active" }
             finish()
@@ -98,10 +113,10 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
             phase=Phase.Closing
             try { child?.close() }
             catch(failure:Throwable) {
-                phase=Phase.Uncertain
-                permit?.quarantine(requireNotNull(child))
+                quarantine(failure)
                 throw failure
             }
+            if(phase==Phase.Uncertain) throw IOException("Saved storage close remained uncertain",uncertainty)
             child=null; permit?.close(); permit=null; lost=false; phase=Phase.Idle
         }
     }

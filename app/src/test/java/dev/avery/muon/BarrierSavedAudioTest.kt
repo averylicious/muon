@@ -100,4 +100,66 @@ class BarrierSavedAudioTest {
         } finally { actual.close(); java.nio.file.Files.delete(directory) }
     }
 
+    @Test fun failedSourceConstructionRetainsExactFactoryAndActualUnreturnedDescriptor() {
+        val file=java.nio.file.Files.createTempFile("muon-reader-construction",".bin").toFile()
+        file.writeBytes(byteArrayOf(4,8)); val raw=java.io.FileInputStream(file)
+        val failure=IOException("Factory allocated before throwing"); var made=0
+        val factory=DataSource.Factory { made++; check(raw.channel.isOpen); throw failure }
+        val barrier=SavedStorageBarrier(1); val reader=BarrierSavedAudio(saved(factory),barrier).source.createDataSource()
+        try {
+            assertSame(failure,assertThrows(IOException::class.java) { reader.open(spec) })
+            assertEquals(1,made); assertEquals(1,barrier.active); assertFalse(barrier.allowsShared)
+            assertSame(factory,reader.javaClass.getDeclaredField("construction").apply { isAccessible=true }.get(reader))
+            assertSame(failure,reader.javaClass.getDeclaredField("uncertainty").apply { isAccessible=true }.get(reader))
+            assertTrue(raw.channel.isOpen); assertEquals(4,raw.read())
+            assertThrows(IOException::class.java) { reader.close() }
+            assertThrows(IllegalStateException::class.java) { reader.open(spec) }; assertEquals(1,made)
+            assertArrayEquals(byteArrayOf(4,8),file.readBytes())
+        } finally { raw.close(); file.delete() }
+    }
+    @Test fun failedSourceGetterRetainsTheExactAudioOwnerBeforeAFactoryCanReturn() {
+        val base=saved(DataSource.Factory { ByteArrayDataSource(byteArrayOf(1)) })
+        val exact=object:SavedAudio by base { override val source:DataSource.Factory get()=throw IOException("Unknown source getter") }
+        val barrier=SavedStorageBarrier(1); val reader=BarrierSavedAudio(exact,barrier).source.createDataSource()
+        assertThrows(IOException::class.java) { reader.open(spec) }
+        assertSame(exact,reader.javaClass.getDeclaredField("construction").apply { isAccessible=true }.get(reader))
+        assertEquals(1,barrier.active); assertFalse(barrier.allowsShared)
+    }
+    @Test fun suppressedReentrantActualChildCloseCannotReleaseTheStoragePermit() {
+        val barrier=SavedStorageBarrier(1); lateinit var reader:DataSource; var closes=0
+        val raw=ByteArrayDataSource(byteArrayOf(1))
+        val exact=object:DataSource by raw {
+            override fun close() { closes++; try { reader.close() } catch(_:IOException) {}; raw.close() }
+        }
+        reader=BarrierSavedAudio(saved(DataSource.Factory { exact }),barrier).source.createDataSource()
+        reader.open(spec)
+        assertThrows(IOException::class.java) { reader.close() }
+        assertEquals(1,closes); assertEquals(1,barrier.active); assertFalse(barrier.allowsShared)
+        assertSame(exact,reader.javaClass.getDeclaredField("child").apply { isAccessible=true }.get(reader))
+        assertThrows(IOException::class.java) { reader.close() }; assertEquals(1,closes)
+    }
+    @Test fun ordinaryFailedAdmissionOpensNoChildAndDoesNotPoisonTheOwner() {
+        val barrier=SavedStorageBarrier(1); var made=0
+        val reader=BarrierSavedAudio(saved(DataSource.Factory { made++; ByteArrayDataSource(byteArrayOf(1)) }),barrier).source.createDataSource()
+        val exclusive=barrier.exclusive()
+        assertThrows(IOException::class.java) { reader.open(spec) }; assertEquals(0,made)
+        exclusive.close(); reader.open(spec); reader.close()
+        assertEquals(1,made); assertTrue(barrier.quiescent); assertTrue(barrier.allowsShared)
+    }
+    @Test fun typedReadUncertaintyRetainsTheActualChildAlongsideThePartialOwner() {
+        val barrier=SavedStorageBarrier(1); val partial=Any(); val failure=PartitionOwnershipUncertain(partial,IOException("Unknown child"))
+        val raw=ByteArrayDataSource(byteArrayOf(1)); var closes=0
+        val exact=object:DataSource by raw {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int=throw failure
+            override fun close() { closes++; raw.close() }
+        }
+        val reader=BarrierSavedAudio(saved(DataSource.Factory { exact }),barrier).source.createDataSource()
+        reader.open(spec); assertSame(failure,assertThrows(PartitionOwnershipUncertain::class.java) { reader.read(ByteArray(1),0,1) })
+        assertSame(exact,reader.javaClass.getDeclaredField("child").apply { isAccessible=true }.get(reader))
+        assertSame(failure,reader.javaClass.getDeclaredField("uncertainty").apply { isAccessible=true }.get(reader))
+        assertEquals(1,barrier.active); assertFalse(barrier.allowsShared)
+        assertThrows(IOException::class.java) { reader.close() }; assertEquals(0,closes)
+        raw.close() // Fixture-owned cleanup only, never a production retry of the uncertain child.
+    }
+
 }
