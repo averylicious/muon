@@ -171,7 +171,8 @@ internal object OfflineStore {
         barrier:SavedStorageBarrier, present: () -> Boolean = { true }): Shelf {
         val cache = owner.own { SimpleCache(folder, evictor, database) }
         // The manager loads no retained stopped rows at startup (#253, [ManagerStartupIndex]).
-        val manager = owner.own { DownloadManager(context, ManagerStartupIndex(RetainedDownloadIndex(DefaultDownloadIndex(database, index),
+        val manager = owner.own { DownloadManager(context, ManagerStartupIndex(RetainedDownloadIndex(StorageDownloadIndex(DefaultDownloadIndex(database, index),barrier,
+            onUncertain={ (evictor as? PlayedSongEvictor)?.quarantine() }),
             File(context.cacheDir, "muon-retained-startup-${index.ifEmpty { "phone" }}.ids"))),
             LegacyDownloadFactory(cache,OkHttpDataSource.Factory(Transport.client),barrier,
                 onUncertain={ (evictor as? PlayedSongEvictor)?.quarantine() })) }
