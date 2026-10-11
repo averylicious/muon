@@ -291,9 +291,14 @@ internal object OfflineStore {
             override fun onIdle(m: DownloadManager) { finishReadyMoves(context, store) }
             override fun onDownloadRemoved(m: DownloadManager, download: Download) {
                 changed?.changed(download.request.id)
-                store.moves.acknowledgeRemoval(shelf, download.request)
-                store.moves.invalidate(download.request.id)
-                store.removed(download)
+                confirmRemovalCallback(shelf.manager.downloadIndex,download.request.id,store.storageBarrier,{
+                    store.moves.acknowledgeRemoval(shelf, download.request)
+                    store.moves.invalidate(download.request.id)
+                    store.removed(download)
+                }) {
+                    DownloadMarks.countsKnown=false; DownloadMarks.bytesKnown=false
+                    DownloadMarks.summary=DownloadSummaryStatus.Unavailable
+                }
             }
         })
         // One-shot: shut down once the scan is submitted. An orderly shutdown still lets it run and post.
@@ -700,6 +705,22 @@ internal object OfflineStore {
 
     /** [Sent]: handed to the service for acknowledgement, not yet removed. [Waiting]: another removal batch pending. */
     internal enum class SavedRemoval { Sent, Unavailable, NotOwned, Busy, Waiting, Failed }
+
+    /** Media3 emits onDownloadRemoved even after an index-removal failure. Verify the actual
+     * source row is gone before acknowledging a move or erasing app-owned marks/cover decisions. */
+    internal fun confirmRemovalCallback(index:androidx.media3.exoplayer.offline.DownloadIndex,id:String,
+        barrier:SavedStorageBarrier,confirmed:()->Unit,unavailable:()->Unit) {
+        val permit=try { barrier.shared() } catch(_:java.io.IOException) { unavailable(); return }
+        var uncertain=false
+        try {
+            permit.check()
+            if(index.getDownload(id)!=null) { unavailable(); return }
+            permit.check(); confirmed(); permit.check()
+        } catch(failure:Throwable) {
+            uncertain=true; permit.quarantine(arrayOf(index,id,confirmed,failure))
+            unavailable()
+        } finally { if(!uncertain) permit.close() }
+    }
 
     /** The actual explicit played-cache mutation, not merely an enqueue/snapshot check. */
     internal fun removePlayedCopy(key:String,cache:androidx.media3.datasource.cache.Cache,

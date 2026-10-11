@@ -205,4 +205,28 @@ class LegacyDownloadFactoryTest {
         finally { lock.close() }
         task.remove(); assertEquals(1,mutations); assertTrue(barrier.quiescent)
     }
+
+    @Test fun nativeRemovalCallbackCannotAcknowledgeARowThatTheManagerFailedToDelete() {
+        val index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(database,"removal_callback")
+        val row=androidx.media3.exoplayer.offline.Download(request(),androidx.media3.exoplayer.offline.Download.STATE_COMPLETED,1,2,5,0,0)
+        index.putDownload(row); var confirmed=0; var unavailable=0
+        OfflineStore.confirmRemovalCallback(index,key,barrier,{confirmed++},{unavailable++})
+        assertEquals(0,confirmed); assertEquals(1,unavailable); assertNotNull(index.getDownload(key)); assertTrue(barrier.quiescent)
+        index.removeDownload(key)
+        OfflineStore.confirmRemovalCallback(index,key,barrier,{held(); confirmed++},{unavailable++})
+        assertEquals(1,confirmed); assertEquals(1,unavailable); assertTrue(barrier.quiescent)
+    }
+    @Test fun pausedOrFailedIndexCallbackCannotEraseMarksOrAcknowledgeRemoval() {
+        val index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(database,"failed_callback")
+        var reads=0; var confirmed=0; var unavailable=0
+        val controlled=object:androidx.media3.exoplayer.offline.DownloadIndex by index {
+            override fun getDownload(id:String):androidx.media3.exoplayer.offline.Download? { reads++; throw IOException("Unknown native index result") }
+        }
+        val lock=barrier.exclusive()
+        try { OfflineStore.confirmRemovalCallback(controlled,key,barrier,{confirmed++},{unavailable++}); assertEquals(0,reads) }
+        finally { lock.close() }
+        OfflineStore.confirmRemovalCallback(controlled,key,barrier,{confirmed++},{unavailable++})
+        assertEquals(1,reads); assertEquals(0,confirmed); assertEquals(2,unavailable); assertEquals(1,barrier.active)
+        assertFalse(barrier.allowsShared)
+    }
 }
