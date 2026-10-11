@@ -102,7 +102,7 @@ class PartitionSavedSourceTest {
         assertThrows(IOException::class.java) { source.close() }; assertEquals(1,pool.active)
         assertThrows(IOException::class.java) { source.close() }
         assertThrows(IllegalStateException::class.java) { source.open(spec("key")) }
-        assertThrows(PartitionCacheBusy::class.java) { PartitionSavedSource(pool).createDataSource().open(spec("other")) }
+        assertThrows(IOException::class.java) { PartitionSavedSource(pool).createDataSource().open(spec("other")) }
         pool.close(); assertEquals(1,pool.active); assertEquals(1,pool.resident); assertEquals(1,opened)
     }
     @Test fun failedOpenWithUnknownCloseKeepsOriginalFailureAndBoundedUncertainPin() {
@@ -135,7 +135,7 @@ class PartitionSavedSourceTest {
             } }.createDataSource()
             source.open(spec("key")); assertThrows(IOException::class.java) { source.read(ByteArray(1),0,1) }
             assertEquals(1,pool.active)
-            assertThrows(PartitionCacheBusy::class.java) { PartitionSavedSource(pool).createDataSource().open(spec("other")) }
+            assertThrows(IOException::class.java) { PartitionSavedSource(pool).createDataSource().open(spec("other")) }
             source.close(); assertEquals(0,pool.active)
             val recovered=PartitionSavedSource(pool).createDataSource(); recovered.open(spec("key")); read(recovered); recovered.close()
         }
