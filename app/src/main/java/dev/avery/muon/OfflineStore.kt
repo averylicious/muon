@@ -556,7 +556,7 @@ internal object OfflineStore {
      * either cache. Off the main thread. A failed read fails the save rather than guessing.
      */
     internal fun takenNames(context: Context, store: Store): SavedNameRegistry {
-        val taken = SavedNameRegistry.open(context)
+        val taken = SavedNameRegistry.open(context,store.storageBarrier)
         try {
             for (shelf in store.shelves) {
                 forEachIndexRow(shelf.manager.downloadIndex) { taken.add(it.id); taken.add(it.key) }

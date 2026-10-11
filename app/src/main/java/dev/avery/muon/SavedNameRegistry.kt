@@ -16,11 +16,13 @@ import java.io.File
  * name/encoding and Media3's getKeys snapshot still exist; the native cache lifetime is separate.
  */
 internal class SavedNameRegistry private constructor(private val database: SQLiteDatabase,
-    private val insert: SQLiteStatement, private val exists: SQLiteStatement) : Closeable {
+    private val insert: SQLiteStatement, private val exists: SQLiteStatement,
+    private val permit:SavedStorageBarrier.Lease?) : Closeable {
     private var closed = false
+    private var uncertainty:Throwable?=null
 
     fun add(name: String) {
-        requireWorker(); check(!closed)
+        requireWorker(); check(!closed); permit?.check()
         insert.clearBindings()
         insert.bindBlob(1, savedCatalogSortKey(name))
         insert.executeInsert()
@@ -28,7 +30,7 @@ internal class SavedNameRegistry private constructor(private val database: SQLit
     }
 
     operator fun contains(name: String): Boolean {
-        requireWorker(); check(!closed)
+        requireWorker(); check(!closed); permit?.check()
         exists.clearBindings()
         exists.bindBlob(1, savedCatalogSortKey(name))
         return try { exists.simpleQueryForLong() != 0L } finally { exists.clearBindings() }
@@ -37,36 +39,50 @@ internal class SavedNameRegistry private constructor(private val database: SQLit
     override fun close() {
         requireWorker()
         if (closed) return
-        closed = true
-        try { insert.close() } finally {
-            try { exists.close() } finally {
-                try { database.endTransaction() } finally { database.close() }
+        uncertainty?.let { throw java.io.IOException("Saved naming close uncertain; ownership retained",it) }
+        try {
+            try { insert.close() } finally {
+                try { exists.close() } finally {
+                    try { database.endTransaction() } finally { database.close() }
+                }
             }
+        } catch(failure:Throwable) {
+            uncertainty=failure; permit?.quarantine(this); throw failure
         }
+        closed=true; permit?.close()
     }
 
     companion object {
-        fun open(context: Context): SavedNameRegistry {
+        fun open(context: Context,barrier:SavedStorageBarrier?=null): SavedNameRegistry {
             requireWorker()
             val directory = context.noBackupFilesDir
             check(directory.isDirectory || directory.mkdirs()) { "No private saved naming directory" }
-            val database = SQLiteDatabase.openOrCreateDatabase(File(directory, "saved-save-names-v1.db"), null)
+            val permit=barrier?.shared()
+            var database:SQLiteDatabase?=null
             var insert: SQLiteStatement? = null
             var exists: SQLiteStatement? = null
             try {
+                permit?.check()
+                database=SQLiteDatabase.openOrCreateDatabase(File(directory, "saved-save-names-v1.db"), null)
                 database.execSQL("PRAGMA cache_size=-256")
                 database.execSQL("CREATE TABLE IF NOT EXISTS names (name BLOB PRIMARY KEY NOT NULL)")
                 database.beginTransaction()
                 database.delete("names", null, null)
                 insert = database.compileStatement("INSERT OR IGNORE INTO names(name) VALUES (?)")
                 exists = database.compileStatement("SELECT EXISTS(SELECT 1 FROM names WHERE name=?)")
-                return SavedNameRegistry(database, insert, exists)
+                return SavedNameRegistry(database, insert, exists,permit)
             } catch (failure: Throwable) {
-                try { insert?.close() } finally {
-                    try { exists?.close() } finally {
-                        try { if (database.inTransaction()) database.endTransaction() } finally { database.close() }
+                // An opaque allocation may throw after obtaining an unreturned native participant.
+                // Retain all returned participants and the exact attempted context/failure as well.
+                val retained=arrayOf(context,database,insert,exists,failure)
+                try {
+                    try { insert?.close() } finally {
+                        try { exists?.close() } finally {
+                            try { if (database?.inTransaction()==true) database.endTransaction() } finally { database?.close() }
+                        }
                     }
-                }
+                } catch(cleanup:Throwable) { if(cleanup!==failure) failure.addSuppressed(cleanup) }
+                permit?.quarantine(retained)
                 throw failure
             }
         }

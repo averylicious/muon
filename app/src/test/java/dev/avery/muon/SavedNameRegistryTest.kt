@@ -95,6 +95,43 @@ class SavedNameRegistryTest {
         assertThrows(IllegalStateException::class.java) { SavedNameRegistry.open(context) }
     }
 
+
+    @Test fun saveCensusAndReservationsOwnAdmissionUntilActualSqliteClose():Unit=io {
+        val gate=SavedStorageBarrier(); val registry=SavedNameRegistry.open(context,gate)
+        registry.add("candidate"); assertTrue("candidate" in registry)
+        assertEquals(1,gate.active); assertThrows(IOException::class.java) { gate.exclusive() }
+        gate.stopAdmission(); registry.close(); registry.close(); assertTrue(gate.quiescent)
+        assertEmptyScratch()
+    }
+    @Test fun exclusiveAdmissionRefusesBeforeTheScratchDatabaseExists():Unit=io {
+        val gate=SavedStorageBarrier(); val exclusive=gate.exclusive()
+        try {
+            assertThrows(IOException::class.java) { SavedNameRegistry.open(context,gate) }
+            assertFalse(File(root,"saved-save-names-v1.db").exists()); assertEquals(1,gate.active)
+        } finally { exclusive.close() }
+        assertTrue(gate.quiescent)
+    }
+    @Test fun knownPopulationFailureRollsBackAndReturnsActualPermit():Unit=io {
+        val gate=SavedStorageBarrier()
+        assertThrows(IOException::class.java) {
+            SavedNameRegistry.open(context,gate).use { it.add("partial"); throw IOException("Known census failure") }
+        }
+        assertTrue(gate.quiescent); assertEmptyScratch()
+        SavedNameRegistry.open(context,gate).use { assertFalse("partial" in it) }
+    }
+    @Test fun failedActualTransactionCloseRetainsRegistryAndRefusesRetry():Unit=io {
+        val gate=SavedStorageBarrier(); val registry=SavedNameRegistry.open(context,gate)
+        registry.add("candidate")
+        // Fixture only: consume the real transaction to make the owner's endTransaction fail.
+        val db=registry.javaClass.getDeclaredField("database").apply { isAccessible=true }.get(registry) as SQLiteDatabase
+        db.endTransaction()
+        assertThrows(IllegalStateException::class.java) { registry.close() }
+        assertEquals(1,gate.active); assertFalse(gate.allowsShared)
+        assertThrows(IOException::class.java) { registry.close() }
+        assertThrows(IOException::class.java) { SavedNameRegistry.open(context,gate) }
+        assertEmptyScratch()
+    }
+
     private fun assertEmptyScratch() {
         SQLiteDatabase.openDatabase(File(root, "saved-save-names-v1.db").path, null,
             SQLiteDatabase.OPEN_READONLY).use { db ->
