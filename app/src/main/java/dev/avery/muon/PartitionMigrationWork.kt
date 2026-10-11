@@ -11,7 +11,7 @@ internal class PartitionMigrationWork(private val executor:Executor,
     private val migrate:(CacheMigrationControl,String)->MigrationRecord,
     private val available:()->Boolean,private val nanoTime:()->Long=System::nanoTime,
     private val knownRejectionBeforeSubmission:Boolean=false) {
-    private class Attempt(val key:String,val control:CacheMigrationControl) { var uncertainSubmission=false; var finished=false }
+    private class Attempt(val key:String,val control:CacheMigrationControl) { var uncertainSubmission=false; var finished=false; var running=false }
     private var active:Attempt?=null
     private var terminal=MigrationWorkProgress(MigrationWorkPhase.Waiting)
     private var terminalKey:String?=null
@@ -49,7 +49,8 @@ internal class PartitionMigrationWork(private val executor:Executor,
         synchronized(this) {
             // start owns this monitor until execute returns. A late accepted runnable sees unknown
             // submission before any callback, journal allocation or file I/O can start.
-            if(active!==attempt || attempt.uncertainSubmission || attempt.finished) return
+            if(active!==attempt || attempt.uncertainSubmission || attempt.finished || attempt.running) return
+            attempt.running=true
         }
         var result=MigrationWorkProgress(MigrationWorkPhase.Failed)
         try {

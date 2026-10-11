@@ -204,6 +204,31 @@ class OwnedPartitionShelfTest {
             assertArrayEquals(payload,f.original.readBytes())
         } finally { teardown(owner); f.provider.close() }
     }
+    @Test fun concurrentlyReplayedRunnableCannotEnterTheActualMigrationTwice() {
+        val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null
+        val entered=java.util.concurrent.CountDownLatch(1); val release=java.util.concurrent.CountDownLatch(1)
+        val migrations=java.util.concurrent.atomic.AtomicInteger()
+        val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            owner.prepare()
+            val work=PartitionMigrationWork(java.util.concurrent.Executor { pending=it },
+                { control,key ->
+                    migrations.incrementAndGet(); entered.countDown()
+                    check(release.await(5,java.util.concurrent.TimeUnit.SECONDS))
+                    owner.migrate(control,key,{Long.MAX_VALUE},{})
+                },{owner.isAvailable},nanoTime={0L})
+            assertTrue(work.start("old",1000,true))
+            val task=requireNotNull(pending); val first=worker.submit { task.run() }
+            assertTrue(entered.await(5,java.util.concurrent.TimeUnit.SECONDS))
+            task.run(); assertEquals(1,migrations.get())
+            release.countDown(); first.get(5,java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals(MigrationWorkPhase.Ready,work.progress.phase); assertFalse(work.busy)
+            assertArrayEquals(payload,f.original.readBytes())
+        } finally {
+            release.countDown(); worker.shutdownNow(); assertTrue(worker.awaitTermination(5,java.util.concurrent.TimeUnit.SECONDS))
+            teardown(owner); f.provider.close()
+        }
+    }
     @Test fun inlineActualFailureThenExecutorThrowDoesNotPretendNoSubmissionOccurred() {
         val f=Fixture(); val owner=f.owner(); var migrations=0
         try {
