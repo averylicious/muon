@@ -19,14 +19,17 @@ internal class DiskOwnershipCensus private constructor(private val file: File,
     private val first = db.compileStatement("SELECT rowid FROM rows WHERE id=? ORDER BY rowid LIMIT 1")
     private var closed = false
     private var uncertainty:Throwable?=null
+    private var activeQueries=0
     private fun known() { check(!closed && uncertainty==null); permit?.check() }
-    private fun <T> query(work:()->T):T {
+    @Synchronized private fun <T> query(work:()->T):T {
         known()
+        check(activeQueries<8) { "Ownership census callback depth exceeded" }
+        activeQueries++
         return try { work() } catch(failure:Throwable) {
             if(uncertainty==null) uncertainty=failure
             permit?.quarantine(this)
             throw failure
-        }
+        } finally { activeQueries-- }
     }
     private fun number(statement: SQLiteStatement, name: String): Long = query {
         statement.bindBlob(1, savedCatalogSortKey(name))
@@ -60,8 +63,9 @@ internal class DiskOwnershipCensus private constructor(private val file: File,
             }
         }
     }
-    override fun close() {
+    @Synchronized override fun close() {
         if (closed) return
+        check(activeQueries==0) { "Ownership census query is active" }
         uncertainty?.let { throw java.io.IOException("Ownership census close uncertain; owner retained",it) }
         try {
             try { idCount.close() } finally {
