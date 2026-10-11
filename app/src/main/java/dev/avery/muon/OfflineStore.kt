@@ -20,7 +20,6 @@ import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.DefaultDownloadIndex
-import androidx.media3.exoplayer.offline.DefaultDownloaderFactory
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
@@ -171,12 +170,11 @@ internal object OfflineStore {
         database: StandaloneDatabaseProvider, index: String, service: Class<out DownloadService>,
         barrier:SavedStorageBarrier, present: () -> Boolean = { true }): Shelf {
         val cache = owner.own { SimpleCache(folder, evictor, database) }
-        val factory = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(Transport.client))
         // The manager loads no retained stopped rows at startup (#253, [ManagerStartupIndex]).
-        val workers = owner.own { Executors.newFixedThreadPool(2) }
         val manager = owner.own { DownloadManager(context, ManagerStartupIndex(RetainedDownloadIndex(DefaultDownloadIndex(database, index),
             File(context.cacheDir, "muon-retained-startup-${index.ifEmpty { "phone" }}.ids"))),
-            DefaultDownloaderFactory(factory, workers)) }
+            LegacyDownloadFactory(cache,OkHttpDataSource.Factory(Transport.client),barrier,
+                onUncertain={ (evictor as? PlayedSongEvictor)?.quarantine() })) }
         manager.maxParallelDownloads = 2
         return Shelf.ownedLegacy(cache,manager,service,barrier,present)
     }

@@ -150,8 +150,8 @@ internal class PartitionDownloadFactory(private val pool:PartitionCacheLeases,
 /** Exactly three components per native progressive downloader: upstream, file reader and cache sink.
  * Clean close after failed open is required too. A close failure is latched; a later retry cannot
  * turn it into evidence of closure. Controls never accumulate per hole/read/retry. */
-private class ClosureTracker(private val checkpoint:()->Unit={}) {
-    private class Control { var active=false; var uncertain=false; var closing=false }
+internal class ClosureTracker(private val checkpoint:()->Unit={}) {
+    private class Control { var active=false; var uncertain=false; var closing=false; var owner:Any?=null }
     private val controls=arrayOfNulls<Control>(3)
     @Synchronized private fun register():Control {
         val slot=controls.indexOfFirst { it==null }
@@ -168,15 +168,27 @@ private class ClosureTracker(private val checkpoint:()->Unit={}) {
     }
     private fun close(c:Control,action:()->Unit) {
         synchronized(this) {
-            if(c.uncertain || c.closing) throw IOException("Partition component close remains uncertain")
+            if(c.uncertain || c.closing) { c.uncertain=true; throw IOException("Native component close remains uncertain") }
             if(!c.active) return
             c.closing=true
         }
-        try { action(); synchronized(this) { c.active=false; c.closing=false } }
+        try {
+            action()
+            synchronized(this) {
+                c.closing=false
+                if(c.uncertain) throw IOException("Native component close was reentered")
+                c.active=false
+            }
+        }
         catch(failure:Throwable) { synchronized(this) { c.uncertain=true; c.closing=false }; throw failure }
     }
+    private fun <T:Any> create(c:Control,factory:Any,make:()->T):T {
+        synchronized(this) { c.owner=factory; c.active=true }
+        return try { make().also { made -> synchronized(this) { c.owner=made; c.active=false } } }
+        catch(failure:Throwable) { synchronized(this) { c.uncertain=true }; throw failure }
+    }
     fun source(factory:DataSource.Factory):DataSource {
-        val c=register(); val source=factory.createDataSource()
+        val c=register(); val source=create(c,factory) { factory.createDataSource() }
         return object:DataSource {
             override fun addTransferListener(listener:TransferListener)=source.addTransferListener(listener)
             override fun open(spec:DataSpec):Long { checkpoint(); opening(c); return source.open(spec).also { checkpoint() } }
@@ -187,7 +199,7 @@ private class ClosureTracker(private val checkpoint:()->Unit={}) {
         }
     }
     fun sink(factory:DataSink.Factory):DataSink {
-        val c=register(); val sink=factory.createDataSink()
+        val c=register(); val sink=create(c,factory) { factory.createDataSink() }
         return object:DataSink {
             override fun open(spec:DataSpec) { checkpoint(); opening(c); sink.open(spec); checkpoint() }
             override fun write(buffer:ByteArray,offset:Int,length:Int) { checkpoint(); live(c); sink.write(buffer,offset,length); checkpoint() }
