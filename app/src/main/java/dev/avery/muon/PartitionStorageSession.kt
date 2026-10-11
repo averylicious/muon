@@ -3,6 +3,7 @@ package dev.avery.muon
 
 import android.database.sqlite.SQLiteDatabase
 import androidx.media3.database.DatabaseProvider
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.exoplayer.offline.Download
@@ -39,7 +40,14 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     private val completed=PartitionCompletedAudio(native,completionIndex::find,capacity=2)
     private val mixed=MixedSavedAudio(native,legacy,published,completed)
     val audio:SavedAudio=BarrierSavedAudio(object:SavedAudio {
-        override val source=DataSource.Factory { requireOpen(); mixed.source.createDataSource() }
+        override val source=DataSource.Factory {
+            // Constructing this adapter does no I/O. Refuse a stopped session at open, where
+            // the barrier can close a returned child and prove this refusal owns no handles.
+            val child=mixed.source.createDataSource()
+            object:DataSource by child {
+                override fun open(spec:DataSpec):Long { requireOpen(); return child.open(spec) }
+            }
+        }
         override fun contains(key:String):Boolean { requireOpen(); return mixed.contains(key) }
         override fun inspect(key:String):SavedAudioState { requireOpen(); return mixed.inspect(key) }
         override fun forEachKey(visit:(String)->Boolean) { requireOpen(); mixed.forEachKey(visit) }
