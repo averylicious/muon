@@ -2,6 +2,8 @@ package dev.avery.muon
 
 import java.util.ArrayDeque
 import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
+import java.io.IOException
 
 internal const val DOWNLOAD_ARTWORK_JOBS = 128
 internal const val DOWNLOAD_ARTWORK_TEXT_BYTES = 256L * 1024
@@ -19,6 +21,9 @@ internal class DownloadArtworkWork(
     private val removeCover: (String) -> Unit,
     private val maxJobs: Int = DOWNLOAD_ARTWORK_JOBS,
     private val maxTextBytes: Long = DOWNLOAD_ARTWORK_TEXT_BYTES,
+    private val barrier:SavedStorageBarrier?=null,
+    /** True only for a known executor whose rejection proves execute did not accept this task. */
+    private val knownRejectionBeforeSubmission:Boolean=false,
 ) {
     private class Job(val id: String, val url: String?) {
         @Volatile var cancelled = false
@@ -29,9 +34,17 @@ internal class DownloadArtworkWork(
     private var active: Job? = null
     private var bytes = 0L
     private var scheduled = false
+    private var retained:Any?=null
+    val isUncertain:Boolean get()=synchronized(lock) { retained!=null }
+    private fun quarantine(owner:Any)=synchronized(lock) {
+        if(retained==null) retained=owner
+        pending.clear(); bytes=active?.bytes ?: 0L
+        barrier?.invalidate()
+    }
 
     /** False means this optional cover was not queued. Existing audio and covers are untouched. */
     fun fetch(id: String, url: String): Boolean = synchronized(lock) {
+        if(retained!=null) return@synchronized false
         val existing = active?.takeIf { it.id == id } ?: pending.firstOrNull { it.id == id }
         if (existing != null) return@synchronized !existing.cancelled && existing.url == url
         val job = Job(id, url)
@@ -41,6 +54,7 @@ internal class DownloadArtworkWork(
 
     fun remove(id: String) {
         val queued = synchronized(lock) {
+            if(retained!=null) return
             active?.takeIf { it.id == id }?.cancelled = true
             val iterator = pending.iterator()
             while (iterator.hasNext()) {
@@ -59,7 +73,7 @@ internal class DownloadArtworkWork(
             }
             fits(job) && enqueue(job)
         }
-        if (!queued) runCatching { removeCover(id) }
+        if (!queued) protected { optional { removeCover(id) } }
     }
 
     private fun fits(job: Job) = pending.size + (if (active == null) 0 else 1) < maxJobs &&
@@ -71,27 +85,51 @@ internal class DownloadArtworkWork(
         bytes += job.bytes
         if (scheduled) return true
         scheduled = true
-        return try { worker.execute(::drain); true } catch (_: RuntimeException) {
-            // With no submitted drain there cannot be any other active/waiting task here.
-            pending.remove(job); bytes -= job.bytes; scheduled = false; false
+        return try { worker.execute(::drain); true } catch (failure: Throwable) {
+            if(failure is RejectedExecutionException && knownRejectionBeforeSubmission) {
+                pending.remove(job); bytes -= job.bytes; scheduled = false
+            } else {
+                // execute may have accepted or even run the task before throwing. No retry/delete.
+                quarantine(job)
+            }
+            false
         }
     }
 
     private fun drain() {
         while (true) {
             val job = synchronized(lock) {
-                if (pending.isEmpty()) { scheduled = false; return }
+                if (retained!=null || pending.isEmpty()) { scheduled = false; return }
                 pending.removeFirst().also { active = it }
             }
             try {
-                if (job.url == null) runCatching { removeCover(job.id) }
-                else if (!job.cancelled) runCatching { fetchCover(job.id, job.url) }
+                protected {
+                    if (job.url == null) optional { removeCover(job.id) }
+                    else if (!job.cancelled) optional { fetchCover(job.id, job.url) }
+                    // Still under the SAME permit, after the actual fetch/close. Unknown close throws
+                    // before this cleanup; no deletion is justified by a swallowed close failure.
+                    if (job.cancelled && job.url != null) optional { removeCover(job.id) }
+                }
             } finally {
-                // A caller-side deletion can race a blocking fetch's publication. Delete again after
-                // that fetch has finished; no permanent per-ID tombstones or cancellation map.
-                if (job.cancelled && job.url != null) runCatching { removeCover(job.id) }
-                synchronized(lock) { active = null; bytes -= job.bytes }
+                synchronized(lock) { active = null; if(retained==null) bytes -= job.bytes else bytes=0 }
             }
         }
+    }
+    /** Covers are optional. Known failures release admission; exact unknown owners stop all work. */
+    private fun optional(work:()->Unit) {
+        try { work() } catch(unknown:SavedCoverCloseUncertain) { throw unknown } catch(_:Exception) { }
+    }
+    private fun protected(work:()->Unit) {
+        if(synchronized(lock) { retained!=null }) return
+        val permit=try { barrier?.shared() } catch(_:IOException) { return }
+        var unknown=false
+        try { permit?.check(); work(); permit?.check() }
+        catch(failure:SavedCoverCloseUncertain) {
+            unknown=true; permit?.quarantine(failure.owner); quarantine(failure.owner)
+        } catch(_:IOException) { /* Admission lost; refuse without retaining another task. */ }
+        catch(failure:Throwable) {
+            unknown=true; permit?.quarantine(failure); quarantine(failure)
+        }
+        finally { if(!unknown) permit?.close() }
     }
 }

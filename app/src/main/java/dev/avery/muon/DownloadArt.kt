@@ -1,6 +1,9 @@
 package dev.avery.muon
 
 import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStream
+import okhttp3.Call
 import java.security.MessageDigest
 import okhttp3.Request
 
@@ -14,7 +17,9 @@ import okhttp3.Request
  * files are left as they are, neither shown for a saved copy, served for a live song, adopted by a new
  * save nor deleted.
  */
-internal class DownloadArt(private val dir: File) {
+internal class DownloadArt(private val dir: File,
+    private val calls:Call.Factory?=null,
+    private val outputs:(File)->OutputStream={FileOutputStream(it)}) {
     private fun entryFile(requestId: String): File {
         val digest = MessageDigest.getInstance("SHA-256").digest("muon-saved-entry\u0000$requestId".toByteArray())
         return File(dir, "entry-" + digest.joinToString("") { "%02x".format(it) })
@@ -34,19 +39,30 @@ internal class DownloadArt(private val dir: File) {
      */
     fun fetchEntry(requestId: String, url: String) {
         if (hasEntry(requestId)) return
-        runCatching {
-            Transport.metadataClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                val source = response.body?.source()
-                if (!response.isSuccessful || source == null || source.request(COVER_BYTES + 1)) return
-                val bytes = source.readByteArray()
-                if (bytes.isEmpty()) return
+        try {
+            val io=SavedCoverIo()
+            val target=entryFile(requestId)
+            val temp=File(dir,target.name+".part")
+            var failure:Throwable?=null
+            try {
+                io.response=(calls ?: Transport.metadataClient).newCall(Request.Builder().url(url).build()).execute()
+                val response=requireNotNull(io.response)
+                val source=response.body?.source()?.also { io.source=it }
+                if(!response.isSuccessful || source==null || source.request(COVER_BYTES+1)) return
+                val bytes=source.readByteArray()
+                if(bytes.isEmpty()) return
                 dir.mkdirs()
-                val target = entryFile(requestId)
-                val temp = File(dir, target.name + ".part")
-                temp.writeBytes(bytes)
-                temp.renameTo(target)
-            }
-        }
+                val output=outputs(temp).also { io.output=it }
+                output.write(bytes); output.flush()
+            } catch(error:Throwable) { failure=error; throw error }
+            finally { try { io.finish() } catch(unknown:SavedCoverCloseUncertain) {
+                if(failure!=null && failure!==unknown && failure!==unknown.cause) unknown.addSuppressed(failure)
+                throw unknown
+            } }
+            // Publication is after BOTH observable closes, never after a quiet response close.
+            temp.renameTo(target)
+        } catch(unknown:SavedCoverCloseUncertain) { throw unknown }
+        catch(_:Exception) { /* Optional cover failure; known-closed audio/index remain unaffected. */ }
     }
 
     /** Removes the entry's own cover; any other file, including an older per-track cover, stays. */

@@ -126,7 +126,7 @@ class DownloadArtworkWorkTest {
     @Test fun executorRejectionReleasesAdmissionAndCleanupStillRuns() {
         val worker = Worker(); var rejecting = true; val removed = ArrayList<String>()
         val executor = Executor { if (rejecting) throw RejectedExecutionException() else worker.execute(it) }
-        val work = DownloadArtworkWork(executor, { _, _ -> }, { removed += it }, maxJobs = 1)
+        val work = DownloadArtworkWork(executor, { _, _ -> }, { removed += it }, maxJobs = 1, knownRejectionBeforeSubmission = true)
         assertFalse(work.fetch("first", "url"))
         work.remove("id")
         assertEquals(listOf("id"), removed)

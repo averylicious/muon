@@ -208,7 +208,8 @@ internal object OfflineStore {
         }
         val art = DownloadArt(File(context.filesDir, "downloads-art"))
         // Covers are fetched one at a time, beside the downloads rather than in their way.
-        val artwork = DownloadArtworkWork(owner.own { Executors.newSingleThreadExecutor() }, art::fetchEntry, art::removeEntry)
+        val artwork = DownloadArtworkWork(owner.own { Executors.newSingleThreadExecutor() }, art::fetchEntry, art::removeEntry,
+            barrier=barrier, knownRejectionBeforeSubmission=true)
         val sizes = DownloadByteTotals(context)
         val marks = owner.own { DownloadMarkLedger(File(context.noBackupFilesDir, "download-marks-v1.db")) {
             main.post { DownloadMarks.countsKnown = false }
