@@ -125,18 +125,17 @@ class BarrierSavedAudioTest {
         assertSame(exact,reader.javaClass.getDeclaredField("construction").apply { isAccessible=true }.get(reader))
         assertEquals(1,barrier.active); assertFalse(barrier.allowsShared)
     }
-    @Test fun suppressedReentrantActualChildCloseCannotReleaseTheStoragePermit() {
+    @Test fun refusedReentrantCloseDoesNotPoisonAnOtherwiseKnownActualClose() {
         val barrier=SavedStorageBarrier(1); lateinit var reader:DataSource; var closes=0
         val raw=ByteArrayDataSource(byteArrayOf(1))
         val exact=object:DataSource by raw {
-            override fun close() { closes++; try { reader.close() } catch(_:IOException) {}; raw.close() }
+            override fun close() { closes++; try { reader.close() } catch(_:IllegalStateException) {}; raw.close() }
         }
         reader=BarrierSavedAudio(saved(DataSource.Factory { exact }),barrier).source.createDataSource()
         reader.open(spec)
-        assertThrows(IOException::class.java) { reader.close() }
-        assertEquals(1,closes); assertEquals(1,barrier.active); assertFalse(barrier.allowsShared)
-        assertSame(exact,reader.javaClass.getDeclaredField("child").apply { isAccessible=true }.get(reader))
-        assertThrows(IOException::class.java) { reader.close() }; assertEquals(1,closes)
+        reader.close()
+        assertEquals(1,closes); assertTrue(barrier.quiescent); assertTrue(barrier.allowsShared)
+        reader.close(); assertEquals(1,closes)
     }
     @Test fun ordinaryFailedAdmissionOpensNoChildAndDoesNotPoisonTheOwner() {
         val barrier=SavedStorageBarrier(1); var made=0
