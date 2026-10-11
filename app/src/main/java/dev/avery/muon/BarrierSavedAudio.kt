@@ -101,10 +101,6 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
             if(lost || phase==Phase.Idle || phase==Phase.Uncertain) emptyMap() else child?.responseHeaders.orEmpty()
         @Synchronized override fun close() {
             if(phase==Phase.Idle) return
-            if(phase==Phase.Closing) {
-                val failure=IOException("Saved storage close was reentered")
-                quarantine(failure); throw failure
-            }
             if(phase==Phase.Uncertain) throw IOException("Saved storage close uncertain; ownership retained")
             check(phase==Phase.Open) { "Saved storage reader operation active" }
             finish()
@@ -116,7 +112,6 @@ internal class BarrierSavedAudio(private val audio:SavedAudio,private val barrie
                 quarantine(failure)
                 throw failure
             }
-            if(phase==Phase.Uncertain) throw IOException("Saved storage close remained uncertain",uncertainty)
             child=null; permit?.close(); permit=null; lost=false; phase=Phase.Idle
         }
     }
