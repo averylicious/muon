@@ -29,7 +29,7 @@ class StorageDownloadIndexTest {
     private lateinit var saved:Download
     @Before fun before() {
         database=StandaloneDatabaseProvider(RuntimeEnvironment.getApplication())
-        index=DefaultDownloadIndex(database,"owned-index-test")
+        index=DefaultDownloadIndex(database,"owned_index_test")
         barrier=SavedStorageBarrier(1)
         saved=Download(DownloadRequest.Builder("saved",Uri.parse("http://127.0.0.1:1/fixture")).setCustomCacheKey("saved").build(),
             Download.STATE_COMPLETED,1,2,5,0,Download.FAILURE_REASON_NONE)
