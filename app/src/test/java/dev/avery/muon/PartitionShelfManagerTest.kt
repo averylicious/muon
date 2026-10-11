@@ -69,6 +69,14 @@ class PartitionShelfManagerTest {
             it.manager.release(); it.session.close(); it.legacy.release(); it.saves.close(); it.migrations.close(); it.catalog.close()
         } } finally { provider.close() }
     }
+    @Test fun actualPreparedManagerIndexCursorKeepsGlobalGateUntilClose() {
+        val f=fixture(); val cursor=f.manager.downloadIndex.getDownloads()
+        assertEquals(1,f.barrier.active)
+        assertFalse(cursor.moveToNext()) // Empty/EOF is still an actual open native cursor.
+        assertThrows(IOException::class.java) { f.barrier.exclusive() }
+        cursor.close(); assertTrue(f.barrier.quiescent)
+        f.barrier.exclusive().close()
+    }
     @Test fun realManagerDeliveryHoldsGateAndCompletesExactSavedBytesThenNextCommandCanFit() {
         val f=fixture(); val first=request(); val command=f.owner.prepare(first)
         assertTrue(f.owner.deliver(command,first) { actual ->

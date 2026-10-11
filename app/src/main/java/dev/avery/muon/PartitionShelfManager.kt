@@ -36,7 +36,7 @@ internal class PartitionShelfManager(private val context:Context,private val dat
         main(); live()
         val permit=barrier.shared(); var quarantined=false
         try { return startup.open { opening ->
-            val index=ManagerStartupIndex(RetainedDownloadIndex(DefaultDownloadIndex(database,indexName),
+            val index=ManagerStartupIndex(RetainedDownloadIndex(StorageDownloadIndex(DefaultDownloadIndex(database,indexName),barrier),
                 File(context.cacheDir,"muon-retained-startup-${indexName.ifEmpty { "phone" }}.ids")))
             opening.own { DownloadManager(context.applicationContext,index,session.downloaders) }.also { made ->
                 manager=made
