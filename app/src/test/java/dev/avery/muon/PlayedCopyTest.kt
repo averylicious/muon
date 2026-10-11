@@ -160,6 +160,60 @@ class PlayedCopyTest {
         assertTrue(cache.isCached("explicit-download",0,64))
     }
 
+    @Test fun workLeaseCoversNativeCopyCloseAndKnownFailureResourceCleanup() {
+        val cache=open(512_000); val barrier=SavedStorageBarrier(1)
+        val tasks=java.util.ArrayDeque<Runnable>()
+        val timer=java.util.concurrent.ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy=true }
+        try {
+            val work=PlayedCopyWork(java.util.concurrent.Executor { tasks.add(it) },timer)
+            val raw=ByteArrayDataSource(ByteArray(256)); var closes=0; var removed=0
+            cache.addListener(key,object: androidx.media3.datasource.cache.Cache.Listener {
+                override fun onSpanAdded(cache: androidx.media3.datasource.cache.Cache,span: androidx.media3.datasource.cache.CacheSpan) {}
+                override fun onSpanTouched(cache: androidx.media3.datasource.cache.Cache,old: androidx.media3.datasource.cache.CacheSpan,new: androidx.media3.datasource.cache.CacheSpan) {}
+                override fun onSpanRemoved(cache: androidx.media3.datasource.cache.Cache,span: androidx.media3.datasource.cache.CacheSpan) {
+                    removed++; assertEquals(1,barrier.active)
+                    assertThrows(java.io.IOException::class.java) { barrier.exclusive() }
+                }
+            })
+            val upstream=object:DataSource by raw {
+                override fun open(spec:DataSpec):Long { raw.open(spec); return C.LENGTH_UNSET.toLong() }
+                override fun close() { closes++; assertEquals(1,barrier.active); raw.close() }
+            }
+            work.copy("actual",barrier) {
+                assertThrows(PlayedCopyTooLarge::class.java) {
+                    copyPlayedWithinLimit(source(cache,upstream),spec(key)) { 64 }
+                }
+            }
+            tasks.removeFirst().run()
+            assertEquals(1,closes); assertTrue(removed>0); assertFalse(cache.isCached(key,0,1))
+            assertTrue(barrier.quiescent)
+        } finally { timer.shutdownNow(); assertTrue(timer.awaitTermination(5,java.util.concurrent.TimeUnit.SECONDS)) }
+    }
+
+    @Test fun actualUnknownSourceCloseRetainsWorkLeaseAndPreventsNativeCacheMaintenance() {
+        val cache=open(512_000); val barrier=SavedStorageBarrier(1)
+        seed(cache,"explicit-download",ByteArray(64) { 7 })
+        val tasks=java.util.ArrayDeque<Runnable>()
+        val timer=java.util.concurrent.ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy=true }
+        val raw=ByteArrayDataSource(ByteArray(256)); var closes=0
+        try {
+            val work=PlayedCopyWork(java.util.concurrent.Executor { tasks.add(it) },timer)
+            val upstream=object:DataSource by raw {
+                override fun close():Unit { closes++; assertEquals(1,barrier.active); throw java.io.IOException("Unknown actual close") }
+            }
+            work.copy("actual",barrier) {
+                work.clear(barrier) { fail("Clear cannot overtake unknown source") }
+                work.resize(barrier) { fail("Resize cannot overtake unknown source") }
+                copyPlayedWithinLimit(source(cache,upstream),spec(key)) { 512_000 }
+            }
+            val failure=assertThrows(PlayedCopyCloseUncertain::class.java) { tasks.removeFirst().run() }
+            assertSame(failure.owner,PlayedCopyWork::class.java.getDeclaredField("retained").apply { isAccessible=true }.get(work))
+            assertEquals(1,closes); assertEquals(1,barrier.active); assertFalse(barrier.allowsShared)
+            assertTrue(tasks.isEmpty()); assertTrue(timer.queue.isEmpty())
+            assertTrue(cache.isCached(key,0,256)); assertTrue(cache.isCached("explicit-download",0,64))
+        } finally { raw.close(); timer.shutdownNow(); assertTrue(timer.awaitTermination(5,java.util.concurrent.TimeUnit.SECONDS)) }
+    }
+
     @Test fun startupTrimsOldOversizedPlayedCopyButPreservesExplicitDownload() {
         val folder = folders.newFolder()
         val cache = open(128, folder)

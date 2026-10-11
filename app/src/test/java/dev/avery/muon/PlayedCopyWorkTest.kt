@@ -127,6 +127,83 @@ class PlayedCopyWorkTest {
         assertTrue(worker.tasks.isEmpty()); assertTrue(timer.queue.isEmpty())
     }
 
+    @Test fun copyAndMaintenanceHoldActualSharedPermitAndRefuseExclusiveMigration() {
+        val barrier=SavedStorageBarrier(1)
+        fun held() { assertEquals(1,barrier.active); assertThrows(java.io.IOException::class.java) { barrier.exclusive() } }
+        val seen=ArrayList<String>()
+        work.copy("active",barrier) { token ->
+            held(); token.onCancel { held(); seen+="cancel" }
+            work.clear(barrier) { held(); seen+="clear" }
+            work.resize(barrier) { held(); seen+="resize" }
+            assertTrue(token.isCancelled)
+        }
+        assertTrue(barrier.quiescent) // Submission is not the actual writer lifetime.
+        worker.next()
+        assertEquals(listOf("cancel","clear","resize"),seen)
+        assertTrue(barrier.quiescent); assertTrue(timer.queue.isEmpty())
+    }
+
+    @Test fun exclusiveAdmissionRefusesCopyAndMaintenanceBeforeAnyClosureRuns() {
+        val barrier=SavedStorageBarrier(1); val exclusive=barrier.exclusive()
+        work.copy("blocked",barrier) { fail("No copy") }
+        work.clear(barrier) { fail("No clear") }; work.resize(barrier) { fail("No resize") }
+        worker.next(); assertEquals(1,barrier.active); assertTrue(timer.queue.isEmpty())
+        exclusive.close()
+        var ran=false; work.copy("retry",barrier) { ran=true }; worker.next()
+        assertTrue(ran); assertTrue(barrier.quiescent)
+    }
+
+    @Test fun aKnownTaskFailureReleasesItsPermitBeforePendingMaintenance() {
+        val barrier=SavedStorageBarrier(1); var cleared=false
+        work.copy("failed",barrier) {
+            assertEquals(1,barrier.active)
+            work.clear(barrier) { assertEquals(1,barrier.active); cleared=true }
+            throw java.io.IOException("Known completed failure")
+        }
+        assertThrows(java.io.IOException::class.java) { worker.next() }
+        assertTrue(barrier.quiescent); worker.next()
+        assertTrue(cleared); assertTrue(barrier.quiescent)
+    }
+
+    @Test fun quarantiningActualOperationRetainsLeaseAndDiscardsMaintenance() {
+        val barrier=SavedStorageBarrier(1); val exact=Any()
+        work.copy("active",barrier) {
+            work.clear(barrier) { fail("No clear after unknown close") }
+            work.resize(barrier) { fail("No resize after unknown close") }
+            work.quarantine(exact)
+        }
+        worker.next()
+        assertTrue(work.isUncertain); assertEquals(1,barrier.active)
+        assertFalse(barrier.allowsShared); assertTrue(worker.tasks.isEmpty()); assertTrue(timer.queue.isEmpty())
+        assertThrows(java.io.IOException::class.java) { barrier.exclusive() }
+    }
+
+    @Test fun acceptedThenThrowingExecutorCannotRunLateMutationOrRetry() {
+        val barrier=SavedStorageBarrier(1); var late:Runnable?=null; var submits=0
+        val ambiguous=PlayedCopyWork(Executor { task -> late=task; submits++; throw java.util.concurrent.RejectedExecutionException("Accepted first") },timer)
+        assertThrows(java.util.concurrent.RejectedExecutionException::class.java) {
+            ambiguous.copy("uncertain",barrier) { fail("No late mutation") }
+        }
+        assertTrue(ambiguous.isUncertain); assertFalse(barrier.allowsShared)
+        late!!.run(); ambiguous.clear(barrier) { fail("No maintenance") }
+        ambiguous.copy("retry",barrier) { fail("No retry") }
+        assertEquals(1,submits); assertTrue(timer.queue.isEmpty())
+    }
+
+    @Test fun knownExecutorRejectionDropsUnstartedClosuresWithoutPoisoningStorage() {
+        val barrier=SavedStorageBarrier(1); var reject=true; val tasks=ArrayDeque<Runnable>()
+        val known=PlayedCopyWork(Executor { task ->
+            if(reject) throw java.util.concurrent.RejectedExecutionException("Not submitted")
+            tasks+=task
+        },timer,knownRejectionBeforeSubmission=true)
+        assertThrows(java.util.concurrent.RejectedExecutionException::class.java) {
+            known.copy("refused",barrier) { fail("Not submitted") }
+        }
+        assertFalse(known.isUncertain); assertTrue(barrier.allowsShared); assertTrue(barrier.quiescent)
+        reject=false; var ran=false; known.copy("fresh",barrier) { ran=true }; tasks.removeFirst().run()
+        assertTrue(ran); assertTrue(barrier.quiescent)
+    }
+
     @Test fun cancellationIsIdempotentAndCancelsLateInstalledOperation() {
         val token = PlayedCopyCancellation()
         token.cancel()

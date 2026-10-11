@@ -154,7 +154,7 @@ internal object OfflineStore {
     /** Copies played songs one at a time, behind playback. */
     private val copier = Executors.newSingleThreadExecutor()
     private val copyDeadlines = ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy = true }
-    private val playedWork = PlayedCopyWork(copier, copyDeadlines)
+    private val playedWork = PlayedCopyWork(copier, copyDeadlines, knownRejectionBeforeSubmission=true)
 
     @Volatile private var store: Store? = null
 
@@ -204,7 +204,7 @@ internal object OfflineStore {
         saver.execute {
             // If the index cannot be read, the claims stay unknown and no played copy is ever removed.
             claims.read(phone.manager.downloadIndex)
-            if (claims.known) playedWork.resize { played.resize(limit) }
+            if (claims.known) playedWork.resize(barrier) { played.resize(limit) }
         }
         val art = DownloadArt(File(context.filesDir, "downloads-art"),barrier=barrier)
         // Covers are fetched one at a time, beside the downloads rather than in their way.
@@ -379,7 +379,7 @@ internal object OfflineStore {
     fun copyPlayed(context: Context, id: String, song: ByteArray?) {
         if (song == null || isSavedHandle(id)) return
         val store = get(context)
-        playedWork.copy(id) { owner ->
+        playedWork.copy(id, store.storageBarrier) { owner ->
             runCatching {
                 // Not before the phone index has been read: a fresh key must be one no row names (#213).
                 if (owner.isCancelled || !store.playedClaims.known || hasPlayedCopyFrom(store, id, song)) return@runCatching
@@ -444,7 +444,7 @@ internal object OfflineStore {
         val store = get(context)
         store.prefs.edit().putLong("cacheLimit", limit).apply()
         PlayedCacheState.limit = limit
-        playedWork.resize { store.played.resize(limit) }
+        playedWork.resize(store.storageBarrier) { store.played.resize(limit) }
     }
 
     /**
@@ -454,7 +454,7 @@ internal object OfflineStore {
     fun clearPlayed(context: Context) {
         val store = get(context)
         val cache = store.cache
-        playedWork.clear {
+        playedWork.clear(store.storageBarrier) {
             runCatching {
                 if (store.played.hasDiskOrder) store.played.clear()
                 else cache.keys.filter { it.startsWith(PLAYED_PREFIX) && store.playedClaims.removable(it) }.forEach(cache::removeResource)
