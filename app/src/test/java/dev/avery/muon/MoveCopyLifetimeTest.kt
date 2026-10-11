@@ -79,9 +79,10 @@ class MoveCopyLifetimeTest {
         val owner=MoveCopyLifetime(gate); var checked=0
         val outputs=MoveFileOutputs { file ->
             val actual=java.io.FileOutputStream(file)
-            object:java.io.OutputStream() {
-                override fun write(value:Int)=actual.write(value)
-                override fun write(bytes:ByteArray,offset:Int,length:Int)=actual.write(bytes,offset,length)
+            object:MoveFileOutput {
+                override fun write(buffer:ByteArray,offset:Int,length:Int)=actual.write(buffer,offset,length)
+                override fun flush()=actual.flush()
+                override fun sync()=actual.fd.sync()
                 override fun close() {
                     checked++
                     assertEquals(1,gate.active) // The independent upstream reader has drained.
