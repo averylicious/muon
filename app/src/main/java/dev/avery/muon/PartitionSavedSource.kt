@@ -28,6 +28,8 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
         private var source:DataSource?=null
         private var validate:(() -> Unit)?=null
         private var lost=false
+        private var constructing=false
+        private var uncertainty:Throwable?=null
         private val listeners=arrayOfNulls<TransferListener>(4)
 
         @Synchronized override fun addTransferListener(transferListener:TransferListener) {
@@ -38,8 +40,16 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
             listeners[slot]=transferListener
             if(phase==Phase.Open) {
                 phase=Phase.AddingListener
-                try { source!!.addTransferListener(transferListener) } finally { phase=Phase.Open }
+                try { source!!.addTransferListener(transferListener) }
+                catch(failure:Throwable) {
+                    if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) quarantine(failure)
+                    throw failure
+                } finally { if(phase!=Phase.Uncertain) phase=Phase.Open }
             }
+        }
+        private fun quarantine(failure:Throwable) {
+            if(uncertainty==null) uncertainty=failure
+            phase=Phase.Uncertain; pin?.quarantine(this)
         }
         @Synchronized override fun open(dataSpec:DataSpec):Long {
             check(phase==Phase.Idle) { "Partition reader is already open or uncertain" }
@@ -51,8 +61,9 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
                 pin=pool.acquire(key) // Before any source can observe a cached span/file.
                 validate!!.invoke()
                 cacheValidation(key,pin!!.cache)
+                constructing=true
                 val opened=readers(pin!!.cache)
-                source=opened
+                source=opened; constructing=false
                 for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)
                 val length=opened.open(dataSpec.buildUpon().setKey(key).build())
                 validate!!.invoke()
@@ -60,8 +71,11 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
                 return length
             } catch(failure:Throwable) {
                 // DataSource requires close even after failed open. Never drop a pin on unknown close.
-                if(failure is PartitionOwnershipUncertain) {
-                    phase=Phase.Uncertain; pin?.quarantine(failure)
+                if(constructing) {
+                    val unknown=PartitionOwnershipUncertain(this,failure)
+                    quarantine(unknown); throw unknown
+                } else if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) {
+                    quarantine(failure)
                 } else try { finish() } catch(closeFailure:Throwable) { if(closeFailure!==failure) failure.addSuppressed(closeFailure) }
                 throw failure
             }
@@ -77,7 +91,7 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
                 return count
             } catch(failure:Throwable) {
                 lost=true
-                if(failure is PartitionOwnershipUncertain) { phase=Phase.Uncertain; pin?.quarantine(failure) }
+                if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) quarantine(failure)
                 throw failure
             } finally { if(phase!=Phase.Uncertain) phase=Phase.Open }
         }
@@ -86,6 +100,10 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
             if(lost || phase==Phase.Idle || phase==Phase.Uncertain) emptyMap() else source?.responseHeaders.orEmpty()
         @Synchronized override fun close() {
             if(phase==Phase.Idle) return
+            if(phase==Phase.Closing) {
+                val failure=IOException("Partition reader close was reentered")
+                quarantine(failure); throw failure
+            }
             if(phase==Phase.Uncertain) throw IOException("Partition reader close is uncertain; its native pin is retained")
             check(phase==Phase.Open) { "Partition reader operation already active" }
             finish()
@@ -94,13 +112,14 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
             phase=Phase.Closing
             try {
                 source?.close()
+                if(phase==Phase.Uncertain) throw IOException("Partition reader close remained uncertain",uncertainty)
                 // Underlying readers/holes/listeners ended first. A stopped pool can now retire safely.
                 pin?.close()
                 source=null; pin=null; validate=null; lost=false; phase=Phase.Idle
             } catch(failure:Throwable) {
                 // No queue or replacement instance can hide this uncertainty. Capacity stays counted,
                 // and ordinary close retry cannot incorrectly release a possibly active cached reader.
-                phase=Phase.Uncertain
+                quarantine(failure)
                 throw failure
             }
         }

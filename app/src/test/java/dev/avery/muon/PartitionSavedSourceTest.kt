@@ -115,7 +115,7 @@ class PartitionSavedSourceTest {
         assertEquals("Original opening failure",failure.message); assertEquals("Unknown cleanup",failure.suppressed.single().message)
         assertEquals(1,pool.active); pool.close(); assertEquals(1,pool.resident)
     }
-    @Test fun cleanFailedOpenAndFailedSourceCreationBothReturnTheirPins() {
+    @Test fun cleanFailedOpenReturnsItsPinButUnreturnedSourceConstructionIsQuarantined() {
         PartitionCacheLeases(::native,capacity=1).use { pool ->
             var closes=0
             val source=PartitionSavedSource(pool) { cache -> object:DataSource by actual(cache) {
@@ -124,8 +124,8 @@ class PartitionSavedSourceTest {
             } }.createDataSource()
             assertThrows(IOException::class.java) { source.open(spec("key")) }; assertEquals(1,closes); source.close(); assertEquals(1,closes); assertEquals(0,pool.active)
             val bad=PartitionSavedSource(pool) { throw IOException("Creation failure") }.createDataSource()
-            assertThrows(IOException::class.java) { bad.open(spec("key")) }; assertEquals(0,pool.active)
-            val good=PartitionSavedSource(pool).createDataSource(); good.open(spec("key")); read(good); good.close()
+            assertThrows(PartitionOwnershipUncertain::class.java) { bad.open(spec("key")) }; assertEquals(1,pool.active)
+            assertThrows(IOException::class.java) { PartitionSavedSource(pool).createDataSource().open(spec("other")) }
         }
     }
     @Test fun readFailureKeepsTheCachedPartitionPinnedUntilCallerClosesIt() {
@@ -182,4 +182,66 @@ class PartitionSavedSourceTest {
             source.open(spec("key")); read(source); source.close(); assertEquals(4,initializations); assertEquals(0,pool.active)
         }
     }
+    @Test fun actualUnreturnedCachedFileReaderKeepsNativePinAndOuterSharedPermit() {
+        val pool=PartitionCacheLeases(::native,capacity=2); val barrier=SavedStorageBarrier(1)
+        var unreturned:DataSource?=null; var created=0
+        val factory=PartitionSavedSource(pool) { cache ->
+            created++; actual(cache).also { unreturned=it; it.open(spec("key")) }
+            throw IOException("Factory opened real cached file before failing")
+        }
+        val base=object:SavedAudio {
+            override val source:DataSource.Factory=factory
+            override fun contains(key:String)=true
+            override fun inspect(key:String):SavedAudioState=throw UnsupportedOperationException()
+            override fun forEachKey(visit:(String)->Boolean) {}
+        }
+        val reader=BarrierSavedAudio(base,barrier).source.createDataSource()
+        try {
+            assertThrows(PartitionOwnershipUncertain::class.java) { reader.open(spec("key")) }
+            assertEquals(1,pool.active); assertEquals(1,barrier.active); assertFalse(barrier.allowsShared)
+            assertEquals(1,created); read(requireNotNull(unreturned)) // Disposable fixture proves actual file reader remains live.
+            assertThrows(IOException::class.java) { reader.close() }
+            assertThrows(IOException::class.java) { PartitionSavedSource(pool).createDataSource().open(spec("other")) }
+            assertEquals(1,opened)
+        } finally { unreturned?.close(); pool.close() }
+    }
+    @Test fun suppressedReentrantNativeCloseCannotReleaseEitherThePinOrOuterPermit() {
+        val pool=PartitionCacheLeases(::native,capacity=2); val barrier=SavedStorageBarrier(1)
+        lateinit var inner:DataSource; var closes=0
+        val factory=PartitionSavedSource(pool) { cache ->
+            val raw=actual(cache)
+            object:DataSource by raw {
+                override fun close() { closes++; try { inner.close() } catch(_:IOException) {}; raw.close() }
+            }
+        }
+        inner=factory.createDataSource()
+        val base=object:SavedAudio {
+            override val source=DataSource.Factory { inner }
+            override fun contains(key:String)=true
+            override fun inspect(key:String):SavedAudioState=throw UnsupportedOperationException()
+            override fun forEachKey(visit:(String)->Boolean) {}
+        }
+        val reader=BarrierSavedAudio(base,barrier).source.createDataSource(); reader.open(spec("key"))
+        assertThrows(IOException::class.java) { reader.close() }
+        assertEquals(1,closes); assertEquals(1,pool.active); assertEquals(1,barrier.active)
+        assertFalse(barrier.allowsShared)
+        assertThrows(IOException::class.java) { reader.close() }; assertEquals(1,closes)
+        assertThrows(IOException::class.java) { PartitionSavedSource(pool).createDataSource().open(spec("other")) }
+        pool.close(); assertEquals(1,pool.resident)
+    }
+    @Test fun unknownActualChildCloseQuarantinesPoolEvenWhenAnotherSlotIsAvailable() {
+        val pool=PartitionCacheLeases(::native,capacity=2); var closes=0
+        val reader=PartitionSavedSource(pool) { cache ->
+            val raw=actual(cache)
+            object:DataSource by raw { override fun close() { closes++; raw.close(); throw IOException("Unknown close") } }
+        }.createDataSource()
+        reader.open(spec("key")); read(reader)
+        assertThrows(IOException::class.java) { reader.close() }
+        assertEquals(1,pool.active); assertEquals(1,pool.resident)
+        assertThrows(IOException::class.java) { PartitionSavedSource(pool).createDataSource().open(spec("other")) }
+        assertEquals(1,opened); assertEquals(1,closes)
+        assertThrows(IOException::class.java) { reader.close() }; assertEquals(1,closes)
+        pool.close()
+    }
+
 }
