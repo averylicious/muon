@@ -25,7 +25,7 @@ internal class DiskOwnershipCensus private constructor(private val file: File,
         known()
         check(activeQueries<8) { "Ownership census callback depth exceeded" }
         activeQueries++
-        return try { work() } catch(failure:Throwable) {
+        return try { work().also { permit?.check() } } catch(failure:Throwable) {
             if(uncertainty==null) uncertainty=failure
             permit?.quarantine(this)
             throw failure

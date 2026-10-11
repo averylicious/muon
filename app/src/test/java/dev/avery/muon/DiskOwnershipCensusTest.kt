@@ -166,4 +166,11 @@ class DiskOwnershipCensusTest {
         assertEquals(1,gate.active); assertFalse(gate.allowsShared)
         assertThrows(java.io.IOException::class.java) { census.close() }; assertEquals(1,rows().size)
     }
+
+    @Test fun callbackInvalidationCannotPublishSuccessfulAuthorityEvenAtEarlyStop() {
+        put("saved/a","saved/a"); val gate=SavedStorageBarrier(); val census=DiskOwnershipCensus.read(app,index,gate)
+        assertThrows(java.io.IOException::class.java) { census.forEachRow { gate.invalidate(); false } }
+        assertEquals(1,gate.active); assertFalse(gate.allowsShared)
+        assertThrows(java.io.IOException::class.java) { census.close() }; assertEquals(1,rows().size)
+    }
 }
