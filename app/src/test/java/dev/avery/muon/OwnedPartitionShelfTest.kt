@@ -400,7 +400,7 @@ class OwnedPartitionShelfTest {
             onWorker { first.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
                 DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
             val phone=Shelf.partitioned(first,MuonDownloadService::class.java)
-            val app=RuntimeEnvironment.getApplication<android.app.Application>()
+            val app=RuntimeEnvironment.getApplication()
             val store=OfflineStore.Store(phone,DownloadArt(folders.newFolder()),PlayedSongEvictor(8192L) {},
                 app.getSharedPreferences("played-removal-fixture",0),f.provider,{}, {},storageBarrier=f.barrier)
             field.set(OfflineStore,store)
