@@ -1270,6 +1270,7 @@ class OwnedPartitionShelfTest {
             assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {
                 f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
             })
+            assertEquals(0,f.f.budget.resident) // Destination verification releases its actual native cache.
             teardown(f.source); f.sourceClosed=true; teardown(f.target); f.targetClosed=true
             val source=f.f.owner(PartitionShelfStart.Resume); resumedSource=source
             val target=f.target(PartitionShelfStart.Resume); resumedTarget=target
@@ -1282,8 +1283,9 @@ class OwnedPartitionShelfTest {
                     val bytes=ByteArray(4); assertEquals(4,reader.read(bytes,0,4)); assertArrayEquals(payload,bytes)
                 } finally {reader.close()}
             }
-            assertEquals(0,f.f.budget.resident); assertTrue(f.f.barrier.quiescent)
-        } finally {resumedTarget?.let(::teardown); resumedSource?.let(::teardown); f.close()}
+            assertEquals(1,f.f.budget.resident) // Playback retains one known idle cache in its bounded reader pool.
+            assertTrue(f.f.barrier.quiescent)
+        } finally {resumedTarget?.let(::teardown); resumedSource?.let(::teardown); f.close(); assertEquals(0,f.f.budget.resident)}
     }
     @Test fun changedTargetAudioRefusesMoveCleanupAndPreservesOriginalRowBytesAndCover() {
         val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
@@ -1379,6 +1381,25 @@ class OwnedPartitionShelfTest {
             assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {
                 f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
             })
+        } finally {f.close()}
+    }
+
+    @Test fun coveredMoveRetiresReadyDuplicateWithoutRestoringOriginalFallback() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier)
+        try {
+            val ready=f.source.migrate(CacheMigrationControl(1000,nanoTime={0L}),"81",{Long.MAX_VALUE}) {}
+            assertEquals(MigrationPhase.Ready,ready.phase)
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+            assertFalse(f.f.original.exists()); assertNull(f.index.getDownload("81"))
+            assertFalse(onWorker {f.source.audio.contains("81")})
+            assertFalse(f.f.root.walkTopDown().any {it.isFile && it.name.endsWith(".v3.exo")})
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {f.source.retirementRecoveryPage().single().phase})
+            assertTrue(onWorker {f.target.audio.contains(f.key)})
         } finally {f.close()}
     }
 
