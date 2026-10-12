@@ -301,6 +301,8 @@ class PartitionStorePreparationTest {
             settings.request(f.plan(),true)
             val first=worker {initial.open {OfflineStore.preparePersistedPartition(app,it,f.plan())}}
             val hidden="saved/card-reservation-without-download-row"
+            DefaultDownloadIndex(first.database).getDownloads().use {assertFalse(it.moveToNext())}
+            DefaultDownloadIndex(first.database,"card").getDownloads().use {assertFalse(it.moveToNext())}
             worker {requireNotNull(first.card!!.partition).prepareSave(request(hidden))}
             assertFalse(PartitionCompletionIndex(first.database,"card").holdsNameIfPresent(hidden))
             val receipt=settings.read()
