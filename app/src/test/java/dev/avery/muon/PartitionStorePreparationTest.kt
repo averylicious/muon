@@ -360,7 +360,7 @@ class PartitionStorePreparationTest {
         val settings=PartitionStartupSettings(prefs);val choice=settings.request(f.plan(),true)
         val startup=StorageStartup<OfflineStore.PreparedStorage>();val before=app.databaseList().toSet()
         try {
-            assertFalse(PARTITION_OPT_IN_AVAILABLE) // Every variant stays disabled until activation approval.
+            assertEquals(BuildConfig.BUILD_TYPE=="debug",PARTITION_OPT_IN_AVAILABLE) // Canary only; Stable stays disabled.
             assertThrows(IOException::class.java) {worker {startup.open {OfflineStore.prepareSelectedStorage(app,it,partitionEnabled=false)}}}
             assertEquals(0,startup.retained);assertEquals(before,app.databaseList().toSet());assertEquals(choice,settings.read())
             assertFalse(f.phoneRoot.exists());assertFalse(f.cardRoot.exists())

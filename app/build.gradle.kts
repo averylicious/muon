@@ -42,8 +42,8 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            // Prepared channel boundary only; keep false until activation approval and acceptance.
-            buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "false")
+            // Explicit Canary preview only; installing does not opt in or change saved storage.
+            buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "true")
             // Canary is built like Stable in the one way that matters for QA: not debuggable, so
             // Compose runs at full speed and phone testing reflects real performance (#125). The
             // package, signing key and update path are unchanged. "Muon β" fits the launcher's
