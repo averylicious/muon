@@ -13,6 +13,9 @@ import java.nio.file.LinkOption
 import java.nio.file.attribute.BasicFileAttributes
 
 internal enum class PartitionShelfStart { Fresh, Resume }
+internal enum class PartitionOriginalMoveStage { Waiting, Copied, Published, Pending, Complete }
+/** Fixed result only; durable recovery rereads the bounded journals, never a retained request/list. */
+internal data class PartitionOriginalMoveResult(val stage:PartitionOriginalMoveStage,val outcome:OfflineStore.SavedRemoval)
 
 /** Real shelf resources assembled WITHOUT first opening the legacy SimpleCache. Register this
  * process owner in OfflineStore's StorageStartup before prepare(); production selection/opt-in is
@@ -130,21 +133,21 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         writerCreated:(PlayedCopyWriter)->Unit={},checkpoint:()->Unit={},limit:()->Long)=
         resources().session.copyPlayed(spec,song,origin,upstream,writerCreated,checkpoint,limit)
     internal fun copyCompletedOriginalTo(destination:OwnedPartitionShelf,key:String,newKey:String,
-        explicitConsent:Boolean):PartitionOriginalCopy {
+        explicitConsent:Boolean,checkpoint:()->Unit={}):PartitionOriginalCopy {
         if(destination===this || destination.storageBarrier!==barrier)
             throw IOException("Local Move preparation needs another shelf on the actual gate")
         val source=resources(); val target=destination.resources()
         return source.legacy.copyCompletedOriginalTo(source.session,target.session,key,newKey,explicitConsent) {
-            located(); destination.located()
+            located(); destination.located(); checkpoint()
         }
     }
     internal fun publishCopiedOriginalTo(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,
-        explicitConsent:Boolean,unclaimedElsewhere:(String)->Boolean,timestamp:Long=System.currentTimeMillis()):PartitionSaveCompletion {
+        explicitConsent:Boolean,unclaimedElsewhere:(String)->Boolean,timestamp:Long=System.currentTimeMillis(),checkpoint:()->Unit={}):PartitionSaveCompletion {
         if(destination===this || destination.storageBarrier!==barrier)
             throw IOException("Local publication requires another shelf on the actual gate")
         val source=resources(); val target=destination.resources()
         return source.legacy.publishCopiedOriginalTo(source.session,target.session,copy,explicitConsent,
-            unclaimedElsewhere,{located(); destination.located()},timestamp)
+            unclaimedElsewhere,{located(); destination.located(); checkpoint()},timestamp)
     }
     internal fun beginCopiedOriginalMove(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,
         completed:PartitionSaveCompletion,explicitConsent:Boolean):LegacyRetirementRecord {
@@ -161,7 +164,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
      * under the same gate. Exact older unbound Pending can upgrade only while all originals remain. */
     internal fun beginCoveredOriginalMove(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,
         completed:PartitionSaveCompletion,explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
-        recovery:LegacyRetirementRecord?=null):LegacyRetirementRecord {
+        recovery:LegacyRetirementRecord?=null,checkpoint:()->Unit={}):LegacyRetirementRecord {
         if(destination===this || destination.storageBarrier!==barrier)
             throw IOException("Covered Move needs another actual shelf on the same gate")
         val source=resources(); val target=destination.resources()
@@ -173,11 +176,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             artwork.cancelForConfirmedRemoval(copy.source.key,permit)
             artwork.cancelForConfirmedRemoval(copy.destination.allocation.key,permit)
             art.copyEntryConfirmed(copy.source.key,copy.destination.allocation.key,permit)
-        },recovery) {located(); destination.located()}
+        },recovery) {located(); destination.located(); checkpoint()}
     }
     internal fun completeCoveredOriginalMove(destination:OwnedPartitionShelf,expected:LegacyRetirementRecord,
         explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
-        unclaimedElsewhere:(String)->Boolean):OfflineStore.SavedRemoval {
+        unclaimedElsewhere:(String)->Boolean,checkpoint:()->Unit={}):OfflineStore.SavedRemoval {
         if(destination===this || destination.storageBarrier!==barrier) return OfflineStore.SavedRemoval.NotOwned
         val bound=expected.manifest.moveDestination ?: return OfflineStore.SavedRemoval.Waiting
         val cover=expected.manifest.moveCover ?: return OfflineStore.SavedRemoval.Waiting
@@ -192,7 +195,35 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 art.verifyMovedTarget(bound.ticket.allocation.key,cover,permit)
                 art.verifyMovedSource(expected.manifest.key,cover,permit)
             },{key,permit ->art.removeMovedSourceConfirmed(key,bound.ticket.allocation.key,cover,permit)},
-            {located(); destination.located()})
+            {located(); destination.located(); checkpoint()})
+    }
+    /** One synchronous, explicitly admitted original Move, for the existing serial mover. No new
+     * executor, backlog, request list or automatic restart replay. Stages can cancel cooperatively;
+     * a target already published stays readable, and exact Pending recovery is a separate consent.
+     * Storage checks carry checkpoint through real source read/digest/disposition loops. */
+    internal fun moveCompletedOriginalTo(destination:OwnedPartitionShelf,key:String,newKey:String,
+        explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,unclaimedElsewhere:(String)->Boolean,
+        checkpoint:()->Unit={},boundary:(PartitionOriginalMoveStage)->Unit={}):PartitionOriginalMoveResult {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original Move requires a worker"}
+        if(!explicitConsent) return PartitionOriginalMoveResult(PartitionOriginalMoveStage.Waiting,OfflineStore.SavedRemoval.NotOwned)
+        var stage=PartitionOriginalMoveStage.Waiting
+        try {
+            checkpoint()
+            val copy=copyCompletedOriginalTo(destination,key,newKey,true,checkpoint)
+            stage=PartitionOriginalMoveStage.Copied; boundary(stage); checkpoint()
+            val completed=publishCopiedOriginalTo(destination,copy,true,unclaimedElsewhere,checkpoint=checkpoint)
+            stage=PartitionOriginalMoveStage.Published; boundary(stage); checkpoint()
+            val pending=beginCoveredOriginalMove(destination,copy,completed,true,art,artwork,checkpoint=checkpoint)
+            stage=PartitionOriginalMoveStage.Pending; boundary(stage); checkpoint()
+            val result=completeCoveredOriginalMove(destination,pending,true,art,artwork,unclaimedElsewhere,checkpoint)
+            if(result==OfflineStore.SavedRemoval.Sent) stage=PartitionOriginalMoveStage.Complete
+            return PartitionOriginalMoveResult(stage,result)
+        } catch(failure:Exception) {
+            val outcome=if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain ||
+                failure is SavedCoverCloseUncertain || !barrier.allowsShared) OfflineStore.SavedRemoval.Unavailable
+                else OfflineStore.SavedRemoval.Failed
+            return PartitionOriginalMoveResult(stage,outcome)
+        }
     }
     fun playedBytes(checkpoint:()->Unit={}):Long=resources().session.playedBytes(checkpoint)
     fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
