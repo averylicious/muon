@@ -225,6 +225,9 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             while(true) {
                 remaining=playedBytes(checkpoint)
                 if(remaining<=limit.coerceAtLeast(0)) return OwnedPlayedClear(removed,bytes,remaining,true)
+                // An already-owned reader/writer is known contention, not permission to trim its
+                // pool and not an unknown tally. Do not begin the observational native probe.
+                if(!barrier.quiescent) return OwnedPlayedClear(removed,bytes,remaining,false)
                 val candidate=oldestPlayed(removable,checkpoint) ?: return OwnedPlayedClear(removed,bytes,remaining,false)
                 checkpoint()
                 val result=removePlayedOwned(candidate.record.ticket.allocation.key,removable,candidate)

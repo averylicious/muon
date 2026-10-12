@@ -161,7 +161,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         return OwnedPlayedClear(removed,removedBytes,remaining,successful && remaining==0L)
     }
     fun resizePlayed(limit:Long,removable:(String)->Boolean):OwnedPlayedClear =
-        resources().session.resizePlayed(limit,removable)
+        resources().session.resizePlayed(limit,removable) {
+            if(Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("Played resize interrupted")
+        }
     fun removeCompleted(key:String,unclaimedElsewhere:(String)->Boolean):OfflineStore.SavedRemoval =
         try { resources().session.removeCompleted(key,unclaimedElsewhere) }
         catch(_:IOException) { OfflineStore.SavedRemoval.Unavailable }

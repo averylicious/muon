@@ -450,7 +450,7 @@ class OwnedPartitionShelfTest {
         try {
             owner.prepare(); await(owner.initializeManager()) {true}
             for(i in 0..18) copyPlayed(owner,playedKey("saved/resize-"+i.toString().padStart(2,'0')))
-            val result=onWorker {owner.resizePlayed(4) {it!=keep}}
+            val result=onWorker(60) {owner.resizePlayed(4) {it!=keep}}
             assertTrue(result.complete); assertEquals(18L,result.removed); assertEquals(72L,result.removedBytes)
             assertEquals(4L,result.remainingBytes); assertEquals(SavedCoverage.Full,onWorker {owner.audio.inspect(keep).coverage})
             assertEquals(19,onWorker { owner.saveRecoveryPage().size+owner.saveRecoveryPage(owner.saveRecoveryPage().last().ticket.allocation.key).size })
