@@ -160,6 +160,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         val remaining=try { playedBytes() } catch(_:Exception) { null }
         return OwnedPlayedClear(removed,removedBytes,remaining,successful && remaining==0L)
     }
+    fun removeCompleted(key:String,unclaimedElsewhere:(String)->Boolean):OfflineStore.SavedRemoval =
+        try { resources().session.removeCompleted(key,unclaimedElsewhere) }
+        catch(_:IOException) { OfflineStore.SavedRemoval.Unavailable }
     fun prepareSave(request:DownloadRequest)=resources().manager.prepare(request)
     fun abandonPrepared(request:DownloadRequest)=resources().manager.abandonPrepared(request)
     fun deliverPrepared(request:DownloadRequest,start:(DownloadManager)->Unit)=resources().manager.deliverPrepared(request,start)

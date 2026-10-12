@@ -141,6 +141,22 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
             }
         } catch(failure:SQLiteException) { throw IOException("Storage name census unavailable",failure) }
     }
+    /** Before removing an exact completed new-save row, exclude every OTHER row's alias without
+     * hydrating its payload. Malformed aliases refuse; excluding the expected ID is safe only
+     * together with find(key)'s exact progressive request/state identity, under exclusive admission.
+     */
+    @Synchronized fun holdsOtherName(key:String):Boolean {
+        if(key.length.toLong()*2>MIGRATION_KEY_BYTES || !key.startsWith(NEW_SAVE_PREFIX))
+            throw IOException("Completed removal name exceeds its budget")
+        val invalid="typeof(id)!='text' OR typeof(custom_cache_key) NOT IN ('text','null') OR " +
+            "(custom_cache_key IS NULL AND typeof(uri)!='text')"
+        try {
+            val db=provider.readableDatabase; schema(db)
+            return db.rawQuery("SELECT 1 FROM $table WHERE ($invalid) OR (id!=? AND "+
+                "(custom_cache_key=? OR (custom_cache_key IS NULL AND uri=?))) LIMIT 1",
+                arrayOf(key,key,key)).use { it.moveToFirst() }
+        } catch(failure:SQLiteException) { throw IOException("Completed removal alias census unavailable",failure) }
+    }
     @Synchronized fun find(key:String):PartitionSaveCompletion? {
         if(key.length.toLong()*2>MIGRATION_KEY_BYTES || !key.startsWith(NEW_SAVE_PREFIX))
             throw IOException("Completed-save lookup key exceeds its supported budget")

@@ -62,6 +62,8 @@ internal class Shelf private constructor(private val legacyCache:SimpleCache?, v
         present: () -> Boolean = { true }) : this(cache, manager, service, LegacySavedAudio(cache), present)
     /** Current-process service command/request retention; main-thread use only (#253). */
     internal var commands = DownloadCommandBudget()
+    /** Main-only scalar callback; fixed one per shelf, never a retained Download payload. */
+    internal var partitionRemoved:(String)->Unit = {}
 
     /**
      * Streams a live song straight from Tauon (#213): no cache is read or written at all, so no kept copy,
@@ -330,14 +332,13 @@ internal object OfflineStore {
             DownloadMarks.bytes = sizes.total
             DownloadMarks.bytesKnown = sizes.known
         }
-        fun removed(download: Download) {
+        fun removedId(id:String) {
             DownloadMarks.revision++
             // Moved rather than removed: the song is still kept, on the other shelf.
-            if (listOfNotNull(phone, store?.card).any { it.completed(download.request.id) }) return
+            if (listOfNotNull(phone, store?.card).any { it.completed(id) }) return
             // Only a cover this entry owns goes with it, and only once no row of its ID is left anywhere.
             // An older download's cover was kept per track number and may belong to other copies, so it is
             // left where it is.
-            val id = download.request.id
             if (id.startsWith(NEW_SAVE_PREFIX) && listOfNotNull(phone, store?.card).none { it.holds(id) })
                 artwork.remove(id)
             marks.put(id, null)
@@ -347,10 +348,11 @@ internal object OfflineStore {
             DownloadMarks.bytes = sizes.total
             DownloadMarks.bytesKnown = sizes.known
         }
+        fun removed(download:Download)=removedId(download.request.id)
         val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims, marks = marks, storageBarrier=barrier)
         ready.card?.let { made.card=shelf(it); made.cardFolder=ready.cardFolder }
-        watch(context,phone,made,main)
-        made.card?.let { watch(context,it,made,main) }
+        watch(context,phone,made,main,::removedId)
+        made.card?.let { watch(context,it,made,main,::removedId) }
         saver.execute {
             claims.read(phone.manager.downloadIndex)
             if(claims.known) {
@@ -369,13 +371,19 @@ internal object OfflineStore {
      * Reports one shelf's downloads to the UI. Removing a move's original requires this process's
      * receipt and rechecked records/bytes, never a same-ID completion alone. Restart keeps both copies.
      */
-    private fun watch(context: Context, shelf: Shelf, store: Store, main: Handler) {
+    private fun watch(context: Context, shelf: Shelf, store: Store, main: Handler,removedId:(String)->Unit) {
         // Live callbacks and publication run on the application/main looper. An index snapshot can
         // already be obsolete when posted; retain newer events until that one bootstrap finishes.
         val snapshot = DownloadBootstrapSnapshot(context)
         store.bootstrapPending++
         DownloadMarks.summary = DownloadSummaryStatus.Loading
         var changed: DownloadBootstrapSnapshot? = snapshot
+        shelf.partitionRemoved={ id ->
+            check(Looper.myLooper()==Looper.getMainLooper())
+            changed?.changed(id)
+            store.moves.invalidate(id)
+            removedId(id)
+        }
         shelf.manager.addListener(object : DownloadManager.Listener {
             override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) {
                 val id = download.request.id
@@ -903,6 +911,19 @@ internal object OfflineStore {
         }
         val shelf = (if (ref.shelf == SavedShelf.Card) store.card else store.phone)
             ?.takeIf { it.available() } ?: return SavedRemoval.Unavailable
+        shelf.partition?.let { partition ->
+            if(ref.requestId!=ref.key) return SavedRemoval.NotOwned
+            val outcome=partition.removeCompleted(ref.key) { key ->
+                // Session holds exclusive access; use scalar raw-index observations rather than
+                // nesting shared session/index leases or hydrating the other shelf's request.
+                val otherIndex=if(ref.shelf==SavedShelf.Card) "" else "card"
+                !PartitionCompletionIndex(store.database,otherIndex).holdsNameIfPresent(key)
+            }
+            if(outcome==SavedRemoval.Sent) Handler(Looper.getMainLooper()).post {
+                if(current()===store) shelf.partitionRemoved(ref.requestId)
+            }
+            return outcome
+        }
         // One candidate, every index row: do not retain unrelated names just to remove this copy (#253).
         val owner = runCatching { IndexNameProbe.read(shelf.manager.downloadIndex, ref.requestId) }
             .getOrNull() ?: return SavedRemoval.NotOwned

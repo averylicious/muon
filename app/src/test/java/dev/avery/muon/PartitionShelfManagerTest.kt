@@ -120,6 +120,67 @@ class PartitionShelfManagerTest {
         assertEquals(PartitionSavePhase.Closed,f.saves.find(first.id)?.phase)
         assertNotNull(f.owner.prepare(request("saved/next")))
     }
+    private fun <T> onWorker(work:()->T):T {
+        val executor=java.util.concurrent.Executors.newSingleThreadExecutor()
+        return try { executor.submit<T> { work() }.get(10,TimeUnit.SECONDS) }
+        catch(failure:java.util.concurrent.ExecutionException) { throw requireNotNull(failure.cause) }
+        finally { executor.shutdownNow() }
+    }
+    private fun completed(f:Fixture,key:String="saved/remove"):DownloadRequest {
+        val request=request(key); val command=f.owner.prepare(request)
+        assertTrue(f.owner.deliver(command,request) { it.addDownload(request) })
+        await(f.manager) { f.index.getDownload(key)?.state==Download.STATE_COMPLETED }
+        return request
+    }
+    @Test fun completedDeleteRefusesReaderAtEofThenRemovesBytesAndRowWithoutManagerRemoveTask() {
+        val f=fixture(); val request=completed(f)
+        val reader=f.session.audio.source.createDataSource()
+        onWorker {
+            reader.open(DataSpec.Builder().setUri(request.uri).setKey(request.id).build())
+            val bytes=ByteArray(4); assertEquals(4,reader.read(bytes,0,4))
+            assertEquals(androidx.media3.common.C.RESULT_END_OF_INPUT,reader.read(bytes,0,4))
+        }
+        try {
+            assertEquals(OfflineStore.SavedRemoval.Busy,onWorker { f.session.removeCompleted(request.id) {true} })
+            assertNotNull(f.index.getDownload(request.id))
+        } finally { onWorker { reader.close() } }
+        assertEquals(OfflineStore.SavedRemoval.Sent,onWorker { f.session.removeCompleted(request.id) {true} })
+        assertNull(f.index.getDownload(request.id)); assertTrue(f.manager.currentDownloads.isEmpty())
+        assertEquals(PartitionSavePhase.Closed,f.saves.find(request.id)?.phase)
+        assertEquals(SavedCoverage.Missing,onWorker { f.session.audio.inspect(request.id).coverage })
+        assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { f.session.removeCompleted(request.id) {true} })
+        assertTrue(f.barrier.quiescent)
+    }
+    @Test fun completedDeletePreservesBytesForHugeAliasAndOtherShelfClaims() {
+        val f=fixture(); val request=completed(f)
+        val alias=DownloadRequest.Builder("older-alias",request.uri).setCustomCacheKey(request.id)
+            .setData(ByteArray(8*1024*1024)).build()
+        f.index.putDownload(Download(alias,Download.STATE_STOPPED,1,1,4,1,0))
+        assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { f.session.removeCompleted(request.id) {true} })
+        assertEquals(SavedCoverage.Full,onWorker { f.session.audio.inspect(request.id).coverage })
+        provider.readableDatabase.rawQuery("SELECT length(data) FROM ExoPlayerDownloads${f.name} WHERE id=?",arrayOf(alias.id)).use {
+            assertTrue(it.moveToFirst()); assertEquals(8*1024*1024,it.getInt(0))
+        }
+        f.index.removeDownload(alias.id)
+        assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { f.session.removeCompleted(request.id) {false} })
+        assertEquals(SavedCoverage.Full,onWorker { f.session.audio.inspect(request.id).coverage })
+        assertNotNull(f.index.getDownload(request.id))
+    }
+    @Test fun completedDeleteCannotRemoveLegacyOrUnfinishedOrOversizedCompletedRecords() {
+        val f=fixture()
+        val old=request("old"); f.index.putDownload(Download(old,Download.STATE_COMPLETED,1,1,4,0,0))
+        assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { f.session.removeCompleted(old.id) {true} })
+        val pending=request("saved/pending"); val pendingCommand=f.owner.prepare(pending)
+        assertTrue(f.owner.abandon(pendingCommand,pending))
+        f.index.putDownload(Download(pending,Download.STATE_STOPPED,1,1,4,1,0))
+        assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { f.session.removeCompleted(pending.id) {true} })
+        val done=completed(f,"saved/oversized")
+        provider.writableDatabase.execSQL("UPDATE ExoPlayerDownloads${f.name} SET data=zeroblob(?) WHERE id=?",
+            arrayOf(8*1024*1024,done.id))
+        assertEquals(OfflineStore.SavedRemoval.Failed,onWorker { f.session.removeCompleted(done.id) {true} })
+        assertTrue(PartitionCompletionIndex(provider,f.name).containsId(done.id)); assertTrue(f.barrier.quiescent)
+        assertThrows(IllegalStateException::class.java) { f.session.removeCompleted(done.id) {true} }
+    }
     @Test fun serviceBindingNeverChangesManagerAndPreventsLiveHelperReplacement() {
         val f=fixture()
         assertSame(f.manager,f.owner.managerForService()); assertSame(f.manager,f.owner.managerForService())

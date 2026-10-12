@@ -24,7 +24,7 @@ internal data class OwnedPlayedClear(val removed:Long,val removedBytes:Long,val 
  */
 internal class PartitionStorageSession(private val catalog:CachePartitionCatalog,
     private val saves:PartitionSaveJournal,private val migrations:CacheMigrationJournal,
-    private val native:PartitionNativeOwner,database:DatabaseProvider,indexName:String,
+    private val native:PartitionNativeOwner,private val database:DatabaseProvider,private val indexName:String,
     legacy:SavedAudio,upstream:DataSource.Factory,unclaimed:(String)->Boolean,
     private val available:()->Boolean,private val barrier:SavedStorageBarrier,
     commandCapacity:Int=DOWNLOAD_COMMAND_COUNT):Closeable {
@@ -149,6 +149,61 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                 permit.quarantine(handles); quarantined=true
             }
             return OwnedPlayedRemoval(OfflineStore.SavedRemoval.Failed)
+        } finally { if(!quarantined) permit.close() }
+    }
+    /** Explicit Delete for a clean NEW completed manager save only. No destructive manager
+     * command is forwarded. Media3 keeps only nonterminal rows in its in-memory task list; once
+     * exact COMPLETED ownership and exclusive admission are established, its PUBLIC writable index
+     * can remove that terminal record after actual bytes and native release succeed.
+     *
+     * The caller must exclude other shelves/moves under this same gate. Closed journal/catalog
+     * tombstones remain, so deletion cannot expose a legacy fallback or let the ID be reused. A
+     * missing/partial owned resource may be explicitly deleted too; it never substitutes another
+     * allocation. Unknown I/O or record mutation retains actual owners and stops this session.
+     */
+    fun removeCompleted(key:String,unclaimedElsewhere:(String)->Boolean):OfflineStore.SavedRemoval {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Completed removal requires a worker" }
+        if(!key.startsWith(NEW_SAVE_PREFIX) || key.length.toLong()*2>MIGRATION_KEY_BYTES)
+            return OfflineStore.SavedRemoval.NotOwned
+        if(stopped || closing || uncertain) return OfflineStore.SavedRemoval.Unavailable
+        val permit=try { barrier.exclusive() } catch(_:IOException) { return OfflineStore.SavedRemoval.Busy }
+        var cache:Cache?=null; var index:androidx.media3.exoplayer.offline.DefaultDownloadIndex?=null
+        var mutated=false; var quarantined=false
+        try {
+            requireOpen(); permit.check()
+            val expected=native.savedReadRoute(key)
+            val complete=completionIndex.find(key)
+            if(expected !is PartitionReadRoute.NewSave || expected.record.phase!=PartitionSavePhase.Closed ||
+                complete==null || completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key))
+                return OfflineStore.SavedRemoval.NotOwned
+            writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+            requireOpen(); permit.check()
+            if(native.savedReadRoute(key)!=expected || completionIndex.find(key)!=complete ||
+                completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key)) return OfflineStore.SavedRemoval.NotOwned
+            cache=native.openClosedSaveRead(key)
+            if(cache.uid!=expected.record.uid || native.savedReadRoute(key)!=expected)
+                throw IOException("Completed removal ownership changed")
+            mutated=true; cache.removeResource(key)
+            permit.check(); cache.release(); cache=null
+            requireOpen(); permit.check()
+            if(native.savedReadRoute(key)!=expected || completionIndex.find(key)!=complete ||
+                completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key))
+                throw IOException("Completed record changed after byte removal")
+            // Published DefaultDownloadIndex.removeDownload deletes by ID without materializing a
+            // Download or running Downloader.remove. Never call the wrapped shared index while
+            // holding exclusive admission, and never initialize/migrate an unsupported old schema.
+            completionIndex.requireSupportedOrAbsent()
+            index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(database,indexName)
+            mutated=true; index.removeDownload(key)
+            if(completionIndex.containsId(key)) throw IOException("Completed removal record is still present")
+            requireOpen(); permit.check()
+            return OfflineStore.SavedRemoval.Sent
+        } catch(failure:Throwable) {
+            if(cache!=null || mutated || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) {
+                val handles=arrayOf(cache,index,writers,published,completed,failure)
+                retainedPlayedRemoval=handles; uncertain=true; permit.quarantine(handles); quarantined=true
+            }
+            return OfflineStore.SavedRemoval.Failed
         } finally { if(!quarantined) permit.close() }
     }
     fun prepare(request:DownloadRequest)=operation {

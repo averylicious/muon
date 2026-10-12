@@ -392,6 +392,37 @@ class OwnedPartitionShelfTest {
         } finally { resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
     }
 
+    @Test fun actualStoreCompletedDeletePublishesScalarRemovalAndCannotReappearAfterRestart() {
+        val f=Fixture(); val first=f.owner(); var closed=false; var resumed:OwnedPartitionShelf?=null
+        val field=OfflineStore::class.java.getDeclaredField("store").apply { isAccessible=true }; val previous=field.get(OfflineStore)
+        val request=DownloadRequest.Builder("saved/store-delete",Uri.parse("http://127.0.0.1:7814/api1/fileopus/1"))
+            .setCustomCacheKey("saved/store-delete").build()
+        try {
+            first.prepare(); val manager=first.initializeManager()
+            manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads(); await(manager) {true}
+            val command=first.prepareSave(request); assertTrue(first.deliver(command,request) {it.addDownload(request)})
+            await(manager) { manager.downloadIndex.getDownload(request.id)?.state==Download.STATE_COMPLETED }
+            val phone=Shelf.partitioned(first,MuonDownloadService::class.java); var removed:String?=null
+            phone.partitionRemoved={id -> assertSame(Looper.getMainLooper(),Looper.myLooper()); removed=id}
+            val app=RuntimeEnvironment.getApplication()
+            val store=OfflineStore.Store(phone,DownloadArt(folders.newFolder()),PlayedSongEvictor(8192L) {},
+                app.getSharedPreferences("completed-removal-fixture",0),f.provider,{}, {},storageBarrier=f.barrier)
+            field.set(OfflineStore,store)
+            val ref=requireNotNull(SavedRef.download(SavedShelf.Phone,request.id,request.id))
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker { OfflineStore.removeSavedNow(app,ref) })
+            shadowOf(Looper.getMainLooper()).idle(); assertEquals(request.id,removed)
+            assertNull(manager.downloadIndex.getDownload(request.id))
+            assertEquals(SavedCoverage.Missing,onWorker { first.audio.inspect(request.id).coverage })
+            assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+            field.set(OfflineStore,previous); teardown(first); closed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            val nextManager=next.initializeManager(); await(nextManager) {true}
+            assertNull(nextManager.downloadIndex.getDownload(request.id))
+            assertEquals(SavedCoverage.Missing,onWorker { next.audio.inspect(request.id).coverage })
+            assertEquals(PartitionSavePhase.Closed,onWorker { next.saveRecoveryPage().single().phase })
+            assertArrayEquals(payload,f.original.readBytes())
+        } finally { field.set(OfflineStore,previous); resumed?.let(::teardown); if(!closed) teardown(first); f.provider.close() }
+    }
     @Test fun explicitOwnedPlayedRemovalRefusesActiveReaderAndCannotReappearAfterRestart() {
         val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
         val key=playedKey("saved/remove-owned"); val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
