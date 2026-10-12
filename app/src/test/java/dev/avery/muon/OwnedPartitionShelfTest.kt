@@ -459,7 +459,7 @@ class OwnedPartitionShelfTest {
             assertArrayEquals(payload,f.original.readBytes())
         } finally {teardown(owner); f.provider.close()}
     }
-    @Test fun actualStoreBulkDeleteUsesOwnedMutationAndKeepsLegacyRecords() {
+    @Test fun actualStoreBulkDeleteUsesOwnedMutationForCompletedLegacyAndNewRecords() {
         val f=Fixture(); val owner=f.owner(); val app=RuntimeEnvironment.getApplication()
         val field=OfflineStore::class.java.getDeclaredField("store").apply {isAccessible=true}; val previous=field.get(OfflineStore)
         try {
@@ -475,15 +475,19 @@ class OwnedPartitionShelfTest {
             }
             val phone=Shelf.partitioned(owner,MuonDownloadService::class.java); val removed=ArrayList<String>()
             phone.partitionRemoved={id -> assertSame(Looper.getMainLooper(),Looper.myLooper()); removed+=id}
-            val store=OfflineStore.Store(phone,DownloadArt(folders.newFolder()),PlayedSongEvictor(8192L) {},
-                app.getSharedPreferences("bulk-removal-fixture",0),f.provider,{}, {},storageBarrier=f.barrier)
+            val art=DownloadArt(folders.newFolder(),barrier=f.barrier)
+            val artwork=DownloadArtworkWork(java.util.concurrent.Executor {it.run()},art::fetchEntry,art::removeEntry,barrier=f.barrier)
+            val store=OfflineStore.Store(phone,art,PlayedSongEvictor(8192L) {},
+                app.getSharedPreferences("bulk-removal-fixture",0),f.provider,{}, {},artwork=artwork,storageBarrier=f.barrier)
             field.set(OfflineStore,store)
-            assertEquals(OfflineStore.RemoveAllPlan(0,1,removed=2),onWorker {OfflineStore.removeAllNow(app)})
-            shadowOf(Looper.getMainLooper()).idle(); assertEquals(ids.toSet(),removed.toSet())
+            assertEquals(OfflineStore.RemoveAllPlan(0,0,removed=3),onWorker {OfflineStore.removeAllNow(app)})
+            shadowOf(Looper.getMainLooper()).idle(); assertEquals((ids+"old").toSet(),removed.toSet())
             assertFalse(store.removalDelivery.busy); assertTrue(manager.isIdle)
             for(id in ids) {assertNull(manager.downloadIndex.getDownload(id)); assertFalse(onWorker {owner.audio.contains(id)})}
-            assertNotNull(manager.downloadIndex.getDownload("old")); assertArrayEquals(payload,f.original.readBytes())
-            assertEquals(OfflineStore.RemoveAllPlan(0,1),onWorker {OfflineStore.removeAllNow(app)})
+            assertNull(manager.downloadIndex.getDownload("old")); assertFalse(f.original.exists())
+            assertFalse(onWorker {owner.audio.contains("old")})
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {owner.retirementRecoveryPage().single().phase})
+            assertEquals(OfflineStore.RemoveAllPlan(0,0),onWorker {OfflineStore.removeAllNow(app)})
         } finally {field.set(OfflineStore,previous); teardown(owner); f.provider.close()}
     }
     @Test fun actualStoreBulkDeleteRefusesEofReaderThenSucceedsAfterClose() {
