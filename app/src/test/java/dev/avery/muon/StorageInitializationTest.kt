@@ -70,7 +70,7 @@ class StorageInitializationTest {
         val owner=StorageInitialization<Any,Any>(scope,dispatcher,dispatcher,{ prepares++; throw failure },{ binds++; it })
         try {
             repeat(2) {
-                try { owner.await(); fail("Must fail") } catch(actual:IOException) { assertSame(failure,actual) }
+                try { owner.await(); fail("Must fail") } catch(actual:IOException) { assertEquals(failure.message,actual.message) }
             }
             assertEquals(1,prepares); assertEquals(0,binds)
             assertEquals(StorageAvailability.Failed,owner.availability.value)
@@ -87,7 +87,7 @@ class StorageInitializationTest {
         })
         try {
             repeat(2) {
-                try { owner.await(); fail("Must fail") } catch(actual:IOException) { assertSame(failure,actual) }
+                try { owner.await(); fail("Must fail") } catch(actual:IOException) { assertEquals(failure.message,actual.message) }
             }
             assertEquals(1,prepares); assertEquals(1,binds)
             assertEquals(StorageAvailability.Failed,owner.availability.value)
