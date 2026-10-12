@@ -1,0 +1,11 @@
+# Dedicated partition Move cleanup preparation — 2026-10-13
+
+Cumulative successor to #529 6108f022ffb85ab5b30cdbac3b2988b09a3b4b2f. GPT-6 / Codex desktop implementation and source self-check; exact variant/effort not reported. No independent review, Claude or phone. Partition mode remains disabled; cumulative application PRs OPEN for inherited acceptance. Full legacy-original Delete/Move remains mandatory before activation.
+
+New bounded closed-allocation snapshot records actual parent/directory/file identities, lengths, modification times and SHA-256. Capture runs only after the real one-resource native cache/database closes. It accepts only the dedicated bytes/index/metadata layout, exact UID marker, known native span and SQLite files, fixed descriptor/file-count budgets and streaming 64-KiB hash buffers. No directory stream survives recursive descent. Oversized/foreign/symlinked/replaced paths refuse without cleanup.
+
+A separate single-attempt cleanup owner requires the caller's actual Pending/gate/destination callback before each mutation, verifies every remaining file, confirms actual unlink and directory sync, and removes the dedicated allocation only when empty. It never opens SimpleCache or writes native SQL after deleting a file. Missing paths are recovery observations only, not implicit consent or completion. Unknown unlink/actual handle close retains the actual owner and forbids in-process retry. Tests cover persisted snapshot, real partial deletion/recovery, target refusal, changed/foreign/replaced files/directories, symlink/count bounds and uncertain I/O.
+
+Preparation is NOT wired to a durable journal or production Move in this PR. Next: bind this snapshot after source native closure into new-source Pending, target-aware finish with exact raw completion/alias checks, source record/cover removal and durable Complete. Original unsupported-row disposition, production opt-in/startup/recovery controls and lifecycle/UAT remain. Native read-only original index metadata-retention limitation remains disclosed.
+
+Local diff check only; Actions is first Android compile. Latest head/run/artifact evidence belongs on the PR. No device/runtime/performance claim. No activation, merge, Stable tag or release.

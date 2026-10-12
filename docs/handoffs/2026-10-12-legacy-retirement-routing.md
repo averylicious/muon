@@ -1,0 +1,13 @@
+# Owned legacy retirement routing — 2026-10-12
+
+Cumulative successor to #510 at c8e543cfa9969c1173bd3733a3b0670c8c71f9a4. GPT-6 / Codex desktop implementation and source self-check; exact model variant/effort not reported. No Claude or phone used. Main application baseline remains 2a275286f28db78083567465a521b7ea46f32640; main's docs-only #504 is 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. Full legacy Delete/Move is required before activation. Partition mode remains disabled.
+
+The actual shelf now registers and opens the retirement journal with its other real owners, pins its file identity and refuses a missing/replaced journal on Resume. Preparation runs off main before filesystem/owner construction. Recovery reads use two-record pages under the actual shared barrier. Bounded scalar route/name lookups do not decode manifest payloads; they inherit the caller's dispatch.
+
+The legacy source owner acquires actual exclusive admission before capturing and persisting explicit retirement intent. No consent or any active reader/writer (including a reader at EOF) refuses before intent or source mutation. Pending/Complete records reserve the original name, suppress legacy and Ready-copy routing/enumeration/open, and prevent migration from resurrecting it. Actual original bytes remain unchanged: this is an internal controller primitive, not a user-visible successful Delete. Future controls must expose pending recovery when cleanup is interrupted.
+
+Unknown journal statement/cursor/transaction/write/database-close failures carry the retained actual journal owner to the storage gate. The owner never rolls back or closes the database over an unknown live child, and there is no production reset. This preserves process lifetime exclusion rather than treating a close exception as normal refusal.
+
+Local git diff --check passed. Actions is the first Android compile; record the latest-head CI/report/APK receipts on the PR. Added actual native-source shelf tests cover consent, EOF exclusion, route/inventory/name suppression, migration refusal, Pending restart persistence (including a Ready duplicate), exact journal replacement refusal and worker-first preparation. Existing shelf/service/store fixtures now prepare and close the new journal on workers. No device or performance claims; inherited manual acceptance remains pending.
+
+Next engineering: exact manifest-bound physical original cleanup, migrated-target cleanup, terminal download-index/cover disposition, full Move, persisted production opt-in/recovery controls and final composed failure coverage. New-copy automatic LRU make-room and saved-card startup timing remain separately unresolved. Leave application PR open for acceptance; no Stable release or backend activation.
