@@ -54,6 +54,54 @@ class LegacyResourceProjectionTest {
         fun project(checkpoint:()->Unit={})=LegacyResourceProjection.read(root,uid,"selected",db(),checkpoint)
     }
     @After fun close() { try { reads.asReversed().forEach { it.close() }; caches.asReversed().forEach { it.release() } } finally { database.close() } }
+    private fun <T> worker(read:()->T):T {
+        val executor=java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {return executor.submit<T> {read()}.get(30,java.util.concurrent.TimeUnit.SECONDS)}
+        catch(failure:java.util.concurrent.ExecutionException) {throw requireNotNull(failure.cause)}
+        finally {executor.shutdownNow(); check(executor.awaitTermination(10,java.util.concurrent.TimeUnit.SECONDS))}
+    }
+    @Test fun retirementManifestRoundTripsOnlySelectedFilesWithoutNativeReopenOrMutation() {
+        val f=Fixture(40); val index=f.db()
+        val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})}
+        assertEquals(1,manifest.spans.size); assertEquals(4L,manifest.spans.single().length)
+        val encoded=manifest.encode(); assertTrue(encoded.size<LEGACY_RETIREMENT_MANIFEST_BYTES)
+        val restored=LegacyRetirementManifest.decode(encoded); assertEquals(manifest,restored)
+        worker {restored.verifyRemaining(f.root,index,false,{})}
+        assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.root))
+        assertThrows(IOException::class.java) {LegacyRetirementManifest.decode(encoded+byteArrayOf(0))}
+        assertThrows(IOException::class.java) {LegacyRetirementManifest.decode(ByteArray(LEGACY_RETIREMENT_MANIFEST_BYTES+1))}
+    }
+    @Test fun retirementManifestDetectsSameLengthChangedBytesAndChangedMetadataWithoutCleanup() {
+        val f=Fixture(); val index=f.db()
+        val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})}
+        f.original.writeBytes(byteArrayOf(9,9,9,9))
+        assertThrows(IOException::class.java) {worker {manifest.verifyRemaining(f.root,index,false,{})}}
+        assertArrayEquals(byteArrayOf(9,9,9,9),f.original.readBytes())
+        f.original.writeBytes(payload)
+        database.writableDatabase.execSQL("UPDATE ${f.table} SET metadata=zeroblob(8388608) WHERE key='selected'")
+        assertThrows(IOException::class.java) {worker {manifest.verifyRemaining(f.root,index,false,{})}}
+        assertArrayEquals(payload,f.original.readBytes())
+    }
+    @Test fun retirementManifestDistinguishesPendingMissingFileFromFreshAuthorityAndRejectsRedirectedShard() {
+        val f=Fixture(); val index=f.db()
+        val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})}
+        assertTrue(f.original.delete()) // Disposable fixture simulates a crash after an authorized unlink.
+        assertThrows(IOException::class.java) {worker {manifest.verifyRemaining(f.root,index,false,{})}}
+        worker {manifest.verifyRemaining(f.root,index,true,{})}
+        val shard=requireNotNull(f.original.parentFile); assertTrue(shard.delete())
+        java.nio.file.Files.createSymbolicLink(shard.toPath(),folders.newFolder().toPath())
+        assertThrows(IOException::class.java) {worker {manifest.verifyRemaining(f.root,index,true,{})}}
+        assertFalse(SimpleCache.isCacheFolderLocked(f.root))
+    }
+    @Test fun retirementManifestRefusesUnrecordedIndexedSpansBeforeAnyFileCanBeRetired() {
+        val f=Fixture(); val index=f.db()
+        val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})}
+        val table="ExoPlayerCacheFileMetadata"+java.lang.Long.toHexString(f.uid)
+        database.writableDatabase.execSQL("INSERT INTO $table VALUES(?,?,?)",arrayOf("${manifest.contentId}.9.99.v3.exo",4L,99L))
+        assertThrows(IOException::class.java) {worker {manifest.verifyRemaining(f.root,index,true,{})}}
+        assertArrayEquals(payload,f.original.readBytes())
+        assertThrows(IllegalStateException::class.java) {LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})}
+    }
     @Test fun nativeHundredsOfResourcesProjectOnlySelectedRecordWithoutReopeningSource() {
         val f=Fixture(200); val before=f.original.readBytes(); val selected=f.project()
         assertEquals(setOf("selected"),selected.keys); assertEquals(1,selected.getCachedSpans("selected").size)
