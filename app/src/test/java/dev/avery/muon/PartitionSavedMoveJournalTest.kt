@@ -110,18 +110,18 @@ class PartitionSavedMoveJournalTest {
     @Test fun pendingRecoveryPagesSkipCompletedTombstonesAndKeepExactKeyOrder() {
         val journal=PartitionSavedMoveJournal(folders.newFolder(),true)
         worker {journal.open(); try {
-            for(name in listOf("a","b","c","d","e")) {
+            for(name in listOf("saved/a","saved/b","saved/c","saved/d","saved/e")) {
                 val initial=binding()
                 val value=initial.copy(source=initial.source.copy(ticket=initial.source.ticket.copy(
                     allocation=initial.source.ticket.allocation.copy(key=name))))
                 val pending=journal.begin(value,true)
-                if(name=="a" || name=="c") journal.complete(pending)
+                if(name=="saved/a" || name=="saved/c") journal.complete(pending)
             }
             val first=journal.pendingPage()
-            assertEquals(listOf("b","d"),first.map {it.binding.key})
-            assertEquals(listOf("e"),journal.pendingPage(first.last().binding.key).map {it.binding.key})
-            assertTrue(journal.pendingPage("e").isEmpty())
-            assertEquals(listOf("a","b"),journal.page().map {it.binding.key})
+            assertEquals(listOf("saved/b","saved/d"),first.map {it.binding.key})
+            assertEquals(listOf("saved/e"),journal.pendingPage(first.last().binding.key).map {it.binding.key})
+            assertTrue(journal.pendingPage("saved/e").isEmpty())
+            assertEquals(listOf("saved/a","saved/b"),journal.page().map {it.binding.key})
         } finally {journal.close()}}
     }
 
