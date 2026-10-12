@@ -15,8 +15,10 @@ import java.nio.file.attribute.BasicFileAttributes
 /** Own the read-only legacy connection BEFORE opening a partition shelf. Register this owner in
  * StorageStartup before open(). All writers, readers, migration and eventual teardown must share
  * this gate; a folder-lock observation alone is not exclusion. No SimpleCache, DB creation/repair,
- * implicit fallback, legacy deletion, hot service-manager swap or full-index Java load.
- * Unsupported layouts remain intact. The caller still owes actual production backend selection.
+ * implicit fallback, native-index mutation, hot service-manager swap or full-index Java load.
+ * Explicit Delete/Move retire only identity-bound physical originals/rows/covers through durable
+ * intent checkpoints; they do not reopen the old native cache for deletion. Unsupported layouts
+ * remain intact. The caller supplies the selected production backend and shared lifetime gate.
  */
 internal class LegacyTransitionOwner(private val directory:File,private val databaseFile:File,
     private val barrier:SavedStorageBarrier,private val available:()->Boolean,

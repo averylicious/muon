@@ -21,7 +21,7 @@ internal const val REVIEW_SAVED_STORAGE_ACTION="dev.avery.muon.action.REVIEW_SAV
 private const val REVIEW_SHORTCUT_ID="review-saved-storage"
 
 /** Fixed own-activity entry; no new exported component, arbitrary configuration or path extras.
- * The same disabled activation gate controls UI, shortcut and production backend selection. */
+ * The same compiled channel gate controls UI, shortcut and production backend selection. */
 internal fun installSavedStorageReviewShortcut(context:Context) {
     if(!PARTITION_OPT_IN_AVAILABLE) return
     try {
