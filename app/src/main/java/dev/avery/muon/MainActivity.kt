@@ -21,7 +21,7 @@ class MainActivity : ComponentActivity() {
     private var storageReviewClaimed = false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        storageReviewRequested = PARTITION_OPT_IN_AVAILABLE && (intent.action == REVIEW_SAVED_STORAGE_ACTION || OfflineStore.isStartupReviewSelected)
+        storageReviewRequested = PARTITION_OPT_IN_AVAILABLE && (OfflineStore.isStartupReviewSelected || StorageReviewEntry.from(this).accepts(intent))
         storageReviewClaimed = storageReviewRequested && OfflineStore.claimStartupReview()
         installSavedStorageReviewShortcut(this)
         volumeControlStream = AudioManager.STREAM_MUSIC

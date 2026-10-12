@@ -25,11 +25,13 @@ private const val REVIEW_SHORTCUT_ID="review-saved-storage"
 internal fun installSavedStorageReviewShortcut(context:Context) {
     if(!PARTITION_OPT_IN_AVAILABLE) return
     try {
+        val entry=StorageReviewEntry.from(context);val credential=entry.prepare()
         context.getSystemService(ShortcutManager::class.java)?.addDynamicShortcuts(listOf(
             ShortcutInfo.Builder(context,REVIEW_SHORTCUT_ID).setShortLabel("Review saved storage")
                 .setLongLabel("Review saved storage before startup")
-                .setIntent(Intent(context,MainActivity::class.java).setAction(REVIEW_SAVED_STORAGE_ACTION)).build()))
-    } catch(_:IllegalArgumentException) { /* Unsupported launcher; ordinary Settings opt-in remains. */ }
+                .setIntent(entry.intent(context,credential)).build()))
+    } catch(_:java.io.IOException) { /* Unknown private credential write never publishes authority. */ }
+      catch(_:IllegalArgumentException) { /* Unsupported launcher; ordinary Settings opt-in remains. */ }
       catch(_:IllegalStateException) { /* User locked/rate limited; never infer shortcut publication. */ }
       catch(_:SecurityException) { /* No extra permission or launcher setting is requested. */ }
 }
