@@ -34,4 +34,3 @@ internal fun SavedMigrationDialog(entry:SavedEntry,onDismiss:()->Unit) {
         }) {Text("Optimize copy")}},
         dismissButton={TextButton(onClick=onDismiss) {Text("Not now")}})
 }
-
