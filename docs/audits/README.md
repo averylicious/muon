@@ -1,6 +1,6 @@
 # Main-branch audit
 
-Current #253 continuation: [October 13 storage checkpoint](../handoffs/2026-10-12-legacy-retirement-progress.md). #549–#559 exact-head reports/APKs verified (latest #559/.1093, 1,620 tests per variant); #560/.1094 green with artifact inspection pending; #561 original-Delete completion fix and #562 disabled channel preparation await CI. All variants remain inactive. Source self-review confirms full supported original Delete/Move is wired; a newly found post-Complete cancellation-reporting defect is being verified. Automatic approval review blocked activation; no activation edit applied. Cumulative app stack OPEN for UAT, main/experiment unchanged. Sole GPT-6 writer; no Claude/phones. Continue useful authorized work while capacity permits.
+Current #253 continuation: [October 13 storage checkpoint](../handoffs/2026-10-12-legacy-retirement-progress.md). #549–#560 exact-head reports/APKs verified (latest #560/.1094, 1,622 tests per variant); corrected #561/.1098 and #562/.1099 await CI after an inherited actual-startup-worker fixture race. All variants remain inactive. Source self-review confirms full supported original Delete/Move is wired; a newly found post-Complete cancellation-reporting defect is being verified. Automatic approval review blocked activation; no activation edit applied. Cumulative app stack OPEN for UAT, main/experiment unchanged. Sole GPT-6 writer; no Claude/phones. Continue useful authorized work while capacity permits.
 
 
 
