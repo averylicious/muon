@@ -173,9 +173,10 @@ class SavedOwnershipControlTest {
         save(card, live, live, freshBytes, encodeSong(song))
         val legacy = legacyCover(art, live, byteArrayOf(7, 7))
         assertEquals(1, legacy.parentFile!!.listFiles()!!.size)
-        assertArrayEquals(byteArrayOf(7, 7), art.forArtwork("$origin/api1/pic/medium/${song.id}"))
-        art.remove(live)
-        assertFalse(art.has(live))
+        // Muon no longer reads, serves or deletes this per-track file (#213): no entry operation names it.
+        assertNull(art.forEntry(live))
+        art.removeEntry(live)
+        assertArrayEquals(byteArrayOf(7, 7), legacy.readBytes())
         // Both records remain, now without the cover either of them was shown with.
         assertEquals(1, records(phone).size)
         assertEquals(1, records(card).size)
@@ -200,7 +201,8 @@ class SavedOwnershipControlTest {
         assertTrue(covers.listFiles()!!.isEmpty())
         // The legacy cover's owner set is unknown (any shelf's row for the live ID); it is left alone.
         assertArrayEquals(byteArrayOf(7, 7), legacy.readBytes())
-        assertArrayEquals(byteArrayOf(7, 7), art.forArtwork("$origin/api1/pic/medium/${song.id}"))
+        // Production no longer serves it for the live address or any entry (#213).
+        assertNull(art.forEntry(live))
         assertEquals(setOf(live, "saved-entry-2"), records(phone).map { it.request.id }.toSet())
         assertArrayEquals(legacyBytes, bytes(phone, live))
     }
@@ -303,7 +305,7 @@ class SavedOwnershipControlTest {
     /** Stored as DownloadArt.fetch stores it, without the network (as DownloadArtTest does). */
     private fun legacyCover(art: DownloadArt, id: String, cover: ByteArray): File {
         val dir = folders.root.resolve("downloads-art")
-        return File(dir, sha256(id)).also { it.writeBytes(cover); assertTrue(art.has(id)) }
+        return File(dir, sha256(id)).also { it.writeBytes(cover); assertFalse(art.hasEntry(id)) }
     }
 
     private fun sha256(text: String) =
