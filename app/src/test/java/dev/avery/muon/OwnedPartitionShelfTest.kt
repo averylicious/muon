@@ -34,7 +34,7 @@ import org.robolectric.annotation.SQLiteMode
 class OwnedPartitionShelfTest {
     @get:Rule val folders=TemporaryFolder()
     private val payload=byteArrayOf(2,4,6,8)
-    private inner class Fixture {
+    private inner class Fixture(val oldKey:String="old") {
         val provider=StandaloneDatabaseProvider(RuntimeEnvironment.getApplication())
         val legacy=folders.newFolder(); val parent=folders.newFolder(); val root=File(parent,"partition-shelf")
         val databaseFile:File; val original:File
@@ -42,10 +42,10 @@ class OwnedPartitionShelfTest {
         init {
             val native=SimpleCache(legacy,NoOpCacheEvictor(),provider)
             try {
-                native.checkInitialization(); val hole=requireNotNull(native.startReadWrite("old",0,4))
-                try { original=native.startFile("old",0,4); original.writeBytes(payload); native.commitFile(original,4) }
+                native.checkInitialization(); val hole=requireNotNull(native.startReadWrite(oldKey,0,4))
+                try { original=native.startFile(oldKey,0,4); original.writeBytes(payload); native.commitFile(original,4) }
                 finally { native.releaseHoleSpan(hole) }
-                native.applyContentMetadataMutations("old",ContentMetadataMutations.setContentLength(ContentMetadataMutations(),4))
+                native.applyContentMetadataMutations(oldKey,ContentMetadataMutations.setContentLength(ContentMetadataMutations(),4))
                 databaseFile=File(provider.readableDatabase.path)
             } finally { native.release() }
         }
@@ -460,6 +460,81 @@ class OwnedPartitionShelfTest {
             assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { owner.removePlayed(playedKey("saved/not-owned")) { true } })
             assertEquals(SavedCoverage.Full,onWorker { owner.audio.inspect(key).coverage })
             assertArrayEquals(payload,f.original.readBytes()); assertTrue(f.barrier.quiescent)
+        } finally { teardown(owner); f.provider.close() }
+    }
+
+    @Test fun clearUsesBoundedJournalPagesAndReportsProtectedLegacyBytesWithoutErasingOriginals() {
+        val f=Fixture(playedKey("legacy")); val owner=f.owner()
+        try {
+            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            val count=PARTITION_LOCATOR_WINDOW+3
+            onWorker {
+                for(i in 0 until count) {
+                    val key=playedKey("saved/clear-$i")
+                    owner.copyPlayed(DataSpec.Builder().setUri("http://127.0.0.1:7814/$i").setKey(key).build(),
+                        byteArrayOf(1),"http://127.0.0.1:7814/$i",DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L }
+                }
+                val result=owner.clearPlayed { true }
+                assertEquals(count.toLong(),result.removed); assertEquals(4L*count,result.removedBytes)
+                assertEquals(4L,result.remainingBytes); assertFalse(result.complete)
+                assertEquals(SavedCoverage.Full,owner.audio.inspect(f.oldKey).coverage)
+                val repeated=owner.clearPlayed { true }
+                assertEquals(0L,repeated.removed); assertEquals(0L,repeated.removedBytes)
+                assertEquals(4L,repeated.remainingBytes); assertFalse(repeated.complete)
+                assertTrue(owner.saveRecoveryPage().all { it.phase==PartitionSavePhase.Closed })
+                assertEquals(SavedCoverage.Missing,owner.audio.inspect(playedKey("saved/clear-0")).coverage)
+            }
+            assertArrayEquals(payload,f.original.readBytes()); assertTrue(f.barrier.quiescent)
+            assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun clearRefusesAnActualReaderThenReportsEmptyOnlyAfterItCloses() {
+        val f=Fixture(); val owner=f.owner(); val key=playedKey("saved/clear-reader")
+        val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
+        try {
+            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker { owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
+                DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
+            val reader=owner.audio.source.createDataSource()
+            onWorker { reader.open(spec) }
+            try {
+                val busy=onWorker { owner.clearPlayed { true } }
+                assertEquals(0L,busy.removed); assertEquals(4L,busy.remainingBytes); assertFalse(busy.complete)
+                onWorker { val data=ByteArray(4); assertEquals(4,reader.read(data,0,4)); assertArrayEquals(payload,data) }
+            } finally { onWorker { reader.close() } }
+            val cleared=onWorker { owner.clearPlayed { true } }
+            assertEquals(1L,cleared.removed); assertEquals(4L,cleared.removedBytes)
+            assertEquals(0L,cleared.remainingBytes); assertTrue(cleared.complete)
+            assertArrayEquals(payload,f.original.readBytes()); assertTrue(f.barrier.quiescent)
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun clearSkipsAliasAndCallerClaimsAndCountsTheirActualRemainingBytes() {
+        val f=Fixture(); val owner=f.owner()
+        val alias=playedKey("saved/clear-alias"); val denied=playedKey("saved/clear-denied"); val eligible=playedKey("saved/clear-free")
+        try {
+            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {
+                for(key in listOf(alias,denied,eligible)) owner.copyPlayed(
+                    DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build(),byteArrayOf(1),
+                    "http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L }
+            }
+            val request=DownloadRequest.Builder("saved/clear-foreign",Uri.parse("http://127.0.0.1:7814/file"))
+                .setCustomCacheKey(alias).build()
+            androidx.media3.exoplayer.offline.DefaultDownloadIndex(f.provider,"owned_partition")
+                .putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
+            f.provider.writableDatabase.execSQL("UPDATE ExoPlayerDownloadsowned_partition SET data=zeroblob(8388608)")
+            val result=onWorker { owner.clearPlayed { it!=denied } }
+            assertEquals(1L,result.removed); assertEquals(4L,result.removedBytes)
+            assertEquals(8L,result.remainingBytes); assertFalse(result.complete)
+            onWorker {
+                assertEquals(SavedCoverage.Full,owner.audio.inspect(alias).coverage)
+                assertEquals(SavedCoverage.Full,owner.audio.inspect(denied).coverage)
+                assertEquals(SavedCoverage.Missing,owner.audio.inspect(eligible).coverage)
+            }
+            f.provider.readableDatabase.rawQuery("SELECT length(data) FROM ExoPlayerDownloadsowned_partition",null).use {
+                assertTrue(it.moveToFirst()); assertEquals(8388608L,it.getLong(0))
+            }
+            assertArrayEquals(payload,f.original.readBytes())
         } finally { teardown(owner); f.provider.close() }
     }
 

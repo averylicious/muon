@@ -13,6 +13,9 @@ import java.io.Closeable
 import java.io.IOException
 import java.io.File
 
+internal data class OwnedPlayedRemoval(val outcome:OfflineStore.SavedRemoval,val bytes:Long=0)
+internal data class OwnedPlayedClear(val removed:Long,val removedBytes:Long,val remainingBytes:Long?,val complete:Boolean)
+
 /** Prepared shelf composition, NOT selected by OfflineStore. The app-level owner must supply ONE
  * shared barrier, the process native budget via native, an exact legacy/index/cover claim census,
  * stable volume observation and exclusively owned journals. Journals, provider and legacy are
@@ -82,28 +85,31 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
      * Closed remains a durable no-fallback claim even after its own bytes/metadata become empty.
      */
     private var retainedPlayedRemoval:Any?=null
-    fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval {
+    fun removePlayed(key:String,removable:(String)->Boolean)=removePlayedDetailed(key,removable).outcome
+    fun removePlayedDetailed(key:String,removable:(String)->Boolean):OwnedPlayedRemoval {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Played removal requires a worker" }
         if(!key.startsWith(playedKey(NEW_SAVE_PREFIX)) || key.length.toLong()*2>MIGRATION_KEY_BYTES)
-            return OfflineStore.SavedRemoval.NotOwned
-        if(stopped || closing || uncertain) return OfflineStore.SavedRemoval.Unavailable
-        val permit=try { barrier.exclusive() } catch(_:IOException) { return OfflineStore.SavedRemoval.Busy }
+            return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
+        if(stopped || closing || uncertain) return OwnedPlayedRemoval(OfflineStore.SavedRemoval.Unavailable)
+        val permit=try { barrier.exclusive() } catch(_:IOException) { return OwnedPlayedRemoval(OfflineStore.SavedRemoval.Busy) }
         var cache:Cache?=null; var quarantined=false
         try {
             requireOpen(); permit.check()
             val expected=native.savedReadRoute(key)
             if(expected !is PartitionReadRoute.NewSave || expected.record.phase!=PartitionSavePhase.Closed ||
-                !removable(key) || completionIndex.holdsName(key)) return OfflineStore.SavedRemoval.NotOwned
-            if(native.savedReadRoute(key)!=expected) return OfflineStore.SavedRemoval.NotOwned
+                !removable(key) || completionIndex.holdsName(key)) return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
+            if(native.savedReadRoute(key)!=expected) return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
             writers.trimIdle(); published.trimIdle(); completed.trimIdle()
             requireOpen(); permit.check()
             cache=native.openClosedSaveRead(key)
             if(native.savedReadRoute(key)!=expected || cache.uid!=expected.record.uid)
                 throw IOException("Played-copy ownership changed before removal")
+            val bytes=cache.getCachedBytes(key,0,Long.MAX_VALUE)
+            if(bytes<0) throw IOException("Invalid played-copy byte count")
             cache.removeResource(key)
             permit.check(); cache.release(); cache=null
             requireOpen(); permit.check()
-            return OfflineStore.SavedRemoval.Sent
+            return OwnedPlayedRemoval(OfflineStore.SavedRemoval.Sent,bytes)
         } catch(failure:Throwable) {
             if(cache!=null || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) {
                 // No cleanup/release retry after a possibly partial remove/close. Keep the exact
@@ -112,7 +118,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                 retainedPlayedRemoval=handles; uncertain=true
                 permit.quarantine(handles); quarantined=true
             }
-            return OfflineStore.SavedRemoval.Failed
+            return OwnedPlayedRemoval(OfflineStore.SavedRemoval.Failed)
         } finally { if(!quarantined) permit.close() }
     }
     fun prepare(request:DownloadRequest)=operation {

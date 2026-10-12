@@ -128,6 +128,48 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
         try { resources().session.removePlayed(key,removable) }
         catch(_:IOException) { OfflineStore.SavedRemoval.Unavailable }
+    /** Bounded Clear of eligible new played copies. Every target gets actual exclusive admission;
+     * the page lease is closed first, so it cannot authorize deletion or mask an active reader.
+     * Transition originals/manager claims stay protected. Remaining bytes are an observed tally,
+     * not an empty-library claim on failure. No whole-key set or per-copy result history is kept.
+     */
+    fun clearPlayed(removable:(String)->Boolean):OwnedPlayedClear {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Played Clear requires a worker" }
+        var removed=0L; var removedBytes=0L; var successful=true; var after:String?=null
+        try {
+            scan@ while(true) {
+                val page=saveRecoveryPage(after)
+                if(page.isEmpty()) break
+                for(row in page) {
+                    val key=row.ticket.allocation.key
+                    if(row.phase!=PartitionSavePhase.Closed || !key.startsWith(playedKey(NEW_SAVE_PREFIX))) continue
+                    val result=resources().session.removePlayedDetailed(key,removable)
+                    when(result.outcome) {
+                        OfflineStore.SavedRemoval.Sent -> if(result.bytes>0) {
+                            removed=Math.addExact(removed,1); removedBytes=Math.addExact(removedBytes,result.bytes)
+                        }
+                        OfflineStore.SavedRemoval.NotOwned -> successful=false
+                        else -> { successful=false; break@scan }
+                    }
+                }
+                after=page.last().ticket.allocation.key
+            }
+        } catch(_:Exception) { successful=false }
+        val remaining=try {
+            var bytes=0L
+            val audio=resources().session.audio
+            audio.forEachKey { key ->
+                if(key.startsWith(PLAYED_PREFIX)) {
+                    val value=audio.inspect(key).bytes
+                    if(value<0) throw IOException("Invalid remaining played bytes")
+                    bytes=Math.addExact(bytes,value)
+                }
+                true
+            }
+            bytes
+        } catch(_:Exception) { null }
+        return OwnedPlayedClear(removed,removedBytes,remaining,successful && remaining==0L)
+    }
     fun prepareSave(request:DownloadRequest)=resources().manager.prepare(request)
     fun abandonPrepared(request:DownloadRequest)=resources().manager.abandonPrepared(request)
     fun deliverPrepared(request:DownloadRequest,start:(DownloadManager)->Unit)=resources().manager.deliverPrepared(request,start)

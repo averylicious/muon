@@ -501,6 +501,20 @@ internal object OfflineStore {
      */
     fun clearPlayed(context: Context) {
         val store = commandStore(context) ?: return
+        store.phone.partition?.let { partition ->
+            // The work actor cancels/drains its source first. The session itself owns actual
+            // exclusive mutation leases, so do not nest this under a shared maintenance lease.
+            playedWork.clear {
+                val result=partition.clearPlayed(store.playedClaims::removable)
+                Handler(Looper.getMainLooper()).post {
+                    result.remainingBytes?.let { PlayedCacheState.used=it }
+                    DownloadMarks.revision++
+                }
+                if(!result.complete) notice(context,"Cleared ${result.removed} played copies. " +
+                    "Protected, busy or unavailable copies were kept; try again after playback or storage work finishes.")
+            }
+            return
+        }
         val cache = store.cache
         playedWork.clear(store.storageBarrier) {
             runCatching {
