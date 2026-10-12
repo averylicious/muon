@@ -12,7 +12,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk=[34],manifest=Config.NONE)
+@Config(sdk=[34])
 class StorageIndependentPlaybackTest {
     @Test fun liveRequestStreamsWithoutOpeningOrReadingAnySavedStorage() {
         var routes=0; var network=0
@@ -35,4 +35,22 @@ class StorageIndependentPlaybackTest {
             assertEquals(1,routes); assertEquals(0,network)
         } finally { reader.close() }
     }
+    @Test fun publicCommandsDuringPendingStartupRefuseWithoutOpeningStorageOrThrowingThroughUi() {
+        val app=org.robolectric.RuntimeEnvironment.getApplication()
+        assertNull(OfflineStore.current())
+        val folder=java.io.File(app.filesDir,"downloads")
+        assertFalse(folder.exists())
+        OfflineStore.add(app,ServerEndpoint.parse("http://127.0.0.1:7814"),emptyList())
+        OfflineStore.removeAll(app)
+        OfflineStore.move(app,true)
+        OfflineStore.setCacheLimit(app,123)
+        OfflineStore.clearPlayed(app)
+        OfflineStore.setStoreOnCard(app,true)
+        OfflineStore.copyPlayed(app,"http://127.0.0.1:7814/1",byteArrayOf(1))
+        OfflineStore.resume(app)
+        assertNull(OfflineStore.downloadsOn(app,true)); assertFalse(OfflineStore.cardAvailable(app))
+        assertFalse(folder.exists()); assertNull(OfflineStore.current())
+        assertEquals(StorageAvailability.NotStarted,OfflineStore.availability.value)
+    }
+
 }

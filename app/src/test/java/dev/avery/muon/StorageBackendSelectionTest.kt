@@ -60,15 +60,19 @@ class StorageBackendSelectionTest {
         val before=app.databaseList().toSet()
         val folder=java.io.File(app.filesDir,"downloads")
         assertFalse(folder.exists())
-        val startup=StorageStartup<OfflineStore.Store>()
-        val create=OfflineStore::class.java.declaredMethods.single { it.name=="create" }.apply { isAccessible=true }
+        val startup=StorageStartup<Any>()
+        val create=OfflineStore::class.java.declaredMethods.single { it.name=="prepareLegacy" }.apply { isAccessible=true }
+        val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
         try {
-            startup.open { opening ->
-                try { create.invoke(OfflineStore,app,opening) as OfflineStore.Store }
-                catch(failure:java.lang.reflect.InvocationTargetException) { throw requireNotNull(failure.cause) }
+            val failure=assertThrows(java.util.concurrent.ExecutionException::class.java) {
+                worker.submit<Any> { startup.open { opening ->
+                    try { create.invoke(OfflineStore,app,opening) }
+                    catch(failure:java.lang.reflect.InvocationTargetException) { throw requireNotNull(failure.cause) }
+                } }.get(10,java.util.concurrent.TimeUnit.SECONDS)
             }
-            fail("Actual production startup must refuse staged partition selection")
-        } catch(expected:IOException) { assertTrue(expected.message!!.contains("production integration")) }
+            assertTrue(failure.cause is IOException)
+            assertTrue(failure.cause!!.message!!.contains("production integration"))
+        } finally { worker.shutdownNow() }
         assertEquals(0,startup.retained)
         assertEquals(before,app.databaseList().toSet())
         assertFalse(folder.exists())
