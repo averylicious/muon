@@ -10,6 +10,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.scheduler.Requirements
 import androidx.media3.exoplayer.offline.Download
