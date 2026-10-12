@@ -399,4 +399,18 @@ class LegacyResourceProjectionTest {
         assertArrayEquals(payload,f.original.readBytes())
     }
 
+    @Test fun originalPendingRecoveryPagesSkipCompleteWithoutLosingDeleteIntents() {
+        val f=Fixture(4); val index=f.db(); val journal=LegacyRetirementJournal(folders.newFolder(),true)
+        worker {journal.open(); try {
+            val names=listOf("other/1","other/2","selected")
+            for(name in names) {
+                val record=journal.begin(LegacyRetirementManifest.capture(f.root,f.uid,name,index,{}),true)
+                if(name=="other/1") journal.complete(record)
+            }
+            assertEquals(listOf("other/2","selected"),journal.pendingPage().map {it.manifest.key})
+            assertTrue(journal.pendingPage("selected").isEmpty())
+            assertEquals(listOf("other/1","other/2"),journal.page().map {it.manifest.key})
+        } finally {journal.close()}}
+    }
+
 }

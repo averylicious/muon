@@ -2074,4 +2074,25 @@ class OwnedPartitionShelfTest {
         }
     }
 
+    @Test fun boundedMoveSummariesExposeOnlyScalarsAndDropFinishedEntries() {
+        val n=NewSourceMoveFixture(); val f=n.f
+        try {
+            val page=onWorker {f.target.pendingMoveSummaries()}
+            assertEquals(listOf(PartitionMoveRecoverySummary(f.key,n.pending.token,4L,true)),page.entries)
+            assertEquals(f.key,page.after); assertFalse(page.hasMore)
+            assertTrue(onWorker {f.target.pendingMoveSummaries(f.key)}.entries.isEmpty())
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+            assertTrue(onWorker {f.target.pendingMoveSummaries()}.entries.isEmpty())
+        } finally {n.close()}
+    }
+    @Test fun originalDeleteIntentAdvancesMoveSummaryCursorWithoutOfferingDeleteAsMove() {
+        val f=LocalPublicationFixture()
+        try {
+            onWorker {f.source.beginOriginalRetirement("81",true)}
+            val page=onWorker {f.source.pendingMoveSummaries()}
+            assertTrue(page.entries.isEmpty()); assertEquals("81",page.after); assertFalse(page.hasMore)
+            assertNotNull(f.index.getDownload("81"))
+        } finally {f.close()}
+    }
+
 }

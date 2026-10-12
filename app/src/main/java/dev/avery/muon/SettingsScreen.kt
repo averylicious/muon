@@ -193,6 +193,7 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
                 })
         }
     }
+    if(store.phone.partition!=null) PartitionMoveRecoveryControls(store)
     offerMove?.let { (toCard, count) ->
         val what = "$count ${if (count == 1) "download" else "downloads"}"
         AlertDialog(onDismissRequest = { offerMove = null },

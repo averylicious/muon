@@ -1390,6 +1390,7 @@ internal object OfflineStore {
             store.moves.hasPending || store.removalDelivery.busy || !quiet(from.manager) || !quiet(to.manager) ||
             !moveExclusion.tryAcquire()) return false
         val main=Handler(Looper.getMainLooper()); val batch=moveOwnership.begin()
+        DownloadMarks.moving=0 to 1
         try {mover.execute {
             try {
                 fun checked() {
@@ -1408,9 +1409,9 @@ internal object OfflineStore {
                 }
             } catch(_:Exception) {
                 notice(context,"Move recovery stopped. Check storage and the selected recovery entry before trying again.")
-            } finally {main.post {try {moveExclusion.release()} finally {moveOwnership.finish(batch)}}}
+            } finally {main.post {try {moveExclusion.release()} finally {moveOwnership.finish(batch);DownloadMarks.moving=null;DownloadMarks.revision++}}}
         }} catch(failure:RuntimeException) {
-            moveOwnership.finish(batch);moveExclusion.release();throw failure
+            moveOwnership.finish(batch);moveExclusion.release();DownloadMarks.moving=null;DownloadMarks.revision++;throw failure
         }
         return true // Submission only; scalar callbacks/journal determine completion.
     }

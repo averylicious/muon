@@ -151,9 +151,17 @@ internal class PartitionSavedMoveJournal(private val root:File,private val creat
         }
     }
     /** Two bindings per page, projected before CursorWindow. No whole journal or file history list. */
-    @Synchronized fun page(after:String?=null):List<PartitionSavedMoveRecord> {
+    @Synchronized fun page(after:String?=null):List<PartitionSavedMoveRecord> = pageChecked(after,false)
+    /** Completed tombstones are not recovery work. Malformed phases still reach decode/refuse. */
+    @Synchronized fun pendingPage(after:String?=null):List<PartitionSavedMoveRecord> = pageChecked(after,true)
+    private fun pageChecked(after:String?,pendingOnly:Boolean):List<PartitionSavedMoveRecord> {
         after?.let(::key)
-        val query="SELECT $projection FROM saved_moves"+(if(after==null) "" else " WHERE key>?")+" ORDER BY key LIMIT $PARTITION_SAVED_MOVE_PAGE"
+        val predicates=buildList {
+            if(pendingOnly) add("(phase IS NOT 1 OR typeof(phase)!='integer')")
+            if(after!=null) add("key>?")
+        }
+        val query="SELECT $projection FROM saved_moves"+
+            (if(predicates.isEmpty()) "" else " WHERE "+predicates.joinToString(" AND "))+" ORDER BY key LIMIT $PARTITION_SAVED_MOVE_PAGE"
         return useOwned({db().rawQueryWithFactory({_,driver,table,sql ->
             if(after!=null) sql.bindBlob(1,savedCatalogSortKey(after)); SQLiteCursor(driver,table,sql)
         },query,null,"saved_moves")}) {cursor -> buildList {while(cursor.moveToNext()) add(decode(cursor))}}
