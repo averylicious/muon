@@ -8,7 +8,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheEvictor
 import androidx.media3.datasource.cache.CacheSpan
-import java.util.TreeSet
 
 /**
  * The played-song cache (#112, mockup 01): an Opus copy of each song as it plays, kept up to a limit so
@@ -39,21 +38,29 @@ internal object PlayedCacheState {
 /**
  * Least-recently-played eviction for the played-song cache alone, whole songs at a time. Spans under
  * any other key (downloads) are ignored: they neither count towards the limit nor are ever removed.
+ * A played-copy key that [removable] refuses, one a download row names or any before the phone index
+ * has been read (#213, [PlayedClaims]), is never evicted; the cache may then stay over its limit.
  * Called by the cache under its own lock; [resize] takes that same lock.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class PlayedSongEvictor(limit: Long, private val report: (Long) -> Unit) : CacheEvictor {
+internal class PlayedSongEvictor(limit: Long, private val removable: (String) -> Boolean = { true },
+    private val order: PlayedSpanOrder = MemoryPlayedSpanOrder(), private val report: (Long) -> Unit) : CacheEvictor {
     @Volatile private var limit = limit
-    private val spans = TreeSet<CacheSpan> { a, b ->
-        if (a.lastTouchTimestamp != b.lastTouchTimestamp) a.lastTouchTimestamp.compareTo(b.lastTouchTimestamp) else a.compareTo(b)
-    }
+    @Volatile private var uncertain=false
+    /** No played-key eviction/clear after an actual source close is unknown. */
+    fun quarantine() { uncertain=true }
     private var size = 0L
     private var cache: Cache? = null
 
     private fun played(span: CacheSpan) = span.key.startsWith(PLAYED_PREFIX)
 
     override fun requiresCacheSpanTouches() = true
-    override fun onCacheInitialized() = Unit
+    override fun onCacheInitialized() {
+        order.initialized()
+        // Loading spans protects each key as if it were being written. Once startup is complete,
+        // there is no writer to protect; trim an oversized played resource left by an older app.
+        cache?.let { evict(it, 0, keep = null) }
+    }
     override fun onStartFile(cache: Cache, key: String, position: Long, length: Long) {
         this.cache = cache
         if (key.startsWith(PLAYED_PREFIX) && length != C.LENGTH_UNSET.toLong()) evict(cache, length, keep = key)
@@ -61,18 +68,44 @@ internal class PlayedSongEvictor(limit: Long, private val report: (Long) -> Unit
     override fun onSpanAdded(cache: Cache, span: CacheSpan) {
         this.cache = cache
         if (!played(span)) return
-        spans.add(span); size += span.length
+        order.add(span); size += span.length
         evict(cache, 0, keep = span.key)
         report(size)
     }
     override fun onSpanRemoved(cache: Cache, span: CacheSpan) {
         if (!played(span)) return
-        if (spans.remove(span)) size -= span.length
+        order.remove(span); size = (size - span.length).coerceAtLeast(0)
         report(size)
     }
     override fun onSpanTouched(cache: Cache, oldSpan: CacheSpan, newSpan: CacheSpan) {
         onSpanRemoved(cache, oldSpan)
         onSpanAdded(cache, newSpan)
+    }
+
+    val hasDiskOrder: Boolean get() = order is DiskPlayedSpanOrder
+
+    /** Complete distinct names, streamed while native-cache mutations are excluded. */
+    fun forEachKey(emit: (String) -> Boolean) {
+        val active = cache
+        if (active == null) order.forEachKey(emit) else synchronized(active) { order.forEachKey(emit) }
+    }
+
+    fun anyKey(predicate: (String) -> Boolean): Boolean {
+        var found = false
+        forEachKey { key -> found = predicate(key); !found }
+        return found
+    }
+
+    /** Re-query one eligible resource after each removal; never mutate an open key cursor. */
+    fun clear() {
+        val active = cache ?: return
+        synchronized(active) {
+            var guard = order.count
+            while (!uncertain && guard-- > 0) {
+                val key = order.oldest(null, removable) ?: return
+                active.removeResource(key)
+            }
+        }
     }
 
     /** A new limit; a lower one makes room at once. */
@@ -84,10 +117,10 @@ internal class PlayedSongEvictor(limit: Long, private val report: (Long) -> Unit
 
     /** Oldest songs first, never the one being written. */
     private fun evict(cache: Cache, required: Long, keep: String?) {
-        var guard = spans.size
-        while (size + required > limit && guard-- > 0) {
-            val oldest = spans.firstOrNull { it.key != keep } ?: return
-            cache.removeResource(oldest.key)
+        var guard = order.count
+        while (!uncertain && size + required > limit && guard-- > 0) {
+            val oldest = order.oldest(keep, removable) ?: return
+            cache.removeResource(oldest)
         }
     }
 }
