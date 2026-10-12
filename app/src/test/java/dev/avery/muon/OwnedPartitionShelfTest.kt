@@ -1,6 +1,8 @@
 @file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 package dev.avery.muon
 
+import android.database.sqlite.SQLiteDatabase
+
 import android.net.Uri
 import android.os.Looper
 import androidx.media3.database.StandaloneDatabaseProvider
