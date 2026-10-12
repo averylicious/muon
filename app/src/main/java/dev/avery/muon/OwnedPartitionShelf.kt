@@ -129,6 +129,15 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun copyPlayed(spec:androidx.media3.datasource.DataSpec,song:ByteArray,origin:String,upstream:DataSource.Factory,
         writerCreated:(PlayedCopyWriter)->Unit={},checkpoint:()->Unit={},limit:()->Long)=
         resources().session.copyPlayed(spec,song,origin,upstream,writerCreated,checkpoint,limit)
+    internal fun copyCompletedOriginalTo(destination:OwnedPartitionShelf,key:String,newKey:String,
+        explicitConsent:Boolean):PartitionOriginalCopy {
+        if(destination===this || destination.storageBarrier!==barrier)
+            throw IOException("Local Move preparation needs another shelf on the actual gate")
+        val source=resources(); val target=destination.resources()
+        return source.legacy.copyCompletedOriginalTo(source.session,target.session,key,newKey,explicitConsent) {
+            located(); destination.located()
+        }
+    }
     fun playedBytes(checkpoint:()->Unit={}):Long=resources().session.playedBytes(checkpoint)
     fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
         try { resources().session.removePlayed(key,removable) }

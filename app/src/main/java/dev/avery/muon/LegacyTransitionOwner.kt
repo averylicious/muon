@@ -3,6 +3,8 @@ package dev.avery.muon
 
 import android.database.sqlite.SQLiteDatabase
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
@@ -115,6 +117,56 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             checkpoint(); checked(); checkpoint()
         }
     }
+    /** Prepared copy from the actual closed legacy owner, with full metadata and local-only
+     * remapping to a fresh destination key. The same shared gate pins both shelves against removal.
+     * Returned scalar observation is NOT durable Move/deletion authority; publication and exact
+     * destination-bound recovery still belong to the later final controller.
+     */
+    @Synchronized fun copyCompletedOriginalTo(session:PartitionStorageSession,destination:PartitionStorageSession,
+        key:String,newKey:String,explicitConsent:Boolean,checked:()->Unit):PartitionOriginalCopy {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original copy requires a worker"}
+        if(!explicitConsent || session===destination || !session.usesBarrier(barrier) || !destination.usesBarrier(barrier))
+            throw IOException("Original copy needs consent, another shelf and the same gate")
+        checkpoint()
+        val permit=barrier.shared(); var quarantined=false
+        try {
+            fun live() {permit.check(); checkpoint(); checked(); checkpoint()}
+            live(); val completion=session.originalCopyCompletion(key,permit)
+            val projected=LegacyResourceProjection.read(directory,requireNotNull(uid),key,requireNotNull(index),::live,directoryIo)
+            val state=savedAudioState(projected,key)
+            val metadata=PartitionResourceCache.measured(state.metadata,PartitionResourceLimits())
+            if(state.coverage!=SavedCoverage.Full || state.bytes!=completion.length)
+                throw IOException("Original completed record does not match full local audio")
+            val spec=DataSpec.Builder().setUri("muon-saved:local-copy").setKey(newKey).setLength(completion.length).build()
+            val source=DataSource.Factory {
+                val child=savedCacheReader(projected)
+                object:DataSource by child {
+                    override fun open(incoming:DataSpec):Long {
+                        live()
+                        if(incoming.key!=newKey) throw IOException("Original copy remapping key changed")
+                        return child.open(incoming.buildUpon().setKey(key).build()).also {live()}
+                    }
+                    override fun read(bytes:ByteArray,offset:Int,length:Int):Int {
+                        live(); return child.read(bytes,offset,length).also {live()}
+                    }
+                }
+            }
+            val ticket=destination.copyLocalSaved(spec,metadata,source,::live)
+            live()
+            if(session.originalCopyCompletion(key,permit)!=completion)
+                throw IOException("Original completed record changed while copying")
+            val after=LegacyResourceProjection.read(directory,requireNotNull(uid),key,requireNotNull(index),::live,directoryIo)
+            val final=savedAudioState(after,key)
+            if(final.coverage!=SavedCoverage.Full || final.bytes!=completion.length || final.metadata!=metadata)
+                throw IOException("Original full metadata/coverage changed while copying")
+            live(); return PartitionOriginalCopy(completion,ticket)
+        } catch(failure:Throwable) {
+            if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || !directoryIo.quiescent) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,destination,failure)); quarantined=true
+            }
+            throw failure
+        } finally {if(!quarantined) permit.close()}
+    }
     /** Persist explicit cleanup intent while the actual legacy owner/volume and all app readers
      * are excluded. No file/index deletion is performed here; the controller must complete it.
      * Unknown manifest I/O or journal write retains both real owners and invalidates this gate.
@@ -225,3 +277,6 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
         } finally { if(!quarantined) permit.close() }
     }
 }
+
+/** Preparation receipt only: neither a persisted destination completion nor source deletion consent. */
+internal data class PartitionOriginalCopy(val source:PartitionSaveCompletion,val destination:PartitionSaveTicket)

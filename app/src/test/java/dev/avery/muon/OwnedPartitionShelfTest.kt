@@ -991,4 +991,52 @@ class OwnedPartitionShelfTest {
         } finally {teardown(owner); f.provider.close()}
     }
 
+    @Test fun actualOriginalLocalCopyVerifiesDestinationAndPreservesOriginalRecordAndBytes() {
+        val f=Fixture(oldKey="41"); val source=f.owner(); val targetLegacy=folders.newFolder()
+        val oldTarget=SimpleCache(targetLegacy,NoOpCacheEvictor(),f.provider)
+        oldTarget.checkInitialization(); oldTarget.release()
+        val targetRoot=File(folders.newFolder(),"target-partition")
+        val target=OwnedPartitionShelf(RuntimeEnvironment.getApplication(),targetRoot,targetLegacy,f.databaseFile,
+            f.provider,"owned_target","fixture",{"fixture"},PartitionShelfStart.Fresh,f.barrier,{true},
+            DataSource.Factory {throw AssertionError("Local Move must not request live upstream")},f.budget)
+        val request=DownloadRequest.Builder("41",Uri.parse("http://127.0.0.1:7814/original")).setCustomCacheKey("41").build()
+        val originalIndex=DefaultDownloadIndex(f.provider,"owned_partition")
+        originalIndex.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
+        try {
+            onWorker {source.prepare(); target.prepare()}
+            val receipt=onWorker {source.copyCompletedOriginalTo(target,"41","saved/local-move",true)}
+            assertEquals("41",receipt.source.key); assertEquals(4L,receipt.source.length)
+            assertEquals(PartitionSavePhase.Closed,onWorker {target.saveRecoveryPage().single().phase})
+            assertEquals(receipt.destination,onWorker {target.saveRecoveryPage().single().ticket})
+            // No destination manager completion, source tombstone or removal is invented.
+            assertFalse(onWorker {target.audio.contains("saved/local-move")})
+            assertTrue(onWorker {source.audio.contains("41")})
+            assertTrue(onWorker {source.retirementRecoveryPage().isEmpty()})
+            assertNotNull(originalIndex.getDownload("41")); assertArrayEquals(payload,f.original.readBytes())
+            assertFalse(SimpleCache.isCacheFolderLocked(f.legacy)); assertEquals(0,f.budget.resident); assertTrue(f.barrier.quiescent)
+            assertThrows(IOException::class.java) {onWorker {source.copyCompletedOriginalTo(target,"41","saved/local-move",true)}}
+            assertArrayEquals(payload,f.original.readBytes())
+        } finally {teardown(target); teardown(source); f.provider.close()}
+    }
+    @Test fun actualOriginalLocalCopyRefusesNoConsentForeignGateAndChangedCompletionBeforeMutation() {
+        val f=Fixture(oldKey="42"); val source=f.owner(); val targetLegacy=folders.newFolder()
+        val oldTarget=SimpleCache(targetLegacy,NoOpCacheEvictor(),f.provider); oldTarget.checkInitialization(); oldTarget.release()
+        val targetRoot=File(folders.newFolder(),"copy-target"); val foreignRoot=File(folders.newFolder(),"foreign-target")
+        fun target(root:File,gate:SavedStorageBarrier)=OwnedPartitionShelf(RuntimeEnvironment.getApplication(),root,
+            targetLegacy,f.databaseFile,f.provider,"copy_target","fixture",{"fixture"},PartitionShelfStart.Fresh,
+            gate,{true},DataSource.Factory {ByteArrayDataSource(payload)},f.budget)
+        val target=target(targetRoot,f.barrier); val foreign=target(foreignRoot,SavedStorageBarrier())
+        val request=DownloadRequest.Builder("42",Uri.parse("http://127.0.0.1:7814/original")).setCustomCacheKey("42").build()
+        val index=DefaultDownloadIndex(f.provider,"owned_partition")
+        index.putDownload(Download(request,Download.STATE_COMPLETED,1,2,5,0,0))
+        try {
+            onWorker {source.prepare(); target.prepare(); foreign.prepare()}
+            assertThrows(IOException::class.java) {onWorker {source.copyCompletedOriginalTo(target,"42","saved/no-consent",false)}}
+            assertThrows(IOException::class.java) {onWorker {source.copyCompletedOriginalTo(foreign,"42","saved/foreign",true)}}
+            assertThrows(IOException::class.java) {onWorker {source.copyCompletedOriginalTo(target,"42","saved/length-mismatch",true)}}
+            assertTrue(onWorker {target.saveRecoveryPage().isEmpty()}); assertTrue(onWorker {foreign.saveRecoveryPage().isEmpty()})
+            assertArrayEquals(payload,f.original.readBytes()); assertTrue(f.barrier.quiescent); assertEquals(0,f.budget.resident)
+        } finally {teardown(foreign); teardown(target); teardown(source); f.provider.close()}
+    }
+
 }

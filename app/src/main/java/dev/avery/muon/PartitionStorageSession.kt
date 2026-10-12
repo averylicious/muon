@@ -111,6 +111,67 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             }
         } } finally { playedAdmission.set(false) }
     }
+    private var retainedLocalCopy:Any?=null
+    private val localCopyAdmission=java.util.concurrent.atomic.AtomicBoolean(false)
+    /** Local destination preparation only, with a byte comparison after writer/source closure.
+     * No manager row is fabricated and no source removal is authorized. A mismatch preserves the
+     * unpublished Closed destination for explicit disposition; unknown readers/native stay owned.
+     */
+    internal fun copyLocalSaved(spec:DataSpec,metadata:androidx.media3.datasource.cache.DefaultContentMetadata,
+        source:DataSource.Factory,checkpoint:()->Unit):PartitionSaveTicket {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Local saved copy requires a worker"}
+        if(!localCopyAdmission.compareAndSet(false,true)) throw IOException("Local saved copy is busy")
+        try {return operation {
+        writers.trimIdle(); published.trimIdle(); completed.trimIdle(); checkpoint()
+        val ticket=playedCopies.copyLocalSaved(spec,metadata,source)
+        var cache:Cache?=null; var releasing=false
+        val comparison=MoveByteComparison(barrier=barrier)
+        fun unknown(failure:Throwable):Nothing {
+            val handles=arrayOf(cache,comparison,source,ticket,failure)
+            retainedLocalCopy=handles; uncertain=true
+            throw PartitionOwnershipUncertain(handles,failure)
+        }
+        try {
+            requireOpen(); checkpoint()
+            val closed=saves.find(ticket.allocation.key)
+            if(closed?.ticket!=ticket || closed.phase!=PartitionSavePhase.Closed)
+                throw IOException("Local copy destination is not the exact Closed attempt")
+            val actual=native.openClosedSaveRead(ticket.allocation.key); cache=actual
+            fun checked() {
+                requireOpen(); checkpoint()
+                if(saves.find(ticket.allocation.key)!=closed || actual.uid!=closed.uid)
+                    throw IOException("Local destination identity changed")
+                val state=savedAudioState(actual,ticket.allocation.key)
+                if(state.coverage!=SavedCoverage.Full || state.bytes!=spec.length || state.metadata!=metadata)
+                    throw IOException("Local destination no longer has exact bytes/metadata")
+            }
+            checked()
+            if(!comparison.compare(spec,source,LegacySavedAudio(actual).source,
+                    {checked(); true},{uncertain=true}))
+                throw IOException("Local destination bytes do not match source")
+            checked(); releasing=true; actual.release(); cache=null
+            requireOpen(); checkpoint(); ticket
+        } catch(failure:Throwable) {
+            if(comparison.active!=0 || releasing || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain)
+                unknown(failure)
+            cache?.let {actual ->
+                try {actual.release(); cache=null}
+                catch(close:Throwable) {if(close!==failure) close.addSuppressed(failure); unknown(close)}
+            }
+            throw failure
+        }
+        }} finally {localCopyAdmission.set(false)}
+    }
+    internal fun originalCopyCompletion(key:String,permit:SavedStorageBarrier.Lease):PartitionSaveCompletion {
+        if(!permit.belongsTo(barrier) || permit.exclusive) throw IOException("Original copy requires the same shared gate")
+        requireOpen(); permit.check()
+        if(retirements?.holdsName(key)==true || saves.find(key)!=null || completionIndex.holdsOtherOriginalName(key))
+            throw IOException("Original copy has conflicting retirement/save/index claims")
+        val route=migrations.find(key)
+        if(route!=null && route.phase!=MigrationPhase.Ready || route==null && catalog.find(key)!=null)
+            throw IOException("Original copy has an unverified partition claim")
+        return (completionIndex.findOriginal(key) ?: throw IOException("Original copy is not completed")).also {permit.check()}
+    }
     /** Explicit deletion of a NEW owned played copy only. Original legacy/Ready migration
      * resources and every manager claim are protected. Exclusive admission proves there is no
      * real reader/writer (including EOF); close idle pools before opening the exact target.
