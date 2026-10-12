@@ -2082,7 +2082,7 @@ class OwnedPartitionShelfTest {
         val n=NewSourceMoveFixture(); val f=n.f
         try {
             val page=onWorker {f.target.pendingMoveSummaries()}
-            assertEquals(listOf(PartitionMoveRecoverySummary(f.key,n.pending.token,4L,true)),page.entries)
+            assertEquals(listOf(PartitionStorageRecoverySummary(f.key,n.pending.token,4L,PartitionRecoveryAction.Move)),page.entries)
             assertEquals(f.key,page.after); assertFalse(page.hasMore)
             assertTrue(onWorker {f.target.pendingMoveSummaries(f.key)}.entries.isEmpty())
             assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
@@ -2304,5 +2304,39 @@ class OwnedPartitionShelfTest {
             assertTrue(n.allocation.exists());assertNotNull(n.row());assertTrue(f.f.barrier.quiescent)
             onWorker {f.source.abandonPrepared(request)}
         } finally {n.close()}
+    }
+    @Test fun deleteRecoverySummariesKeepOnlyFixedScalarsAndDisappearAfterActualCompletion() {
+        val n=SavedDeleteFixture();val f=n.f
+        try {
+            val page=onWorker {f.target.pendingDeleteSummaries()}
+            assertEquals(listOf(PartitionStorageRecoverySummary(f.key,n.pending.token,4L,PartitionRecoveryAction.Delete)),page.entries)
+            assertEquals(f.key,page.after);assertFalse(page.hasMore)
+            assertTrue(onWorker {f.target.pendingDeleteSummaries(f.key)}.entries.isEmpty())
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+            assertTrue(onWorker {f.target.pendingDeleteSummaries()}.entries.isEmpty())
+        } finally {n.close()}
+    }
+    @Test fun originalMoveAdvancesDeleteSummaryCursorWithoutOfferingAnyDeleteAction() {
+        val f=LocalPublicationFixture();val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier);val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare();val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            val page=onWorker {f.source.pendingDeleteSummaries()}
+            assertTrue(page.entries.isEmpty());assertEquals("81",page.after);assertFalse(page.hasMore)
+            assertNotNull(f.index.getDownload("81"));assertTrue(f.f.original.exists())
+        } finally {f.close()}
+    }
+    @Test fun legacyFilesOnlyDeleteSummaryIsExplicitlyUnsupportedWhileBoundOriginalIsRecoverable() {
+        val f=Fixture("42");seedOriginal(f);val first=f.owner()
+        try {
+            onWorker {first.prepare()};val bound=boundOriginalIntent(f,first)
+            assertEquals(listOf(PartitionStorageRecoverySummary("42",bound.token,4L,PartitionRecoveryAction.Delete)),onWorker {first.pendingDeleteSummaries()}.entries)
+        } finally {teardown(first);f.provider.close()}
+        val g=Fixture("43");val next=g.owner()
+        try {
+            onWorker {next.prepare()};val pending=onWorker {next.beginOriginalRetirement("43",true)}
+            assertEquals(listOf(PartitionStorageRecoverySummary("43",pending.token,4L,PartitionRecoveryAction.UnsupportedDelete)),onWorker {next.pendingDeleteSummaries()}.entries)
+            assertTrue(g.original.exists())
+        } finally {teardown(next);g.provider.close()}
     }
 }

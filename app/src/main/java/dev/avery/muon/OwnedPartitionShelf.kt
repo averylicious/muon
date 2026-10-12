@@ -22,8 +22,9 @@ internal data class PartitionMoveRecoveryResult(val outcome:OfflineStore.SavedRe
     val destination:String?=null,val bytes:Long=0)
 
 /** Fixed UI payload; never retains an audio proof, download request or journal binding. */
-internal data class PartitionMoveRecoverySummary(val key:String,val token:String,val bytes:Long,val move:Boolean)
-internal data class PartitionMoveRecoveryPage(val entries:List<PartitionMoveRecoverySummary>,val after:String?,val hasMore:Boolean)
+internal enum class PartitionRecoveryAction { Move, Delete, UnsupportedDelete }
+internal data class PartitionStorageRecoverySummary(val key:String,val token:String,val bytes:Long,val action:PartitionRecoveryAction)
+internal data class PartitionStorageRecoveryPage(val entries:List<PartitionStorageRecoverySummary>,val after:String?,val hasMore:Boolean)
 
 /** Real shelf resources assembled WITHOUT first opening the legacy SimpleCache. Register this
  * process owner in OfflineStore's StorageStartup before prepare(); production selection/opt-in is
@@ -641,20 +642,39 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     /** Each journal projects at most two bounded bindings, immediately reduced to scalars.
      * Cursor advances over Delete intents too; they are not offered as Move recovery actions.
      * Kotlin UTF-16 ordering equals the journals' big-endian UTF-16 BLOB key order. */
-    internal fun pendingMoveSummaries(after:String?=null):PartitionMoveRecoveryPage = recoveryRead {made ->
+    internal fun pendingMoveSummaries(after:String?=null):PartitionStorageRecoveryPage = recoveryRead {made ->
         val saved=made.moves.pendingPage(after).map {record ->
-            PartitionMoveRecoverySummary(record.binding.key,record.token,record.binding.source.length,true)
+            PartitionStorageRecoverySummary(record.binding.key,record.token,record.binding.source.length,PartitionRecoveryAction.Move)
         }
         val originals=made.retirements.pendingPage(after).map {record ->
             val target=record.manifest.moveDestination
-            PartitionMoveRecoverySummary(record.manifest.key,record.token,target?.length ?: 0L,target!=null)
+            PartitionStorageRecoverySummary(record.manifest.key,record.token,target?.length ?: 0L,if(target!=null) PartitionRecoveryAction.Move else PartitionRecoveryAction.Delete)
         }
         val combined=(saved+originals).sortedBy {it.key}
         if(combined.zipWithNext().any {(left,right) ->left.key==right.key})
             throw IOException("Recovery entries have conflicting journal ownership")
         val taken=combined.take(PARTITION_SAVED_MOVE_PAGE)
-        PartitionMoveRecoveryPage(taken.filter {it.move},taken.lastOrNull()?.key,
+        PartitionStorageRecoveryPage(taken.filter {it.action==PartitionRecoveryAction.Move},taken.lastOrNull()?.key,
             combined.size>taken.size || saved.size==PARTITION_SAVED_MOVE_PAGE || originals.size==LEGACY_RETIREMENT_PAGE)
+    }
+    /** New and original Delete Pending share one bounded key order. Move entries advance the
+     * cursor but are never offered as Delete; older unbound files-only intents are explained. */
+    internal fun pendingDeleteSummaries(after:String?=null):PartitionStorageRecoveryPage = recoveryRead {made ->
+        val saved=made.deletes.pendingPage(after).map {record ->
+            PartitionStorageRecoverySummary(record.binding.key,record.token,record.binding.length,PartitionRecoveryAction.Delete)
+        }
+        val originals=made.retirements.pendingPage(after).map {record ->
+            val manifest=record.manifest
+            val action=if(manifest.moveDestination!=null) PartitionRecoveryAction.Move
+                else if(manifest.completedDownloadIdentity==null) PartitionRecoveryAction.UnsupportedDelete else PartitionRecoveryAction.Delete
+            PartitionStorageRecoverySummary(manifest.key,record.token,manifest.spans.sumOf {it.length},action)
+        }
+        val combined=(saved+originals).sortedBy {it.key}
+        if(combined.zipWithNext().any {(left,right) ->left.key==right.key})
+            throw IOException("Delete recovery entries have conflicting journal ownership")
+        val taken=combined.take(PARTITION_SAVED_DELETE_PAGE)
+        PartitionStorageRecoveryPage(taken.filter {it.action!=PartitionRecoveryAction.Move},taken.lastOrNull()?.key,
+            combined.size>taken.size || saved.size==PARTITION_SAVED_DELETE_PAGE || originals.size==LEGACY_RETIREMENT_PAGE)
     }
     fun retirementRecoveryPage(after:String?=null):List<LegacyRetirementRecord> = recoveryRead {it.retirements.page(after)}
     fun migrationRecoveryPage(after:String?=null):List<MigrationRecord> = recoveryRead { it.migrations.page(after) }

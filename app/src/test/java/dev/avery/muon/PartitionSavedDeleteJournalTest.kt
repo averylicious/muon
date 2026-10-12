@@ -121,4 +121,17 @@ class PartitionSavedDeleteJournalTest {
             assertTrue(db.rawQuery("SELECT name FROM sqlite_master WHERE name='foreign_data'",null).use {it.moveToFirst()})
         }
     }
+    @Test fun pendingPageDoesNotHideMalformedActualSqlitePhaseAsACompletedTombstone() {
+        val root=folders.newFolder();val journal=PartitionSavedDeleteJournal(root,true);val value=binding()
+        worker {journal.open();journal.begin(value,true);journal.close()}
+        val file=File(root,"partition-deletes-v1.db")
+        SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READWRITE).use {db ->
+            db.execSQL("UPDATE saved_deletes SET phase='foreign'")
+        }
+        val resumed=PartitionSavedDeleteJournal(root,false)
+        worker {resumed.open();try {
+            assertThrows(IOException::class.java) {resumed.pendingPage()}
+            assertTrue(resumed.holdsName(value.key))
+        } finally {resumed.close()}}
+    }
 }
