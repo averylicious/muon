@@ -97,6 +97,7 @@ class PartitionStorePreparationTest {
         for(handle in handles) when(handle) {
             is java.util.concurrent.ExecutorService -> { handle.shutdown(); assertTrue(handle.awaitTermination(10,TimeUnit.SECONDS)) }
             is StandaloneDatabaseProvider -> handle.close()
+            is PlayedClaims -> (PlayedClaims::class.java.getDeclaredField("disk").apply { isAccessible=true }.get(handle) as? java.io.Closeable)?.close()
             is DiskPlayedSpanOrder -> handle.close()
             is DownloadByteTotals -> handle.close()
             is DownloadMarkLedger -> handle.close()
@@ -192,4 +193,49 @@ class PartitionStorePreparationTest {
             f.originals.forEach { assertArrayEquals(bytes,it.readBytes()) }
         } finally { cleanup(startup,failedBeforeBinding=true); f.seed.close() }
     }
+    @Test fun commonAppBinderBootstrapsExactManagersAndPartitionUsageWithoutReplacingPreparedOwners() {
+        val f=Fixture(); val startup=StorageStartup<OfflineStore.PreparedStorage>(); val bound=StorageStartup<OfflineStore.Store>()
+        val previousUsed=PlayedCacheState.used; val previousLimit=PlayedCacheState.limit
+        try {
+            val key=playedKey("binder-legacy"); val cache=SimpleCache(f.phoneLegacy,NoOpCacheEvictor(),f.seed)
+            try {
+                cache.checkInitialization(); val span=requireNotNull(cache.startReadWrite(key,0,4))
+                try { val file=cache.startFile(key,0,4); file.writeBytes(bytes); cache.commitFile(file,4); f.originals+=file }
+                finally { cache.releaseHoleSpan(span) }
+                cache.applyContentMetadataMutations(key,ContentMetadataMutations.setContentLength(ContentMetadataMutations(),4))
+            } finally { cache.release() }
+            val ready=worker { startup.open { OfflineStore.preparePartition(app,it,f.plan()) } }
+            PlayedCacheState.used=-1
+            val store=bound.open { OfflineStore.bindStorage(ready,it) }
+            assertSame(ready.phone.partition,store.phone.partition); assertSame(ready.card!!.partition,store.card!!.partition)
+            await(store.phone.manager,store.card!!.manager)
+            val end=System.nanoTime()+TimeUnit.SECONDS.toNanos(10)
+            while(store.bootstrapPending!=0 || !store.playedClaims.known || PlayedCacheState.used!=4L) {
+                shadowOf(Looper.getMainLooper()).idle()
+                check(System.nanoTime()<end) { "Common partition bootstrap/usage did not settle" }; Thread.sleep(5)
+            }
+            assertFalse(store.bootstrapFailed); assertTrue(store.storageBarrier.quiescent)
+            assertSame(store.phone.manager,requireNotNull(ready.phone.partition).managerForService())
+            assertSame(store.card!!.manager,requireNotNull(ready.card!!.partition).initializeManager())
+            assertSame(store,bound.open { error("Must not bind another manager") })
+            val wrongLooper=StorageStartup<OfflineStore.Store>()
+            assertThrows(IllegalStateException::class.java) { worker { wrongLooper.open { OfflineStore.bindStorage(ready,it) } } }
+            assertEquals(0,wrongLooper.retained)
+            f.originals.forEach { assertArrayEquals(bytes,it.readBytes()) }
+            assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy)); assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
+        } finally {
+            // The service assertion above attaches a helper-lifetime manager. This fixture has no
+            // actual DownloadService helper; prove it is idle, then clear only its test-owned flag
+            // so normal cleanup can retire it. There is no production detach/reset API.
+            val opened=StorageStartup::class.java.getDeclaredField("opened").apply { isAccessible=true }.get(startup) as? OfflineStore.PreparedStorage
+            opened?.phone?.partition?.let { root ->
+                resources(root)?.let { made ->
+                    val manager=made.javaClass.getDeclaredField("manager").apply { isAccessible=true }.get(made)
+                    PartitionShelfManager::class.java.getDeclaredField("attached").apply { isAccessible=true }.setBoolean(manager,false)
+                }
+            }
+            cleanup(startup); f.seed.close(); PlayedCacheState.used=previousUsed; PlayedCacheState.limit=previousLimit
+        }
+    }
+
 }

@@ -285,7 +285,7 @@ internal object OfflineStore {
             plan.card?.legacyDirectory?.parentFile,art,artwork,sizes,marks)
     }
 
-    private fun bindStorage(ready:PreparedStorage,owner:StorageStartup<Store>.Opening):Store {
+    internal fun bindStorage(ready:PreparedStorage,owner:StorageStartup<Store>.Opening):Store {
         check(Looper.myLooper()==Looper.getMainLooper()) { "Download managers require main" }
         owner.own { ready } // Retain the complete prepared root even if binding fails partway.
         val context=ready.context; val prefs=ready.prefs; val barrier=ready.barrier; val database=ready.database
