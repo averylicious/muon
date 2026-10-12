@@ -295,7 +295,8 @@ class OwnedPartitionShelfTest {
     }
     private fun <T> onWorker(read:()->T):T {
         val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
-        try { return worker.submit<T> { read() }.get(10,TimeUnit.SECONDS) }
+        try { return try { worker.submit<T> { read() }.get(10,TimeUnit.SECONDS) }
+            catch(failure:java.util.concurrent.ExecutionException) { throw requireNotNull(failure.cause) } }
         finally { worker.shutdownNow(); check(worker.awaitTermination(10,TimeUnit.SECONDS)) }
     }
     @Test fun restartedInterruptedMigrationRequiresExactConsentAndPreservesAllEarlierBytes() {
