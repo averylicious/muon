@@ -179,6 +179,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         if(!explicitConsent || destination===this || destination.storageBarrier!==barrier)
             throw IOException("Saved Move intent needs consent and actual same-gate owners")
         val source=resources(); val target=destination.resources(); val permit=barrier.exclusive(); var quarantined=false
+        val treeOwnership=MigrationIoOwnership()
         fun owned() {permit.check(); located(); destination.located(); permit.check()}
         fun live() {owned(); checkpoint(); owned()}
         try {
@@ -198,12 +199,16 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             target.session.verifyMoveDestination(after,destination.volume,destination.key(destination.directory).toString(),permit,::live)
             art.verifyMovedSource(old,cover,permit); art.verifyMovedTarget(fresh,cover,permit)
             live()
-            val result=source.moves.begin(provisional.copy(cover=cover),true)
+            // Last source native observation is now closed. Do NOT reopen it after capture: native
+            // last-touch/index writes would invalidate this exact recovery snapshot.
+            val tree=PartitionMoveTree.capture(source.catalog.directory(before.ticket.allocation),before.uid,treeOwnership,::live)
+            live()
+            val result=source.moves.begin(provisional.copy(cover=cover,sourceTree=tree),true)
             // Pending is durable: caller cancellation cannot relabel the committed intent.
             owned(); return result
         } catch(failure:Throwable) {
-            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain || failure is SavedCoverCloseUncertain || source.moves.ownershipUncertain) {
-                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,destination,source.moves,art,artwork,failure)); quarantined=true
+            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain || failure is SavedCoverCloseUncertain || source.moves.ownershipUncertain || !treeOwnership.quiescent) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,destination,source.moves,art,artwork,treeOwnership,failure)); quarantined=true
             }
             throw failure
         } finally {if(!quarantined) permit.close()}

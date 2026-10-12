@@ -39,8 +39,23 @@ class PartitionSavedMoveJournalTest {
         assertThrows(IOException::class.java) {expected.copy(destination=expected.source).encode()}
         assertThrows(IOException::class.java) {PartitionSavedMoveBinding.decode(expected.encode()+byteArrayOf(1))}
         assertThrows(IOException::class.java) {PartitionSavedMoveBinding.decode(ByteArray(PARTITION_SAVED_MOVE_BYTES+1))}
-        val unsupported=expected.encode().also {it[3]=2}
+        val unsupported=expected.encode().also {it[3]=3}
         assertThrows(IOException::class.java) {PartitionSavedMoveBinding.decode(unsupported)}
+    }
+    @Test fun boundedVersionTwoTreeSurvivesJournalRestartAndBindsTheActualSourceUid() {
+        val allocation=folders.newFolder(); for(dir in listOf("bytes/0","index","metadata")) assertTrue(File(allocation,dir).mkdirs())
+        File(allocation,"bytes/11.uid").writeText("")
+        File(allocation,"bytes/0/0.0.1.v3.exo").writeBytes(byteArrayOf(1,2,3,4))
+        File(allocation,"index/native-v1.db").writeText("index")
+        File(allocation,"metadata/content-v1.db").writeText("metadata")
+        val tree=PartitionMoveTree.capture(allocation,17,MigrationIoOwnership()) {}
+        val expected=binding().copy(sourceTree=tree)
+        assertEquals(expected,PartitionSavedMoveBinding.decode(expected.encode()))
+        assertThrows(IOException::class.java) {expected.copy(source=expected.source.copy(uid=18)).encode()}
+        val root=folders.newFolder(); var journal=PartitionSavedMoveJournal(root,true)
+        val pending=worker {journal.open(); try {journal.begin(expected,true)} finally {journal.close()}}
+        journal=PartitionSavedMoveJournal(root,false)
+        worker {journal.open(); try {assertEquals(pending,journal.find(expected.key))} finally {journal.close()}}
     }
     @Test fun actualJournalRequiresConsentPreservesExactPendingAndCompleteTombstoneAcrossRestart() {
         val root=folders.newFolder(); val expected=binding(); var first=PartitionSavedMoveJournal(root,true)

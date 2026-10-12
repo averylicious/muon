@@ -10,7 +10,7 @@ import java.nio.file.Files
 import java.util.UUID
 
 internal const val PARTITION_SAVED_MOVE_PAGE=2
-internal const val PARTITION_SAVED_MOVE_BYTES=64*1024
+internal const val PARTITION_SAVED_MOVE_BYTES=256*1024
 internal enum class PartitionSavedMovePhase { Pending, Complete }
 internal data class PartitionSavedMoveRecord(val token:String,val phase:PartitionSavedMovePhase,
     val binding:PartitionSavedMoveBinding)

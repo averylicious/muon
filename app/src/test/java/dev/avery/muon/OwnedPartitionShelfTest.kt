@@ -1766,6 +1766,9 @@ class OwnedPartitionShelfTest {
             assertEquals(PartitionSavedMovePhase.Pending,pending.phase)
             assertEquals(f.key,pending.binding.key); assertEquals(back,pending.binding.destination.ticket.allocation.key)
             assertEquals(3L,pending.binding.cover.length)
+            assertNotNull(pending.binding.sourceTree)
+            assertTrue(requireNotNull(pending.binding.sourceTree).files.any {it.path=="index/native-v1.db"})
+            assertEquals(0,f.f.budget.resident) // Actual source native owner closed before exact snapshot.
             assertEquals(pending.binding,PartitionSavedMoveBinding.decode(pending.binding.encode()))
             assertFalse(onWorker {f.target.audio.contains(f.key)}) // Durable intent blocks source routing.
             assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {f.target.removeCompleted(f.key) {true}})
