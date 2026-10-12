@@ -140,7 +140,7 @@ class PartitionStorePreparationTest {
                 assertTrue(card.claimsName(name))
                 assertThrows(IOException::class.java) { phone.prepareSave(request(name)) }
                 assertTrue(phone.saveRecoveryPage().isEmpty())
-                assertEquals(PartitionSavePhase.Opening,card.saveRecoveryPage().single().phase)
+                assertEquals(PartitionSavePhase.Reserved,card.saveRecoveryPage().single().phase)
             }
             assertEquals(0,PartitionNativeBudget.process.resident)
             f.originals.forEach { assertArrayEquals(bytes,it.readBytes()) }
@@ -226,6 +226,24 @@ class PartitionStorePreparationTest {
         } finally {
             cleanup(startup); f.seed.close(); PlayedCacheState.used=previousUsed; PlayedCacheState.limit=previousLimit
         }
+    }
+
+    @Test fun legacyAppStartupRejectsUnknownDownloadSchemaBeforeNativeCacheOrMedia3RowReset() {
+        val f=Fixture(); val startup=StorageStartup<OfflineStore.PreparedStorage>(); val name="saved/legacy-schema"
+        try {
+            DefaultDownloadIndex(f.seed).putDownload(Download(request(name),Download.STATE_COMPLETED,1,2,4,0,0))
+            f.seed.writableDatabase.execSQL("UPDATE ExoPlayerDownloads SET data=zeroblob(8388608)")
+            androidx.media3.database.VersionTable.setVersion(f.seed.writableDatabase,
+                androidx.media3.database.VersionTable.FEATURE_OFFLINE,"",77)
+            assertThrows(IOException::class.java) { worker { startup.open { OfflineStore.prepareLegacy(app,it) } } }
+            f.seed.readableDatabase.rawQuery("SELECT length(data) FROM ExoPlayerDownloads WHERE id=?",arrayOf(name)).use {
+                assertTrue(it.moveToFirst()); assertEquals(8388608L,it.getLong(0))
+            }
+            assertEquals(77,androidx.media3.database.VersionTable.getVersion(f.seed.readableDatabase,
+                androidx.media3.database.VersionTable.FEATURE_OFFLINE,""))
+            assertFalse(SimpleCache.isCacheFolderLocked(File(app.filesDir,"downloads")))
+            f.originals.forEach { assertArrayEquals(bytes,it.readBytes()) }
+        } finally { cleanup(startup); f.seed.close() }
     }
 
 }

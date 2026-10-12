@@ -141,4 +141,21 @@ class PartitionCompletionIndexTest {
         }
     }
 
+    @Test fun startupSchemaGuardPreservesUnknownOrV2RowsInsteadOfInvokingMedia3Upgrade() {
+        val (_,lookup)=seed()
+        db.execSQL("UPDATE $table SET data=zeroblob(8388608)")
+        for(version in listOf(2,77)) {
+            VersionTable.setVersion(db,VersionTable.FEATURE_OFFLINE,"test",version)
+            assertThrows(IOException::class.java) { lookup.requireSupportedOrAbsent() }
+            assertEquals(version,VersionTable.getVersion(db,VersionTable.FEATURE_OFFLINE,"test"))
+            db.rawQuery("SELECT length(data) FROM $table",null).use { assertTrue(it.moveToFirst()); assertEquals(8388608L,it.getLong(0)) }
+        }
+        VersionTable.setVersion(db,VersionTable.FEATURE_OFFLINE,"test",3)
+        lookup.requireSupportedOrAbsent(); assertEquals(1L,count())
+        PartitionCompletionIndex(database,"genuinely_new").requireSupportedOrAbsent()
+        db.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE name='ExoPlayerDownloadsgenuinely_new'",null).use {
+            assertTrue(it.moveToFirst()); assertEquals(0L,it.getLong(0))
+        }
+    }
+
 }

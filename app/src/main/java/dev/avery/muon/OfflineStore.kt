@@ -192,7 +192,7 @@ internal object OfflineStore {
         val cardFolder:File?,val art:DownloadArt,val artwork:DownloadArtworkWork,val sizes:DownloadByteTotals,
         val marks:DownloadMarkLedger)
 
-    private fun prepareLegacy(context:Context,owner:StorageStartup<PreparedStorage>.Opening):PreparedStorage {
+    internal fun prepareLegacy(context:Context,owner:StorageStartup<PreparedStorage>.Opening):PreparedStorage {
         check(Looper.myLooper()!=Looper.getMainLooper()) { "Native storage preparation requires a worker" }
         val prefs=context.getSharedPreferences("storage",Context.MODE_PRIVATE)
         // Freeze authority BEFORE any provider/cache. Staged partition choice refuses without
@@ -200,6 +200,8 @@ internal object OfflineStore {
         return StorageBackendSelection.read(prefs).open(legacy={
             val barrier=owner.own { SavedStorageBarrier() }
             val database=owner.own { StandaloneDatabaseProvider(context) }
+            PartitionCompletionIndex(database,"").requireSupportedOrAbsent()
+            PartitionCompletionIndex(database,"card").requireSupportedOrAbsent()
             val limit=prefs.getLong("cacheLimit",DEFAULT_CACHE_LIMIT)
             val main=Handler(Looper.getMainLooper())
             val claims=owner.own { PlayedClaims(context) }
@@ -239,6 +241,8 @@ internal object OfflineStore {
         plan.validate() // Before any provider, derived database, cache or worker allocation.
         val barrier=owner.own { SavedStorageBarrier() }
         val database=owner.own { StandaloneDatabaseProvider(context) }
+        PartitionCompletionIndex(database,"").requireSupportedOrAbsent()
+        PartitionCompletionIndex(database,"card").requireSupportedOrAbsent()
         val prefs=context.getSharedPreferences("storage",Context.MODE_PRIVATE)
         val limit=prefs.getLong("cacheLimit",DEFAULT_CACHE_LIMIT)
         val main=Handler(Looper.getMainLooper())
