@@ -177,6 +177,56 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             throw failure
         } finally {if(!quarantined) permit.close()}
     }
+    private var retainedSavedDeleteCleanup:Any?=null
+    /** Explicit completion/recovery of the exact durable Delete. Source tree cleanup never opens
+     * native over missing files; every mutation rechecks actual source/volume/row/alias/own cover.
+     * Known partial deletion stays Pending for renewed recovery; unknown I/O retains real owners. */
+    internal fun completeSavedDelete(expected:PartitionSavedDeleteRecord,explicitConsent:Boolean,
+        art:DownloadArt,artwork:DownloadArtworkWork,unclaimedElsewhere:(String)->Boolean,
+        checkpoint:()->Unit={}):OfflineStore.SavedRemoval {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved Delete finish requires a worker"}
+        if(!explicitConsent) return OfflineStore.SavedRemoval.NotOwned
+        if(expected.phase!=PartitionSavedDeletePhase.Pending) return OfflineStore.SavedRemoval.Waiting
+        val made=resources();val permit=try {barrier.exclusive()} catch(_:IOException) {return OfflineStore.SavedRemoval.Busy}
+        val cleanup=PartitionMoveTreeRemoval();var quarantined=false;var coverMutation=false
+        fun owned() {
+            permit.check();located()
+            if(expected.binding.volume!=volume || expected.binding.rootIdentity!=key(directory).toString())
+                throw IOException("Saved Delete source root or volume changed")
+            permit.check()
+        }
+        fun current() {
+            owned();checkpoint();owned()
+            if(made.legacy.claimsOriginalName(expected.binding.key,permit)) throw IOException("Saved Delete source aliases legacy audio")
+            made.session.verifyPendingSavedDelete(expected,permit,unclaimedElsewhere)
+            artwork.cancelForConfirmedRemoval(expected.binding.key,permit)
+            art.verifyMovedSource(expected.binding.key,expected.binding.cover,permit)
+            owned()
+        }
+        try {
+            owned()
+            if(made.deletes.find(expected.binding.key)!=expected) return OfflineStore.SavedRemoval.Waiting
+            current();retainedSavedDeleteCleanup=cleanup
+            cleanup.runMoved(expected.binding.tree,made.catalog.directory(expected.binding.ticket.allocation),::current,::current)
+            current();made.session.eraseDeletedSavedRecord(expected,permit,unclaimedElsewhere)
+            current();coverMutation=true
+            art.removeSavedDeleteCoverConfirmed(expected.binding.key,expected.binding.cover,permit)
+            coverMutation=false
+            current();made.session.verifyDeletedSavedRecordAbsent(expected,permit,unclaimedElsewhere)
+            art.verifyEntryAbsent(expected.binding.key,permit)
+            val root=made.catalog.directory(expected.binding.ticket.allocation)
+            expected.binding.tree.requireAbsent(root)
+            made.deletes.complete(expected)
+            // Commit is durable. A late user cancellation cannot relabel successful disposition.
+            owned();retainedSavedDeleteCleanup=null;return OfflineStore.SavedRemoval.Sent
+        } catch(failure:Throwable) {
+            if(coverMutation || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain ||
+                failure is SavedCoverCloseUncertain || made.deletes.ownershipUncertain) {
+                phase=Phase.Uncertain;permit.quarantine(arrayOf(this,made.deletes,cleanup,art,artwork,failure));quarantined=true
+            } else retainedSavedDeleteCleanup=null
+            return OfflineStore.SavedRemoval.Failed
+        } finally {if(!quarantined) permit.close()}
+    }
     internal fun copyCompletedOriginalTo(destination:OwnedPartitionShelf,key:String,newKey:String,
         explicitConsent:Boolean,checkpoint:()->Unit={}):PartitionOriginalCopy {
         if(destination===this || destination.storageBarrier!==barrier)

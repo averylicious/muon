@@ -58,6 +58,11 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
             files.none {it.path=="index/native-v1.db"} || files.none {it.path=="metadata/content-v1.db"})
             throw IOException("Move tree lacks exact native ownership")
     }
+    internal fun requireAbsent(root:File) {
+        parent(root)
+        if(moveTreePathPresent(root)) throw IOException("Retired source allocation remains or reappeared")
+        parent(root)
+    }
     internal fun requireUid(uid:Long) {
         validate()
         if(uid<0 || files.count {it.path=="bytes/"+java.lang.Long.toHexString(uid)+".uid"}!=1)

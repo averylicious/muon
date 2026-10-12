@@ -2164,4 +2164,87 @@ class OwnedPartitionShelfTest {
             assertTrue(file.delete());assertTrue(kept.renameTo(file))
         } finally {teardown(owner);f.provider.close()}
     }
+    private inner class SavedDeleteFixture {
+        val f=LocalPublicationFixture();val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier);val work=coverWork(art,f.f.barrier)
+        val pending:PartitionSavedDeleteRecord;val allocation:File
+        init {
+            val copy=f.prepare();onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            coverFile(art,f.key).writeBytes(byteArrayOf(1,3,5))
+            pending=onWorker {f.target.beginSavedDelete(f.key,true,art,work,{true})}
+            allocation=File(f.targetRoot,"resources/"+pending.binding.ticket.allocation.directory)
+        }
+        fun row()=PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key)
+        fun finish(consent:Boolean=true,record:PartitionSavedDeleteRecord=pending,checkpoint:()->Unit={})=onWorker {
+            f.target.completeSavedDelete(record,consent,art,work,{true},checkpoint)
+        }
+        fun close()=f.close()
+    }
+    @Test fun actualSavedDeleteFinishesTreeTerminalRowOwnCoverAndKeepsRestartTombstone() {
+        val n=SavedDeleteFixture();val f=n.f
+        try {
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+            assertFalse(n.allocation.exists());assertNull(n.row());assertFalse(coverFile(n.art,f.key).exists())
+            assertEquals(PartitionSavedDeletePhase.Complete,onWorker {f.target.deleteRecoveryPage().single().phase})
+            assertFalse(f.target.audio.contains(f.key));assertTrue(f.target.claimsName(f.key));assertTrue(f.f.original.exists())
+            assertEquals(OfflineStore.SavedRemoval.Waiting,n.finish())
+            teardown(f.target);f.targetClosed=true;val resumed=f.target(PartitionShelfStart.Resume)
+            try {
+                onWorker {resumed.prepare()};assertFalse(resumed.audio.contains(f.key));assertTrue(resumed.claimsName(f.key))
+                assertEquals(PartitionSavedDeletePhase.Complete,onWorker {resumed.deleteRecoveryPage().single().phase})
+            } finally {teardown(resumed)}
+        } finally {n.close();assertEquals(0,f.f.budget.resident)}
+    }
+    @Test fun actualSavedDeleteResumesPartialAudioRemovalAfterRestartOnlyWithRenewedConsent() {
+        val n=SavedDeleteFixture();val f=n.f
+        try {
+            val audio=n.allocation.walkTopDown().single {it.name.endsWith(".v3.exo")}
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish {if(!audio.exists()) throw java.io.InterruptedIOException("Stop after unlink")})
+            assertFalse(audio.exists());assertNotNull(n.row());assertTrue(n.allocation.exists());assertTrue(f.f.barrier.quiescent)
+            teardown(f.target);f.targetClosed=true;val resumed=f.target(PartitionShelfStart.Resume)
+            try {
+                onWorker {resumed.prepare()}
+                assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {resumed.completeSavedDelete(n.pending,false,n.art,n.work,{true})})
+                assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {resumed.completeSavedDelete(n.pending,true,n.art,n.work,{true})})
+                assertFalse(n.allocation.exists());assertNull(n.row());assertFalse(coverFile(n.art,f.key).exists())
+            } finally {teardown(resumed)}
+        } finally {n.close()}
+    }
+    @Test fun actualSavedDeleteRecoversKnownRemovedTerminalRecordWithoutRelabellingLateComplete() {
+        val n=SavedDeleteFixture();val f=n.f
+        try {
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish {if(n.row()==null) throw java.io.InterruptedIOException("Stop after record")})
+            assertFalse(n.allocation.exists());assertNull(n.row());assertTrue(coverFile(n.art,f.key).exists())
+            assertEquals(n.pending,onWorker {f.target.deleteRecoveryPage().single()});assertTrue(f.f.barrier.quiescent)
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+            assertEquals(PartitionSavedDeletePhase.Complete,onWorker {f.target.deleteRecoveryPage().single().phase})
+            assertFalse(coverFile(n.art,f.key).exists())
+        } finally {n.close()}
+    }
+    @Test fun savedDeleteRefusesMissingConsentStaleTokenChangedRecordAndForeignTreeBeforeAnyRemoval() {
+        val n=SavedDeleteFixture();val f=n.f
+        try {
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,n.finish(false))
+            assertEquals(OfflineStore.SavedRemoval.Waiting,n.finish(record=n.pending.copy(token="00000000-0000-0000-0000-000000000001")))
+            val index=DefaultDownloadIndex(f.f.provider,"publication_target");val before=index.getDownload(f.key)!!
+            index.putDownload(Download(before.request,Download.STATE_COMPLETED,1,99,4,0,0))
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish());index.putDownload(before)
+            val foreign=File(n.allocation,"metadata/foreign");foreign.writeText("Preserve")
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish())
+            assertTrue(n.allocation.walkTopDown().any {it.name.endsWith(".v3.exo")});assertNotNull(n.row())
+            assertTrue(foreign.isFile);assertTrue(coverFile(n.art,f.key).exists());assertTrue(f.f.barrier.quiescent)
+        } finally {n.close()}
+    }
+    @Test fun savedDeleteRefusesChangedOwnCoverAndActualIndexAliasWithoutMutation() {
+        val n=SavedDeleteFixture();val f=n.f
+        try {
+            coverFile(n.art,f.key).writeBytes(byteArrayOf(9,9,9))
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish())
+            coverFile(n.art,f.key).writeBytes(byteArrayOf(1,3,5))
+            val index=DefaultDownloadIndex(f.f.provider,"publication_target")
+            val alias=DownloadRequest.Builder("delete-alias",Uri.parse("http://127.0.0.1:7814/alias")).setCustomCacheKey(f.key).build()
+            index.putDownload(Download(alias,Download.STATE_FAILED,1,2,0,Download.STOP_REASON_NONE,Download.FAILURE_REASON_UNKNOWN))
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish());assertTrue(n.allocation.exists());assertNotNull(n.row())
+            index.removeDownload("delete-alias");assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+        } finally {n.close()}
+    }
 }

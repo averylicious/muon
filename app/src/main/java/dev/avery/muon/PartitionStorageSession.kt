@@ -702,6 +702,42 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             throw IOException("Delete source ownership unavailable or conflicting")
         originalPermit(permit);return saved to completion
     }
+    /** A durable exact Delete Pending is the ONLY authority for an already-missing source row.
+     * Never reopen the source native cache after its closed tree was captured/partly removed. */
+    internal fun verifyPendingSavedDelete(expected:PartitionSavedDeleteRecord,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean) {
+        originalPermit(permit);expected.binding.validate()
+        val bound=expected.binding;val key=bound.key
+        if(expected.phase!=PartitionSavedDeletePhase.Pending || deletes?.find(key)!=expected ||
+            saves.find(key)!=PartitionSaveRecord(bound.ticket,PartitionSavePhase.Closed,bound.uid) ||
+            catalog.find(key)!=bound.ticket.allocation || migrations.find(key)!=null ||
+            retirements?.holdsName(key)==true || moves?.holdsName(key)==true ||
+            completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key))
+            throw IOException("Pending saved Delete ownership changed")
+        val current=completionIndex.find(key)
+        if(current==null && completionIndex.containsId(key) || current!=null &&
+            (current.retirementIdentity()!=bound.completionIdentity || current.length!=bound.length))
+            throw IOException("Pending saved Delete completed row changed")
+        originalPermit(permit)
+    }
+    internal fun eraseDeletedSavedRecord(expected:PartitionSavedDeleteRecord,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean) {
+        verifyPendingSavedDelete(expected,permit,unclaimedElsewhere)
+        if(!completionIndex.containsId(expected.binding.key)) return
+        val index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(database,indexName)
+        try {
+            completionIndex.requireSupportedOrAbsent();index.removeDownload(expected.binding.key)
+            verifyDeletedSavedRecordAbsent(expected,permit,unclaimedElsewhere)
+        } catch(failure:Throwable) {
+            val retained=arrayOf(this,index,expected,failure);retainedOriginalCleanup=retained;uncertain=true
+            throw PartitionOwnershipUncertain(retained,failure)
+        }
+    }
+    internal fun verifyDeletedSavedRecordAbsent(expected:PartitionSavedDeleteRecord,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean) {
+        verifyPendingSavedDelete(expected,permit,unclaimedElsewhere)
+        if(completionIndex.containsId(expected.binding.key)) throw IOException("Deleted saved record remains or reappeared")
+    }
     /** Exact Pending new-source record checks only: never reopen its partially retired native
      * allocation. Absence is allowed solely for the bound interrupted terminal-row stage. */
     internal fun verifyPendingSavedMove(expected:PartitionSavedMoveRecord,permit:SavedStorageBarrier.Lease,

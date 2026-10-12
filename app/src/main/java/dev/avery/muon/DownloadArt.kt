@@ -204,6 +204,12 @@ internal class DownloadArt(private val dir: File,
         requireCoverPermit(permit)
         return coverIdentity(sourceEntry(key),permit).also {requireCoverPermit(permit)}
     }
+    /** Exact persisted own-cover observation, allowing absence from a previous Delete attempt.
+     * Directory sync and actual absence precede the final durable Delete tombstone. */
+    internal fun removeSavedDeleteCoverConfirmed(key:String,expected:SavedMoveCoverIdentity,permit:SavedStorageBarrier.Lease) {
+        verifyMovedSource(key,expected,permit)
+        removeEntryConfirmed(key,permit);syncCoverDirectory(permit);verifyEntryAbsent(key,permit)
+    }
     /** Reobserve both own covers before a Move retirement. No source deletion authority. */
     internal fun verifyCopiedEntry(sourceId:String,targetId:String,expected:SavedMoveCoverIdentity,
         permit:SavedStorageBarrier.Lease) {
