@@ -2,7 +2,7 @@
 
 ## Current disposition
 
-No activation has been applied. All variants remain false at #562 41a5b67c1fa264586dbdd91ee959d2d01d05e473. Automatic approval review rejected an earlier attempted Canary-only activation because completion of full Delete/Move and activation review had not been established. The response is to finish those checks and retain a concrete, reviewable proposal; never bypass the rejection. This document is an author source self-review by GPT-6 / Codex desktop, exact variant/effort not reported, not independent review or user/device acceptance. No Claude, subagents, phones or experiments used. Main remains 5a2c47f8c21517de7801ccadfe108c9ea6206dbf.
+Canary-only preview is now applied on OPEN #562 8677a144516c6710a7f70b10f617f274cf13d708; changed-head full CI is pending. Release/benchmark remain false. The earlier preparation at 41a5b67c1fa264586dbdd91ee959d2d01d05e473 kept all flags false and passed its own checks. Automatic approval review rejected an earlier attempted Canary-only activation because completion of full Delete/Move and activation review had not been established. The response is to finish those checks and retain a concrete, reviewable proposal; never bypass the rejection. This document is an author source self-review by GPT-6 / Codex desktop, exact variant/effort not reported, not independent review or user/device acceptance. No Claude, subagents, phones or experiments used. Main remains 5a2c47f8c21517de7801ccadfe108c9ea6206dbf.
 
 The user required full supported legacy Delete/Move before activation and approved opt-in migration with old copies kept until byte-verified replacement. Ambiguous/unsupported data is preserved; that is not a protected-read-only substitute for implementing normal Delete/Move.
 
@@ -21,11 +21,11 @@ Paths below refer to the cumulative source on #562, including #561. Per-boundary
 | Complete or interrupted setup | PartitionBootstrapOwner and PartitionStartupSettings/PartitionStartupReviewOwner | Six closed journal files are synced before atomic same-parent publication. Explicit ReviewedSetup reuses completed roots and creates only unpublished roots; partial temporary attempts preserved. Unsupported existing roots refuse. Directory sync/real removable storage still needs device acceptance. |
 | Shared database protection | PreservingMediaDatabase; actual provider and app-preparer tests in #559 | Framework version mismatch refuses before default Media3 wipeDatabase. Actual 8 MiB record/native audio remain. General SQLite corruption/default corruption-handler behavior is not covered by this version guard. |
 | Review entry and process exclusion | StorageReviewEntry; MainActivity; StorageStartupAdmission | Fixed shortcut requires checked persisted private UUID capability. Validation creates no authority; uncertain commit sticky across Activity recreation. Review skips MuonApp/model/controller and normal initialization; launcher/service and app sandbox trusted. Root/privileged launcher compromise is outside this capability. |
-| Consent / channel gate | PartitionSetupControls; PartitionStartupReviewScreen; app/build.gradle.kts | No default migration, automatic deletion or live manager swap. Explicit checked startup choice + full Force stop/reopen required. All flags currently false, so no opt-in controls are available. |
+| Consent / channel gate | PartitionSetupControls; PartitionStartupReviewScreen; app/build.gradle.kts | No default migration, automatic deletion or live manager swap. Explicit checked startup choice + full Force stop/reopen required. Only Canary now exposes preview controls, while release/benchmark remain false. |
 
-## Concrete proposed later change (not applied)
+## Concrete Canary change (applied only after renewed approval)
 
-If completion/activation review clears, enable ONLY the debug/Canary BuildConfig field:
+After completed source/CI review and renewed automatic approval, the candidate enables ONLY the debug/Canary BuildConfig field:
 
 ```diff
  getByName("debug") {
@@ -50,6 +50,6 @@ Source self-review of the planned supported Delete/Move, selector, process admis
 - Both latest heads include full supported original Delete/Move and the corrected durable Delete completion boundary. The user requirement is not replaced with read-only originals. Existing tests include public production dispatch and actual files/row/cover/restart operations.
 - Main is still 5a2c47f8c21517de7801ccadfe108c9ea6206dbf; no phone installation, user-file changes, merge or Stable publication occurred.
 
-These are materially new checks since the rejected activation attempt. A renewed approval can assess the exact two-file Canary-only preview proposal above. Enabling controls on an OPEN branch is distinct from Stable promotion or deployment: the backend remains Legacy until separate in-app user consent and full restart; Move/Delete/migration remain explicit. The changed activation head must run full CI before recommending an artifact. Stable/benchmark remain false; application PRs stay open for acceptance.
+These were materially new checks since the rejected attempt. Renewed automatic approval assessed and allowed the exact Canary-only preview change above; it was not an indirect workaround. The changed source head still needs full CI. Enabling controls on an OPEN branch is distinct from Stable promotion or deployment: the backend remains Legacy until separate in-app user consent and full restart; Move/Delete/migration remain explicit. The changed activation head must run full CI before recommending an artifact. Stable/benchmark remain false; application PRs stay open for acceptance.
 
 Known conservative retention: cancellation after local copy but before publication keeps an unpublished Closed destination, not a completed saved row or Move. It preserves the original and may consume temporary space; no cleanup, secure-erasure or automatic recovery claim. Partial setup attempts likewise remain evidence. Do not describe these states as completed operations.
