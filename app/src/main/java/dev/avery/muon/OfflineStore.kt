@@ -133,7 +133,8 @@ internal object OfflineStore {
         /** Same process gate for phone/card saved readers and eventual partition startup/writers. */
         val storageBarrier:SavedStorageBarrier=SavedStorageBarrier(),
         /** Scalar completed-partition removal publication; no request payload is retained. */
-        val removedScalar:(String)->Unit = {}) {
+        val removedScalar:(String)->Unit = {},
+        val missingPartitionCardVolume:String?=null) {
         @Volatile internal var migrationAttempt:PartitionMigrationAttempt?=null
         @Volatile internal var migrationStatus:PartitionMigrationStatus?=null
         /** At most two final byte comparisons; uncertain actual readers remain owned until teardown. */
@@ -199,7 +200,7 @@ internal object OfflineStore {
         val barrier:SavedStorageBarrier,val database:StandaloneDatabaseProvider,val limit:Long,
         val claims:PlayedClaims,val played:PlayedSongEvictor,val phone:PreparedShelf,val card:PreparedShelf?,
         val cardFolder:File?,val art:DownloadArt,val artwork:DownloadArtworkWork,val sizes:DownloadByteTotals,
-        val marks:DownloadMarkLedger)
+        val marks:DownloadMarkLedger,val missingPartitionCardVolume:String?=null)
 
     internal fun prepareLegacy(context:Context,owner:StorageStartup<PreparedStorage>.Opening):PreparedStorage {
         check(Looper.myLooper()!=Looper.getMainLooper()) { "Native storage preparation requires a worker" }
@@ -297,7 +298,7 @@ internal object OfflineStore {
                     if(!claimsReady) throw java.io.IOException("Partition app-wide claims are not ready")
                     val other=if(index.isEmpty()) cardOwner else phoneOwner
                     !art.hasEntry(name) && requireNotNull(extraClaims)(name) && (other?.claimsName(name)!=true)
-                },OkHttpDataSource.Factory(Transport.client)) }
+                },OkHttpDataSource.Factory(Transport.client),mutationsAllowed={plan.missingCardVolume==null}) }
             if(index.isEmpty()) phoneOwner=partition else cardOwner=partition
             partition.prepare()
             return PreparedShelf(null,null,index,service,{ root.currentVolume()==root.volume },partition)
@@ -307,7 +308,7 @@ internal object OfflineStore {
         // Even an absent card's retained manager names protect new allocations. This scalar probe
         // works without constructing either manager or hydrating any request data.
         val phoneIndex=PartitionCompletionIndex(database,""); val cardIndex=PartitionCompletionIndex(database,"card")
-        val appClaims:(String)->Boolean={ name -> !phoneIndex.holdsNameIfPresent(name) && !cardIndex.holdsNameIfPresent(name) }
+        val appClaims:(String)->Boolean={ name -> plan.missingCardVolume==null && !phoneIndex.holdsNameIfPresent(name) && !cardIndex.holdsNameIfPresent(name) }
         // Each shelf's injected predicate is augmented below through this one frozen callback.
         // Retained startup names must be checked on every allocation, not just at plan creation.
         extraClaims=appClaims
@@ -320,7 +321,7 @@ internal object OfflineStore {
             main.post { DownloadMarks.countsKnown=false }
         } }
         return PreparedStorage(context,prefs,barrier,database,limit,claims,played,phone,card,
-            plan.card?.legacyDirectory?.parentFile,art,artwork,sizes,marks)
+            plan.card?.legacyDirectory?.parentFile,art,artwork,sizes,marks,plan.missingCardVolume)
     }
 
     internal fun bindStorage(ready:PreparedStorage,owner:StorageStartup<Store>.Opening):Store {
@@ -381,7 +382,7 @@ internal object OfflineStore {
             DownloadMarks.bytesKnown = sizes.known
         }
         fun removed(download:Download)=removedId(download.request.id)
-        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims, marks = marks, storageBarrier=barrier,removedScalar=::removedId)
+        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims, marks = marks, storageBarrier=barrier,removedScalar=::removedId,missingPartitionCardVolume=ready.missingPartitionCardVolume)
         ready.card?.let { made.card=shelf(it); made.cardFolder=ready.cardFolder }
         watch(context,phone,made,main)
         made.card?.let { watch(context,it,made,main) }

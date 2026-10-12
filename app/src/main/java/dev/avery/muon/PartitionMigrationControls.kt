@@ -14,6 +14,14 @@ import kotlinx.coroutines.withContext
 /** Only an actually prepared partition store exposes these controls; no backend activation. */
 @Composable
 internal fun PartitionMigrationControls(store:OfflineStore.Store) {
+    if(store.missingPartitionCardVolume!=null) {
+        Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier=Modifier.fillMaxWidth()) {
+            Text("Your selected SD card is unavailable. Phone-saved audio remains readable. Return the same card and fully restart Muon to save, optimize, delete or move copies; the card's ownership records are preserved.",
+                modifier=Modifier.padding(16.dp),style=MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
     MigrationPanel(store,false)
     if(store.card?.partition!=null) MigrationPanel(store,true)
 }

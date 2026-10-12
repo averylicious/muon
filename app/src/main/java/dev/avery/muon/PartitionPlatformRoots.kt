@@ -8,8 +8,8 @@ import java.io.IOException
 
 /** Trusted Android app directories only, not persisted/editable paths. Resolve off main before any
  * provider/root allocation. UUID observations are re-read at use; a saved path or old mount-state
- * snapshot never grants access to a replacement card. Strict missing-card refusal is not the final
- * phone-only recovery policy, and this prepared resolver does not activate partition storage. */
+ * snapshot never grants access to a replacement card. Missing-card recovery preserves a Ready receipt and pauses all saved mutations; it never
+ * infers card claims from an empty download index. This resolver does not activate partition storage. */
 internal class PartitionPlatformRoots(
     private val files:()->File,
     private val external:()->Array<File?>,
@@ -74,10 +74,11 @@ internal class PartitionPlatformRoots(
     fun resume(choice:PartitionStartupChoice):PartitionStorePlan {
         worker();val phone=phone(choice.start)
         if(phone.volume!=choice.phoneVolume) throw IOException("Selected private storage identity changed")
-        val selected=choice.cardVolume?.let {expected ->
-            cards().singleOrNull {it.second==expected} ?: throw IOException("The selected SD card is unavailable; its identity was kept")
-        }
-        return PartitionStorePlan(phone,selected?.let {card(it,choice.start)}).also {it.validate()}
+        val selected=choice.cardVolume?.let {expected ->cards().singleOrNull {it.second==expected}}
+        val missing=choice.cardVolume?.takeIf {selected==null}
+        if(missing!=null && (choice.phase!=PartitionStartupPhase.Ready || choice.start!=PartitionShelfStart.Resume))
+            throw IOException("Initial or interrupted setup requires the selected SD card")
+        return PartitionStorePlan(phone,selected?.let {card(it,choice.start)},missing).also {it.validate()}
     }
     companion object {
         internal const val PARTITION_DIRECTORY="downloads-partition-v1"

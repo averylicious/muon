@@ -9,8 +9,15 @@ import java.io.IOException
  */
 internal data class PartitionRootPlan(val directory:File,val legacyDirectory:File,val volume:String,
     val currentVolume:()->String?,val start:PartitionShelfStart)
-internal data class PartitionStorePlan(val phone:PartitionRootPlan,val card:PartitionRootPlan?=null) {
+internal data class PartitionStorePlan(val phone:PartitionRootPlan,val card:PartitionRootPlan?=null,
+    /** Exact persisted Ready card identity, never a replacement or a claim census. */
+    val missingCardVolume:String?=null) {
     fun validate() {
+        missingCardVolume?.let {
+            if(card!=null || phone.start!=PartitionShelfStart.Resume || it.isBlank() || it.length>512 ||
+                it.any {c ->c.isISOControl()} || it==phone.volume)
+                throw IOException("Missing card recovery needs an exact distinct Resume identity")
+        }
         val roots=listOfNotNull(phone,card)
         for(root in roots) {
             if(root.volume.isBlank() || root.volume.length>512 || root.currentVolume()!=root.volume)

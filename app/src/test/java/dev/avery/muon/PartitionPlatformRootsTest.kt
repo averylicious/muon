@@ -48,10 +48,16 @@ class PartitionPlatformRootsTest {
         val resumed=worker {f.resolver.resume(choice)};assertEquals(selected.card!!.directory,resumed.card!!.directory)
         assertEquals(PartitionShelfStart.Resume,resumed.phone.start)
         f.dirs=arrayOf(f.primary,f.other)
-        assertThrows(IOException::class.java) {worker {f.resolver.resume(choice)}}
+        val absent=worker {f.resolver.resume(choice)}
+        assertNull(absent.card);assertEquals("removable:fixture",absent.missingCardVolume)
         assertEquals("removable:fixture",choice.cardVolume)
         f.dirs=arrayOf(f.primary,f.card);f.cardId="removable:replacement"
-        assertThrows(IOException::class.java) {worker {f.resolver.resume(choice)}}
+        val replacement=worker {f.resolver.resume(choice)}
+        assertNull(replacement.card);assertEquals(choice.cardVolume,replacement.missingCardVolume)
+        assertFalse(File(f.card,"downloads-partition-v1").exists())
+        f.cardId=choice.cardVolume
+        val returned=worker {f.resolver.resume(choice)}
+        assertNotNull(returned.card);assertNull(returned.missingCardVolume)
     }
     @Test fun freshRefusesNewUnownedCardAndChangedOrAmbiguousSelection() {
         val f=Fixture()
@@ -80,4 +86,15 @@ class PartitionPlatformRootsTest {
         assertThrows(IOException::class.java) {worker {f.resolver.fresh(null)}}
         assertFalse(File(f.phone,"downloads-partition-v1").exists())
     }
+    @Test fun absentCardCannotCompleteFreshOrInterruptedSetupAndAmbiguityStillRefuses() {
+        val f=Fixture();val plan=worker {f.resolver.fresh(f.card)};val ready=f.choice(plan)
+        f.dirs=arrayOf(f.primary)
+        for(choice in listOf(ready.copy(phase=PartitionStartupPhase.Planned,start=PartitionShelfStart.Fresh),
+            ready.copy(phase=PartitionStartupPhase.Preparing),ready.copy(phase=PartitionStartupPhase.Planned)))
+            assertThrows(IOException::class.java) {worker {f.resolver.resume(choice)}}
+        f.dirs=arrayOf(f.primary,f.card,f.other);f.otherId=f.cardId
+        assertThrows(IOException::class.java) {worker {f.resolver.resume(ready)}}
+        assertFalse(File(f.phone,"downloads-partition-v1").exists())
+    }
+
 }

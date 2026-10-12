@@ -292,4 +292,46 @@ class PartitionStorePreparationTest {
         }
     }
 
+    @Test fun readyAbsentCardKeepsPhoneReadableAndRefusesWritesDespiteEmptyCardDownloadIndex() {
+        val f=Fixture();val prefs=app.getSharedPreferences("storage",android.content.Context.MODE_PRIVATE)
+        prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()
+        val settings=PartitionStartupSettings(prefs);val initial=StorageStartup<OfflineStore.PreparedStorage>()
+        var firstClosed=false;var resumed:StorageStartup<OfflineStore.PreparedStorage>?=null
+        try {
+            settings.request(f.plan(),true)
+            val first=worker {initial.open {OfflineStore.preparePersistedPartition(app,it,f.plan())}}
+            val hidden="saved/card-reservation-without-download-row"
+            worker {requireNotNull(first.card!!.partition).prepareSave(request(hidden))}
+            assertFalse(PartitionCompletionIndex(first.database,"card").holdsNameIfPresent(hidden))
+            val receipt=settings.read()
+            cleanup(initial);firstClosed=true
+            val cardBefore=f.cardRoot.walkTopDown().filter {it.isFile}.associate {it.relativeTo(f.cardRoot).path to it.readBytes().toList()}
+            val fresh=f.plan();val absent=fresh.copy(phone=fresh.phone.copy(start=PartitionShelfStart.Resume),card=null,missingCardVolume="card-volume")
+            val next=StorageStartup<OfflineStore.PreparedStorage>();resumed=next
+            val ready=worker {next.open {OfflineStore.preparePersistedPartition(app,it,absent)}}
+            assertNull(ready.card);assertEquals("card-volume",ready.missingPartitionCardVolume)
+            assertEquals(receipt,settings.read());val phone=requireNotNull(ready.phone.partition)
+            worker {
+                val audio=phone.audio.source.createDataSource()
+                try {
+                    assertEquals(4L,audio.open(DataSpec.Builder().setUri("muon-saved:fixture").setKey("old-phone").build()))
+                    val read=ByteArray(4);assertEquals(4,audio.read(read,0,4));assertArrayEquals(bytes,read)
+                } finally {audio.close()}
+                for(key in listOf(hidden,"saved/new-while-card-absent"))
+                    assertThrows(IOException::class.java) {phone.prepareSave(request(key))}
+                assertThrows(IOException::class.java) {phone.migrate(CacheMigrationControl(30000),"old-phone",{Long.MAX_VALUE},{})}
+                assertThrows(IOException::class.java) {phone.beginOriginalRetirement("old-phone",true)}
+                assertEquals(OfflineStore.SavedRemoval.Unavailable,phone.removeCompleted("old-phone") {true})
+                assertTrue(phone.saveRecoveryPage().isEmpty());assertTrue(phone.retirementRecoveryPage().isEmpty())
+                assertTrue(phone.pendingMigrationSummaries().entries.isEmpty())
+            }
+            assertEquals(cardBefore,f.cardRoot.walkTopDown().filter {it.isFile}.associate {it.relativeTo(f.cardRoot).path to it.readBytes().toList()})
+            assertTrue(ready.barrier.quiescent);f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
+            assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy));assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
+        } finally {
+            resumed?.let(::cleanup);if(!firstClosed) cleanup(initial);f.seed.close()
+            prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()
+        }
+    }
+
 }

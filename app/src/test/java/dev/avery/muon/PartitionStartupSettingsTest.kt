@@ -97,4 +97,19 @@ class PartitionStartupSettingsTest {
         assertThrows(IOException::class.java) {settings.request(plan(card=false),true)}
         assertFalse(phoneRoot.exists())
     }
+    @Test fun onlyReadyReceiptMayKeepAnAbsentCardWithoutRewritingItsAuthority() {
+        val settings=PartitionStartupSettings(prefs);val selected=settings.request(plan(),true)
+        val missing=plan(PartitionShelfStart.Resume,card=false).copy(missingCardVolume="card")
+        assertThrows(IOException::class.java) {settings.begin(selected,missing)}
+        val preparing=settings.begin(selected,plan())
+        assertThrows(IOException::class.java) {settings.begin(preparing,missing)}
+        val ready=settings.prepared(preparing);val bytes=prefs.getString(PartitionStartupSettings.KEY,null)
+        assertEquals(ready,settings.begin(ready,missing));assertEquals(ready,settings.prepared(ready))
+        assertEquals(bytes,prefs.getString(PartitionStartupSettings.KEY,null));assertEquals("card",settings.read().cardVolume)
+        assertThrows(IOException::class.java) {settings.begin(ready,missing.copy(missingCardVolume="replacement"))}
+        assertThrows(IOException::class.java) {settings.begin(ready,missing.copy(card=plan(PartitionShelfStart.Resume).card))}
+        assertThrows(IOException::class.java) {missing.copy(phone=missing.phone.copy(start=PartitionShelfStart.Fresh)).validate()}
+        assertFalse(phoneRoot.exists());assertFalse(cardRoot.exists())
+    }
+
 }

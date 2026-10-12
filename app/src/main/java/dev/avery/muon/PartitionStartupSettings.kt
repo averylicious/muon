@@ -96,9 +96,11 @@ internal class PartitionStartupSettings(private val prefs:SharedPreferences,
         current(expected);plan.validate()
         if(expected.phase==PartitionStartupPhase.Preparing)
             throw IOException("Partition setup was interrupted; explicitly review Resume before retrying")
-        if(plan.phone.volume!=expected.phoneVolume || plan.card?.volume!=expected.cardVolume ||
+        if(plan.phone.volume!=expected.phoneVolume || (plan.card?.volume ?: plan.missingCardVolume)!=expected.cardVolume ||
             plan.phone.start!=expected.start || plan.card?.let {it.start!=expected.start}==true)
             throw IOException("Partition startup plan differs from the confirmed choice")
+        if(plan.missingCardVolume!=null && expected.phase!=PartitionStartupPhase.Ready)
+            throw IOException("Only completed setup may resume with its SD card absent")
         return if(expected.phase==PartitionStartupPhase.Ready) expected else write(expected.copy(phase=PartitionStartupPhase.Preparing))
     }
     /** Only the actual preparer calls this after every selected root/journal is owned and ready,

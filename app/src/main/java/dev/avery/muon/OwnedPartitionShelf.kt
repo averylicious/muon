@@ -39,7 +39,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private val start:PartitionShelfStart,private val barrier:SavedStorageBarrier,
     /** Complete app-wide current key/index/played/cover claim census, not merely this shelf. */
     private val unclaimed:(String)->Boolean,private val upstream:DataSource.Factory,
-    private val budget:PartitionNativeBudget=PartitionNativeBudget.process) {
+    private val budget:PartitionNativeBudget=PartitionNativeBudget.process,
+    /** Frozen false when another selected shelf is absent; its hidden names cannot be inspected. */
+    private val mutationsAllowed:()->Boolean={true}) {
     internal val storageBarrier:SavedStorageBarrier get()=barrier
     init { require(volume.isNotEmpty()) }
     private val startup=StorageStartup<Resources>()
@@ -137,16 +139,17 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             phase=Phase.Uncertain; barrier.invalidate(); throw failure
         }
     }
-    private fun resources():Resources {
+    private fun resources(mutation:Boolean=true):Resources {
+        if(mutation && !mutationsAllowed()) throw IOException("Return the selected SD card and restart before changing saved storage")
         if(!available()) throw IOException("Partition shelf is not prepared or its identity changed")
         return startup.open { throw IOException("Partition shelf resources missing") }
     }
     val isAvailable:Boolean get()=available()
-    val audio:SavedAudio get()=resources().session.audio
-    fun initializeManager():DownloadManager=resources().manager.initialize()
-    fun managerForService():DownloadManager=resources().manager.managerForService()
-    fun claimsName(name:String):Boolean=resources().session.claimsName(name)
-    fun containsId(id:String,completedOnly:Boolean=false)=resources().session.containsId(id,completedOnly)
+    val audio:SavedAudio get()=resources(mutation=false).session.audio
+    fun initializeManager():DownloadManager=resources(mutation=false).manager.initialize()
+    fun managerForService():DownloadManager=resources(mutation=false).manager.managerForService()
+    fun claimsName(name:String):Boolean=resources(mutation=false).session.claimsName(name)
+    fun containsId(id:String,completedOnly:Boolean=false)=resources(mutation=false).session.containsId(id,completedOnly)
     fun copyPlayed(spec:androidx.media3.datasource.DataSpec,song:ByteArray,origin:String,upstream:DataSource.Factory,
         writerCreated:(PlayedCopyWriter)->Unit={},checkpoint:()->Unit={},limit:()->Long)=
         resources().session.copyPlayed(spec,song,origin,upstream,writerCreated,checkpoint,limit)
@@ -571,7 +574,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         val made=resources(); located()
         return made.session.claimsPartitionNameUnderExclusive(name,permit) || made.legacy.claimsOriginalName(name,permit)
     }
-    fun playedBytes(checkpoint:()->Unit={}):Long=resources().session.playedBytes(checkpoint)
+    fun playedBytes(checkpoint:()->Unit={}):Long=resources(mutation=false).session.playedBytes(checkpoint)
     fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
         try { resources().session.removePlayed(key,removable) }
         catch(_:IOException) { OfflineStore.SavedRemoval.Unavailable }
@@ -618,11 +621,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun abandon(command:PartitionSaveCommands.Command,request:DownloadRequest)=resources().manager.abandon(command,request)
     fun deliver(command:PartitionSaveCommands.Command,request:DownloadRequest,start:(DownloadManager)->Unit)=
         resources().manager.deliver(command,request,start)
-    val migrationProgress:MigrationWorkProgress get()=resources().work.progress
-    val migrationBusy:Boolean get()=resources().work.busy
+    val migrationProgress:MigrationWorkProgress get()=resources(mutation=false).work.progress
+    val migrationBusy:Boolean get()=resources(mutation=false).work.busy
     fun startMigration(name:String,timeoutMillis:Long,explicitConsent:Boolean)=
         resources().work.start(name,timeoutMillis,explicitConsent)
-    fun cancelMigration()=resources().work.cancel()
+    fun cancelMigration()=resources(mutation=false).work.cancel()
     /** Bounded disk pages for opt-in/recovery controls. No native cache is opened and no whole
      * journal, metadata or exception history survives. Call off main; pages are observations only.
      * An interrupted new save remains preserved, never automatically resumed/adopted or deleted.
@@ -694,7 +697,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private fun <T> recoveryRead(read:(Resources)->T):T {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Recovery reads require a worker" }
         val permit=barrier.shared(); var quarantined=false
-        try { val made=resources(); permit.check(); return read(made).also { located(); permit.check() } }
+        try { val made=resources(mutation=false); permit.check(); return read(made).also { located(); permit.check() } }
         catch(failure:Throwable) {
             if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain || failure is SavedCoverCloseUncertain) {
                 phase=Phase.Uncertain; permit.quarantine(arrayOf(this,failure)); quarantined=true
