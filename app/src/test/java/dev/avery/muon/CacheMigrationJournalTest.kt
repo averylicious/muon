@@ -176,28 +176,91 @@ class CacheMigrationJournalTest {
         }
     }
     @Test fun pendingRecoveryUnknownActualCursorCloseRetainsConnectionAndRefusesEveryFurtherOperation() {
-        val root=folders.newFolder();var child:java.io.Closeable?=null;var attempts=0
-        val io=MigrationIoOwnership(closeHandle={child=it;attempts++;throw IOException("Unknown actual cursor close")})
+        val root=folders.newFolder();var fail=false;var child:java.io.Closeable?=null;var attempts=0
+        val io=MigrationIoOwnership(closeHandle={if(fail) {child=it;attempts++;throw IOException("Unknown actual cursor close")} else it.close()})
         val journal=CacheMigrationJournal(root,recoveryIo=io)
         val ticket=journal.begin(allocation("kept"),7,null)
         val db=CacheMigrationJournal::class.java.getDeclaredField("database").apply {isAccessible=true}.get(journal) as SQLiteDatabase
+        fail=true
         try {
-            assertThrows(MigrationIoUncertain::class.java) {journal.pendingPage()}
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {journal.pendingPage()}
+            assertSame(journal,failure.owner)
             assertFalse(io.quiescent);assertTrue(db.isOpen);assertEquals(1,attempts)
-            assertThrows(MigrationIoUncertain::class.java) {journal.find("kept")}
-            assertThrows(MigrationIoUncertain::class.java) {journal.page()}
-            assertThrows(MigrationIoUncertain::class.java) {journal.pendingPage()}
-            assertThrows(MigrationIoUncertain::class.java) {journal.begin(allocation("other"),7,null)}
-            assertThrows(MigrationIoUncertain::class.java) {journal.verified(ticket,8,MigrationCopyEvidence(4,1))}
-            assertThrows(MigrationIoUncertain::class.java) {journal.publish(ticket)}
-            assertThrows(MigrationIoUncertain::class.java) {journal.uncertain(ticket)}
-            assertThrows(MigrationIoUncertain::class.java) {journal.close()};assertEquals(1,attempts)
+            assertThrows(IOException::class.java) {journal.find("kept")}
+            assertThrows(IOException::class.java) {journal.page()}
+            assertThrows(IOException::class.java) {journal.pendingPage()}
+            assertThrows(IOException::class.java) {journal.begin(allocation("other"),7,null)}
+            assertThrows(IOException::class.java) {journal.verified(ticket,8,MigrationCopyEvidence(4,1))}
+            assertThrows(IOException::class.java) {journal.publish(ticket)}
+            assertThrows(IOException::class.java) {journal.uncertain(ticket)}
+            assertThrows(IOException::class.java) {journal.close()};assertEquals(1,attempts)
             db.rawQuery("SELECT COUNT(*) FROM migrations",null).use {assertTrue(it.moveToFirst());assertEquals(1,it.getInt(0))}
         } finally {
             // Test callback never attempted raw close. Close only these known fixture handles;
             // production has no reset or retry-close path over uncertain ownership.
             child?.close();db.close()
         }
+    }
+
+    private fun actualDatabase(journal:CacheMigrationJournal)=CacheMigrationJournal::class.java
+        .getDeclaredField("database").apply {isAccessible=true}.get(journal) as SQLiteDatabase
+    @Test fun productionShapedStartupRetainsJournalBeforeSchemaCursorOpeningAndNeverRetriesFailure() {
+        val root=folders.newFolder();var child:java.io.Closeable?=null;var closes=0
+        val journal=CacheMigrationJournal(root,autoOpen=false,recoveryIo=MigrationIoOwnership(closeHandle={
+            child=it;closes++;throw IOException("Unknown schema cursor close")
+        }))
+        assertFalse(File(root,"migration-journal-v1.db").exists())
+        val startup=StorageStartup<CacheMigrationJournal>()
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {startup.open {opening ->
+                opening.own {journal}.also {it.open()}
+            }}
+            assertSame(journal,failure.owner);assertEquals(1,startup.retained);assertTrue(journal.ownershipUncertain)
+            val handles=StorageStartup::class.java.getDeclaredField("handles").apply {isAccessible=true}.get(startup) as Array<*>
+            assertSame(journal,handles[0]);assertTrue(actualDatabase(journal).isOpen);assertTrue(actualDatabase(journal).inTransaction())
+            assertThrows(IOException::class.java) {startup.open {throw AssertionError("Failed startup retried")}}
+            assertThrows(IOException::class.java) {journal.open()};assertThrows(IOException::class.java) {journal.close()};assertEquals(1,closes)
+        } finally {child?.close();actualDatabase(journal).endTransaction();actualDatabase(journal).close()}
+    }
+    @Test fun actualStatementCloseFailureKeepsTransactionAndConnectionWithoutCommitRollbackOrRetry() {
+        val root=folders.newFolder();var fail=false;var child:java.io.Closeable?=null;var closes=0
+        val journal=CacheMigrationJournal(root,recoveryIo=MigrationIoOwnership(closeHandle={
+            if(fail && it is android.database.sqlite.SQLiteStatement) {child=it;closes++;throw IOException("Unknown insert statement close")}
+            it.close()
+        }))
+        val db=actualDatabase(journal);fail=true
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {journal.begin(allocation("kept"),7,null)}
+            assertSame(journal,failure.owner);assertTrue(db.isOpen);assertTrue(db.inTransaction());assertTrue(journal.ownershipUncertain)
+            db.rawQuery("SELECT COUNT(*) FROM migrations",null).use {assertTrue(it.moveToFirst());assertEquals(1,it.getInt(0))}
+            assertThrows(IOException::class.java) {journal.find("kept")};assertThrows(IOException::class.java) {journal.close()};assertEquals(1,closes)
+        } finally {child?.close();db.endTransaction();db.close()}
+        SQLiteDatabase.openOrCreateDatabase(File(root,"migration-journal-v1.db"),null).use {dbAfter ->
+            dbAfter.rawQuery("SELECT COUNT(*) FROM migrations",null).use {assertTrue(it.moveToFirst());assertEquals(0,it.getInt(0))}
+        }
+    }
+    @Test fun transactionEndThrowAfterActualCommitIsUncertainAndDoesNotReturnASuccessReceipt() {
+        val root=folders.newFolder();var fail=false;var ends=0
+        val journal=CacheMigrationJournal(root,finishTransaction={db ->db.endTransaction();ends++
+            if(fail) throw IOException("Actual commit returned no trustworthy acknowledgment")})
+        val db=actualDatabase(journal);fail=true
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {journal.begin(allocation("kept"),7,null)}
+            assertSame(journal,failure.owner);assertFalse(db.inTransaction());assertTrue(db.isOpen);assertTrue(journal.ownershipUncertain)
+            db.rawQuery("SELECT phase FROM migrations",null).use {assertTrue(it.moveToFirst());assertEquals(MigrationPhase.Copying.ordinal,it.getInt(0))}
+            val count=ends;assertThrows(IOException::class.java) {journal.begin(allocation("other"),7,null)}
+            assertThrows(IOException::class.java) {journal.close()};assertEquals(count,ends)
+        } finally {db.close()}
+    }
+    @Test fun actualDatabaseCloseFailureRetainsExactOwnerAndNeverRetriesClose() {
+        val root=folders.newFolder();var closes=0
+        val journal=CacheMigrationJournal(root,closeDatabase={closes++;throw IOException("Unknown actual database close")})
+        val db=actualDatabase(journal);journal.begin(allocation("kept"),7,null)
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {journal.close()}
+            assertSame(journal,failure.owner);assertTrue(db.isOpen);assertTrue(journal.ownershipUncertain)
+            assertThrows(IOException::class.java) {journal.close()};assertThrows(IOException::class.java) {journal.page()};assertEquals(1,closes)
+        } finally {db.close()}
     }
 
 }

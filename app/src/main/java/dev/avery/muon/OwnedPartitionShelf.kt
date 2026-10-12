@@ -105,7 +105,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             if(start==PartitionShelfStart.Fresh) rootIdentity=key(directory) else located()
             val catalog=owner.own { CachePartitionCatalog(directory,create=start==PartitionShelfStart.Fresh) }
             if(start==PartitionShelfStart.Resume) located()
-            val migrations=owner.own { CacheMigrationJournal(directory,create=start==PartitionShelfStart.Fresh) }
+            val migrations=owner.own { CacheMigrationJournal(directory,create=start==PartitionShelfStart.Fresh,autoOpen=false) }
+            migrations.open()
             if(start==PartitionShelfStart.Resume) located()
             val saves=owner.own { PartitionSaveJournal(directory,create=start==PartitionShelfStart.Fresh) }
             val retirements=owner.own {LegacyRetirementJournal(directory,start==PartitionShelfStart.Fresh)}
