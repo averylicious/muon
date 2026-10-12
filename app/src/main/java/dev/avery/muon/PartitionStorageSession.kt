@@ -505,7 +505,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             }
             val bytes=cache.getCachedBytes(key,0,Long.MAX_VALUE)
             if(bytes<0) throw IOException("Invalid played-copy byte count")
-            cache.removeResource(key)
+            removePartitionAudioConfirmed(cache,key) {requireOpen(); permit.check()}
             permit.check(); cache.release(); cache=null
             requireOpen(); permit.check()
             return OwnedPlayedRemoval(OfflineStore.SavedRemoval.Sent,bytes,playedChanges.incrementAndGet())
@@ -656,7 +656,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             cache=native.openClosedSaveRead(key)
             if(cache.uid!=expected.record.uid || native.savedReadRoute(key)!=expected)
                 throw IOException("Completed removal ownership changed")
-            mutated=true; cache.removeResource(key)
+            mutated=true; removePartitionAudioConfirmed(cache,key) {requireOpen(); permit.check()}
             permit.check(); cache.release(); cache=null
             requireOpen(); permit.check()
             if(moves?.holdsName(key)==true || retirements?.holdsName(key)==true || native.savedReadRoute(key)!=expected || completionIndex.find(key)!=complete ||
@@ -734,7 +734,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
      * Keep the Ready receipt (no ID reuse/fallback); successful return proves only target absence.
      * No download-index/cover removal or Complete transition is supplied by this primitive.
      */
-    internal fun retireMigratedOriginal(record:LegacyRetirementRecord,permit:SavedStorageBarrier.Lease) {
+    internal fun retireMigratedOriginal(record:LegacyRetirementRecord,permit:SavedStorageBarrier.Lease,checkpoint:()->Unit={}) {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original duplicate cleanup requires a worker"}
         if(!permit.exclusive || !permit.belongsTo(barrier) || record.phase!=LegacyRetirementPhase.Pending)
             throw IOException("Original duplicate cleanup requires the actual exclusive gate and Pending intent")
@@ -759,7 +759,12 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             actual=native.openReady(key); retainedOriginalCleanup=actual
             if(actual.uid!=expected.targetUid || actual.keys.any {it!=key})
                 throw IOException("Original duplicate native identity differs")
-            permit.check(); mutated=true; actual.removeResource(key)
+            permit.check(); mutated=true
+            removePartitionAudioConfirmed(actual,key) {
+                requireOpen(); permit.check(); checkpoint()
+                if(retirements?.find(key)!=record || native.readyRoute(key)!=expected || saves.find(key)!=null)
+                    throw IOException("Original duplicate ownership changed during removal")
+            }
             permit.check()
             if(actual.getCachedSpans(key).isNotEmpty() || actual.uid!=expected.targetUid || native.readyRoute(key)!=expected)
                 throw IOException("Original duplicate bytes remain or ownership changed")

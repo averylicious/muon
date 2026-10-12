@@ -415,7 +415,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             live()
             if(journal.find(expected.manifest.key)!=expected) return OfflineStore.SavedRemoval.Waiting
             session.verifyOriginalCompletion(expected,permit,::unclaimed); target()
-            session.retireMigratedOriginal(expected,permit); target()
+            session.retireMigratedOriginal(expected,permit,::target); target()
             val files=LegacyRetirementFiles(); retirement=files
             files.runMoved(expected,directory,requireNotNull(index),::live,::target)
             target(); finalMutation=true
