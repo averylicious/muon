@@ -60,6 +60,83 @@ class LegacyResourceProjectionTest {
         catch(failure:java.util.concurrent.ExecutionException) {throw requireNotNull(failure.cause)}
         finally {executor.shutdownNow(); check(executor.awaitTermination(10,java.util.concurrent.TimeUnit.SECONDS))}
     }
+    @Test fun retirementIntentNeedsConsentAndSurvivesRestartWithoutReplacingItsTombstone() {
+        val f=Fixture(); val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",f.db(),{})}
+        val root=folders.newFolder(); val first=LegacyRetirementJournal(root,true)
+        val pending=worker {
+            first.open()
+            assertThrows(IOException::class.java) {first.begin(manifest,false)}
+            assertNull(first.find("selected"))
+            val row=first.begin(manifest,true); assertTrue(first.holdsName("selected")); first.close(); row
+        }
+        val next=LegacyRetirementJournal(root,false)
+        try {worker {
+            next.open(); assertEquals(pending,next.find("selected"))
+            assertThrows(IOException::class.java) {next.begin(manifest,true)}
+            assertThrows(IOException::class.java) {next.complete(pending.copy(token=java.util.UUID.randomUUID().toString()))}
+            val complete=next.complete(pending); assertEquals(LegacyRetirementPhase.Complete,complete.phase)
+            assertTrue(next.holdsName("selected")); assertThrows(IOException::class.java) {next.complete(pending)}
+            assertEquals(complete,next.find("selected"))
+        }} finally {worker {next.close()}}
+        assertArrayEquals(payload,f.original.readBytes()) // Ledger transition is NOT physical deletion.
+    }
+    @Test fun retirementIntentUsesTwoRowPagesAndRefusesOversizedBlobBeforeHydration() {
+        val f=Fixture(4); val index=f.db(); val root=folders.newFolder(); val journal=LegacyRetirementJournal(root,true)
+        val names=listOf("selected","other/1","other/2")
+        try {worker {
+            journal.open()
+            for(name in names) journal.begin(LegacyRetirementManifest.capture(f.root,f.uid,name,index,{}),true)
+            val page=journal.page(); assertEquals(LEGACY_RETIREMENT_PAGE,page.size)
+            val tail=journal.page(page.last().manifest.key); assertEquals(1,tail.size)
+            assertEquals(names.sorted(),(page+tail).map {it.manifest.key})
+            SQLiteDatabase.openDatabase(File(root,"legacy-retirements-v1.db").path,null,SQLiteDatabase.OPEN_READWRITE).use {
+                it.execSQL("UPDATE retirements SET manifest=zeroblob(8388608) WHERE key=?",arrayOf(savedCatalogSortKey("selected")))
+            }
+            assertThrows(IOException::class.java) {journal.find("selected")}; assertTrue(journal.holdsName("selected"))
+        }} finally {worker {journal.close()}}
+        assertArrayEquals(payload,f.original.readBytes())
+    }
+    @Test fun retirementJournalResumeRefusesMissingOrUnsupportedSchemaWithoutRepair() {
+        val root=folders.newFolder(); val missing=LegacyRetirementJournal(root,false)
+        assertFalse(File(root,"legacy-retirements-v1.db").exists()) // Constructor does no I/O.
+        worker {assertThrows(IOException::class.java) {missing.open()}; missing.close()}
+        assertFalse(File(root,"legacy-retirements-v1.db").exists())
+        val file=File(root,"legacy-retirements-v1.db")
+        SQLiteDatabase.openOrCreateDatabase(file,null).use {it.execSQL("CREATE TABLE foreign_data(value TEXT)"); it.version=2}
+        val unsupported=LegacyRetirementJournal(root,false)
+        worker {assertThrows(IOException::class.java) {unsupported.open()}; unsupported.close()}
+        SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READONLY).use {
+            assertEquals(2,it.version); assertTrue(it.rawQuery("SELECT name FROM sqlite_master WHERE name='foreign_data'",null).use {c ->c.moveToFirst()})
+        }
+        assertThrows(IllegalStateException::class.java) {LegacyRetirementJournal(folders.newFolder(),true).open()}
+    }
+    @Test fun retirementJournalRetainsActualDatabaseAfterUnknownCloseWithoutRetry() {
+        val root=folders.newFolder(); var actual:SQLiteDatabase?=null; var attempts=0
+        val journal=LegacyRetirementJournal(root,true,
+            openDatabase={file,_ -> SQLiteDatabase.openOrCreateDatabase(file,null).also {actual=it}},
+            closeDatabase={attempts++; throw IOException("injected unknown DB close")})
+        try {worker {
+            journal.open(); assertThrows(IOException::class.java) {journal.close()}
+            assertThrows(IOException::class.java) {journal.close()}; assertThrows(IOException::class.java) {journal.page()}
+            assertEquals(1,attempts); assertTrue(requireNotNull(actual).isOpen)
+        }} finally {actual?.close()} // Fixture knows its injected close did not reach the actual DB.
+    }
+    @Test fun retirementJournalRetainsUnknownCursorAndDoesNotCloseDatabaseOverIt() {
+        val root=folders.newFolder(); var actual:SQLiteDatabase?=null; var child:java.io.Closeable?=null
+        var childAttempts=0; var dbAttempts=0
+        val journal=LegacyRetirementJournal(root,true,
+            openDatabase={file,_ ->SQLiteDatabase.openOrCreateDatabase(file,null).also {actual=it}},
+            closeDatabase={dbAttempts++; it.close()},
+            closeIo={child=it; childAttempts++; throw IOException("injected unknown cursor close")})
+        try {worker {
+            assertThrows(IOException::class.java) {journal.open()}
+            assertThrows(IOException::class.java) {journal.close()}; assertThrows(IOException::class.java) {journal.open()}
+            assertEquals(1,childAttempts); assertEquals(0,dbAttempts); assertTrue(requireNotNull(actual).isOpen)
+        }} finally {
+            child?.close()
+            actual?.let {if(it.inTransaction()) it.endTransaction(); it.close()}
+        } // Only fixture-controlled injected failure is cleaned here; production has no reset path.
+    }
     @Test fun retirementManifestRoundTripsOnlySelectedFilesWithoutNativeReopenOrMutation() {
         val f=Fixture(40); val index=f.db()
         val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})}
