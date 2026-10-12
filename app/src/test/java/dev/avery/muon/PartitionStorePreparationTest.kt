@@ -374,6 +374,8 @@ class PartitionStorePreparationTest {
         val next=StorageStartup<OfflineStore.PreparedStorage>();var nextStarted=false
         val previousUsed=PlayedCacheState.used;val previousLimit=PlayedCacheState.limit
         try {
+            DefaultDownloadIndex(f.seed).putDownload(Download(request("old-phone"),Download.STATE_COMPLETED,1,2,4,0,0))
+            DefaultDownloadIndex(f.seed,"card").putDownload(Download(request("old-card"),Download.STATE_COMPLETED,1,2,4,0,0))
             val chosen=worker {review.request(f.plan(),File(f.seed.readableDatabase.path),true) {PartitionStartupSettings(prefs)}}
             assertEquals(PartitionOptInPhase.RestartRequired,review.phase)
             assertFalse(f.phoneRoot.exists());assertFalse(f.cardRoot.exists())
