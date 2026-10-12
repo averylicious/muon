@@ -160,9 +160,15 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
                 arrayOf(key,key,key))}) { it.moveToFirst() }
         } catch(failure:SQLiteException) { throw IOException("Completed removal alias census unavailable",failure) }
     }
-    @Synchronized fun find(key:String):PartitionSaveCompletion?=completed(key,true)
-    @Synchronized fun findOriginal(key:String):PartitionSaveCompletion?=completed(key,false)
-    private fun completed(key:String,requireFresh:Boolean):PartitionSaveCompletion? {
+    @Synchronized fun find(key:String):PartitionSaveCompletion?=completed(key,true) {PartitionSaveCompletion.from(it)}
+    @Synchronized fun findOriginal(key:String):PartitionSaveCompletion?=completed(key,false) {PartitionSaveCompletion.fromOriginal(it)}
+    /** One bounded full request, scoped to a local-copy publication. Caller must hold the actual
+     * source/destination exclusive gate; returned payload must not enter a batch/history/queue. */
+    @Synchronized fun originalRequest(key:String,expected:PartitionSaveCompletion):DownloadRequest?=completed(key,false) {
+        if(PartitionSaveCompletion.fromOriginal(it)!=expected) throw IOException("Original request changed since preparation")
+        it.request
+    }
+    private fun <T> completed(key:String,requireFresh:Boolean,project:(Download)->T):T? {
         if(key.isEmpty() || key.startsWith(PLAYED_PREFIX) || key.length.toLong()*2>MIGRATION_KEY_BYTES || (requireFresh && !key.startsWith(NEW_SAVE_PREFIX)))
             throw IOException("Completed-save lookup key exceeds its supported budget")
         try {
@@ -182,9 +188,10 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
                 val request=DownloadRequest.Builder(id,uri).setMimeType(mime)
                     .setCustomCacheKey(customKey).setData(c.getBlob(6)).build()
                 val download=Download(request,c.getInt(7),c.getLong(8),c.getLong(9),c.getLong(10),c.getInt(11),c.getInt(12))
-                val complete=if(requireFresh) PartitionSaveCompletion.from(download) else PartitionSaveCompletion.fromOriginal(download)
+                if((if(requireFresh) PartitionSaveCompletion.from(download) else PartitionSaveCompletion.fromOriginal(download))==null)
+                    throw IOException("Completed-save identity is not complete")
                 if(c.moveToNext()) throw IOException("Completed-save identity is not unique")
-                complete
+                project(download)
             }
         } catch(failure:SQLiteException) { throw IOException("Completed-save index lookup unavailable",failure) }
     }

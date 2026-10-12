@@ -138,6 +138,14 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             located(); destination.located()
         }
     }
+    internal fun publishCopiedOriginalTo(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,
+        explicitConsent:Boolean,unclaimedElsewhere:(String)->Boolean,timestamp:Long=System.currentTimeMillis()):PartitionSaveCompletion {
+        if(destination===this || destination.storageBarrier!==barrier)
+            throw IOException("Local publication requires another shelf on the actual gate")
+        val source=resources(); val target=destination.resources()
+        return source.legacy.publishCopiedOriginalTo(source.session,target.session,copy,explicitConsent,
+            unclaimedElsewhere,{located(); destination.located()},timestamp)
+    }
     fun playedBytes(checkpoint:()->Unit={}):Long=resources().session.playedBytes(checkpoint)
     fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
         try { resources().session.removePlayed(key,removable) }

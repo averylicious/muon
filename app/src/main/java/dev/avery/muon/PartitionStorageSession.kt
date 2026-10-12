@@ -162,6 +162,84 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         }
         }} finally {localCopyAdmission.set(false)}
     }
+    private var retainedLocalPublication:Any?=null
+    /** Publish a byte-verified, exact clean local destination, never via a destructive downloader
+     * or an Add token invented after the copy. Source owner holds the SAME exclusive gate and owes
+     * its own exact pre/postflight; this publication never authorizes source removal/restart replay.
+     */
+    internal fun publishLocalSaved(ticket:PartitionSaveTicket,request:DownloadRequest,length:Long,
+        metadata:androidx.media3.datasource.cache.DefaultContentMetadata,source:DataSource.Factory,
+        permit:SavedStorageBarrier.Lease,checkpoint:()->Unit,unclaimedElsewhere:(String)->Boolean,
+        timestamp:Long):PartitionSaveCompletion {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Local publication requires a worker"}
+        originalPermit(permit)
+        val key=partitionSaveRequestKey(request)
+        if(key!=ticket.allocation.key || length<=0 || timestamp<0 ||
+            androidx.media3.datasource.cache.ContentMetadata.getContentLength(metadata)!=length)
+            throw IOException("Local publication request/length differs")
+        PartitionResourceCache.measured(metadata,PartitionResourceLimits())
+        val spec=DataSpec.Builder().setUri("muon-saved:local-copy").setKey(key).setLength(length).build()
+        var cache:Cache?=null; var releasing=false; var mutated=false
+        var index:androidx.media3.exoplayer.offline.DefaultDownloadIndex?=null
+        val comparison=MoveByteComparison()
+        fun unknown(failure:Throwable):Nothing {
+            val handles=arrayOf(this,cache,index,comparison,source,ticket,failure)
+            retainedLocalPublication=handles; uncertain=true
+            throw PartitionOwnershipUncertain(handles,failure)
+        }
+        fun live() {originalPermit(permit); checkpoint()}
+        try {
+            live(); writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+            val closed=saves.find(key) ?: throw IOException("Local publication has no Closed attempt")
+            fun claims() {
+                live()
+                if(closed.ticket!=ticket || closed.phase!=PartitionSavePhase.Closed || saves.find(key)!=closed ||
+                    catalog.find(key)!=ticket.allocation || migrations.find(key)!=null || retirements?.holdsName(key)==true ||
+                    completionIndex.holdsName(key) || !unclaimedElsewhere(key))
+                    throw IOException("Local publication has conflicting destination claims")
+            }
+            claims()
+            val actual=native.openClosedSaveRead(key); cache=actual
+            fun bytes() {
+                claims()
+                val state=savedAudioState(actual,key)
+                if(actual.uid!=closed.uid || state.coverage!=SavedCoverage.Full || state.bytes!=length || state.metadata!=metadata)
+                    throw IOException("Local publication destination bytes/metadata changed")
+            }
+            bytes()
+            if(!comparison.compare(spec,source,LegacySavedAudio(actual).source,{bytes(); true},{}))
+                throw IOException("Local publication destination byte comparison failed")
+            bytes(); releasing=true; actual.release(); cache=null; releasing=false
+            claims()
+            val progress=androidx.media3.exoplayer.offline.DownloadProgress().apply {
+                bytesDownloaded=length; percentDownloaded=100f
+            }
+            val record=Download(request,Download.STATE_COMPLETED,timestamp,timestamp,length,0,0,progress)
+            val expected=requireNotNull(PartitionSaveCompletion.from(record))
+            completionIndex.requireSupportedOrAbsent()
+            index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(database,indexName)
+            // The supported index row is published only after both actual comparison readers and
+            // the native owner have closed. No full library load or manager task is needed.
+            mutated=true; index.putDownload(record)
+            live()
+            if(completionIndex.find(key)!=expected || completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key))
+                throw IOException("Local completed row publication is unconfirmed")
+            live(); return expected
+        } catch(failure:Throwable) {
+            if(mutated || releasing || comparison.active!=0 || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain)
+                unknown(failure)
+            cache?.let {actual -> try {actual.release(); cache=null}
+                catch(close:Throwable) {if(close!==failure) close.addSuppressed(failure); unknown(close)} }
+            throw failure
+        }
+    }
+    internal fun originalCopyRequest(expected:PartitionSaveCompletion,permit:SavedStorageBarrier.Lease):DownloadRequest {
+        originalPermit(permit)
+        if(originalCompletion(expected.key,permit,{true})!=expected)
+            throw IOException("Original completion changed before local publication")
+        return (completionIndex.originalRequest(expected.key,expected) ?: throw IOException("Original request is absent"))
+            .also {originalPermit(permit)}
+    }
     internal fun originalCopyCompletion(key:String,permit:SavedStorageBarrier.Lease):PartitionSaveCompletion {
         if(!permit.belongsTo(barrier) || permit.exclusive) throw IOException("Original copy requires the same shared gate")
         requireOpen(); permit.check()

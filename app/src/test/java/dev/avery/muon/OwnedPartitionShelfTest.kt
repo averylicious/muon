@@ -1041,4 +1041,102 @@ class OwnedPartitionShelfTest {
         } finally {teardown(foreign); teardown(target); teardown(source); f.provider.close()}
     }
 
+    private inner class LocalPublicationFixture {
+        val f=Fixture(oldKey="81"); val source=f.owner(); val targetLegacy=folders.newFolder()
+        val targetRoot=File(folders.newFolder(),"publication-target")
+        val key="saved/published-local-copy"
+        val request=DownloadRequest.Builder("81",Uri.parse("http://127.0.0.1:7814/original"))
+            .setCustomCacheKey("81").setData(byteArrayOf(7,8,9)).build()
+        val index=DefaultDownloadIndex(f.provider,"owned_partition")
+        var target:OwnedPartitionShelf
+        var sourceClosed=false; var targetClosed=false
+        init {
+            val cache=SimpleCache(targetLegacy,NoOpCacheEvictor(),f.provider); cache.checkInitialization(); cache.release()
+            index.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
+            target=target()
+            onWorker {source.prepare(); target.prepare()}
+            await(source.initializeManager()) {true}; await(target.initializeManager()) {true}
+        }
+        fun target(start:PartitionShelfStart=PartitionShelfStart.Fresh)=OwnedPartitionShelf(
+            RuntimeEnvironment.getApplication(),targetRoot,targetLegacy,f.databaseFile,f.provider,"publication_target",
+            "fixture",{"fixture"},start,f.barrier,{true},
+            DataSource.Factory {throw AssertionError("Local publication must never stream live upstream")},f.budget)
+        fun prepare()=onWorker {source.copyCompletedOriginalTo(target,"81",key,true)}
+        fun close() {
+            if(!targetClosed) teardown(target)
+            if(!sourceClosed) teardown(source)
+            f.provider.close()
+        }
+    }
+    @Test fun actualLocalPublicationRecomparesWritesExactCompletionAndReadsAfterRestart() {
+        val f=LocalPublicationFixture()
+        try {
+            val copy=f.prepare()
+            val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            assertEquals(f.key,completed.key); assertEquals(4L,completed.length)
+            assertEquals(10L,completed.started); assertTrue(onWorker {f.source.retirementRecoveryPage().isEmpty()})
+            val row=f.target.initializeManager().downloadIndex.getDownload(f.key)!!
+            assertEquals(Download.STATE_COMPLETED,row.state); assertEquals(4L,row.bytesDownloaded)
+            assertEquals(100f,row.percentDownloaded,0f); assertArrayEquals(f.request.data,row.request.data)
+            assertEquals(f.request.uri,row.request.uri); assertEquals(f.key,row.request.customCacheKey)
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            onWorker {
+                val source=f.target.audio.source.createDataSource()
+                try {
+                    assertEquals(4L,source.open(DataSpec.Builder().setUri("muon-saved:test").setKey(f.key).build()))
+                    val bytes=ByteArray(4); assertEquals(4,source.read(bytes,0,4)); assertArrayEquals(payload,bytes)
+                } finally {source.close()}
+            }
+            teardown(f.target); f.targetClosed=true
+            val resumed=f.target(PartitionShelfStart.Resume); f.target=resumed; f.targetClosed=false
+            onWorker {resumed.prepare()}; await(resumed.initializeManager()) {true}
+            assertEquals(SavedCoverage.Full,onWorker {resumed.audio.inspect(f.key).coverage})
+            assertEquals(completed,PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+        } finally {f.close()}
+    }
+    @Test fun localPublicationRefusesNoConsentActualEofReaderAndForeignNameClaim() {
+        val f=LocalPublicationFixture()
+        try {
+            val copy=f.prepare()
+            assertThrows(IOException::class.java) {onWorker {f.source.publishCopiedOriginalTo(f.target,copy,false,{true},10)}}
+            val reader=f.source.audio.source.createDataSource()
+            try {
+                onWorker {
+                    reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey("81").build())
+                    assertEquals(4,reader.read(ByteArray(4),0,4)); assertEquals(-1,reader.read(ByteArray(1),0,1))
+                }
+                assertThrows(IOException::class.java) {onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}}
+            } finally {onWorker {reader.close()}}
+            assertThrows(IOException::class.java) {onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{false},10)}}
+            assertNull(f.target.initializeManager().downloadIndex.getDownload(f.key))
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertEquals(0,f.f.budget.resident); assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun localPublicationDetectsChangedDestinationBytesAndPreservesBothRecords() {
+        val f=LocalPublicationFixture()
+        try {
+            val copy=f.prepare()
+            val bytes=f.targetRoot.walkTopDown().filter {it.isFile && it.name.endsWith(".v3.exo")}.toList().single()
+            bytes.writeBytes(byteArrayOf(9,9,9,9))
+            assertThrows(IOException::class.java) {onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}}
+            assertNull(f.target.initializeManager().downloadIndex.getDownload(f.key))
+            assertNotNull(f.index.getDownload("81")); assertArrayEquals(payload,f.f.original.readBytes())
+            assertArrayEquals(byteArrayOf(9,9,9,9),bytes.readBytes())
+            assertEquals(0,f.f.budget.resident); assertTrue(f.f.barrier.quiescent)
+            assertTrue(onWorker {f.source.retirementRecoveryPage().isEmpty()})
+        } finally {f.close()}
+    }
+    @Test fun localPublicationDoesNotOverwriteExistingCompletedDestination() {
+        val f=LocalPublicationFixture()
+        try {
+            val copy=f.prepare(); val expected=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            assertThrows(IOException::class.java) {onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},20)}}
+            assertEquals(expected,PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertNotNull(f.index.getDownload("81")); assertArrayEquals(payload,f.f.original.readBytes())
+            assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+
 }
