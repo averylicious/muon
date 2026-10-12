@@ -87,7 +87,7 @@ abstract class InitializedDownloadService(private val notificationId:Int):Downlo
         }
         return START_NOT_STICKY
     }
-    final override fun onTaskRemoved(rootIntent:Intent?) {
+    final override fun onTaskRemoved(rootIntent:Intent) {
         if(attached) super.onTaskRemoved(rootIntent)
     }
     final override fun onDestroy() {

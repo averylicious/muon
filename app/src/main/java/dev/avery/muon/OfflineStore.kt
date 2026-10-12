@@ -375,11 +375,17 @@ internal object OfflineStore {
         }
     }
 
+    /** UI commands are known refusals while startup is pending/failed, never uncaught callbacks. */
+    private fun commandStore(context:Context):Store?=current() ?: run {
+        notice(context,initialization.unavailable().message ?: "Saved storage unavailable")
+        null
+    }
+
     /** Where new downloads go: the card when chosen and available, the phone when the card isn't chosen. */
     private fun target(store: Store): DownloadTarget = downloadTarget(store.card, store.prefs.getBoolean("onCard", false))
 
     /** Whether the card Muon opened with is there now; false with none (#179 S1). */
-    fun cardAvailable(context: Context): Boolean = get(context).card?.available() == true
+    fun cardAvailable(@Suppress("UNUSED_PARAMETER") context: Context): Boolean = current()?.card?.available() == true
 
     /** Says why a request was refused, rather than leaving it to look as if nothing happened. */
     private fun notice(context: Context, text: String) {
@@ -387,9 +393,9 @@ internal object OfflineStore {
     }
 
     /** Whether new downloads go to the SD card; only offered while one is in. */
-    fun storeOnCard(context: Context): Boolean = get(context).prefs.getBoolean("onCard", false)
+    fun storeOnCard(@Suppress("UNUSED_PARAMETER") context: Context): Boolean = current()?.prefs?.getBoolean("onCard", false) ?: false
 
-    fun setStoreOnCard(context: Context, onCard: Boolean) { get(context).prefs.edit().putBoolean("onCard", onCard).apply() }
+    fun setStoreOnCard(context: Context, onCard: Boolean) { commandStore(context)?.prefs?.edit()?.putBoolean("onCard", onCard)?.apply() }
 
     /**
      * The player's data source: a live song streams, and nothing streamed is written; a saved copy plays
@@ -471,7 +477,7 @@ internal object OfflineStore {
 
     /** A new cache limit, kept for next time; lowering it makes room at once. */
     fun setCacheLimit(context: Context, limit: Long) {
-        val store = get(context)
+        val store = commandStore(context) ?: return
         store.prefs.edit().putLong("cacheLimit", limit).apply()
         PlayedCacheState.limit = limit
         playedWork.resize(store.storageBarrier) { store.played.resize(limit) }
@@ -482,7 +488,7 @@ internal object OfflineStore {
      * (#213, [PlayedClaims]): its bytes are that row's too. Before the phone index is read, nothing goes.
      */
     fun clearPlayed(context: Context) {
-        val store = get(context)
+        val store = commandStore(context) ?: return
         val cache = store.cache
         playedWork.clear(store.storageBarrier) {
             runCatching {
@@ -510,7 +516,7 @@ internal object OfflineStore {
      * chosen but unavailable, nothing is queued anywhere, and the refusal is said (#179 S1).
      */
     fun add(context: Context, endpoint: ServerEndpoint, tracks: List<TauonTrack>) {
-        val store = get(context)
+        val store = commandStore(context) ?: return
         val shelf = when (target(store)) {
             DownloadTarget.Phone -> store.phone
             DownloadTarget.Card -> store.card ?: return
@@ -768,7 +774,7 @@ internal object OfflineStore {
 
     /** [removeSaved]'s checks and command, on the calling thread; reads one index row. */
     internal fun removeSavedNow(context: Context, ref: SavedRef): SavedRemoval {
-        val store = get(context)
+        val store = commandStore(context) ?: return
         if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
@@ -857,7 +863,7 @@ internal object OfflineStore {
     fun resume(context: Context) {
         // An unavailable card's service is not started here, so its queued downloads are not resumed onto
         // missing storage. A card service already running, or restarted by the system, is not covered.
-        availableShelves(get(context).shelves).forEach { runCatching { DownloadService.start(context, it.service) } }
+        availableShelves((current() ?: return).shelves).forEach { runCatching { DownloadService.start(context, it.service) } }
     }
 
     /** Moves one download at a time, behind everything else. */
@@ -1118,7 +1124,7 @@ internal object OfflineStore {
      * card that is missing or unavailable, which is not the same as one with nothing on it (#179 S1).
      */
     fun downloadsOn(context: Context, card: Boolean): Int? {
-        val store = get(context)
+        val store = current() ?: return null
         val shelf = (if (card) store.card else store.phone) ?: return null
         if (!shelf.available()) return null
         return runCatching { shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { it.count } }.getOrDefault(0)
@@ -1132,7 +1138,7 @@ internal object OfflineStore {
      */
     fun move(context: Context, toCard: Boolean) {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Move admission requires main" }
-        val store = get(context)
+        val store = commandStore(context) ?: return
         val card = store.card
         val from = if (toCard) store.phone else card
         val to = if (toCard) card else store.phone
@@ -1418,7 +1424,7 @@ internal object OfflineStore {
      * own Remove all would also delete bytes a kept played copy or an unknown row shares (#213).
      */
     internal fun removeAllNow(context: Context): RemoveAllPlan {
-        val store = get(context)
+        val store = commandStore(context) ?: return
         if (store.removalDelivery.busy) return RemoveAllPlan(0, 0, busy = true)
         val selection = RemovalSelection()
         var kept = 0
