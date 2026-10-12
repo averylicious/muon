@@ -102,5 +102,21 @@ internal class DownloadArt(private val dir: File,
         entryFile(requestId).delete()
     }
 
+    /** Confirm only this entry's own cover absence under the actual exclusive saved-storage gate.
+     * Caller cancels queued fetches first. Older shared per-track covers are never named here. */
+    internal fun removeEntryConfirmed(requestId:String,permit:SavedStorageBarrier.Lease) {
+        val gate=barrier ?: throw IOException("Confirmed cover removal needs its actual storage gate")
+        if(!permit.exclusive || !permit.belongsTo(gate) || retained!=null)
+            throw IOException("Confirmed cover removal ownership unavailable")
+        permit.check()
+        val file=entryFile(requestId)
+        if(dir.absoluteFile!=dir.canonicalFile || file.absoluteFile!=file.canonicalFile ||
+            java.nio.file.Files.isSymbolicLink(dir.toPath()) || java.nio.file.Files.isSymbolicLink(file.toPath()) ||
+            (dir.exists() && !dir.isDirectory)) throw IOException("Saved cover path changed")
+        java.nio.file.Files.deleteIfExists(file.toPath())
+        if(java.nio.file.Files.exists(file.toPath(),java.nio.file.LinkOption.NOFOLLOW_LINKS))
+            throw IOException("Saved cover removal unconfirmed")
+        permit.check()
+    }
     private companion object { const val COVER_BYTES = 4L * 1024 * 1024 }
 }

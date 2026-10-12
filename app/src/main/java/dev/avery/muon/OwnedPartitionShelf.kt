@@ -197,6 +197,13 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         val made=resources()
         return made.legacy.retirePendingFiles(made.session,made.retirements,expected,explicitConsent,{located()})
     }
+    internal fun removeOriginalCompleted(key:String,explicitConsent:Boolean,
+        unclaimedElsewhere:(String)->Boolean,disposeCover:(String,SavedStorageBarrier.Lease)->Unit,
+        recovery:LegacyRetirementRecord?=null):OfflineStore.SavedRemoval = try {
+        val made=resources()
+        made.legacy.deleteCompletedOriginal(made.session,made.retirements,key,explicitConsent,recovery,
+            unclaimedElsewhere,disposeCover,{located()})
+    } catch(_:IOException) {OfflineStore.SavedRemoval.Unavailable}
     fun retirementRecoveryPage(after:String?=null):List<LegacyRetirementRecord> = recoveryRead {it.retirements.page(after)}
     fun migrationRecoveryPage(after:String?=null):List<MigrationRecord> = recoveryRead { it.migrations.page(after) }
     fun saveRecoveryPage(after:String?=null):List<PartitionSaveRecord> = recoveryRead { it.saves.page(after) }

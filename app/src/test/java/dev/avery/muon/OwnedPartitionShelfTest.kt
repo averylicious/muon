@@ -902,4 +902,89 @@ class OwnedPartitionShelfTest {
         } finally {teardown(owner); f.provider.close()}
     }
 
+    private fun seedOriginal(f:Fixture):DefaultDownloadIndex {
+        val request=DownloadRequest.Builder(f.oldKey,Uri.parse("http://127.0.0.1:7814/api1/fileopus/42"))
+            .setCustomCacheKey(f.oldKey).setData(byteArrayOf(7)).build()
+        return DefaultDownloadIndex(f.provider,"owned_partition").also {
+            it.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
+        }
+    }
+    private fun fixtureRetirements(owner:OwnedPartitionShelf):LegacyRetirementJournal {
+        val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply {isAccessible=true}.get(owner)
+        val made=StorageStartup::class.java.getDeclaredField("opened").apply {isAccessible=true}.get(startup)
+        return made.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(made) as LegacyRetirementJournal
+    }
+    private fun boundOriginalIntent(f:Fixture,owner:OwnedPartitionShelf):LegacyRetirementRecord=onWorker {
+        val permit=f.barrier.exclusive()
+        try {
+            android.database.sqlite.SQLiteDatabase.openDatabase(f.databaseFile.path,null,android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use {db ->
+                val uid=java.lang.Long.parseLong(f.legacy.listFiles()!!.single {it.name.endsWith(".uid")}.name.removeSuffix(".uid"),16)
+                val completion=requireNotNull(PartitionCompletionIndex(f.provider,"owned_partition").findOriginal(f.oldKey))
+                val manifest=LegacyRetirementManifest.capture(f.legacy,uid,f.oldKey,db,{}).withCompletedDownload(completion)
+                fixtureRetirements(owner).begin(manifest,true)
+            }
+        } finally {permit.close()}
+    }
+    @Test fun completeOriginalDeleteDisposesReadyBytesTerminalRecordAndCoverBeforeComplete() {
+        val f=Fixture("42"); val index=seedOriginal(f); val owner=f.owner(); var covers=0
+        try {
+            onWorker {owner.prepare()}
+            owner.migrate(CacheMigrationControl(1000,nanoTime={0L}),f.oldKey,{Long.MAX_VALUE},{})
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {owner.removeOriginalCompleted(f.oldKey,false,{true},{_,_ ->covers++})})
+            assertArrayEquals(payload,f.original.readBytes()); assertNotNull(index.getDownload(f.oldKey))
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {owner.removeOriginalCompleted(f.oldKey,true,{true},{_,permit ->
+                assertTrue(permit.exclusive); assertTrue(permit.belongsTo(f.barrier)); assertNull(index.getDownload(f.oldKey)); covers++
+            })})
+            assertEquals(1,covers); assertFalse(f.original.exists()); assertNull(index.getDownload(f.oldKey))
+            val complete=onWorker {owner.retirementRecoveryPage()}.single()
+            assertEquals(LegacyRetirementPhase.Complete,complete.phase); assertEquals(64,complete.manifest.completedDownloadIdentity?.length)
+            assertTrue(owner.claimsName(f.oldKey)); assertFalse(owner.audio.contains(f.oldKey)); assertEquals(0,f.budget.resident)
+        } finally {teardown(owner); f.provider.close()}
+    }
+    @Test fun exactBoundPendingRecoveryFinishesAfterRestartWithAlreadyRemovedBytesAndRecord() {
+        val f=Fixture("42"); val index=seedOriginal(f); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
+        try {
+            onWorker {first.prepare()}; val pending=boundOriginalIntent(f,first)
+            onWorker {first.retireOriginalFiles(pending,true)}
+            val permit=f.barrier.exclusive(); try {index.removeDownload(f.oldKey)} finally {permit.close()}
+            teardown(first); firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}; var covers=0
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {next.removeOriginalCompleted(f.oldKey,true,{true},{_,_ ->covers++})})
+            assertEquals(0,covers)
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {next.removeOriginalCompleted(f.oldKey,true,{true},{_,_ ->covers++},pending)})
+            assertEquals(1,covers); assertNull(index.getDownload(f.oldKey)); assertFalse(f.original.exists())
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {next.retirementRecoveryPage()}.single().phase)
+        } finally {resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close()}
+    }
+    @Test fun changedCompletedIdentityAndFilesOnlyIntentCannotRemoveTerminalRecord() {
+        val f=Fixture("42"); val index=seedOriginal(f); val owner=f.owner(); var covers=0
+        try {
+            onWorker {owner.prepare()}; val pending=boundOriginalIntent(f,owner)
+            val request=requireNotNull(index.getDownload(f.oldKey)).request
+            index.putDownload(Download(request,Download.STATE_COMPLETED,1,9,4,0,0))
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {owner.removeOriginalCompleted(f.oldKey,true,{true},{_,_ ->covers++},pending)})
+            assertEquals(0,covers); assertArrayEquals(payload,f.original.readBytes()); assertEquals(9L,index.getDownload(f.oldKey)?.updateTimeMs)
+            assertEquals(pending,onWorker {owner.retirementRecoveryPage()}.single())
+        } finally {teardown(owner); f.provider.close()}
+        val g=Fixture("43"); val otherIndex=seedOriginal(g); val other=g.owner()
+        try {
+            onWorker {other.prepare()}; val filesOnly=onWorker {other.beginOriginalRetirement(g.oldKey,true)}
+            assertNull(filesOnly.manifest.completedDownloadIdentity)
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {other.removeOriginalCompleted(g.oldKey,true,{true},{_,_ ->covers++},filesOnly)})
+            assertArrayEquals(payload,g.original.readBytes()); assertNotNull(otherIndex.getDownload(g.oldKey)); assertEquals(0,covers)
+        } finally {teardown(other); g.provider.close()}
+    }
+    @Test fun originalDeleteRefusesCrossShelfAndLocalAliasesBeforeIntentOrBytes() {
+        val f=Fixture("42"); val index=seedOriginal(f); val owner=f.owner()
+        try {
+            onWorker {owner.prepare()}
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {owner.removeOriginalCompleted(f.oldKey,true,{false},{_,_ ->fail("No cover mutation")})})
+            val alias=DownloadRequest.Builder("other",Uri.parse("http://127.0.0.1:7814/api1/fileopus/42")).setCustomCacheKey(f.oldKey).build()
+            index.putDownload(Download(alias,Download.STATE_STOPPED,1,2,4,1,0))
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {owner.removeOriginalCompleted(f.oldKey,true,{true},{_,_ ->fail("No cover mutation")})})
+            assertTrue(onWorker {owner.retirementRecoveryPage()}.isEmpty()); assertArrayEquals(payload,f.original.readBytes())
+            assertNotNull(index.getDownload(f.oldKey)); assertNotNull(index.getDownload("other"))
+        } finally {teardown(owner); f.provider.close()}
+    }
+
 }

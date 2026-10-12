@@ -917,12 +917,17 @@ internal object OfflineStore {
             ?.takeIf { it.available() } ?: return SavedRemoval.Unavailable
         shelf.partition?.let { partition ->
             if(ref.requestId!=ref.key) return SavedRemoval.NotOwned
-            val outcome=partition.removeCompleted(ref.key) { key ->
-                // Session holds exclusive access; use scalar raw-index observations rather than
-                // nesting shared session/index leases or hydrating the other shelf's request.
+            val unclaimedElsewhere:(String)->Boolean={key ->
+                // Actual exclusive admission: scalar raw-index census, no nested shared lease.
                 val otherIndex=if(ref.shelf==SavedShelf.Card) "" else "card"
                 !PartitionCompletionIndex(store.database,otherIndex).holdsNameIfPresent(key)
             }
+            var outcome=partition.removeCompleted(ref.key,unclaimedElsewhere)
+            if(outcome==SavedRemoval.NotOwned) outcome=partition.removeOriginalCompleted(ref.key,true,unclaimedElsewhere,
+                {key,permit ->
+                    store.artwork.cancelForConfirmedRemoval(key,permit)
+                    store.art.removeEntryConfirmed(key,permit)
+                })
             if(outcome==SavedRemoval.Sent) Handler(Looper.getMainLooper()).post {
                 if(current()===store) shelf.partitionRemoved(ref.requestId)
             }

@@ -76,6 +76,23 @@ internal class DownloadArtworkWork(
         if (!queued) protected { optional { removeCover(id) } }
     }
 
+    /** No queued cleanup/replacement work: caller confirms deletion now under the SAME exclusive
+     * gate. A shared fetch cannot be active under that permit; cancelled jobs cannot republish. */
+    internal fun cancelForConfirmedRemoval(id:String,permit:SavedStorageBarrier.Lease) {
+        val gate=barrier ?: throw IOException("Confirmed artwork removal needs its actual gate")
+        if(!permit.exclusive || !permit.belongsTo(gate)) throw IOException("Artwork removal needs exclusive ownership")
+        permit.check()
+        synchronized(lock) {
+            if(retained!=null) throw IOException("Artwork ownership uncertain")
+            active?.takeIf {it.id==id}?.cancelled=true
+            val iterator=pending.iterator()
+            while(iterator.hasNext()) {
+                val job=iterator.next()
+                if(job.id==id) {job.cancelled=true; bytes-=job.bytes; iterator.remove()}
+            }
+        }
+        permit.check()
+    }
     private fun fits(job: Job) = pending.size + (if (active == null) 0 else 1) < maxJobs &&
         job.bytes <= maxTextBytes - bytes
 

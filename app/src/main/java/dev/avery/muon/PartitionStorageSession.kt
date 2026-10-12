@@ -334,6 +334,55 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             return OfflineStore.SavedRemoval.Failed
         } finally { if(!quarantined) permit.close() }
     }
+    private fun originalPermit(permit:SavedStorageBarrier.Lease) {
+        if(!permit.exclusive || !permit.belongsTo(barrier)) throw IOException("Original removal needs the actual exclusive gate")
+        requireOpen(); permit.check()
+    }
+    /** Exact scalar preflight/recheck under actual exclusive ownership. An absent completed row is
+     * allowed only by the final controller's already durable, bound Pending recovery intent. */
+    internal fun originalCompletion(key:String,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean,allowAbsent:Boolean=false):PartitionSaveCompletion? {
+        originalPermit(permit)
+        if(saves.find(key)!=null || completionIndex.holdsOtherOriginalName(key) || !unclaimedElsewhere(key))
+            throw IOException("Original removal has conflicting save/index/shelf claims")
+        val route=migrations.find(key)
+        if(route!=null && route.phase!=MigrationPhase.Ready || route==null && catalog.find(key)!=null)
+            throw IOException("Original removal has an unverified partition claim")
+        val current=completionIndex.findOriginal(key)
+        if(current==null && (!allowAbsent || completionIndex.containsId(key)))
+            throw IOException("Original removal is not an exact completed record")
+        originalPermit(permit); return current
+    }
+    internal fun verifyOriginalCompletion(record:LegacyRetirementRecord,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean) {
+        val bound=record.manifest.completedDownloadIdentity ?: throw IOException("Files-only intent cannot remove a saved record")
+        val current=originalCompletion(record.manifest.key,permit,unclaimedElsewhere,true)
+        if(current!=null && current.retirementIdentity()!=bound) throw IOException("Original completed record changed after consent")
+    }
+    internal fun verifyOriginalRecordAbsent(record:LegacyRetirementRecord,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean) {
+        verifyOriginalCompletion(record,permit,unclaimedElsewhere)
+        if(completionIndex.containsId(record.manifest.key)) throw IOException("Original saved record reappeared before completion")
+        originalPermit(permit)
+    }
+    /** Terminal public-index mutation only after the source controller proves copies absent/closed.
+     * No destructive DownloadManager task and no private native-index write. */
+    internal fun eraseOriginalRecord(record:LegacyRetirementRecord,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean) {
+        verifyOriginalCompletion(record,permit,unclaimedElsewhere)
+        val key=record.manifest.key
+        if(!completionIndex.containsId(key)) return
+        val index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(database,indexName)
+        try {
+            completionIndex.requireSupportedOrAbsent(); index.removeDownload(key)
+            originalPermit(permit)
+            if(completionIndex.containsId(key) || completionIndex.holdsOtherOriginalName(key) || !unclaimedElsewhere(key))
+                throw IOException("Original saved-record removal is unconfirmed")
+        } catch(failure:Throwable) {
+            val retained=arrayOf(this,index,record,failure); retainedOriginalCleanup=retained; uncertain=true
+            throw PartitionOwnershipUncertain(retained,failure)
+        }
+    }
     private var retainedOriginalCleanup:Any?=null
     /** Internal Ready-duplicate stage, called only by the actual legacy owner with the SAME
      * exclusive permit after exact Pending validation. The tombstone already suppresses routes.

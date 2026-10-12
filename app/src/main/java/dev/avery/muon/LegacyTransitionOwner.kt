@@ -167,6 +167,53 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             throw failure
         } finally {if(!quarantined) permit.close()}
     }
+    /** Complete internal Delete for a supported completed original. Bind its exact row BEFORE
+     * durable intent; after restart only the exact shown Pending record plus renewed consent can
+     * recover. Complete follows both copy stages, public terminal-index removal and confirmed own
+     * cover disposition. No automatic replay or full legacy native-index allocation.
+     */
+    @Synchronized fun deleteCompletedOriginal(session:PartitionStorageSession,journal:LegacyRetirementJournal,
+        key:String,explicitConsent:Boolean,recovery:LegacyRetirementRecord?,unclaimedElsewhere:(String)->Boolean,
+        disposeCover:(String,SavedStorageBarrier.Lease)->Unit,checked:()->Unit):OfflineStore.SavedRemoval {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original Delete requires a worker"}
+        if(!explicitConsent || !session.usesBarrier(barrier)) return OfflineStore.SavedRemoval.NotOwned
+        checkpoint()
+        val permit=try {barrier.exclusive()} catch(_:IOException) {return OfflineStore.SavedRemoval.Busy}
+        var quarantined=false; var finalMutation=false
+        try {
+            fun live() {permit.check(); checkpoint(); checked(); checkpoint()}
+            live()
+            val existing=journal.find(key)
+            val pending=if(existing==null) {
+                if(recovery!=null) return OfflineStore.SavedRemoval.NotOwned
+                val completion=requireNotNull(session.originalCompletion(key,permit,unclaimedElsewhere))
+                val manifest=LegacyRetirementManifest.capture(directory,requireNotNull(uid),key,requireNotNull(index),::live)
+                    .withCompletedDownload(completion)
+                live(); journal.begin(manifest,true)
+            } else {
+                if(recovery!=existing || existing.phase!=LegacyRetirementPhase.Pending)
+                    return OfflineStore.SavedRemoval.Waiting
+                existing
+            }
+            session.verifyOriginalCompletion(pending,permit,unclaimedElsewhere); live()
+            session.retireMigratedOriginal(pending,permit); live()
+            val files=LegacyRetirementFiles(); retirement=files
+            files.run(pending,directory,requireNotNull(index),::live)
+            live(); finalMutation=true
+            session.eraseOriginalRecord(pending,permit,unclaimedElsewhere)
+            live(); disposeCover(key,permit); live()
+            session.verifyOriginalRecordAbsent(pending,permit,unclaimedElsewhere)
+            if(journal.find(key)!=pending) throw IOException("Original deletion intent changed before completion")
+            journal.complete(pending); live(); retirement=null
+            return OfflineStore.SavedRemoval.Sent
+        } catch(failure:Throwable) {
+            if(finalMutation || failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain ||
+                journal.ownershipUncertain || retirement?.uncertain==true) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,retirement,disposeCover,failure)); quarantined=true
+            } else retirement=null
+            return OfflineStore.SavedRemoval.Failed
+        } finally {if(!quarantined) permit.close()}
+    }
     @Synchronized override fun close() {
         if(phase==Phase.Closed || phase==Phase.Unsupported || phase==Phase.New) { phase=Phase.Closed; return }
         if(phase!=Phase.Open) throw IOException("Legacy transition close is active or uncertain")
