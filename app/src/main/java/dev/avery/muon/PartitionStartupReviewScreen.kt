@@ -51,6 +51,7 @@ internal fun PartitionStartupReviewScreen(claimed:Boolean,darkTheme:Boolean) {
     var pending by remember {mutableStateOf(false)}
     var refused by remember {mutableStateOf(false)}
     var refresh by remember {mutableIntStateOf(0)}
+    val availability by OfflineStore.availability.collectAsState()
     val revision=DownloadMarks.revision
     val prefs=remember {context.getSharedPreferences("storage",Context.MODE_PRIVATE)}
     val backend=remember(refresh,revision) {runCatching {StorageBackendSelection.read(prefs)}.getOrNull()}
@@ -80,7 +81,7 @@ internal fun PartitionStartupReviewScreen(claimed:Boolean,darkTheme:Boolean) {
                 if(claimed && backend==StorageBackendSelection.Legacy && phase==PartitionOptInPhase.New && !refused)
                     Button(enabled=!pending,onClick={confirm=true}) {Text("Review opt-in")}
                 if(claimed && backend==StorageBackendSelection.PartitionV1)
-                    PartitionSetupControls(null,OfflineStore.availability.value)
+                    PartitionSetupControls(null,availability)
                 TextButton(onClick={openMuonAppInfo(context)}) {Text("Open Android app info")}
             }
             if(confirm) AlertDialog(onDismissRequest={confirm=false},title={Text("Use optimized saved storage?")},
