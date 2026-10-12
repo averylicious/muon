@@ -233,6 +233,53 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             throw failure
         }
     }
+    private var retainedMoveIdentity:Any?=null
+    /** Exact destination observation for a future durable Move. Caller owns actual root/volume
+     * and the same exclusive gate. Full byte digest is returned only after source/native closure. */
+    internal fun moveDestinationIdentity(ticket:PartitionSaveTicket,expected:PartitionSaveCompletion,
+        volume:String,rootIdentity:String,permit:SavedStorageBarrier.Lease,checkpoint:()->Unit):PartitionMoveDestination {
+        originalPermit(permit)
+        val key=ticket.allocation.key
+        if(expected.key!=key) throw IOException("Move destination completion belongs to another key")
+        var cache:Cache?=null; var releasing=false
+        val digest=SavedAudioDigest()
+        fun live() {originalPermit(permit); checkpoint()}
+        fun unknown(failure:Throwable):Nothing {
+            val handles=arrayOf(this,cache,digest,ticket,failure)
+            retainedMoveIdentity=handles; uncertain=true
+            throw PartitionOwnershipUncertain(handles,failure)
+        }
+        try {
+            live(); writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+            val closed=saves.find(key) ?: throw IOException("Move destination has no owned save")
+            fun checked() {
+                live()
+                if(closed.ticket!=ticket || closed.phase!=PartitionSavePhase.Closed || saves.find(key)!=closed ||
+                    catalog.find(key)!=ticket.allocation || migrations.find(key)!=null || retirements?.holdsName(key)==true ||
+                    completionIndex.find(key)!=expected || completionIndex.holdsOtherName(key))
+                    throw IOException("Move destination identity changed")
+            }
+            checked(); val actual=native.openClosedSaveRead(key); cache=actual
+            val state=savedAudioState(actual,key)
+            val metadata=PartitionResourceCache.measured(state.metadata,PartitionResourceLimits())
+            if(actual.uid!=closed.uid || state.coverage!=SavedCoverage.Full || state.bytes!=expected.length)
+                throw IOException("Move destination lacks exact full native bytes")
+            val metadataHash=partitionMoveMetadataDigest(metadata)
+            val audioHash=digest.read(DataSpec.Builder().setUri("muon-saved:move-identity").setKey(key)
+                .setLength(expected.length).build(),LegacySavedAudio(actual).source,::checked)
+            checked()
+            if(savedAudioState(actual,key).metadata!=metadata) throw IOException("Move destination metadata changed during digest")
+            val observed=PartitionMoveDestination(volume,rootIdentity,ticket,actual.uid,expected.retirementIdentity(),
+                expected.length,metadataHash,audioHash).also {it.validate()}
+            releasing=true; actual.release(); cache=null; releasing=false
+            checked(); return observed
+        } catch(failure:Throwable) {
+            if(releasing || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) unknown(failure)
+            cache?.let {actual -> try {actual.release(); cache=null}
+                catch(close:Throwable) {if(close!==failure) close.addSuppressed(failure); unknown(close)} }
+            throw failure
+        }
+    }
     internal fun originalCopyRequest(expected:PartitionSaveCompletion,permit:SavedStorageBarrier.Lease):DownloadRequest {
         originalPermit(permit)
         if(originalCompletion(expected.key,permit,{true})!=expected)

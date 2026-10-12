@@ -146,6 +146,17 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         return source.legacy.publishCopiedOriginalTo(source.session,target.session,copy,explicitConsent,
             unclaimedElsewhere,{located(); destination.located()},timestamp)
     }
+    internal fun beginCopiedOriginalMove(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,
+        completed:PartitionSaveCompletion,explicitConsent:Boolean):LegacyRetirementRecord {
+        if(destination===this || destination.storageBarrier!==barrier)
+            throw IOException("Move intent requires another actual shelf on the same gate")
+        val source=resources(); val target=destination.resources()
+        return source.legacy.beginMovedRetirement(source.session,source.retirements,copy,explicitConsent,{permit ->
+            destination.located()
+            target.session.moveDestinationIdentity(copy.destination,completed,destination.volume,
+                destination.key(destination.directory).toString(),permit) {destination.located()}
+        }) {located(); destination.located()}
+    }
     fun playedBytes(checkpoint:()->Unit={}):Long=resources().session.playedBytes(checkpoint)
     fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
         try { resources().session.removePlayed(key,removable) }

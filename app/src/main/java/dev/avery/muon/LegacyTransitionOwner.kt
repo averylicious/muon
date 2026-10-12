@@ -216,6 +216,47 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             throw failure
         } finally {if(!quarantined) permit.close()}
     }
+    /** Persist destination-bound Move intent only after current source and actual destination
+     * byte digests match under the same exclusive gate. No source file/row/cover is removed here.
+     * Generic Delete/files-only recovery refuses this binding until a target-aware finisher exists.
+     */
+    @Synchronized fun beginMovedRetirement(session:PartitionStorageSession,journal:LegacyRetirementJournal,
+        copy:PartitionOriginalCopy,explicitConsent:Boolean,
+        observeDestination:(SavedStorageBarrier.Lease)->PartitionMoveDestination,checked:()->Unit):LegacyRetirementRecord {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Move intent requires a worker"}
+        if(!explicitConsent || !session.usesBarrier(barrier)) throw IOException("Move intent needs consent and the same gate")
+        checkpoint(); val permit=barrier.exclusive(); var quarantined=false
+        val digest=SavedAudioDigest()
+        try {
+            fun live() {permit.check(); checkpoint(); checked(); checkpoint()}
+            live()
+            if(session.originalCompletion(copy.source.key,permit,{true})!=copy.source)
+                throw IOException("Original changed before Move intent")
+            val projected=LegacyResourceProjection.read(directory,requireNotNull(uid),copy.source.key,requireNotNull(index),::live,directoryIo)
+            val state=savedAudioState(projected,copy.source.key)
+            if(state.coverage!=SavedCoverage.Full || state.bytes!=copy.source.length)
+                throw IOException("Move original no longer has exact full bytes")
+            val original=LegacyRetirementManifest.capture(directory,requireNotNull(uid),copy.source.key,requireNotNull(index),::live,directoryIo)
+                .withCompletedDownload(copy.source)
+            val audioHash=digest.read(DataSpec.Builder().setUri("muon-saved:move-original").setKey(copy.source.key)
+                .setLength(copy.source.length).build(),LegacySavedAudio(projected).source,::live)
+            val target=observeDestination(permit)
+            if(target.ticket!=copy.destination || target.length!=copy.source.length || target.audioDigest!=audioHash ||
+                target.metadataDigest!=partitionMoveMetadataDigest(PartitionResourceCache.measured(state.metadata,PartitionResourceLimits())))
+                throw IOException("Move destination no longer matches original audio")
+            val manifest=original.withMoveDestination(target)
+            manifest.verifyRemaining(directory,requireNotNull(index),false,::live,directoryIo)
+            live()
+            if(session.originalCompletion(copy.source.key,permit,{true})!=copy.source)
+                throw IOException("Original completed record changed before durable Move intent")
+            val record=journal.begin(manifest,true); live(); return record
+        } catch(failure:Throwable) {
+            if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || journal.ownershipUncertain || !directoryIo.quiescent) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,digest,observeDestination,failure)); quarantined=true
+            }
+            throw failure
+        } finally {if(!quarantined) permit.close()}
+    }
     /** Persist explicit cleanup intent while the actual legacy owner/volume and all app readers
      * are excluded. No file/index deletion is performed here; the controller must complete it.
      * Unknown manifest I/O or journal write retains both real owners and invalidates this gate.
@@ -247,7 +288,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
         expected:LegacyRetirementRecord,explicitConsent:Boolean,checked:()->Unit,
         makeFiles:()->LegacyRetirementFiles={LegacyRetirementFiles()}):LegacyRetirementFileResult {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original file cleanup requires a worker"}
-        if(!explicitConsent || expected.phase!=LegacyRetirementPhase.Pending || !session.usesBarrier(barrier))
+        if(!explicitConsent || expected.phase!=LegacyRetirementPhase.Pending || expected.manifest.moveDestination!=null || !session.usesBarrier(barrier))
             throw IOException("Original file cleanup requires exact consent and the shared gate")
         checkpoint()
         val permit=barrier.exclusive(); var quarantined=false
@@ -296,6 +337,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
                     return OfflineStore.SavedRemoval.Waiting
                 existing
             }
+            if(pending.manifest.moveDestination!=null) return OfflineStore.SavedRemoval.Waiting
             session.verifyOriginalCompletion(pending,permit,unclaimedElsewhere); live()
             session.retireMigratedOriginal(pending,permit); live()
             val files=LegacyRetirementFiles(); retirement=files

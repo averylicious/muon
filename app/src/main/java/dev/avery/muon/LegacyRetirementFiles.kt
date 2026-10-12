@@ -22,7 +22,7 @@ internal class LegacyRetirementFiles(private val unlink:(File)->Unit={Files.dele
     @Synchronized fun run(record:LegacyRetirementRecord,root:File,index:SQLiteDatabase,
         checkpoint:()->Unit):LegacyRetirementFileResult {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original file cleanup requires a worker"}
-        if(phase!=Phase.New || record.phase!=LegacyRetirementPhase.Pending)
+        if(phase!=Phase.New || record.phase!=LegacyRetirementPhase.Pending || record.manifest.moveDestination!=null)
             throw IOException("Original file cleanup requires a fresh owner and exact Pending intent")
         phase=Phase.Active
         try {

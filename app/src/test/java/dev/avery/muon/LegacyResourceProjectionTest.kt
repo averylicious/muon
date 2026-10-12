@@ -387,8 +387,10 @@ class LegacyResourceProjectionTest {
         assertEquals(bound,LegacyRetirementManifest.decode(bound.encode()))
         assertNull(manifest.completedDownloadIdentity)
         // v1 has the same fields before v2's optional-completion tail; no row deletion authority.
-        val v1=manifest.encode().dropLast(1).toByteArray().also {it[3]=1}
+        val v1=manifest.encode().dropLast(2).toByteArray().also {it[3]=1}
         assertEquals(manifest,LegacyRetirementManifest.decode(v1))
+        val v2=bound.encode().dropLast(1).toByteArray().also {it[3]=2}
+        assertEquals(bound,LegacyRetirementManifest.decode(v2))
         // A different key cannot be bound even when other scalar completion values match.
         val other=androidx.media3.exoplayer.offline.DownloadRequest.Builder("other",request.uri).setCustomCacheKey("other").build()
         val wrong=requireNotNull(PartitionSaveCompletion.fromOriginal(androidx.media3.exoplayer.offline.Download(other,

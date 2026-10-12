@@ -1139,4 +1139,42 @@ class OwnedPartitionShelfTest {
         } finally {f.close()}
     }
 
+    @Test fun durableMoveIntentBindsActualDestinationAndGenericDeletionCannotBypassItAfterRestart() {
+        val f=LocalPublicationFixture(); var resumed:OwnedPartitionShelf?=null
+        try {
+            val copy=f.prepare(); val complete=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCopiedOriginalMove(f.target,copy,complete,true)}
+            assertEquals(LegacyRetirementPhase.Pending,intent.phase)
+            val target=intent.manifest.moveDestination!!
+            target.validate(); assertEquals(copy.destination,target.ticket); assertEquals(complete.retirementIdentity(),target.completionIdentity)
+            assertEquals(4L,target.length); assertEquals(intent.manifest,LegacyRetirementManifest.decode(intent.manifest.encode()))
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {
+                f.source.removeOriginalCompleted("81",true,{true},{_,_ -> throw AssertionError("Move cannot use generic Delete")},intent)
+            })
+            assertThrows(IOException::class.java) {onWorker {f.source.retireOriginalFiles(intent,true)}}
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertEquals(SavedCoverage.Full,onWorker {f.target.audio.inspect(f.key).coverage})
+            teardown(f.source); f.sourceClosed=true
+            val next=f.f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}; await(next.initializeManager()) {true}
+            assertEquals(intent,onWorker {next.retirementRecoveryPage().single()})
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {
+                next.removeOriginalCompleted("81",true,{true},{_,_ -> throw AssertionError("Move recovery must verify destination")},intent)
+            })
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+        } finally {resumed?.let(::teardown); f.close()}
+    }
+    @Test fun MoveIntentRefusesChangedDestinationBytesBeforePersistingIntentOrRemovingSource() {
+        val f=LocalPublicationFixture()
+        try {
+            val copy=f.prepare(); val complete=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            assertThrows(IOException::class.java) {onWorker {f.source.beginCopiedOriginalMove(f.target,copy,complete,false)}}
+            val bytes=f.targetRoot.walkTopDown().filter {it.isFile && it.name.endsWith(".v3.exo")}.toList().single()
+            bytes.writeBytes(byteArrayOf(9,9,9,9))
+            assertThrows(IOException::class.java) {onWorker {f.source.beginCopiedOriginalMove(f.target,copy,complete,true)}}
+            assertTrue(onWorker {f.source.retirementRecoveryPage().isEmpty()})
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertEquals(0,f.f.budget.resident); assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+
 }
