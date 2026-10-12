@@ -1,0 +1,11 @@
+# Partition saved Delete intent preparation — 2026-10-13
+
+Cumulative successor to #535's valid-ID fixture correction 47e8a3847e65a71666f00497caae25d3ca246a23; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check, exact variant/effort not reported. No Claude, phone commands or independent review.
+
+A new distinct Delete binding records exact source volume/root, Closed save allocation/token/UID, completed-row digest/length, actual closed tree and own-cover identity. It does not invent a Move destination or demand that damaged/partial owned audio become a full verified song before explicit removal. Actual tree ownership is still required. The Delete journal follows existing registered-owner SQLite patterns: constructor has no I/O, strict Fresh/Resume schema, two-row pre-hydration bounded projections, exact renewed consent/token/Pending and persistent Complete name reservation, FULL sync and unknown child/connection retention. This is a standalone preparation component; nothing opens or uses it in production yet.
+
+Six tests exercise actual file trees/SQLite: partial-audio binding/identity rejection, consent and restart tombstones, bounded Pending pages, oversized payload projection, retained actual cursor/connection on unknown close, missing/foreign-schema refusal without repair. Actions is the first Android compile; local diff check passed. Latest-head reports/APK results belong on the PR.
+
+Next: register this actual owner with shelf startup/lifetime and route suppression before exposing any Delete intent; bind under real exclusive source ownership, then coordinate exact tree/terminal-row/cover completion and renewed recovery. Do not leave the old immediate Delete route reachable over a Pending. No private native SQL write, automatic replay/adoption, source mutation, backend activation or main release is authorized by this journal alone.
+
+Partition mode stays disabled. Full supported legacy-original Delete/Move remains required before activation; nonterminal originals, production opt-in/startup and final lifecycle remain engineering. App stack remains OPEN for inherited UAT; no device needed for this preparation.

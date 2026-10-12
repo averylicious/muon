@@ -1,28 +1,23 @@
 package dev.avery.muon
 
-import android.net.Uri
-import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.cache.Cache
-import androidx.media3.datasource.cache.ContentMetadata
+import java.io.IOException
 
-/** The existing retained-copy routing, separated so disposable real cache/index fixtures can inspect it. */
+/**
+ * Which shelf serves a player request, and the request to make of it (#213). A live Tauon song always
+ * streams: nothing establishes that a copy saved under its number is the song Tauon has now, so a
+ * download or played copy is never substituted for it, online or offline. A saved copy's handle reads
+ * that copy alone, from its own shelf and key, cache-only (see [OfflineDataSource]); an unknown handle,
+ * or one on a card that is not there, fails rather than falling back to anything else.
+ */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal fun routeOfflineRequest(spec: DataSpec, phone: Shelf, shelves: List<Shelf>, offline: Boolean): Pair<Shelf, DataSpec> {
-    val found = downloadForStream(spec.uri.scheme, spec.uri.encodedAuthority, spec.uri.path) ?: return phone to spec
-    shelves.firstOrNull { it.completed(found.first) }?.let {
-        return it to spec.buildUpon().setUri(Uri.parse(found.second)).setKey(found.first).build()
+internal fun routeOfflineRequest(spec: DataSpec, phone: Shelf, card: Shelf?): Pair<Shelf, DataSpec> {
+    if (spec.uri.scheme != SAVED_SCHEME) return phone to spec
+    val ref = SavedRef.parse(spec.uri.toString()) ?: throw IOException("Not a saved copy Muon made")
+    val shelf = when (ref.shelf) {
+        SavedShelf.Phone -> phone
+        SavedShelf.Card -> card ?: throw IOException("The SD card this copy is on isn't here")
     }
-    // Recent listening uses the phone only offline; reachable Tauon still serves the original.
-    if (offline && hasPlayedCopy(phone.cache, found.first))
-        return phone to spec.buildUpon().setUri(Uri.parse(found.second)).setKey(playedKey(found.first)).build()
-    return phone to spec
+    return shelf to spec.buildUpon().setKey(ref.key).build()
 }
-
-@androidx.annotation.OptIn(UnstableApi::class)
-internal fun hasPlayedCopy(cache: Cache, id: String): Boolean = runCatching {
-    val key = playedKey(id)
-    val length = ContentMetadata.getContentLength(cache.getContentMetadata(key))
-    length != C.LENGTH_UNSET.toLong() && cache.isCached(key, 0, length)
-}.getOrDefault(false)
