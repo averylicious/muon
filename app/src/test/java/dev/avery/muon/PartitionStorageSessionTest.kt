@@ -94,7 +94,7 @@ class PartitionStorageSessionTest {
     private fun played(f:Fixture,key:String)=f.session.copyPlayed(spec(key),byteArrayOf(1),
         "http://127.0.0.1:7814/1",DataSource.Factory {ByteArrayDataSource(payload)}) {8192L}
     @Test fun interleavedManualDeletionRecensusesBeforeResizeCanOverEvict() {
-        val f=fixture(); val keys=(0..2).map {playedKey("saved/overlap-$it")}
+        val f=fixture(nativeCapacity=2); val keys=(0..2).map {playedKey("saved/overlap-$it")}
         worker {keys.forEach {played(f,it)}}
         var deleted=false
         val result=worker {f.session.resizePlayed(8,{true}) {
@@ -108,7 +108,7 @@ class PartitionStorageSessionTest {
         worker {assertArrayEquals(payload,read(f,keys[0])); assertArrayEquals(payload,read(f,keys[1]))}
     }
     @Test fun resizeRebuildsStaleDerivedRowsAndRefusesSessionCloseBetweenOperations() {
-        val f=fixture(); val keys=(0..1).map {playedKey("saved/rebuild-$it")}
+        val f=fixture(nativeCapacity=2); val keys=(0..1).map {playedKey("saved/rebuild-$it")}
         worker {
             keys.forEach {played(f,it)}
             DiskPlayedSpanOrder(f.catalog.playedOrderFile).use {old ->
