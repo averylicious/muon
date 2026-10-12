@@ -214,7 +214,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             val progress=androidx.media3.exoplayer.offline.DownloadProgress().apply {
                 bytesDownloaded=length; percentDownloaded=100f
             }
-            val record=Download(request,Download.STATE_COMPLETED,timestamp,timestamp,length,0,0,progress)
+            val record=Download(request,Download.STATE_COMPLETED,timestamp,timestamp,length,Download.STOP_REASON_NONE,Download.FAILURE_REASON_NONE,progress)
             val expected=requireNotNull(PartitionSaveCompletion.from(record))
             completionIndex.requireSupportedOrAbsent()
             index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(database,indexName)
