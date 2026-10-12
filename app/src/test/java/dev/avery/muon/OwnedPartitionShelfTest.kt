@@ -1996,4 +1996,78 @@ class OwnedPartitionShelfTest {
         } finally {n.close()}
     }
 
+    @Test fun explicitNewSourceRecoveryRequiresExactTokenAndRenewedConsentAndReturnsOnlyScalarResult() {
+        val n=NewSourceMoveFixture(); val f=n.f
+        try {
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {f.target.recoverCompletedMoveTo(f.source,f.key,n.pending.token,false,n.art,n.work,{true})}.outcome)
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {f.target.recoverCompletedMoveTo(f.source,f.key,"00000000-0000-0000-0000-000000000001",true,n.art,n.work,{true})}.outcome)
+            assertNotNull(n.sourceRecord()); assertTrue(n.originalAllocation.exists())
+            val result=onWorker {f.target.recoverCompletedMoveTo(f.source,f.key,n.pending.token,true,n.art,n.work,{true})}
+            assertEquals(OfflineStore.SavedRemoval.Sent,result.outcome); assertEquals(n.back,result.destination);assertEquals(4L,result.bytes)
+            assertNull(n.sourceRecord()); assertFalse(n.originalAllocation.exists())
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {f.target.recoverCompletedMoveTo(f.source,f.key,n.pending.token,true,n.art,n.work,{true})}.outcome)
+        } finally {n.close()}
+    }
+    @Test fun sameRecoveryEntryPointAlsoFinishesAnExactOriginalMoveAndRejectsMissingEntries() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val pending=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {f.source.recoverCompletedMoveTo(f.target,"missing",pending.token,true,art,work,{true})}.outcome)
+            val result=onWorker {f.source.recoverCompletedMoveTo(f.target,"81",pending.token,true,art,work,{true})}
+            assertEquals(OfflineStore.SavedRemoval.Sent,result.outcome);assertEquals(f.key,result.destination)
+            assertFalse(f.f.original.exists());assertNull(f.index.getDownload("81"))
+        } finally {f.close()}
+    }
+    @Test fun publicRecoveryUsesExistingWorkerAndScalarMainCallbacksOnlyAfterConfirmedFinish() {
+        val n=NewSourceMoveFixture(); val f=n.f; val app=RuntimeEnvironment.getApplication()
+        val field=OfflineStore::class.java.getDeclaredField("store").apply {isAccessible=true};val previous=field.get(OfflineStore)
+        val mover=OfflineStore::class.java.getDeclaredField("mover").apply {isAccessible=true}.get(OfflineStore) as java.util.concurrent.ExecutorService
+        val phone=Shelf.partitioned(f.source,MuonDownloadService::class.java);val card=Shelf.partitioned(f.target,MuonCardDownloadService::class.java)
+        val removed=ArrayList<String>();val recorded=ArrayList<DownloadStatus>()
+        card.partitionRemoved={assertSame(Looper.getMainLooper(),Looper.myLooper());removed+=it}
+        val store=OfflineStore.Store(phone,n.art,PlayedSongEvictor(8192L) {},app.getSharedPreferences("partition-public-recovery",0),f.f.provider,
+            {assertSame(Looper.getMainLooper(),Looper.myLooper());recorded+=it},{},artwork=n.work,storageBarrier=f.f.barrier)
+        store.card=card
+        try {
+            field.set(OfflineStore,store)
+            assertFalse(OfflineStore.recoverMove(app,true,f.key,n.pending.token,false));assertNotNull(n.sourceRecord())
+            assertTrue(OfflineStore.recoverMove(app,true,f.key,n.pending.token,true))
+            assertFalse(OfflineStore.recoverMove(app,true,f.key,n.pending.token,true)) // Same serial exclusion still held.
+            mover.submit {}.get(10,TimeUnit.SECONDS);shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(listOf(f.key),removed);assertEquals(listOf(n.back),recorded.map {it.id})
+            assertNull(n.sourceRecord());assertTrue(f.f.barrier.quiescent)
+        } finally {
+            mover.submit {}.get(10,TimeUnit.SECONDS);shadowOf(Looper.getMainLooper()).idle()
+            field.set(OfflineStore,previous);n.close()
+        }
+    }
+    @Test fun actualRecoveryCursorCloseUncertaintyQuarantinesTheRealShelfGate() {
+        val f=Fixture();val owner=f.owner();onWorker {owner.prepare()}
+        val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply {isAccessible=true}.get(owner)
+        val resources=StorageStartup::class.java.getDeclaredField("opened").apply {isAccessible=true}.get(startup)!!
+        val field=resources.javaClass.getDeclaredField("moves").apply {isAccessible=true}
+        onWorker {(field.get(resources) as PartitionSavedMoveJournal).close()}
+        var fail=false;var actual:android.database.sqlite.SQLiteDatabase?=null;var child:java.io.Closeable?=null;var attempts=0
+        val journal=PartitionSavedMoveJournal(f.root,false,openDatabase={file,_ ->
+            android.database.sqlite.SQLiteDatabase.openDatabase(file.path,null,android.database.sqlite.SQLiteDatabase.OPEN_READWRITE).also {actual=it}
+        },closeIo={if(fail) {child=it;attempts++;throw IOException("Unknown real recovery cursor close")} else it.close()})
+        onWorker {journal.open()};field.set(resources,journal);fail=true
+        try {
+            assertThrows(PartitionOwnershipUncertain::class.java) {onWorker {owner.moveRecoveryPage()}}
+            assertFalse(f.barrier.allowsShared);assertTrue(actual!!.isOpen);assertEquals(1,attempts)
+            assertThrows(IOException::class.java) {onWorker {owner.moveRecoveryPage()}}
+            assertThrows(IOException::class.java) {onWorker {journal.close()}};assertEquals(1,attempts);assertEquals(0,f.budget.resident)
+        } finally {
+            // Fixture knows the injected callback never reached actual close. Do not clear/reset the
+            // production barrier or retry the uncertain wrapper. No native/cache owner was opened.
+            child?.close();actual?.close()
+            (resources.javaClass.getDeclaredField("workers").apply {isAccessible=true}.get(resources) as java.util.concurrent.ExecutorService).shutdown()
+            for(name in listOf("manager","legacy","saves","migrations","catalog"))
+                (resources.javaClass.getDeclaredField(name).apply {isAccessible=true}.get(resources) as java.io.Closeable).close()
+            onWorker {(resources.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(resources) as LegacyRetirementJournal).close()}
+            f.provider.close()
+        }
+    }
+
 }

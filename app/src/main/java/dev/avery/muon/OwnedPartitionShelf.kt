@@ -17,6 +17,10 @@ internal enum class PartitionOriginalMoveStage { Waiting, Copied, Published, Pen
 /** Fixed result only; durable recovery rereads the bounded journals, never a retained request/list. */
 internal data class PartitionOriginalMoveResult(val stage:PartitionOriginalMoveStage,val outcome:OfflineStore.SavedRemoval,val bytes:Long=0)
 
+/** Fixed recovery result; no saved request, manifest history or bound audio retained by UI. */
+internal data class PartitionMoveRecoveryResult(val outcome:OfflineStore.SavedRemoval,
+    val destination:String?=null,val bytes:Long=0)
+
 /** Real shelf resources assembled WITHOUT first opening the legacy SimpleCache. Register this
  * process owner in OfflineStore's StorageStartup before prepare(); production selection/opt-in is
  * still required. Fresh is explicit and refuses existing roots; Resume refuses missing journals.
@@ -392,6 +396,37 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             return PartitionOriginalMoveResult(stage,outcome,bytes)
         }
     }
+    /** One renewed user request selects a key AND exact token, then rereads bounded durable state.
+     * The final controller rereads it again under exclusive admission. No automatic restart replay,
+     * token guessing, generic Delete delegation or adoption of a different destination shelf. */
+    internal fun recoverCompletedMoveTo(destination:OwnedPartitionShelf,key:String,token:String,
+        explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,unclaimedElsewhere:(String)->Boolean,
+        checkpoint:()->Unit={}):PartitionMoveRecoveryResult {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Move recovery requires a worker"}
+        if(!explicitConsent || key.length.toLong()*2>MIGRATION_KEY_BYTES || token.length!=36 || destination===this ||
+            destination.storageBarrier!==barrier) return PartitionMoveRecoveryResult(OfflineStore.SavedRemoval.NotOwned)
+        return try {
+            val selected=recoveryRead {it.moves.find(key) to it.retirements.find(key)}
+            val saved=selected.first; val original=selected.second
+            if(saved!=null && original!=null) throw IOException("Move recovery has conflicting journals")
+            when {
+                saved!=null -> {
+                    if(saved.token!=token || saved.phase!=PartitionSavedMovePhase.Pending)
+                        PartitionMoveRecoveryResult(OfflineStore.SavedRemoval.Waiting)
+                    else PartitionMoveRecoveryResult(completeCoveredSavedMove(destination,saved,true,art,artwork,
+                        unclaimedElsewhere,checkpoint),saved.binding.destination.ticket.allocation.key,saved.binding.source.length)
+                }
+                original!=null -> {
+                    val bound=original.manifest.moveDestination
+                    if(original.token!=token || original.phase!=LegacyRetirementPhase.Pending || bound==null)
+                        PartitionMoveRecoveryResult(OfflineStore.SavedRemoval.Waiting)
+                    else PartitionMoveRecoveryResult(completeCoveredOriginalMove(destination,original,true,art,artwork,
+                        unclaimedElsewhere,checkpoint),bound.ticket.allocation.key,bound.length)
+                }
+                else -> PartitionMoveRecoveryResult(OfflineStore.SavedRemoval.Waiting)
+            }
+        } catch(_:IOException) {PartitionMoveRecoveryResult(OfflineStore.SavedRemoval.Unavailable)}
+    }
     private fun claimsMoveName(name:String,permit:SavedStorageBarrier.Lease):Boolean {
         val made=resources(); located()
         return made.session.claimsPartitionNameUnderExclusive(name,permit) || made.legacy.claimsOriginalName(name,permit)
@@ -477,9 +512,14 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun saveRecoveryPage(after:String?=null):List<PartitionSaveRecord> = recoveryRead { it.saves.page(after) }
     private fun <T> recoveryRead(read:(Resources)->T):T {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Recovery reads require a worker" }
-        val permit=barrier.shared()
+        val permit=barrier.shared(); var quarantined=false
         try { val made=resources(); permit.check(); return read(made).also { located(); permit.check() } }
-        finally { permit.close() }
+        catch(failure:Throwable) {
+            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain || failure is SavedCoverCloseUncertain) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,failure)); quarantined=true
+            }
+            throw failure
+        } finally {if(!quarantined) permit.close()}
     }
     /** Explicit fresh replacement of the exact interrupted migration shown to the user. No old
      * target is reopened, overwritten or removed; worker admission/publication still recheck it.

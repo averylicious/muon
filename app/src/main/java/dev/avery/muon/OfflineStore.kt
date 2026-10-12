@@ -1377,6 +1377,44 @@ internal object OfflineStore {
         }
     }
 
+    /** Explicit key/token recovery on the existing serial Move worker. A failed/inactive store
+     * cannot be swapped, replayed or repaired here. Future recovery UI supplies renewed consent. */
+    internal fun recoverMove(context:Context,sourceCard:Boolean,key:String,token:String,explicitConsent:Boolean):Boolean {
+        check(Looper.myLooper()==Looper.getMainLooper()) {"Move recovery admission requires main"}
+        if(!explicitConsent || key.length.toLong()*2>MIGRATION_KEY_BYTES || token.length!=36) return false
+        val store=commandStore(context) ?: return false
+        val from=(if(sourceCard) store.card else store.phone) ?: return false
+        val to=(if(sourceCard) store.phone else store.card) ?: return false
+        val source=from.partition ?: return false; val target=to.partition ?: return false
+        if(!canMove(from,to) || source.storageBarrier!==store.storageBarrier || target.storageBarrier!==store.storageBarrier ||
+            store.moves.hasPending || store.removalDelivery.busy || !quiet(from.manager) || !quiet(to.manager) ||
+            !moveExclusion.tryAcquire()) return false
+        val main=Handler(Looper.getMainLooper()); val batch=moveOwnership.begin()
+        try {mover.execute {
+            try {
+                fun checked() {
+                    if(!from.locationAvailable() || !to.locationAvailable() || !moveOwnership.permits(batch,key))
+                        throw java.io.InterruptedIOException("Move recovery cancelled or storage unavailable")
+                }
+                val result=source.recoverCompletedMoveTo(target,key,token,true,store.art,store.artwork,{name ->
+                    if(name==key) true else !store.art.hasEntry(name)
+                },::checked)
+                if(result.outcome==SavedRemoval.Sent && result.destination!=null) {
+                    val status=DownloadStatus(result.destination,Download.STATE_COMPLETED,result.bytes)
+                    main.post {store.record(status);from.partitionRemoved(key)}
+                } else {
+                    main.post {DownloadMarks.revision++}
+                    notice(context,"Move recovery did not complete. Existing copies remain protected; check storage and the selected recovery entry.")
+                }
+            } catch(_:Exception) {
+                notice(context,"Move recovery stopped. Check storage and the selected recovery entry before trying again.")
+            } finally {main.post {try {moveExclusion.release()} finally {moveOwnership.finish(batch)}}}
+        }} catch(failure:RuntimeException) {
+            moveOwnership.finish(batch);moveExclusion.release();throw failure
+        }
+        return true // Submission only; scalar callbacks/journal determine completion.
+    }
+
     /** One admitted move, on the mover: copies first, then one main-thread step that releases and hands over. */
     private fun moveBatch(context: Context, store: Store, from: Shelf, to: Shelf, batch: DownloadMoveOwnership.Batch,
         main: Handler) {
