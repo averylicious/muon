@@ -15,7 +15,8 @@ import java.nio.file.Path
  */
 internal class MigrationIoOwnership(private val outputs:MoveFileOutputs=MoveFileOutputs.Real,
     private val inputs:(File)->RandomAccessFile={RandomAccessFile(it,"r")},
-    private val directories:(Path)->DirectoryStream<Path> = {Files.newDirectoryStream(it)}) {
+    private val directories:(Path)->DirectoryStream<Path> = {Files.newDirectoryStream(it)},
+    private val closeHandle:(Closeable)->Unit={it.close()}) {
     private val handles=arrayOfNulls<Closeable>(3)
     private val uncertain=BooleanArray(3)
     private val closing=BooleanArray(3)
@@ -34,6 +35,12 @@ internal class MigrationIoOwnership(private val outputs:MoveFileOutputs=MoveFile
             override fun iterator()=raw.iterator()
             override fun close()=this@MigrationIoOwnership.close(raw)
         }
+    }
+    /** Retain a real cursor/statement before use just like file handles. Unknown close must keep
+     * the borrowed database alive too; callers quarantine their actual source owner/gate. */
+    fun <R:Closeable,T> useOwned(create:()->R,read:(R)->T):T {
+        val actual=open(create)
+        try {return read(actual)} finally {close(actual)}
     }
     fun input(file:File):RandomAccessFile=open { inputs(file) }
     fun output(file:File):MoveFileOutput {
@@ -54,7 +61,7 @@ internal class MigrationIoOwnership(private val outputs:MoveFileOutputs=MoveFile
         }
         closing[slot]=true
         try {
-            handle.close()
+            closeHandle(handle)
             // A callback may suppress a refused reentrant close. That cannot erase uncertainty.
             if(uncertain[slot]) throw MigrationIoUncertain(this,null)
             handles[slot]=null

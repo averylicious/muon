@@ -29,6 +29,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
     private var markerIdentity:Any?=null
     private var uid:Long?=null
     private var audio:SavedAudio?=null
+    private var retirement:LegacyRetirementFiles?=null
 
     private fun observed() {
         if(!available() || !directory.isDirectory || directory.absoluteFile!=directory.canonicalFile ||
@@ -85,7 +86,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             checkpoint(); val found=discoverUid(); uid=found
             index=openDatabase(databaseFile)
             if(!requireNotNull(index).isReadOnly) throw IOException("Legacy connection must be read-only")
-            LegacyResourceProjection.validate(directory,found,requireNotNull(index),::checkpoint)()
+            LegacyResourceProjection.validate(directory,found,requireNotNull(index),::checkpoint,directoryIo)()
             audio=ReadOnlyLegacySavedAudio(directory,found,requireNotNull(index),barrier,::checkpoint)
             phase=Phase.Open
             return requireNotNull(audio)
@@ -134,6 +135,33 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || journal.ownershipUncertain) {
                 phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,failure)); quarantined=true
             }
+            throw failure
+        } finally {if(!quarantined) permit.close()}
+    }
+    /** Internal physical-original stage only. The exact durable Pending record and consent are
+     * required again on restart; no automatic replay. Other copies/rows/artwork remain the final
+     * controller's responsibility, so the journal intentionally stays Pending after this returns.
+     */
+    @Synchronized fun retirePendingFiles(session:PartitionStorageSession,journal:LegacyRetirementJournal,
+        expected:LegacyRetirementRecord,explicitConsent:Boolean,checked:()->Unit,
+        makeFiles:()->LegacyRetirementFiles={LegacyRetirementFiles()}):LegacyRetirementFileResult {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original file cleanup requires a worker"}
+        if(!explicitConsent || expected.phase!=LegacyRetirementPhase.Pending || !session.usesBarrier(barrier))
+            throw IOException("Original file cleanup requires exact consent and the shared gate")
+        checkpoint()
+        val permit=barrier.exclusive(); var quarantined=false
+        try {
+            fun live() {permit.check(); checkpoint(); checked(); checkpoint()}
+            live()
+            if(journal.find(expected.manifest.key)!=expected) throw IOException("Original retirement intent changed")
+            val actual=makeFiles(); retirement=actual // No constructor I/O; own before run.
+            val result=actual.run(expected,directory,requireNotNull(index),::live)
+            live(); retirement=null; return result
+        } catch(failure:Throwable) {
+            if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain ||
+                journal.ownershipUncertain || retirement?.uncertain==true) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,retirement,failure)); quarantined=true
+            } else retirement=null
             throw failure
         } finally {if(!quarantined) permit.close()}
     }

@@ -192,6 +192,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         val made=resources()
         return made.legacy.beginRetirement(made.session,made.retirements,name,explicitConsent) {located()}
     }
+    /** Files-only stage; not user-visible Delete and never marks the record Complete. */
+    internal fun retireOriginalFiles(expected:LegacyRetirementRecord,explicitConsent:Boolean):LegacyRetirementFileResult {
+        val made=resources()
+        return made.legacy.retirePendingFiles(made.session,made.retirements,expected,explicitConsent,{located()})
+    }
     fun retirementRecoveryPage(after:String?=null):List<LegacyRetirementRecord> = recoveryRead {it.retirements.page(after)}
     fun migrationRecoveryPage(after:String?=null):List<MigrationRecord> = recoveryRead { it.migrations.page(after) }
     fun saveRecoveryPage(after:String?=null):List<PartitionSaveRecord> = recoveryRead { it.saves.page(after) }

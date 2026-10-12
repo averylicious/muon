@@ -39,18 +39,26 @@ internal object LegacyResourceProjection {
     private val playbackDecoder=AtomicBoolean(false)
     fun read(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
         ownership:MigrationIoOwnership=MigrationIoOwnership()):Cache =
-        project(directory,uid,key,index,checkpoint,ownership,false).cache
+        try {project(directory,uid,key,index,checkpoint,ownership,false).cache}
+        catch(failure:Throwable) {
+            if(!ownership.quiescent) throw MigrationIoUncertain(ownership,failure)
+            throw failure
+        }
 
     /** A read-only display/playback view. Never pass its reduced metadata to migration. */
     fun readAudio(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
         ownership:MigrationIoOwnership=MigrationIoOwnership()):LegacyAudioProjection =
-        project(directory,uid,key,index,checkpoint,ownership,true)
+        try {project(directory,uid,key,index,checkpoint,ownership,true)}
+        catch(failure:Throwable) {
+            if(!ownership.quiescent) throw MigrationIoUncertain(ownership,failure)
+            throw failure
+        }
 
     private fun project(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
         ownership:MigrationIoOwnership,audioOnly:Boolean):LegacyAudioProjection {
         if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES || !index.isReadOnly)
             throw IOException("Legacy projection needs a bounded identity and read-only database")
-        val live=validate(directory,uid,index,checkpoint)
+        val live=validate(directory,uid,index,checkpoint,ownership)
         val hex=java.lang.Long.toHexString(uid)
         val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
@@ -63,9 +71,9 @@ internal object LegacyResourceProjection {
         if(audioOnly && !admitted) throw IOException("Legacy playback metadata decoder is busy; retry")
         try {
             val ceiling=if(audioOnly) LEGACY_PLAYBACK_METADATA_BYTES else LEGACY_PROJECTION_METADATA_BYTES
-            index.rawQuery("SELECT id,CASE WHEN typeof(key)='text' AND length(CAST(key AS BLOB))<=${MIGRATION_KEY_BYTES*2} THEN key ELSE NULL END,"+
+            ownership.useOwned({index.rawQuery("SELECT id,CASE WHEN typeof(key)='text' AND length(CAST(key AS BLOB))<=${MIGRATION_KEY_BYTES*2} THEN key ELSE NULL END,"+
                 "CASE WHEN typeof(metadata)='blob' AND length(metadata)<=$ceiling THEN metadata ELSE NULL END FROM $content WHERE key=? LIMIT 2",
-                arrayOf(key)).use { c ->
+                arrayOf(key))}) { c ->
                 live()
                 if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0) !in 0L..Int.MAX_VALUE.toLong() ||
                     c.getType(1)!=Cursor.FIELD_TYPE_STRING || c.getString(1)!=key || c.getType(2)!=Cursor.FIELD_TYPE_BLOB)
@@ -99,7 +107,7 @@ internal object LegacyResourceProjection {
                 if(spans.size>=MIGRATION_RANGES) throw IOException("Legacy resource fragmentation exceeds projection budget")
                 val length=leaf.toFile().length()
                 if(length<=0 || length>Long.MAX_VALUE-position) throw IOException("Legacy span extent differs")
-                val touch=index.rawQuery("SELECT CASE WHEN typeof(length)='integer' THEN length ELSE NULL END,CASE WHEN typeof(last_touch_timestamp)='integer' THEN last_touch_timestamp ELSE NULL END FROM $files WHERE name=? LIMIT 2",arrayOf(filename)).use { c ->
+                val touch=ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(length)='integer' THEN length ELSE NULL END,CASE WHEN typeof(last_touch_timestamp)='integer' THEN last_touch_timestamp ELSE NULL END FROM $files WHERE name=? LIMIT 2",arrayOf(filename))}) { c ->
                     if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0)!=length ||
                         c.getType(1)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(1)<0) throw IOException("Legacy span index differs")
                     val value=c.getLong(1); if(c.moveToNext()) throw IOException("Legacy span index is not unique"); value
@@ -116,8 +124,8 @@ internal object LegacyResourceProjection {
         }
         // Every indexed selected span must have been found; don't silently publish a truncated view.
         var indexed=0
-        index.rawQuery("SELECT CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END FROM $files WHERE name GLOB ? LIMIT ${MIGRATION_RANGES+1}",
-            arrayOf("$contentId.*")).use { c -> while(c.moveToNext()) {
+        ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END FROM $files WHERE name GLOB ? LIMIT ${MIGRATION_RANGES+1}",
+            arrayOf("$contentId.*"))}) { c -> while(c.moveToNext()) {
             live(); if(++indexed>MIGRATION_RANGES || c.getType(0)!=Cursor.FIELD_TYPE_STRING || spans.none { it.file!!.name==c.getString(0) })
                 throw IOException("Legacy resource has missing or unsupported indexed spans")
         } }
@@ -125,7 +133,8 @@ internal object LegacyResourceProjection {
         live(); return LegacyAudioProjection(ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,live),limited)
     }
     /** Bounded schema/identity observation. Caller still owns the actual storage barrier. */
-    fun validate(directory:File,uid:Long,index:SQLiteDatabase,checkpoint:()->Unit):()->Unit {
+    fun validate(directory:File,uid:Long,index:SQLiteDatabase,checkpoint:()->Unit,
+        ownership:MigrationIoOwnership=MigrationIoOwnership()):()->Unit {
         if(uid<0 || !index.isReadOnly) throw IOException("Legacy source needs read-only identity")
         val hex=java.lang.Long.toHexString(uid)
         fun live() {
@@ -141,7 +150,7 @@ internal object LegacyResourceProjection {
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
         val versions=DatabaseProvider.TABLE_PREFIX+"Versions"
         for(feature in listOf(VersionTable.FEATURE_CACHE_CONTENT_METADATA,VersionTable.FEATURE_CACHE_FILE_METADATA)) {
-            index.rawQuery("SELECT CASE WHEN typeof(version)='integer' THEN version ELSE NULL END FROM $versions WHERE feature=? AND instance_uid=? LIMIT 2",arrayOf(feature.toString(),hex)).use { c ->
+            ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(version)='integer' THEN version ELSE NULL END FROM $versions WHERE feature=? AND instance_uid=? LIMIT 2",arrayOf(feature.toString(),hex))}) { c ->
                 if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0)!=1L || c.moveToNext())
                     throw IOException("Unsupported legacy cache version")
             }
@@ -149,10 +158,10 @@ internal object LegacyResourceProjection {
         val contentSql="CREATE TABLE $content (id INTEGER PRIMARY KEY NOT NULL,key TEXT NOT NULL,metadata BLOB NOT NULL)"
         val filesSql="CREATE TABLE $files (name TEXT PRIMARY KEY NOT NULL,length INTEGER NOT NULL,last_touch_timestamp INTEGER NOT NULL)"
         var tables=0; var objects=0
-        index.rawQuery("SELECT CASE WHEN length(CAST(type AS BLOB))<=8 THEN type ELSE NULL END,"+
+        ownership.useOwned({index.rawQuery("SELECT CASE WHEN length(CAST(type AS BLOB))<=8 THEN type ELSE NULL END,"+
             "CASE WHEN length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END,"+
             "CASE WHEN length(CAST(sql AS BLOB))<=1024 THEN sql ELSE NULL END FROM sqlite_master WHERE tbl_name IN (?,?) LIMIT 5",
-            arrayOf(content,files)).use { c ->
+            arrayOf(content,files))}) { c ->
             while(c.moveToNext()) {
                 live(); if(++objects>3) throw IOException("Unknown legacy cache objects")
                 when {

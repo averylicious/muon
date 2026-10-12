@@ -295,4 +295,84 @@ class LegacyResourceProjectionTest {
         assertThrows(IOException::class.java) { f.project() }
         reopened.release(); assertArrayEquals(payload,f.original.readBytes())
     }
+    @Test fun pendingFilesCleanupRemovesOnlyManifestSpansAndRecoveryKeepsJournalPending() {
+        val root=folders.newFolder(); val source=cache(root); val uid=source.uid
+        val first=seed(source,"selected"); val second=seed(source,"selected",4); val other=seed(source,"other")
+        source.release()
+        val index=SQLiteDatabase.openDatabase(database.readableDatabase.path,null,SQLiteDatabase.OPEN_READONLY).also(reads::add)
+        val journal=LegacyRetirementJournal(folders.newFolder(),true)
+        try {worker {
+            val manifest=LegacyRetirementManifest.capture(root,uid,"selected",index,{})
+            journal.open(); val pending=journal.begin(manifest,true)
+            assertEquals(LegacyRetirementFileResult(8,0),LegacyRetirementFiles().run(pending,root,index,{}))
+            assertFalse(first.exists()); assertFalse(second.exists()); assertArrayEquals(payload,other.readBytes())
+            assertEquals(pending,journal.find("selected")); assertTrue(journal.holdsName("selected"))
+            assertEquals(LegacyRetirementFileResult(0,8),LegacyRetirementFiles().run(pending,root,index,{}))
+            assertEquals(pending,journal.find("selected")); assertFalse(SimpleCache.isCacheFolderLocked(root))
+        }} finally {worker {journal.close()}}
+    }
+    @Test fun unknownUnlinkRetainsAttemptAndExactPendingAllowsNewProcessStyleRecovery() {
+        val root=folders.newFolder(); val source=cache(root); val uid=source.uid
+        val first=seed(source,"selected"); val second=seed(source,"selected",4); val other=seed(source,"other")
+        source.release()
+        val index=SQLiteDatabase.openDatabase(database.readableDatabase.path,null,SQLiteDatabase.OPEN_READONLY).also(reads::add)
+        val journal=LegacyRetirementJournal(folders.newFolder(),true)
+        try {worker {
+            val manifest=LegacyRetirementManifest.capture(root,uid,"selected",index,{})
+            journal.open(); val pending=journal.begin(manifest,true); var calls=0
+            val attempt=LegacyRetirementFiles(unlink={file -> calls++; Files.delete(file.toPath()); throw IOException("Unknown unlink return")})
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {attempt.run(pending,root,index,{})}
+            assertSame(attempt,failure.owner); assertTrue(attempt.uncertain); assertEquals(1,calls)
+            assertFalse(first.exists()); assertTrue(second.exists()); assertArrayEquals(payload,other.readBytes())
+            assertThrows(IOException::class.java) {attempt.run(pending,root,index,{})}; assertEquals(1,calls)
+            assertEquals(LegacyRetirementFileResult(4,4),LegacyRetirementFiles().run(pending,root,index,{}))
+            assertFalse(second.exists()); assertEquals(pending,journal.find("selected"))
+        }} finally {worker {journal.close()}}
+    }
+    @Test fun changedOriginalBytesRefuseCleanupBeforeAnyUnlink() {
+        val f=Fixture(3); val index=f.db(); val journal=LegacyRetirementJournal(folders.newFolder(),true)
+        try {worker {
+            val manifest=LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})
+            journal.open(); val pending=journal.begin(manifest,true); var calls=0
+            f.original.writeBytes(byteArrayOf(9,9,9,9))
+            val attempt=LegacyRetirementFiles(unlink={calls++})
+            assertThrows(IOException::class.java) {attempt.run(pending,f.root,index,{})}
+            assertFalse(attempt.uncertain); assertEquals(0,calls); assertTrue(f.original.exists())
+            assertEquals(pending,journal.find("selected"))
+        }} finally {worker {journal.close()}}
+    }
+    @Test fun unknownCleanupReaderCloseRetainsActualHandleAndNeverUnlinks() {
+        val f=Fixture(); val index=f.db(); val journal=LegacyRetirementJournal(folders.newFolder(),true)
+        var retained:java.io.Closeable?=null
+        try {worker {
+            val manifest=LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})
+            journal.open(); val pending=journal.begin(manifest,true); var calls=0
+            val ownership=MigrationIoOwnership(closeHandle={handle ->
+                if(handle is java.io.RandomAccessFile) {retained=handle; throw IOException("Unknown reader close")}
+                handle.close()
+            })
+            val attempt=LegacyRetirementFiles(unlink={calls++},ownership=ownership)
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {attempt.run(pending,f.root,index,{})}
+            assertSame(attempt,failure.owner); assertFalse(ownership.quiescent); assertTrue(attempt.uncertain)
+            assertNotNull(retained); assertEquals(0,calls); assertArrayEquals(payload,f.original.readBytes())
+        }} finally {retained?.close(); worker {journal.close()}}
+    }
+    @Test fun unknownCleanupCursorCloseRetainsActualCursorAndDatabaseBeforeUnlink() {
+        val f=Fixture(); val index=f.db(); val journal=LegacyRetirementJournal(folders.newFolder(),true)
+        var retained:android.database.Cursor?=null
+        try {worker {
+            val manifest=LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})
+            journal.open(); val pending=journal.begin(manifest,true); var calls=0
+            val ownership=MigrationIoOwnership(closeHandle={handle ->
+                if(handle is android.database.Cursor) {retained=handle; throw IOException("Unknown cursor close")}
+                handle.close()
+            })
+            val attempt=LegacyRetirementFiles(unlink={calls++},ownership=ownership)
+            assertThrows(PartitionOwnershipUncertain::class.java) {attempt.run(pending,f.root,index,{})}
+            assertFalse(ownership.quiescent); assertTrue(attempt.uncertain); assertTrue(index.isOpen)
+            assertNotNull(retained); assertFalse(requireNotNull(retained).isClosed)
+            assertEquals(0,calls); assertArrayEquals(payload,f.original.readBytes())
+        }} finally {retained?.close(); worker {journal.close()}}
+    }
+
 }

@@ -52,11 +52,11 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
     fun verifyRemaining(root:File,index:SQLiteDatabase,allowMissing:Boolean,checkpoint:()->Unit,
         ownership:MigrationIoOwnership=MigrationIoOwnership()) {
         validate(); requireRoot(root)
-        LegacyResourceProjection.validate(root,uid,index,checkpoint)()
+        LegacyResourceProjection.validate(root,uid,index,checkpoint,ownership)()
         if(identity(root)!=rootIdentity || identity(File(index.path))!=databaseIdentity ||
             identity(File(root,java.lang.Long.toHexString(uid)+".uid"))!=markerIdentity ||
-            row(index,uid,key)!=(contentId to metadataDigest)) throw IOException("Legacy retirement source changed")
-        indexed(index)
+            row(index,uid,key,ownership)!=(contentId to metadataDigest)) throw IOException("Legacy retirement source changed")
+        indexed(index,ownership)
         for(span in spans) {
             checkpoint(); val file=File(root,span.path)
             exactParent(root,file)
@@ -71,12 +71,39 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
         }
         checkpoint()
     }
-    private fun indexed(index:SQLiteDatabase) {
+    /** Internal cleanup primitive. Caller must hold actual exclusive source/volume admission and
+     * an exact durable Pending record; missing files then represent interrupted work, not success.
+     * Recheck bytes and file identity immediately before each unlink. Native tables remain readonly.
+     * This does not dispose of a Ready duplicate, download record or artwork, or mark Complete.
+     */
+    internal fun retireRemaining(root:File,index:SQLiteDatabase,checkpoint:()->Unit,
+        unlink:(File)->Unit,ownership:MigrationIoOwnership):LegacyRetirementFileResult {
+        verifyRemaining(root,index,true,checkpoint,ownership)
+        var removed=0L; var missing=0L
+        for(span in spans) {
+            checkpoint(); val file=File(root,span.path); exactParent(root,file)
+            if(!Files.exists(file.toPath(),LinkOption.NOFOLLOW_LINKS)) {
+                missing=Math.addExact(missing,span.length); continue
+            }
+            exactSpan(root,file,span.length,span.fileIdentity)
+            if(digest(file,span.length,ownership,checkpoint)!=span.digest)
+                throw IOException("Legacy retirement bytes changed before unlink")
+            exactSpan(root,file,span.length,span.fileIdentity); checkpoint()
+            exactSpan(root,file,span.length,span.fileIdentity)
+            unlink(file)
+            checkpoint(); removed=Math.addExact(removed,span.length)
+        }
+        verifyRemaining(root,index,true,checkpoint,ownership)
+        for(span in spans) if(Files.exists(File(root,span.path).toPath(),LinkOption.NOFOLLOW_LINKS))
+            throw IOException("Legacy retirement files remain")
+        checkpoint(); return LegacyRetirementFileResult(removed,missing)
+    }
+    private fun indexed(index:SQLiteDatabase,ownership:MigrationIoOwnership) {
         val table="ExoPlayerCacheFileMetadata"+java.lang.Long.toHexString(uid)
         var count=0
-        index.rawQuery("SELECT CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END,"+
+        ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END,"+
             "CASE WHEN typeof(length)='integer' THEN length ELSE NULL END FROM $table WHERE name GLOB ? LIMIT ${MIGRATION_RANGES+1}",
-            arrayOf("$contentId.*")).use { c -> while(c.moveToNext()) {
+            arrayOf("$contentId.*"))}) { c -> while(c.moveToNext()) {
             if(++count>MIGRATION_RANGES || c.getType(0)!=Cursor.FIELD_TYPE_STRING || c.getType(1)!=Cursor.FIELD_TYPE_INTEGER)
                 throw IOException("Legacy retirement span census exceeds its budget")
             val name=c.getString(0)
@@ -134,13 +161,13 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
             if(!attributes.isRegularFile || attributes.size()!=length || identity(file)!=expected)
                 throw IOException("Legacy retirement span identity differs")
         }
-        private fun row(index:SQLiteDatabase,uid:Long,key:String):Pair<Long,String> {
+        private fun row(index:SQLiteDatabase,uid:Long,key:String,ownership:MigrationIoOwnership):Pair<Long,String> {
             if(!index.isReadOnly || key.length.toLong()*2>MIGRATION_KEY_BYTES || uid<0)
                 throw IOException("Legacy retirement requires a bounded read-only index")
             val table="ExoPlayerCacheIndex"+java.lang.Long.toHexString(uid)
-            return index.rawQuery("SELECT CASE WHEN typeof(id)='integer' THEN id ELSE NULL END,"+
+            return ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(id)='integer' THEN id ELSE NULL END,"+
                 "CASE WHEN typeof(metadata)='blob' AND length(metadata)<=$LEGACY_PROJECTION_METADATA_BYTES THEN metadata ELSE NULL END "+
-                "FROM $table WHERE typeof(key)='text' AND key=? LIMIT 2",arrayOf(key)).use { c ->
+                "FROM $table WHERE typeof(key)='text' AND key=? LIMIT 2",arrayOf(key))}) { c ->
                 if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0) !in 0L..Int.MAX_VALUE.toLong() ||
                     c.getType(1)!=Cursor.FIELD_TYPE_BLOB) throw IOException("Legacy retirement record changed or exceeds budget")
                 val result=c.getLong(0) to hash(c.getBlob(1))
@@ -174,7 +201,7 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
             val rootId=identity(root); val dbId=identity(File(index.path))
             val markerId=identity(File(root,java.lang.Long.toHexString(uid)+".uid"))
             val projected=LegacyResourceProjection.read(root,uid,key,index,checkpoint,ownership)
-            val row=row(index,uid,key)
+            val row=row(index,uid,key,ownership)
             val spans=projected.getCachedSpans(key).map { span ->
                 checkpoint(); val file=requireNotNull(span.file); val owner=identity(file)
                 exactSpan(root,file,span.length,owner)

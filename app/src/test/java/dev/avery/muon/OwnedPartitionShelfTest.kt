@@ -843,4 +843,21 @@ class OwnedPartitionShelfTest {
         } finally {teardown(owner); f.provider.close()}
     }
 
+    @Test fun actualOriginalFilesStageNeedsExactConsentAndKeepsPendingUntilFinalDisposition() {
+        val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
+        try {
+            onWorker {first.prepare()}; val pending=onWorker {first.beginOriginalRetirement("old",true)}
+            assertThrows(IOException::class.java) {onWorker {first.retireOriginalFiles(pending,false)}}
+            assertThrows(IOException::class.java) {onWorker {first.retireOriginalFiles(pending.copy(token=java.util.UUID.randomUUID().toString()),true)}}
+            assertArrayEquals(payload,f.original.readBytes())
+            assertEquals(LegacyRetirementFileResult(4,0),onWorker {first.retireOriginalFiles(pending,true)})
+            assertFalse(f.original.exists()); assertEquals(listOf(pending),onWorker {first.retirementRecoveryPage()})
+            teardown(first); firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
+            assertFalse(next.audio.contains("old")); assertEquals(listOf(pending),onWorker {next.retirementRecoveryPage()})
+            assertEquals(LegacyRetirementFileResult(0,4),onWorker {next.retireOriginalFiles(pending,true)})
+            assertTrue(next.claimsName("old")); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+        } finally {resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close()}
+    }
+
 }
