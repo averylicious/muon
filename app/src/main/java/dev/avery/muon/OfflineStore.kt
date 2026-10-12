@@ -128,7 +128,9 @@ internal object OfflineStore {
         val moves: DownloadMoveReceipts = DownloadMoveReceipts(),
         val marks: DownloadMarkLedger? = null,
         /** Same process gate for phone/card saved readers and eventual partition startup/writers. */
-        val storageBarrier:SavedStorageBarrier=SavedStorageBarrier()) {
+        val storageBarrier:SavedStorageBarrier=SavedStorageBarrier(),
+        /** Scalar completed-partition removal publication; no request payload is retained. */
+        val removedScalar:(String)->Unit = {}) {
         /** At most two final byte comparisons; uncertain actual readers remain owned until teardown. */
         val moveComparisons=MoveByteComparison(barrier=storageBarrier)
         /** The serial copy retains exact raw participants if any actual close remains unknown. */
@@ -349,10 +351,10 @@ internal object OfflineStore {
             DownloadMarks.bytesKnown = sizes.known
         }
         fun removed(download:Download)=removedId(download.request.id)
-        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims, marks = marks, storageBarrier=barrier)
+        val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims, marks = marks, storageBarrier=barrier,removedScalar=::removedId)
         ready.card?.let { made.card=shelf(it); made.cardFolder=ready.cardFolder }
-        watch(context,phone,made,main,::removedId)
-        made.card?.let { watch(context,it,made,main,::removedId) }
+        watch(context,phone,made,main)
+        made.card?.let { watch(context,it,made,main) }
         saver.execute {
             claims.read(phone.manager.downloadIndex)
             if(claims.known) {
@@ -371,7 +373,7 @@ internal object OfflineStore {
      * Reports one shelf's downloads to the UI. Removing a move's original requires this process's
      * receipt and rechecked records/bytes, never a same-ID completion alone. Restart keeps both copies.
      */
-    private fun watch(context: Context, shelf: Shelf, store: Store, main: Handler,removedId:(String)->Unit) {
+    private fun watch(context: Context, shelf: Shelf, store: Store, main: Handler) {
         // Live callbacks and publication run on the application/main looper. An index snapshot can
         // already be obsolete when posted; retain newer events until that one bootstrap finishes.
         val snapshot = DownloadBootstrapSnapshot(context)
@@ -382,7 +384,7 @@ internal object OfflineStore {
             check(Looper.myLooper()==Looper.getMainLooper())
             changed?.changed(id)
             store.moves.invalidate(id)
-            removedId(id)
+            store.removedScalar(id)
         }
         shelf.manager.addListener(object : DownloadManager.Listener {
             override fun onDownloadChanged(m: DownloadManager, download: Download, finalException: Exception?) {

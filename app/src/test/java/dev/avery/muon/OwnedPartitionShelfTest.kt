@@ -412,13 +412,15 @@ class OwnedPartitionShelfTest {
             assertEquals(OfflineStore.SavedRemoval.Sent,onWorker { OfflineStore.removeSavedNow(app,ref) })
             shadowOf(Looper.getMainLooper()).idle(); assertEquals(request.id,removed)
             assertNull(manager.downloadIndex.getDownload(request.id))
-            assertEquals(SavedCoverage.Missing,onWorker { first.audio.inspect(request.id).coverage })
+            assertFalse(onWorker { first.audio.contains(request.id) })
+            assertThrows(IOException::class.java) {onWorker { first.audio.inspect(request.id) }}
             assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
             field.set(OfflineStore,previous); teardown(first); closed=true
             val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
             val nextManager=next.initializeManager(); await(nextManager) {true}
             assertNull(nextManager.downloadIndex.getDownload(request.id))
-            assertEquals(SavedCoverage.Missing,onWorker { next.audio.inspect(request.id).coverage })
+            assertFalse(onWorker { next.audio.contains(request.id) })
+            assertThrows(IOException::class.java) {onWorker { next.audio.inspect(request.id) }}
             assertEquals(PartitionSavePhase.Closed,onWorker { next.saveRecoveryPage().single().phase })
             assertArrayEquals(payload,f.original.readBytes())
         } finally { field.set(OfflineStore,previous); resumed?.let(::teardown); if(!closed) teardown(first); f.provider.close() }
