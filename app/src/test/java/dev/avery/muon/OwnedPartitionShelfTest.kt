@@ -2674,8 +2674,9 @@ class OwnedPartitionShelfTest {
             it.close()
         })
         CachePartitionCatalog::class.java.getDeclaredField("io").apply {isAccessible=true}.set(catalog,io)
+        onWorker {
         try {
-            assertThrows(PartitionOwnershipUncertain::class.java) {onWorker {owner.migrate(CacheMigrationControl(30000),f.oldKey,{Long.MAX_VALUE},{})}}
+            assertThrows(PartitionOwnershipUncertain::class.java) {owner.migrate(CacheMigrationControl(30000),f.oldKey,{Long.MAX_VALUE},{})}
             assertFalse(f.barrier.allowsShared);assertTrue(db.isOpen);assertTrue(db.inTransaction())
             assertTrue(catalog.ownershipUncertain);assertEquals(1,closes);assertEquals(0,f.budget.resident)
             assertArrayEquals(payload,f.original.readBytes());assertThrows(IOException::class.java) {catalog.close()};assertEquals(1,closes)
@@ -2694,7 +2695,7 @@ class OwnedPartitionShelfTest {
                 (resources.javaClass.getDeclaredField("deletes").apply {isAccessible=true}.get(resources) as PartitionSavedDeleteJournal).close()
             }
             f.provider.close()
-        }
+        }        } // SQLite transaction cleanup must run on the same worker as the injected write.
     }
 
 }
