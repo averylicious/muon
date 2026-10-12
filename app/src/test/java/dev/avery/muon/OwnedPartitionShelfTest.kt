@@ -954,6 +954,32 @@ class OwnedPartitionShelfTest {
             assertTrue(owner.claimsName(f.oldKey)); assertFalse(owner.audio.contains(f.oldKey)); assertEquals(0,f.budget.resident)
         } finally {teardown(owner); f.provider.close()}
     }
+    private fun completedOriginalDeleteIgnoresOnlyPostCommitCancellation(retained:Boolean) {
+        val f=Fixture(if(retained) "late-retained" else "late-completed")
+        val index=if(retained) seedRetainedOriginal(f) else seedOriginal(f)
+        val owner=f.owner();var earlyChecks=0;var lateChecks=0;var covers=0
+        try {
+            onWorker {owner.prepare()}
+            val journal=fixtureRetirements(owner)
+            val result=onWorker {owner.removeOriginalCompleted(f.oldKey,true,{true},{_,_ ->covers++},checkpoint={
+                if(journal.find(f.oldKey)?.phase==LegacyRetirementPhase.Complete) {
+                    lateChecks++;throw java.io.InterruptedIOException("Cancellation after durable Delete")
+                }
+                earlyChecks++
+            })}
+            assertEquals(OfflineStore.SavedRemoval.Sent,result)
+            assertTrue(earlyChecks>0);assertEquals(0,lateChecks);assertEquals(1,covers)
+            assertFalse(f.original.exists());assertNull(index.getDownload(f.oldKey))
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {journal.find(f.oldKey)!!.phase})
+            assertTrue(f.barrier.quiescent)
+        } finally {teardown(owner);f.provider.close()}
+    }
+    @Test fun completedOriginalDeleteDoesNotBecomeFailureAfterItsDurableCommit() {
+        completedOriginalDeleteIgnoresOnlyPostCommitCancellation(false)
+    }
+    @Test fun stoppedOriginalDeleteDoesNotBecomeFailureAfterItsDurableCommit() {
+        completedOriginalDeleteIgnoresOnlyPostCommitCancellation(true)
+    }
     @Test fun exactBoundPendingRecoveryFinishesAfterRestartWithAlreadyRemovedBytesAndRecord() {
         val f=Fixture("42"); val index=seedOriginal(f); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
         try {

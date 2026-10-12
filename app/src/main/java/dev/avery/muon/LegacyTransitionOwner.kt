@@ -409,7 +409,10 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             live(); disposeCover(key,permit); live()
             session.verifyOriginalRecordAbsent(pending,permit,unclaimedElsewhere)
             if(journal.find(key)!=pending) throw IOException("Original deletion intent changed before completion")
-            journal.complete(pending); live(); retirement=null
+            journal.complete(pending)
+            // Complete is durable. Keep actual owner/volume checks, but do not run caller
+            // cancellation or claim checks that would relabel an already finished Delete.
+            permit.check(); checkpoint(); retirement=null
             return OfflineStore.SavedRemoval.Sent
         } catch(failure:Throwable) {
             if(finalMutation || failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain ||
