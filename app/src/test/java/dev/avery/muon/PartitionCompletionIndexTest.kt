@@ -7,6 +7,7 @@ import androidx.media3.database.VersionTable
 import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadProgress
 import java.io.IOException
 import org.junit.After
 import org.junit.Assert.*
@@ -204,6 +205,70 @@ class PartitionCompletionIndexTest {
             assertThrows(MigrationIoUncertain::class.java) {lookup.findOriginal(key)}
             assertFalse(ownership.quiescent); assertNotNull(retained); assertFalse(requireNotNull(retained).isClosed)
             assertTrue(db.isOpen); assertEquals(1L,count())
+        } finally {retained?.close()}
+    }
+
+    private fun retained(state:Int=Download.STATE_STOPPED,stop:Int=RETAINED_STOP_REASON,
+        failure:Int=Download.FAILURE_REASON_NONE)=Download(request(),state,1,2,-1,stop,failure,
+            DownloadProgress().apply {bytesDownloaded=2; percentDownloaded=-1f})
+    @Test fun retainedStoppedAndFailedRowsReturnOnlyFixedIdentityWithoutBecomingCompleted() {
+        val (actual,lookup)=seed()
+        for(row in listOf(retained(),retained(stop=0),retained(Download.STATE_FAILED,0,Download.FAILURE_REASON_UNKNOWN))) {
+            actual.putDownload(row)
+            val found=requireNotNull(lookup.findRetainedOriginal(key))
+            assertEquals(PartitionRetainedOriginal.from(requireNotNull(actual.getDownload(key))),found)
+            assertEquals(64,found.identity.length); assertEquals(2L,found.bytesDownloaded)
+            assertNull(lookup.findOriginal(key)); assertEquals(row.request,actual.getDownload(key)?.request)
+        }
+        assertNull(lookup.findRetainedOriginal("missing")); assertEquals(1L,count())
+    }
+    @Test fun retainedIdentityBindsRequestStateTimingLengthStopFailureAndActualProgress() {
+        val (actual,lookup)=seed(); val failed=retained(Download.STATE_FAILED,0,Download.FAILURE_REASON_UNKNOWN)
+        actual.putDownload(failed); val first=requireNotNull(lookup.findRetainedOriginal(key))
+        for(update in listOf("data=x'02'","uri='http://127.0.0.1:7814/api1/fileopus/2'",
+            "mime_type='audio/ogg'","state=${Download.STATE_STOPPED},failure_reason=0",
+            "start_time_ms=9","update_time_ms=9","content_length=5","stop_reason=7",
+            "failure_reason=2","bytes_downloaded=3","percent_downloaded=33.5")) {
+            actual.putDownload(failed); db.execSQL("UPDATE $table SET $update WHERE id=?",arrayOf(key))
+            assertNotEquals(update,first.identity,requireNotNull(lookup.findRetainedOriginal(key)).identity)
+        }
+        assertEquals(1L,count())
+    }
+    @Test fun retainedLookupNeverAdoptsActiveStatesAndRefusesMalformedOrOversizedStableRows() {
+        val (actual,lookup)=seed()
+        for(state in listOf(Download.STATE_QUEUED,Download.STATE_DOWNLOADING,Download.STATE_REMOVING,
+            Download.STATE_RESTARTING,Download.STATE_COMPLETED)) {
+            actual.putDownload(Download(request(),state,1,2,5,0,0))
+            db.execSQL("UPDATE $table SET data=zeroblob(8388608)")
+            assertNull(lookup.findRetainedOriginal(key))
+        }
+        for(update in listOf("data=zeroblob(8388608)","percent_downloaded=printf('%8388608s','x')",
+            "percent_downloaded=101","percent_downloaded=-2","percent_downloaded=1e300",
+            "bytes_downloaded=printf('%8388608s','x')","bytes_downloaded=-1","content_length=-2",
+            "stop_reason=4294967296","failure_reason=4294967296","failure_reason=1",
+            "custom_cache_key='other'","stream_keys='0.0.0'","key_set_id=zeroblob(1)")) {
+            actual.putDownload(retained()); db.execSQL("UPDATE $table SET $update WHERE id=?",arrayOf(key))
+            assertThrows(update,IOException::class.java) {lookup.findRetainedOriginal(key)}
+            assertEquals(1L,count())
+        }
+    }
+    @Test fun retainedOriginalLookupSupportsOldNamesAndPreservesUnknownSchemaAndCursorOwnership() {
+        val (actual,_)=seed(); actual.putDownload(retained())
+        db.execSQL("UPDATE $table SET id='42',custom_cache_key='42'")
+        val lookup=PartitionCompletionIndex(database,"test")
+        assertEquals("42",requireNotNull(lookup.findRetainedOriginal("42")).key)
+        assertThrows(IOException::class.java) {lookup.findRetainedOriginal(playedKey("42"))}
+        VersionTable.setVersion(db,VersionTable.FEATURE_OFFLINE,"test",77)
+        assertThrows(IOException::class.java) {lookup.findRetainedOriginal("42")}; assertEquals(1L,count())
+        VersionTable.setVersion(db,VersionTable.FEATURE_OFFLINE,"test",3)
+        var retained:android.database.Cursor?=null
+        val ownership=MigrationIoOwnership(closeHandle={handle ->
+            if(handle is android.database.Cursor) {retained=handle; throw IOException("Unknown retained query close")}
+            handle.close()
+        })
+        try {
+            assertThrows(MigrationIoUncertain::class.java) {PartitionCompletionIndex(database,"test",ownership).findRetainedOriginal("42")}
+            assertFalse(ownership.quiescent); assertNotNull(retained); assertTrue(db.isOpen); assertEquals(1L,count())
         } finally {retained?.close()}
     }
 

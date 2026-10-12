@@ -10,6 +10,7 @@ import androidx.media3.common.util.Util
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadProgress
 import java.io.IOException
 
 /** Read-only scalar lookup for the pinned Media3 DefaultDownloadIndex v3 layout. Public getDownload
@@ -159,6 +160,45 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
                 "(custom_cache_key=? OR (custom_cache_key IS NULL AND uri=?))) LIMIT 1",
                 arrayOf(key,key,key))}) { it.moveToFirst() }
         } catch(failure:SQLiteException) { throw IOException("Completed removal alias census unavailable",failure) }
+    }
+    /** Stable retained originals only. Scope this observation under the real quiet-manager and
+     * storage gate; a scalar identity is NOT permission to delete, resume or move partial audio. */
+    @Synchronized fun findRetainedOriginal(key:String):PartitionRetainedOriginal? {
+        if(key.isEmpty() || key.startsWith(PLAYED_PREFIX) || key.length.toLong()*2>MIGRATION_KEY_BYTES)
+            throw IOException("Retained original lookup key exceeds its supported budget")
+        val progressProjection="CASE WHEN typeof(percent_downloaded) IN ('real','integer') THEN percent_downloaded ELSE NULL END,"+
+            "CASE WHEN typeof(bytes_downloaded)='integer' AND bytes_downloaded>=0 THEN bytes_downloaded ELSE NULL END"
+        try {
+            val db=provider.readableDatabase; schema(db)
+            return ownership.useOwned({db.rawQuery("SELECT $projection,$progressProjection FROM $table WHERE id=? AND "+
+                "state IN (${Download.STATE_STOPPED},${Download.STATE_FAILED}) LIMIT 2",arrayOf(key))}) { c ->
+                if(!c.moveToFirst()) return@useOwned null
+                if(c.getLong(0)!=1L || c.isNull(14) || c.isNull(15))
+                    throw IOException("Retained original row exceeds its supported types or budgets")
+                val id=c.getString(1)
+                if(id!=key) throw IOException("Retained original lookup identity differs")
+                for(column in listOf(11,12)) if(c.getLong(column) !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong())
+                    throw IOException("Retained original stop/failure state overflows")
+                val state=c.getInt(7); val stop=c.getInt(11); val failure=c.getInt(12)
+                if(state==Download.STATE_STOPPED && failure!=Download.FAILURE_REASON_NONE ||
+                    state==Download.STATE_FAILED && failure==Download.FAILURE_REASON_NONE)
+                    throw IOException("Retained original failure state differs")
+                val percent=c.getDouble(14)
+                if(!percent.isFinite() || percent !in -1.0..100.0)
+                    throw IOException("Retained original progress differs")
+                val uri=Uri.parse(c.getString(3)); val mime=c.getString(2); val customKey=c.getString(5)
+                if(customKey!=key || Util.inferContentTypeForUriAndMimeType(uri,mime)!=C.CONTENT_TYPE_OTHER)
+                    throw IOException("Retained original is not the exact full progressive request")
+                val request=DownloadRequest.Builder(id,uri).setMimeType(mime)
+                    .setCustomCacheKey(customKey).setData(c.getBlob(6)).build()
+                val progress=DownloadProgress().apply {bytesDownloaded=c.getLong(15); percentDownloaded=percent.toFloat()}
+                val download=Download(request,state,c.getLong(8),c.getLong(9),c.getLong(10),stop,failure,progress)
+                val result=PartitionRetainedOriginal.from(download)
+                    ?: throw IOException("Retained original is not stopped or failed")
+                if(c.moveToNext()) throw IOException("Retained original identity is not unique")
+                result
+            }
+        } catch(failure:SQLiteException) {throw IOException("Retained original index lookup unavailable",failure)}
     }
     @Synchronized fun find(key:String):PartitionSaveCompletion?=completed(key,true) {PartitionSaveCompletion.from(it)}
     @Synchronized fun findOriginal(key:String):PartitionSaveCompletion?=completed(key,false) {PartitionSaveCompletion.fromOriginal(it)}
