@@ -135,6 +135,7 @@ internal object OfflineStore {
         /** Scalar completed-partition removal publication; no request payload is retained. */
         val removedScalar:(String)->Unit = {},
         val missingPartitionCardVolume:String?=null) {
+        @Volatile internal var partitionOptInOwner:PartitionOptInOwner?=null
         @Volatile internal var migrationAttempt:PartitionMigrationAttempt?=null
         @Volatile internal var migrationStatus:PartitionMigrationStatus?=null
         /** At most two final byte comparisons; uncertain actual readers remain owned until teardown. */
@@ -1450,6 +1451,42 @@ internal object OfflineStore {
     internal fun beginSavedMigration(context:Context,ref:SavedRef,explicitConsent:Boolean):Boolean {
         if(!ref.migrationLocator()) return false
         return beginPartitionMigration(context,ref.shelf==SavedShelf.Card,ref.key,explicitConsent)
+    }
+
+    /** Prepared opt-in command, not yet exposed by default UI/selector. A healthy legacy store
+     * supplies current native bootstrap/identity evidence; actual exclusive admission is acquired
+     * on the serial worker before the checked durable choice. Never replace live managers. */
+    internal fun beginPartitionOptIn(context:Context,explicitConsent:Boolean):Boolean {
+        check(Looper.myLooper()==Looper.getMainLooper()) {"Partition opt-in admission requires main"}
+        if(!explicitConsent) return false
+        val store=commandStore(context) ?: return false
+        if(store.phone.partition!=null || store.partitionOptInOwner?.phase in setOf(PartitionOptInPhase.New,
+                PartitionOptInPhase.Checking,PartitionOptInPhase.RestartRequired,PartitionOptInPhase.Uncertain) ||
+            store.bootstrapPending!=0 || store.bootstrapFailed || store.savePreparation.get() ||
+            store.saveDelivery.busy || store.removalDelivery.busy || store.moves.hasPending ||
+            store.shelves.any {!quiet(it.manager) || it.storagePaused || !it.locationAvailable()} || !moveExclusion.tryAcquire()) return false
+        val attempt=PartitionOptInOwner(store.storageBarrier,PartitionStartupSettings(store.prefs),PartitionCompletionIndex(store.database,"card"))
+        store.partitionOptInOwner=attempt
+        val main=Handler(Looper.getMainLooper());val app=context.applicationContext
+        try {mover.execute {
+            try {
+                val plan=PartitionPlatformRoots.from(app).fresh(store.cardFolder)
+                attempt.request(plan,true) {
+                    if(current()!==store || store.partitionOptInOwner!==attempt || store.cardFolder!=plan.card?.legacyDirectory?.parentFile)
+                        throw IOException("Current saved storage changed during opt-in")
+                    for((root,shelf) in listOf(plan.phone to store.phone)+listOfNotNull(plan.card?.let {it to requireNotNull(store.card)})) {
+                        if(shelf.partition!=null || !shelf.locationAvailable()) throw IOException("Original storage is unavailable")
+                        val marker=File(root.legacyDirectory,java.lang.Long.toHexString(shelf.cache.uid)+".uid")
+                        if(!marker.isFile || marker.length()!=0L || marker!=marker.canonicalFile ||
+                            java.nio.file.Files.isSymbolicLink(marker.toPath())) throw IOException("Original native bootstrap identity changed")
+                    }
+                }
+            } catch(_:Exception) {attempt.refusePreflight() /* Actual request already records its owned failure. */ }
+            finally {main.post {moveExclusion.release();DownloadMarks.revision++}}
+        }} catch(_:java.util.concurrent.RejectedExecutionException) {
+            store.partitionOptInOwner=null;moveExclusion.release();return false
+        }
+        return true // Submission only; observe the owned fixed phase, never assume a saved choice.
     }
 
     /** Explicit single-resource optimization on the existing serial storage worker. The admission

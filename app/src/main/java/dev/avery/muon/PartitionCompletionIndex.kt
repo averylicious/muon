@@ -111,6 +111,16 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
         try { return if(present(provider.readableDatabase)) holdsName(key) else false }
         catch(failure:SQLiteException) { throw IOException("Optional save index cannot be established",failure) }
     }
+    /** Initial opt-in must not silently drop an unavailable card's records. Any state counts;
+     * observe a single scalar without hydrating request data or initializing an absent index. */
+    @Synchronized fun hasRowsIfPresent():Boolean {
+        try {
+            val db=provider.readableDatabase
+            if(!present(db)) return false
+            schema(db)
+            return ownership.useOwned({db.rawQuery("SELECT 1 FROM $table LIMIT 1",null)}) {it.moveToFirst()}
+        } catch(failure:SQLiteException) {throw IOException("Saved index row census unavailable",failure)}
+    }
     /** Existing legacy row IDs are observed without projecting their raw payloads/URI/metadata. */
     @Synchronized fun containsId(key:String,completedOnly:Boolean=false):Boolean {
         if(key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Save ID exceeds supported budget")

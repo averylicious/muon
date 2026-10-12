@@ -42,6 +42,7 @@ internal class DownloadSaveDelivery(
         lateinit var deadline: Runnable
     }
     private var batch: Batch? = null
+    val busy:Boolean @Synchronized get()=batch!=null
 
     /** Entire prepared batch or refusal; no prefix, clipping, second pending batch or network here. */
     @Synchronized fun begin(shelf: Shelf, requests: List<Pair<DownloadRequest, String>>,
