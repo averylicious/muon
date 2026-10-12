@@ -25,21 +25,24 @@ internal class CacheMigrationPublication(private val catalog:CachePartitionCatal
     @Synchronized fun migrate(source:Cache,key:String,checkpoint:()->Unit):MigrationRecord =
         migrateWithProgress(source,key,{},checkpoint)
     /** One synchronous scalar callback, no observer/event queue. A write receipt is never Ready. */
-    @Synchronized fun migrateWithProgress(source:Cache,key:String,written:(Long)->Unit,checkpoint:()->Unit):MigrationRecord {
+    @Synchronized fun migrateWithProgress(source:Cache,key:String,written:(Long)->Unit,checkpoint:()->Unit,
+        expectation:MigrationExpectation=MigrationExpectation.Unchecked):MigrationRecord {
         if(running) throw IOException("Migration operation already active")
         running=true
-        try { return migrateOwned(source,key,written,checkpoint) } finally { running=false }
+        try { return migrateOwned(source,key,written,checkpoint,expectation) } finally { running=false }
     }
-    private fun migrateOwned(source:Cache,key:String,written:(Long)->Unit,checkpoint:()->Unit):MigrationRecord {
+    private fun migrateOwned(source:Cache,key:String,written:(Long)->Unit,checkpoint:()->Unit,
+        expectation:MigrationExpectation):MigrationRecord {
         if(!healthy) throw IOException("Migration coordinator unavailable after uncertain native ownership")
         checkpoint()
         val sourceUid=source.uid
         if(sourceUid<0) throw IOException("Migration source identity unavailable")
         val old=journal.find(key)
+        expectation.check(key,old) // Refuse stale consent before changing even a locator reservation.
         if(old?.phase==MigrationPhase.Ready) throw IOException("Migration resource is already published")
         val candidate=catalog.reserveFresh(key)
         checkpoint()
-        val ticket=journal.begin(candidate,sourceUid,old?.ticket?.token)
+        val ticket=journal.begin(candidate,sourceUid,old?.ticket?.token,expectation)
         fun checked() {
             checkpoint()
             if(source.uid!=sourceUid) throw IOException("Migration source identity changed")

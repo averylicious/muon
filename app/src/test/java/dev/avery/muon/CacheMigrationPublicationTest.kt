@@ -159,4 +159,61 @@ class CacheMigrationPublicationTest {
             assertEquals(0,opens); assertNull(journal.ready(key)); assertArrayEquals(byteArrayOf(99),foreign.readBytes()); preserved(original)
         } }
     }
+    @Test fun freshConsentCannotSilentlyRetryAnEarlierAttemptOrChangeItsLocator() {
+        val source=cache(); val key="saved/consent"; seed(source,key,0,byteArrayOf(7,9))
+        val original=originals(source,key); val root=folders.newFolder(); var opened=0
+        CachePartitionCatalog(root).use { catalog -> CacheMigrationJournal(root).use { journal ->
+            val allocation=catalog.reserve(key); val ticket=journal.begin(allocation,source.uid,null)
+            val old=requireNotNull(journal.find(key))
+            val runner=CacheMigrationPublication(catalog,journal,{ opened++; cache(it) })
+            assertThrows(IOException::class.java) {
+                runner.migrateWithProgress(source,key,{}, {},MigrationExpectation.Fresh)
+            }
+            assertEquals(0,opened); assertEquals(allocation,catalog.find(key)); assertEquals(old,journal.find(key))
+            assertEquals(ticket,old.ticket); preserved(original)
+        } }
+    }
+    @Test fun staleRetryConsentCannotChangeTheLocatorOrReopenATarget() {
+        val source=cache(); val key="saved/stale"; seed(source,key,0,byteArrayOf(7,9))
+        val root=folders.newFolder(); var opened=0
+        CachePartitionCatalog(root).use { catalog -> CacheMigrationJournal(root).use { journal ->
+            val allocation=catalog.reserve(key); val ticket=journal.begin(allocation,source.uid,null)
+            val shown=requireNotNull(journal.find(key))
+            journal.uncertain(ticket) // Same token, different phase after the dialog was shown.
+            val current=journal.find(key)
+            val runner=CacheMigrationPublication(catalog,journal,{ opened++; cache(it) })
+            assertThrows(IOException::class.java) {
+                runner.migrateWithProgress(source,key,{}, {},MigrationExpectation.Retry(shown))
+            }
+            assertEquals(0,opened); assertEquals(allocation,catalog.find(key)); assertEquals(current,journal.find(key))
+            // Repeat the final compare inside begin's SQLite transaction, independent of preflight.
+            val replacement=catalog.reserveFresh(key)
+            assertThrows(IOException::class.java) {
+                journal.begin(replacement,source.uid,ticket.token,MigrationExpectation.Retry(shown))
+            }
+            assertEquals(current,journal.find(key))
+        } }
+    }
+    @Test fun explicitExactRetryUsesANewTargetAndPreservesTheOriginalAndInterruptedCopy() {
+        val source=cache(); val key="saved/retry"; seed(source,key,0,ByteArray(100000) { 31 })
+        val original=originals(source,key); val root=folders.newFolder()
+        CachePartitionCatalog(root).use { catalog -> CacheMigrationJournal(root).use { journal ->
+            val runner=CacheMigrationPublication(catalog,journal,::cache)
+            assertThrows(IOException::class.java) { runner.migrate(source,key,{
+                if(journal.find(key)?.phase==MigrationPhase.Verified) throw IOException("Interrupted before publication")
+            }) }
+            val shown=requireNotNull(journal.find(key)); val partial=cache(catalog.directory(shown.ticket.allocation))
+            val preservedTarget=originals(partial,key); partial.release()
+            val ready=runner.migrateWithProgress(source,key,{}, {},MigrationExpectation.Retry(shown))
+            assertEquals(MigrationPhase.Ready,ready.phase); assertNotEquals(shown.ticket,ready.ticket)
+            assertNotEquals(shown.ticket.allocation.directory,ready.ticket.allocation.directory)
+            preserved(original); preserved(preservedTarget)
+            val allocation=catalog.find(key)
+            assertThrows(IOException::class.java) {
+                runner.migrateWithProgress(source,key,{}, {},MigrationExpectation.Retry(ready))
+            }
+            assertEquals(allocation,catalog.find(key)); assertEquals(ready,journal.find(key))
+        } }
+    }
+
 }

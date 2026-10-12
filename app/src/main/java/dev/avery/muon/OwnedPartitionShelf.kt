@@ -133,6 +133,26 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun startMigration(name:String,timeoutMillis:Long,explicitConsent:Boolean)=
         resources().work.start(name,timeoutMillis,explicitConsent)
     fun cancelMigration()=resources().work.cancel()
+    /** Bounded disk pages for opt-in/recovery controls. No native cache is opened and no whole
+     * journal, metadata or exception history survives. Call off main; pages are observations only.
+     * An interrupted new save remains preserved, never automatically resumed/adopted or deleted.
+     */
+    fun migrationRecoveryPage(after:String?=null):List<MigrationRecord> = recoveryRead { it.migrations.page(after) }
+    fun saveRecoveryPage(after:String?=null):List<PartitionSaveRecord> = recoveryRead { it.saves.page(after) }
+    private fun <T> recoveryRead(read:(Resources)->T):T {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Recovery reads require a worker" }
+        val permit=barrier.shared()
+        try { val made=resources(); permit.check(); return read(made).also { located(); permit.check() } }
+        finally { permit.close() }
+    }
+    /** Explicit fresh replacement of the exact interrupted migration shown to the user. No old
+     * target is reopened, overwritten or removed; worker admission/publication still recheck it.
+     * Returns submission status only, not completion. Unknown current-process I/O remains blocked.
+     */
+    fun retryMigration(record:MigrationRecord,timeoutMillis:Long,explicitConsent:Boolean):Boolean {
+        if(!explicitConsent || record.phase==MigrationPhase.Ready) return false
+        return resources().work.start(record.ticket.allocation.key,timeoutMillis,true,MigrationExpectation.Retry(record))
+    }
     fun migrate(control:CacheMigrationControl,name:String,availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord {
         val made=resources()
         return made.legacy.migrate(made.session,control,name,availableBytes) { located(); checkpoint(); located() }

@@ -22,6 +22,7 @@ internal class CacheMigrationControl(timeoutMillis:Long,
     private val headroomBytes:Long=16L*1024*1024,
     /** Optional acceptance time includes the worker's single pending slot in the same deadline. */
     private val acceptedNanos:Long?=null,
+    private val expectation:MigrationExpectation=MigrationExpectation.Unchecked,
     private val nanoTime:()->Long=System::nanoTime) {
     private val durationNanos:Long
     private val used=AtomicBoolean(false)
@@ -81,7 +82,7 @@ internal class CacheMigrationControl(timeoutMillis:Long,
                 if(count<written || count>bytes) throw IOException("Migration write progress differs from planned extent")
                 written=count
                 progress=MigrationWorkProgress(MigrationWorkPhase.Running,bytes,written)
-            },::checked)
+            },::checked,expectation)
             // The durable publication is the commit point. A later cancellation does not turn a
             // successful migration into a failure or authorize deleting either copy.
             progress=MigrationWorkProgress(MigrationWorkPhase.Ready,bytes,written)

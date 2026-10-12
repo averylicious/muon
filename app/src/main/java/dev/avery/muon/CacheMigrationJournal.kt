@@ -108,7 +108,8 @@ internal class CacheMigrationJournal(root:File, create:Boolean=true, private val
     @Synchronized fun ready(key:String):MigrationRecord?=find(key)?.takeIf { it.phase==MigrationPhase.Ready }
 
     /** Compare-and-set a fresh attempt. Never replace another resource's row through SQL REPLACE. */
-    @Synchronized fun begin(allocation:CachePartitionAllocation, sourceUid:Long, expectedToken:String?):MigrationTicket {
+    @Synchronized fun begin(allocation:CachePartitionAllocation, sourceUid:Long, expectedToken:String?,
+        expectation:MigrationExpectation=MigrationExpectation.Unchecked):MigrationTicket {
         identity(allocation.key); uuid(allocation.directory)
         if(sourceUid<0) throw IOException("Migration source identity unavailable")
         val claim=token(); uuid(claim)
@@ -116,6 +117,7 @@ internal class CacheMigrationJournal(root:File, create:Boolean=true, private val
         database.beginTransaction()
         try {
             val old=lookup(allocation.key)
+            expectation.check(allocation.key,old)
             if(old?.ticket?.token!=expectedToken || old?.phase==MigrationPhase.Ready || old?.ticket?.allocation==allocation)
                 throw IOException("Migration attempt no longer owns this resource")
             val ticket=MigrationTicket(allocation,claim,sourceUid)

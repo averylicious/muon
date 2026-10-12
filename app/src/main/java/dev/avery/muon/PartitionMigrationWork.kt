@@ -22,9 +22,12 @@ internal class PartitionMigrationWork(private val executor:Executor,
     /** Caller owes the user's explicit opt-in. False means known refusal or unconfirmed submission (inspect busy/progress);
      * true means known submission/execution, never by itself a Ready receipt. The actual storage owner rechecks authority.
      */
-    @Synchronized fun start(key:String,timeoutMillis:Long,explicitConsent:Boolean):Boolean {
+    @Synchronized fun start(key:String,timeoutMillis:Long,explicitConsent:Boolean,
+        expectation:MigrationExpectation=MigrationExpectation.Fresh):Boolean {
         if(!explicitConsent || active!=null || key.length.toLong()*2>MIGRATION_KEY_BYTES || !available()) return false
-        val control=CacheMigrationControl(timeoutMillis,acceptedNanos=nanoTime(),nanoTime=nanoTime)
+        if(expectation is MigrationExpectation.Retry &&
+            (expectation.record.ticket.allocation.key!=key || expectation.record.phase==MigrationPhase.Ready)) return false
+        val control=CacheMigrationControl(timeoutMillis,acceptedNanos=nanoTime(),expectation=expectation,nanoTime=nanoTime)
         val attempt=Attempt(key,control); active=attempt
         try { executor.execute { run(attempt) } }
         catch(failure:Throwable) {

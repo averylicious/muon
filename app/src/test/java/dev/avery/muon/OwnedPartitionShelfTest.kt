@@ -293,4 +293,75 @@ class OwnedPartitionShelfTest {
             assertEquals(0,f.budget.resident)
         } finally { f.provider.close() }
     }
+    private fun <T> onWorker(read:()->T):T {
+        val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
+        try { return worker.submit<T> { read() }.get(10,TimeUnit.SECONDS) }
+        finally { worker.shutdownNow(); check(worker.awaitTermination(10,TimeUnit.SECONDS)) }
+    }
+    @Test fun restartedInterruptedMigrationRequiresExactConsentAndPreservesAllEarlierBytes() {
+        val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
+        try {
+            first.prepare()
+            assertThrows(IOException::class.java) {
+                first.migrate(CacheMigrationControl(10000,nanoTime={0L}),"old",{Long.MAX_VALUE},{
+                    CacheMigrationJournal(f.root,create=false).use {
+                        if(it.find("old")?.phase==MigrationPhase.Verified) throw IOException("Stopped before publish")
+                    }
+                })
+            }
+            val shown=CacheMigrationJournal(f.root,create=false).use { requireNotNull(it.find("old")) }
+            assertEquals(MigrationPhase.Uncertain,shown.phase); assertEquals(0,f.budget.resident)
+            val files=File(f.root,"resources/${shown.ticket.allocation.directory}").walkTopDown()
+                .filter { it.isFile }.associateWith { it.readBytes() }
+            assertTrue(files.isNotEmpty()); teardown(first); firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            assertThrows(IllegalStateException::class.java) { next.migrationRecoveryPage() }
+            assertEquals(listOf(shown),onWorker { next.migrationRecoveryPage() })
+            assertEquals(0,f.budget.resident); assertTrue(onWorker { next.audio.contains("old") })
+            assertTrue(next.startMigration("old",30000,true)); awaitMigration(next)
+            assertEquals(MigrationWorkPhase.Failed,next.migrationProgress.phase)
+            CacheMigrationJournal(f.root,create=false).use { assertEquals(shown,it.find("old")) }
+            assertFalse(next.retryMigration(shown,30000,false)); assertEquals(0,f.budget.resident)
+            assertTrue(next.retryMigration(shown,30000,true)); awaitMigration(next)
+            assertEquals(MigrationWorkPhase.Ready,next.migrationProgress.phase)
+            val ready=CacheMigrationJournal(f.root,create=false).use { requireNotNull(it.ready("old")) }
+            assertNotEquals(shown.ticket.allocation,ready.ticket.allocation)
+            files.forEach { (file,bytes) -> assertArrayEquals(bytes,file.readBytes()) }
+            assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+            assertFalse(next.retryMigration(ready,30000,true))
+            assertTrue(next.retryMigration(shown,30000,true)); awaitMigration(next)
+            assertEquals(MigrationWorkPhase.Failed,next.migrationProgress.phase)
+            CacheMigrationJournal(f.root,create=false).use { assertEquals(ready,it.ready("old")) }
+        } finally { resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
+    }
+    @Test fun recoveryPagesAreBoundedAndInterruptedSavesAreNotAdoptedAfterRestart() {
+        val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
+        try {
+            first.prepare()
+            CachePartitionCatalog(f.root,create=false).use { catalog ->
+                CacheMigrationJournal(f.root,create=false).use { migration ->
+                    for(i in 0 until PARTITION_LOCATOR_WINDOW+3) {
+                        val allocation=catalog.reserve("migration/$i"); migration.begin(allocation,123L,null)
+                    }
+                }
+                PartitionSaveJournal(f.root,create=false).use { saves ->
+                    for(i in 0 until PARTITION_LOCATOR_WINDOW+3) {
+                        val ticket=saves.begin(catalog.reserve("saved/$i")); saves.opening(ticket)
+                    }
+                }
+            }
+            teardown(first); firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            val page=onWorker { next.migrationRecoveryPage() }
+            assertEquals(PARTITION_LOCATOR_WINDOW,page.size)
+            assertEquals(3,onWorker { next.migrationRecoveryPage(page.last().ticket.allocation.key) }.size)
+            val saves=onWorker { next.saveRecoveryPage() }; assertEquals(PARTITION_LOCATOR_WINDOW,saves.size)
+            assertTrue(saves.all { it.phase==PartitionSavePhase.Opening })
+            assertEquals(3,onWorker { next.saveRecoveryPage(saves.last().ticket.allocation.key) }.size)
+            assertFalse(onWorker { next.audio.contains(saves.first().ticket.allocation.key) })
+            assertEquals(0,f.budget.resident); assertArrayEquals(payload,f.original.readBytes())
+            assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+        } finally { resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
+    }
+
 }
