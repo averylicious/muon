@@ -85,8 +85,13 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
                 true
             }
         }
-        if(tablePresent(table)) return true
-        if(tablePresent(versions)) db.rawQuery("SELECT 1 FROM $versions WHERE feature=0 AND instance_uid=? LIMIT 1",arrayOf(name)).use {
+        val indexPresent=tablePresent(table)
+        val versionPresent=tablePresent(versions)
+        if(indexPresent) {
+            if(!versionPresent) throw IOException("Saved index table has no version table")
+            return true
+        }
+        if(versionPresent) db.rawQuery("SELECT 1 FROM $versions WHERE feature=0 AND instance_uid=? LIMIT 1",arrayOf(name)).use {
             if(it.moveToFirst()) throw IOException("Optional save index version exists without its table")
         }
         return false

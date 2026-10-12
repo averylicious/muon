@@ -158,4 +158,14 @@ class PartitionCompletionIndexTest {
         }
     }
 
+    @Test fun versionViewCannotMasqueradeAsAValidStartupReceipt() {
+        val (_,lookup)=seed()
+        db.execSQL("ALTER TABLE ExoPlayerVersions RENAME TO backed_versions")
+        db.execSQL("CREATE VIEW ExoPlayerVersions AS SELECT feature,instance_uid,version FROM backed_versions")
+        assertEquals(3,VersionTable.getVersion(db,VersionTable.FEATURE_OFFLINE,"test"))
+        assertThrows(IOException::class.java) { lookup.requireSupportedOrAbsent() }
+        assertThrows(IOException::class.java) { lookup.holdsNameIfPresent(key) }
+        assertEquals(1L,count())
+    }
+
 }
