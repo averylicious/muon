@@ -106,6 +106,27 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
         } finally { if(!quarantined) permit.close() }
     }
 
+    /** Bounded first-opt-in card census over this already owned read-only connection. Even an
+     * empty initialized card index means inaccessible native names cannot be ruled out. No native
+     * cache, row hydration, SQL mutation or independent database lifetime is introduced. */
+    @Synchronized internal fun hasCardShelf():Boolean {
+        checkpoint();val permit=barrier.shared();var quarantined=false
+        try {
+            permit.check()
+            val provider=object:androidx.media3.database.DatabaseProvider {
+                override fun getReadableDatabase():SQLiteDatabase {checkpoint();return requireNotNull(index)}
+                override fun getWritableDatabase():SQLiteDatabase=throw IOException("Startup review is read-only")
+            }
+            return PartitionCompletionIndex(provider,"card",directoryIo).hasShelfIfPresent().also {checkpoint();permit.check()}
+        } catch(failure:Throwable) {
+            if(failure is MigrationIoUncertain || !directoryIo.quiescent) {
+                phase=Phase.Uncertain;permit.quarantine(this);quarantined=true
+                throw PartitionOwnershipUncertain(this,failure)
+            }
+            throw failure
+        } finally {if(!quarantined) permit.close()}
+    }
+
     /** Borrow the same live connection for an exclusive migration in the SAME session/gate. Ready
      * still grants routing only, never source deletion. Reader-at-EOF prevents this acquisition.
      */

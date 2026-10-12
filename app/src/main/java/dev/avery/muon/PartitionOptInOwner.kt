@@ -25,7 +25,7 @@ internal class PartitionOptInOwner(private val barrier:SavedStorageBarrier,
                 if(root.directory.exists() || java.nio.file.Files.isSymbolicLink(root.directory.toPath()))
                     throw IOException("Partition setup root already exists; review recovery instead")
             permit=barrier.exclusive();checkCurrent();permit.check()
-            if(plan.card==null && cardIndex.hasRowsIfPresent())
+            if(plan.card==null && cardIndex.hasShelfIfPresent())
                 throw IOException("Reconnect the original card before choosing partition storage")
             checkCurrent();plan.validate();permit.check()
             // Block waiting writers too. There is deliberately no reset/live manager swap, even if

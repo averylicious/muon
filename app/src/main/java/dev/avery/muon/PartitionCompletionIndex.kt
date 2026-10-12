@@ -111,6 +111,12 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
         try { return if(present(provider.readableDatabase)) holdsName(key) else false }
         catch(failure:SQLiteException) { throw IOException("Optional save index cannot be established",failure) }
     }
+    /** An unavailable old shelf may hold orphaned native names even without download rows.
+     * First opt-in therefore preserves any existing supported shelf index, including an empty one. */
+    @Synchronized fun hasShelfIfPresent():Boolean {
+        try {val db=provider.readableDatabase;if(!present(db)) return false;schema(db);return true}
+        catch(failure:SQLiteException) {throw IOException("Saved shelf census unavailable",failure)}
+    }
     /** Initial opt-in must not silently drop an unavailable card's records. Any state counts;
      * observe a single scalar without hydrating request data or initializing an absent index. */
     @Synchronized fun hasRowsIfPresent():Boolean {

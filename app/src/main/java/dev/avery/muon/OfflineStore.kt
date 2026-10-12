@@ -183,7 +183,23 @@ internal object OfflineStore {
         bind={ ready:PreparedStorage -> startup.open { bindStorage(ready,it) }.also { store=it } })
     @Volatile private var startupContext:Context?=null
     val availability:kotlinx.coroutines.flow.StateFlow<StorageAvailability> get()=initialization.availability
+    private val startupAdmission=StorageStartupAdmission()
+    private val startupReview=PartitionStartupReviewOwner(startupAdmission)
+    internal val startupReviewPhase:PartitionOptInPhase get()=startupReview.phase
+    internal val isStartupReviewSelected:Boolean get()=startupAdmission.reviewing
+    internal fun claimStartupReview():Boolean=PARTITION_OPT_IN_AVAILABLE && startupAdmission.review()
+    internal fun beginStartupReviewOptIn(context:Context,explicitConsent:Boolean):Boolean {
+        check(Looper.myLooper()==Looper.getMainLooper()) {"Startup review admission requires main"}
+        if(!explicitConsent || !startupAdmission.reviewing || startupReview.phase!=PartitionOptInPhase.New || !moveExclusion.tryAcquire()) return false
+        val app=context.applicationContext
+        try {mover.execute {
+            try {startupReview.request(app,true)} catch(_:Exception) {startupReview.refusePreflight()}
+            finally {Handler(Looper.getMainLooper()).post {moveExclusion.release();DownloadMarks.revision++}}
+        }} catch(_:java.util.concurrent.RejectedExecutionException) {moveExclusion.release();return false}
+        return true
+    }
     suspend fun await(context:Context):Store {
+        startupAdmission.normal()
         current()?.let { return it }
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
             if(startupContext==null) startupContext=context.applicationContext
@@ -1472,7 +1488,7 @@ internal object OfflineStore {
      * released or replaced; explicitly reviewed Resume takes effect after full process restart. */
     internal fun beginPartitionSetupResume(context:Context,explicitConsent:Boolean):Boolean {
         check(Looper.myLooper()==Looper.getMainLooper()) {"Setup review admission requires main"}
-        if(!explicitConsent || current()!=null || availability.value!=StorageAvailability.Failed ||
+        if(!explicitConsent || current()!=null || (availability.value!=StorageAvailability.Failed && !startupAdmission.reviewing) ||
             partitionSetupReview.phase!=PartitionSetupReviewPhase.New || !moveExclusion.tryAcquire()) return false
         val prefs=context.applicationContext.getSharedPreferences("storage",Context.MODE_PRIVATE)
         try {mover.execute {

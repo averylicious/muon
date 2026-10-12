@@ -120,6 +120,24 @@ class LegacyTransitionOwnerTest {
             assertEquals(1,f.barrier.active); f.unchanged()
         } finally { retained?.close() } // Fixture-only actual teardown, no production reset.
     }
+    @Test fun unknownActualCardCensusCursorCloseRetainsTheReadOnlyOwnerAndRefusesNormalCleanup() {
+        val f=Fixture();val owner=f.owner();owner.open()
+        var child:java.io.Closeable?=null;var closes=0
+        val io=MigrationIoOwnership(closeHandle={child=it;closes++;throw IOException("Unknown card census close")})
+        LegacyTransitionOwner::class.java.getDeclaredField("directoryIo").apply {isAccessible=true}.set(owner,io)
+        try {
+            assertThrows(PartitionOwnershipUncertain::class.java) {owner.hasCardShelf()}
+            assertEquals(1,closes);assertFalse(f.barrier.quiescent);assertFalse(f.barrier.allowsShared)
+            assertThrows(IOException::class.java) {owner.close()};assertEquals(1,closes)
+            val slots=SavedStorageBarrier::class.java.getDeclaredField("slots").apply {isAccessible=true}.get(f.barrier) as Array<*>
+            val lease=slots.filterNotNull().single()
+            assertSame(owner,lease.javaClass.getDeclaredField("retained").apply {isAccessible=true}.get(lease))
+            f.unchanged()
+        } finally {
+            child?.close() // Known injected callback did not close the actual cursor.
+            (LegacyTransitionOwner::class.java.getDeclaredField("index").apply {isAccessible=true}.get(owner) as SQLiteDatabase).close()
+        }
+    }
     @Test fun migrationUsesTheOwnedReadOnlyConnectionAndRequiresTheSameSessionGate() {
         val f=Fixture(); val owner=f.owner(); val legacy=owner.open()
         val provider=StandaloneDatabaseProvider(RuntimeEnvironment.getApplication())

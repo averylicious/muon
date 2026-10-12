@@ -109,6 +109,16 @@ class PartitionOptInOwnerTest {
             } finally {database.close()}
         }
     }
+    @Test fun absentCardWithEmptySupportedIndexStillProtectsUnindexedNativeAudio() {
+        val plan=plan();val gate=SavedStorageBarrier();val database=StandaloneDatabaseProvider(app)
+        try {
+            DefaultDownloadIndex(database,"card").getDownloads().use {assertFalse(it.moveToNext())}
+            val owner=PartitionOptInOwner(gate,PartitionStartupSettings(prefs),PartitionCompletionIndex(database,"card"))
+            assertThrows(IOException::class.java) {owner.request(plan,true) {}}
+            assertEquals(PartitionOptInPhase.Refused,owner.phase);assertTrue(gate.allowsShared)
+            assertFalse(prefs.contains(PartitionStartupSettings.KEY));assertFalse(plan.phone.directory.exists())
+        } finally {database.close()}
+    }
     @Test fun unknownActualCardCursorCloseQuarantinesExactOptInOwnerBeforePreferenceWrite() {
         val plan=plan();val gate=SavedStorageBarrier();val database=StandaloneDatabaseProvider(app)
         var child:java.io.Closeable?=null;var closes=0

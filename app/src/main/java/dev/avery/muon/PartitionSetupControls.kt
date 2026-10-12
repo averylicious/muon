@@ -37,7 +37,7 @@ internal fun PartitionSetupControls(store:OfflineStore.Store?,availability:Stora
     val stopped=store?.partitionOptInOwner?.admissionStopped==true ||
         optIn==PartitionOptInPhase.RestartRequired || optIn==PartitionOptInPhase.Uncertain ||
         review in setOf(PartitionSetupReviewPhase.RestartRequired,PartitionSetupReviewPhase.Uncertain)
-    val interrupted=choice?.phase==PartitionStartupPhase.Preparing && availability==StorageAvailability.Failed && store==null
+    val interrupted=choice?.phase==PartitionStartupPhase.Preparing && (availability==StorageAvailability.Failed || OfflineStore.isStartupReviewSelected) && store==null
     val legacy=store?.phone?.partition==null && store!=null && backend==StorageBackendSelection.Legacy
     if(!legacy && !interrupted && !stopped) return false
     Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh,modifier=Modifier.fillMaxWidth()) {
@@ -47,11 +47,12 @@ internal fun PartitionSetupControls(store:OfflineStore.Store?,availability:Stora
                 optIn==PartitionOptInPhase.Uncertain || review==PartitionSetupReviewPhase.Uncertain ->
                     "The setup choice could not be confirmed. Existing copies are kept. Fully restart Muon before reviewing it again."
                 pending -> "Saving the startup choice. Wait for confirmation before fully restarting Muon; saved storage may already be paused."
-                stopped -> "The startup choice is saved. Fully close and reopen Muon before using saved storage. Existing copies are kept; no managers are replaced while the app is running."
+                stopped -> "The startup choice is saved. Use Android App info to Force stop Muon, then reopen it before using saved storage. Existing copies are kept; no managers are replaced while the app is running."
                 interrupted -> "Setup stopped before every storage owner was ready. Review Resume to preserve partial roots; Muon will not recreate or repair them automatically. Reconnect the original SD card first."
                 else -> "Use bounded saved-storage owners after a full restart. Existing originals stay readable. Optimizing each copy is a separate action that needs temporary free space; deleting or moving remains explicit."
             },style=MaterialTheme.typography.bodyMedium)
             if(refused || optIn==PartitionOptInPhase.Refused) Text("Couldn't start. Stop saved playback and downloads, wait for storage work, and reconnect the original card before trying again.",style=MaterialTheme.typography.bodySmall)
+            if(stopped) TextButton(onClick={openMuonAppInfo(context)}) {Text("Open Android app info")}
             if(!stopped) TextButton(enabled=!pending,onClick={confirm=true}) {
                 Text(if(pending) "Checking storage…" else if(interrupted) "Review Resume" else "Review opt-in")
             }
