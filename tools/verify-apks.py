@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 import diagnostic_mode
+from apk_manifest import verify_manifest
 
 
 def expectations(env=os.environ):
@@ -49,7 +50,11 @@ def main(build_tools, env=os.environ):
         badging = subprocess.check_output([str(build_tools / 'aapt'), 'dump', 'badging', str(apk)], encoding='utf-8')
         check_badging(variant, badging, package, label, env['MUON_VERSION_CODE'],
                       env['MUON_VERSION_NAME'] + suffix, debuggable)
-        print(f'{variant}: package, version, label, signing certificate and '
+        # Preserve the acceptance branch's compiled export gate in both build modes.
+        analyzer = Path(env['ANDROID_HOME']) / 'cmdline-tools/latest/bin/apkanalyzer'
+        manifest = subprocess.check_output([str(analyzer), 'manifest', 'print', str(apk)], encoding='utf-8')
+        verify_manifest(manifest, package)
+        print(f'{variant}: package, version, label, signing certificate, exported components and '
               f'{"debuggable (diagnostic)" if debuggable else "non-debuggable"} flag verified')
 
 
