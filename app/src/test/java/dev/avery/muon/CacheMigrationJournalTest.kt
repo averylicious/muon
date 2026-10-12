@@ -143,4 +143,61 @@ class CacheMigrationJournalTest {
         }
     }
 
+    @Test fun pendingRecoveryFiltersReadyBeforeHydrationAndPagesOnlyTwoExactRecords() {
+        val root=folders.newFolder()
+        CacheMigrationJournal(root).use {journal ->
+            for(key in listOf("a-ready","b-pending","c-ready","d-verified","e-uncertain")) {
+                val ticket=journal.begin(allocation(key),7,null)
+                when {
+                    key.endsWith("ready") -> {journal.verified(ticket,8,MigrationCopyEvidence(4,1));journal.publish(ticket)}
+                    key.endsWith("verified") -> journal.verified(ticket,8,MigrationCopyEvidence(4,1))
+                    key.endsWith("uncertain") -> journal.uncertain(ticket)
+                }
+            }
+            val first=journal.pendingPage();assertEquals(listOf("b-pending","d-verified"),first.entries.map {it.ticket.allocation.key})
+            assertTrue(first.hasMore);assertEquals("d-verified",first.after)
+            val last=journal.pendingPage(first.after);assertEquals(listOf("e-uncertain"),last.entries.map {it.ticket.allocation.key})
+            assertFalse(last.hasMore);assertTrue(journal.pendingPage(last.after).entries.isEmpty())
+            assertNotNull(journal.ready("a-ready"));assertNotNull(journal.ready("c-ready"))
+        }
+    }
+    @Test fun pendingRecoveryDoesNotHideMalformedPhaseOrHydrateItsOversizedPayload() {
+        val root=folders.newFolder();CacheMigrationJournal(root).use {it.begin(allocation("kept"),7,null)}
+        SQLiteDatabase.openOrCreateDatabase(File(root,"migration-journal-v1.db"),null).use {
+            it.execSQL("UPDATE migrations SET phase=zeroblob(8388608)")
+        }
+        CacheMigrationJournal(root).use {journal ->
+            assertThrows(IOException::class.java) {journal.pendingPage()}
+        }
+        SQLiteDatabase.openOrCreateDatabase(File(root,"migration-journal-v1.db"),null).use {db ->
+            db.rawQuery("SELECT typeof(phase),length(phase) FROM migrations",null).use {
+                assertTrue(it.moveToFirst());assertEquals("blob",it.getString(0));assertEquals(8388608,it.getInt(1))
+            }
+        }
+    }
+    @Test fun pendingRecoveryUnknownActualCursorCloseRetainsConnectionAndRefusesEveryFurtherOperation() {
+        val root=folders.newFolder();var child:java.io.Closeable?=null;var attempts=0
+        val io=MigrationIoOwnership(closeHandle={child=it;attempts++;throw IOException("Unknown actual cursor close")})
+        val journal=CacheMigrationJournal(root,recoveryIo=io)
+        val ticket=journal.begin(allocation("kept"),7,null)
+        val db=CacheMigrationJournal::class.java.getDeclaredField("database").apply {isAccessible=true}.get(journal) as SQLiteDatabase
+        try {
+            assertThrows(MigrationIoUncertain::class.java) {journal.pendingPage()}
+            assertFalse(io.quiescent);assertTrue(db.isOpen);assertEquals(1,attempts)
+            assertThrows(MigrationIoUncertain::class.java) {journal.find("kept")}
+            assertThrows(MigrationIoUncertain::class.java) {journal.page()}
+            assertThrows(MigrationIoUncertain::class.java) {journal.pendingPage()}
+            assertThrows(MigrationIoUncertain::class.java) {journal.begin(allocation("other"),7,null)}
+            assertThrows(MigrationIoUncertain::class.java) {journal.verified(ticket,8,MigrationCopyEvidence(4,1))}
+            assertThrows(MigrationIoUncertain::class.java) {journal.publish(ticket)}
+            assertThrows(MigrationIoUncertain::class.java) {journal.uncertain(ticket)}
+            assertThrows(MigrationIoUncertain::class.java) {journal.close()};assertEquals(1,attempts)
+            db.rawQuery("SELECT COUNT(*) FROM migrations",null).use {assertTrue(it.moveToFirst());assertEquals(1,it.getInt(0))}
+        } finally {
+            // Test callback never attempted raw close. Close only these known fixture handles;
+            // production has no reset or retry-close path over uncertain ownership.
+            child?.close();db.close()
+        }
+    }
+
 }

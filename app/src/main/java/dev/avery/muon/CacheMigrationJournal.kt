@@ -9,6 +9,9 @@ import java.util.UUID
 import java.nio.file.Files
 import android.database.Cursor
 
+internal const val MIGRATION_RECOVERY_PAGE=2
+internal data class MigrationRecoveryPage(val entries:List<MigrationRecord>,val after:String?,val hasMore:Boolean)
+
 internal enum class MigrationPhase { Copying, Verified, Ready, Uncertain }
 internal data class MigrationTicket(val allocation:CachePartitionAllocation, val token:String, val sourceUid:Long)
 internal data class MigrationRecord(val ticket:MigrationTicket, val phase:MigrationPhase,
@@ -18,7 +21,8 @@ internal data class MigrationRecord(val ticket:MigrationTicket, val phase:Migrat
  * coordinator may advance a ticket while holding source/availability/writer/eviction exclusion.
  * Restarted Copying/Verified/Uncertain rows NEVER become Ready without a fresh replacement attempt.
  * A Ready row still needs matching native UID and current volume/ownership before use. */
-internal class CacheMigrationJournal(root:File, create:Boolean=true, private val token:()->String={UUID.randomUUID().toString()}) : Closeable {
+internal class CacheMigrationJournal(root:File, create:Boolean=true, private val token:()->String={UUID.randomUUID().toString()},
+    private val recoveryIo:MigrationIoOwnership=MigrationIoOwnership()) : Closeable {
     private val schema="CREATE TABLE migrations(key BLOB PRIMARY KEY NOT NULL, directory TEXT UNIQUE NOT NULL, token TEXT UNIQUE NOT NULL, source_uid INTEGER NOT NULL, phase INTEGER NOT NULL, target_uid INTEGER, bytes INTEGER, ranges INTEGER)"
     // Bounded projections reject corruption BEFORE CursorWindow loads payload. Invalid nullable
     // numeric types use a small text sentinel so they cannot masquerade as legitimate SQL NULL.
@@ -64,6 +68,9 @@ internal class CacheMigrationJournal(root:File, create:Boolean=true, private val
             } finally { database.endTransaction() }
         } catch (failure:Throwable) { database.close(); throw failure }
     }
+    private fun recoveryOwned() {
+        if(!recoveryIo.quiescent) throw MigrationIoUncertain(recoveryIo,null)
+    }
     private fun identity(key:String) {
         if (key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Migration key exceeds budget")
     }
@@ -104,13 +111,13 @@ internal class CacheMigrationJournal(root:File, create:Boolean=true, private val
     },"SELECT $projection FROM migrations WHERE key=?",null,"migrations").use {
         if(it.moveToFirst()) decode(it) else null
     }
-    @Synchronized fun find(key:String):MigrationRecord? { identity(key); return lookup(key) }
+    @Synchronized fun find(key:String):MigrationRecord? { recoveryOwned(); identity(key); return lookup(key) }
     @Synchronized fun ready(key:String):MigrationRecord?=find(key)?.takeIf { it.phase==MigrationPhase.Ready }
 
     /** Compare-and-set a fresh attempt. Never replace another resource's row through SQL REPLACE. */
     @Synchronized fun begin(allocation:CachePartitionAllocation, sourceUid:Long, expectedToken:String?,
         expectation:MigrationExpectation=MigrationExpectation.Unchecked):MigrationTicket {
-        identity(allocation.key); uuid(allocation.directory)
+        recoveryOwned(); identity(allocation.key); uuid(allocation.directory)
         if(sourceUid<0) throw IOException("Migration source identity unavailable")
         val claim=token(); uuid(claim)
         verifiedHere=null
@@ -142,6 +149,7 @@ internal class CacheMigrationJournal(root:File, create:Boolean=true, private val
         return row
     }
     @Synchronized fun verified(ticket:MigrationTicket,targetUid:Long,evidence:MigrationCopyEvidence) {
+        recoveryOwned()
         if(targetUid<0 || evidence.bytes<0 || evidence.ranges !in 0..MIGRATION_RANGES ||
             (evidence.ranges==0 && evidence.bytes!=0L) || (evidence.ranges>0 && evidence.bytes<evidence.ranges))
             throw IOException("Invalid migration verification")
@@ -159,6 +167,7 @@ internal class CacheMigrationJournal(root:File, create:Boolean=true, private val
     }
     /** Caller has just performed full comparison after clean reopen/close under unchanged exclusion. */
     @Synchronized fun publish(ticket:MigrationTicket):MigrationRecord {
+        recoveryOwned()
         if(verifiedHere!=ticket) throw IOException("Migration needs fresh verification in this process")
         database.beginTransaction()
         try {
@@ -172,6 +181,7 @@ internal class CacheMigrationJournal(root:File, create:Boolean=true, private val
         } finally { database.endTransaction() }
     }
     @Synchronized fun uncertain(ticket:MigrationTicket) {
+        recoveryOwned()
         if(verifiedHere==ticket) verifiedHere=null
         database.beginTransaction()
         try {
@@ -187,6 +197,7 @@ internal class CacheMigrationJournal(root:File, create:Boolean=true, private val
     }
     /** Keyset page of at most16 exact records. Concurrent insertion needs a new scan. */
     @Synchronized fun page(after:String?=null):List<MigrationRecord> {
+        recoveryOwned()
         after?.let(::identity)
         val where=if(after==null) "" else " WHERE key>?"
         return database.rawQueryWithFactory({_,driver,table,query ->
@@ -197,5 +208,22 @@ internal class CacheMigrationJournal(root:File, create:Boolean=true, private val
             rows
         }
     }
-    @Synchronized override fun close() { verifiedHere=null; database.close() }
+    /** Recovery retains at most two scalar records, filtering Ready before cursor hydration.
+     * Malformed phase values are deliberately included so corruption cannot become false absence.
+     * Unknown actual cursor close retains its exact connection through this journal/root owner.
+     */
+    @Synchronized fun pendingPage(after:String?=null):MigrationRecoveryPage {
+        recoveryOwned();after?.let(::identity)
+        val where="(typeof(phase)!='integer' OR phase!=${MigrationPhase.Ready.ordinal})"+
+            if(after==null) "" else " AND key>?"
+        val rows=recoveryIo.useOwned({database.rawQueryWithFactory({_,driver,table,query ->
+            after?.let {query.bindBlob(1,savedCatalogSortKey(it))};SQLiteCursor(driver,table,query)
+        },"SELECT $projection FROM migrations WHERE $where ORDER BY key LIMIT $MIGRATION_RECOVERY_PAGE",null,"migrations")}) {
+            val entries=ArrayList<MigrationRecord>(MIGRATION_RECOVERY_PAGE)
+            while(it.moveToNext()) entries+=decode(it)
+            entries
+        }
+        return MigrationRecoveryPage(rows,rows.lastOrNull()?.ticket?.allocation?.key,rows.size==MIGRATION_RECOVERY_PAGE)
+    }
+    @Synchronized override fun close() { recoveryOwned();verifiedHere=null; database.close() }
 }

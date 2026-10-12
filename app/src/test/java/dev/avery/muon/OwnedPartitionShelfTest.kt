@@ -2550,4 +2550,37 @@ class OwnedPartitionShelfTest {
         } finally {teardown(owner);f.provider.close()}
     }
 
+    @Test fun pendingMigrationCursorUncertaintyQuarantinesActualShelfAndRetainsBorrowedDatabase() {
+        val f=Fixture();val owner=f.owner();onWorker {owner.prepare()}
+        val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply {isAccessible=true}.get(owner)
+        val resources=StorageStartup::class.java.getDeclaredField("opened").apply {isAccessible=true}.get(startup)!!
+        val field=resources.javaClass.getDeclaredField("migrations").apply {isAccessible=true}
+        (field.get(resources) as CacheMigrationJournal).close()
+        var child:java.io.Closeable?=null;var attempts=0
+        val io=MigrationIoOwnership(closeHandle={child=it;attempts++;throw IOException("Unknown actual migration recovery close")})
+        val journal=CacheMigrationJournal(f.root,false,recoveryIo=io);field.set(resources,journal)
+        val db=CacheMigrationJournal::class.java.getDeclaredField("database").apply {isAccessible=true}.get(journal) as SQLiteDatabase
+        try {
+            assertThrows(MigrationIoUncertain::class.java) {onWorker {owner.pendingMigrationSummaries()}}
+            assertFalse(f.barrier.allowsShared);assertTrue(db.isOpen);assertEquals(1,attempts)
+            assertThrows(IOException::class.java) {onWorker {owner.pendingMigrationSummaries()}}
+            assertThrows(MigrationIoUncertain::class.java) {journal.close()};assertEquals(1,attempts)
+            assertArrayEquals(payload,f.original.readBytes());assertEquals(0,f.budget.resident)
+        } finally {
+            // This injected callback never actually closed its cursor; no reset of the real gate.
+            child?.close();db.close()
+            (resources.javaClass.getDeclaredField("workers").apply {isAccessible=true}.get(resources) as java.util.concurrent.ExecutorService).shutdown()
+            val legacy=resources.javaClass.getDeclaredField("legacy").apply {isAccessible=true}.get(resources)
+            (LegacyTransitionOwner::class.java.getDeclaredField("index").apply {isAccessible=true}.get(legacy) as SQLiteDatabase?)?.close()
+            for(name in listOf("saves","catalog"))
+                (resources.javaClass.getDeclaredField(name).apply {isAccessible=true}.get(resources) as java.io.Closeable).close()
+            onWorker {
+                (resources.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(resources) as LegacyRetirementJournal).close()
+                (resources.javaClass.getDeclaredField("moves").apply {isAccessible=true}.get(resources) as PartitionSavedMoveJournal).close()
+                (resources.javaClass.getDeclaredField("deletes").apply {isAccessible=true}.get(resources) as PartitionSavedDeleteJournal).close()
+            }
+            f.provider.close()
+        }
+    }
+
 }
