@@ -503,8 +503,9 @@ class OwnedPartitionShelfTest {
             val command=owner.prepareSave(request); assertTrue(owner.deliver(command,request) {it.addDownload(request)})
             await(manager) {manager.downloadIndex.getDownload(id)?.state==Download.STATE_COMPLETED}
             val phone=Shelf.partitioned(owner,MuonDownloadService::class.java)
-            val store=OfflineStore.Store(phone,DownloadArt(folders.newFolder()),PlayedSongEvictor(8192L) {},
-                app.getSharedPreferences("bulk-reader-fixture",0),f.provider,{}, {},storageBarrier=f.barrier)
+            val art=DownloadArt(folders.newFolder(),barrier=f.barrier);val artwork=coverWork(art,f.barrier)
+            val store=OfflineStore.Store(phone,art,PlayedSongEvictor(8192L) {},
+                app.getSharedPreferences("bulk-reader-fixture",0),f.provider,{}, {},artwork=artwork,storageBarrier=f.barrier)
             field.set(OfflineStore,store)
             val reader=owner.audio.source.createDataSource()
             try {
