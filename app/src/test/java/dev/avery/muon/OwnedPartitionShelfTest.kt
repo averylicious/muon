@@ -1050,6 +1050,7 @@ class OwnedPartitionShelfTest {
         val index=DefaultDownloadIndex(f.provider,"owned_partition")
         var target:OwnedPartitionShelf
         var sourceClosed=false; var targetClosed=false
+        var targetVolume:String?="fixture"
         init {
             val cache=SimpleCache(targetLegacy,NoOpCacheEvictor(),f.provider); cache.checkInitialization(); cache.release()
             index.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
@@ -1059,7 +1060,7 @@ class OwnedPartitionShelfTest {
         }
         fun target(start:PartitionShelfStart=PartitionShelfStart.Fresh)=OwnedPartitionShelf(
             RuntimeEnvironment.getApplication(),targetRoot,targetLegacy,f.databaseFile,f.provider,"publication_target",
-            "fixture",{"fixture"},start,f.barrier,{true},
+            "fixture",{targetVolume},start,f.barrier,{true},
             DataSource.Factory {throw AssertionError("Local publication must never stream live upstream")},f.budget)
         fun prepare()=onWorker {source.copyCompletedOriginalTo(target,"81",key,true)}
         fun close() {
@@ -1462,13 +1463,18 @@ class OwnedPartitionShelfTest {
         } finally {f.close()}
     }
 
+    private fun retirementJournal(owner:OwnedPartitionShelf):LegacyRetirementJournal {
+        val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply {isAccessible=true}.get(owner)
+        val opened=StorageStartup::class.java.getDeclaredField("opened").apply {isAccessible=true}.get(startup)!!
+        return opened.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(opened) as LegacyRetirementJournal
+    }
     @Test fun cancellationCallbackCannotRelabelDurablyRecordedCoveredIntent() {
         val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
-        val work=coverWork(art,f.f.barrier)
+        val work=coverWork(art,f.f.barrier); val journal=retirementJournal(f.source)
         try {
             val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
             val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work,checkpoint={
-                if(f.source.retirementRecoveryPage().isNotEmpty()) throw java.io.InterruptedIOException("Late cancellation")
+                if(journal.page().isNotEmpty()) throw java.io.InterruptedIOException("Late cancellation")
             })}
             assertEquals(intent,onWorker {f.source.retirementRecoveryPage().single()})
             assertTrue(f.f.original.exists()); assertEquals(LegacyRetirementPhase.Pending,intent.phase)
@@ -1476,18 +1482,49 @@ class OwnedPartitionShelfTest {
     }
     @Test fun cancellationCallbackCannotRelabelDurablyCompletedMoveAsPendingFailure() {
         val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
-        val work=coverWork(art,f.f.barrier)
+        val work=coverWork(art,f.f.barrier); val journal=retirementJournal(f.source)
         try {
             val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
             val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
             val result=onWorker {f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true},checkpoint={
-                if(f.source.retirementRecoveryPage().single().phase==LegacyRetirementPhase.Complete)
+                if(journal.page().single().phase==LegacyRetirementPhase.Complete)
                     throw java.io.InterruptedIOException("Late cancellation")
             })}
             assertEquals(OfflineStore.SavedRemoval.Sent,result)
             assertEquals(LegacyRetirementPhase.Complete,onWorker {f.source.retirementRecoveryPage().single().phase})
             assertFalse(f.f.original.exists()); assertNull(f.index.getDownload("81")); assertTrue(f.f.barrier.quiescent)
         } finally {f.close()}
+    }
+
+    @Test fun unavailableVolumeOrReplacedDestinationRootRefusesBeforeSourceRemovalAndCanResumeWhenExactRootReturns() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier); val held=File(f.targetRoot.parentFile,"held-target")
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            f.targetVolume=null
+            assertThrows(IOException::class.java) {onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            }}
+            f.targetVolume="fixture"
+            java.nio.file.Files.move(f.targetRoot.toPath(),held.toPath()); java.nio.file.Files.createDirectory(f.targetRoot.toPath())
+            assertThrows(IOException::class.java) {onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            }}
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertEquals(intent,onWorker {f.source.retirementRecoveryPage().single()})
+            java.nio.file.Files.delete(f.targetRoot.toPath()); java.nio.file.Files.move(held.toPath(),f.targetRoot.toPath())
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+        } finally {
+            f.targetVolume="fixture"
+            if(held.exists()) {
+                if(f.targetRoot.exists()) java.nio.file.Files.delete(f.targetRoot.toPath())
+                java.nio.file.Files.move(held.toPath(),f.targetRoot.toPath())
+            }
+            f.close()
+        }
     }
 
 }
