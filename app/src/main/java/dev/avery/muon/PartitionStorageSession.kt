@@ -76,6 +76,45 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             throw failure
         }
     }
+    /** Explicit deletion of a NEW owned played copy only. Original legacy/Ready migration
+     * resources and every manager claim are protected. Exclusive admission proves there is no
+     * real reader/writer (including EOF); close idle pools before opening the exact target.
+     * Closed remains a durable no-fallback claim even after its own bytes/metadata become empty.
+     */
+    private var retainedPlayedRemoval:Any?=null
+    fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Played removal requires a worker" }
+        if(!key.startsWith(playedKey(NEW_SAVE_PREFIX)) || key.length.toLong()*2>MIGRATION_KEY_BYTES)
+            return OfflineStore.SavedRemoval.NotOwned
+        if(stopped || closing || uncertain) return OfflineStore.SavedRemoval.Unavailable
+        val permit=try { barrier.exclusive() } catch(_:IOException) { return OfflineStore.SavedRemoval.Busy }
+        var cache:Cache?=null; var quarantined=false
+        try {
+            requireOpen(); permit.check()
+            val expected=native.savedReadRoute(key)
+            if(expected !is PartitionReadRoute.NewSave || expected.record.phase!=PartitionSavePhase.Closed ||
+                !removable(key) || completionIndex.holdsName(key)) return OfflineStore.SavedRemoval.NotOwned
+            if(native.savedReadRoute(key)!=expected) return OfflineStore.SavedRemoval.NotOwned
+            writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+            requireOpen(); permit.check()
+            cache=native.openClosedSaveRead(key)
+            if(native.savedReadRoute(key)!=expected || cache.uid!=expected.record.uid)
+                throw IOException("Played-copy ownership changed before removal")
+            cache.removeResource(key)
+            permit.check(); cache.release(); cache=null
+            requireOpen(); permit.check()
+            return OfflineStore.SavedRemoval.Sent
+        } catch(failure:Throwable) {
+            if(cache!=null || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) {
+                // No cleanup/release retry after a possibly partial remove/close. Keep the exact
+                // returned owner and actual pools until process teardown, without deleting rows.
+                val handles=arrayOf(cache,writers,published,completed,failure)
+                retainedPlayedRemoval=handles; uncertain=true
+                permit.quarantine(handles); quarantined=true
+            }
+            return OfflineStore.SavedRemoval.Failed
+        } finally { if(!quarantined) permit.close() }
+    }
     fun prepare(request:DownloadRequest)=operation {
         commands.reconcileCompleted(completionIndex::find)
         commands.prepare(request)

@@ -791,6 +791,9 @@ internal object OfflineStore {
         if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
+            store.phone.partition?.let { partition ->
+                return partition.removePlayed(ref.key,store.playedClaims::removable)
+            }
             return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removable) {
                 store.played.quarantine()
             }

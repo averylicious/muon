@@ -391,4 +391,76 @@ class OwnedPartitionShelfTest {
         } finally { resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
     }
 
+    @Test fun explicitOwnedPlayedRemovalRefusesActiveReaderAndCannotReappearAfterRestart() {
+        val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
+        val key=playedKey("saved/remove-owned"); val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
+        val field=OfflineStore::class.java.getDeclaredField("store").apply { isAccessible=true }; val previous=field.get(OfflineStore)
+        try {
+            first.prepare(); val manager=first.initializeManager(); await(manager) { true }
+            onWorker { first.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
+                DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
+            val phone=Shelf.partitioned(first,MuonDownloadService::class.java)
+            val app=RuntimeEnvironment.getApplication<android.app.Application>()
+            val store=OfflineStore.Store(phone,DownloadArt(folders.newFolder()),PlayedSongEvictor(8192L) {},
+                app.getSharedPreferences("played-removal-fixture",0),f.provider,{}, {},storageBarrier=f.barrier)
+            field.set(OfflineStore,store)
+            val ref=requireNotNull(SavedRef.played(key))
+            val reader=first.audio.source.createDataSource()
+            onWorker { assertEquals(4L,reader.open(spec)) }
+            try {
+                assertEquals(OfflineStore.SavedRemoval.Busy,onWorker { OfflineStore.removeSavedNow(app,ref) })
+                onWorker {
+                    val bytes=ByteArray(4); assertEquals(4,reader.read(bytes,0,4)); assertArrayEquals(payload,bytes)
+                    assertEquals(androidx.media3.common.C.RESULT_END_OF_INPUT,reader.read(bytes,0,4))
+                }
+                // EOF is still an actual owned reader and cannot grant deletion.
+                assertEquals(OfflineStore.SavedRemoval.Busy,onWorker { first.removePlayed(key) { true } })
+            } finally { onWorker { reader.close() } }
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker { OfflineStore.removeSavedNow(app,ref) })
+            assertEquals(SavedCoverage.Missing,onWorker { first.audio.inspect(key).coverage })
+            assertEquals(PartitionSavePhase.Closed,onWorker { first.saveRecoveryPage().single().phase })
+            field.set(OfflineStore,previous)
+            teardown(first); firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            assertEquals(SavedCoverage.Missing,onWorker { next.audio.inspect(key).coverage })
+            assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+        } finally { field.set(OfflineStore,previous); resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
+    }
+    @Test fun actualAliasRowProtectsOwnedPlayedBytesWithoutHydratingItsOversizedPayload() {
+        val f=Fixture(); val owner=f.owner(); val key=playedKey("saved/protected-owned")
+        val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
+        try {
+            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker { owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
+                DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
+            val request=DownloadRequest.Builder("saved/foreign-alias",Uri.parse("http://127.0.0.1:7814/file"))
+                .setCustomCacheKey(key).build()
+            val index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(f.provider,"owned_partition")
+            index.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
+            f.provider.writableDatabase.execSQL("UPDATE ExoPlayerDownloadsowned_partition SET data=zeroblob(8388608)")
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { owner.removePlayed(key) { true } })
+            assertEquals(SavedCoverage.Full,onWorker { owner.audio.inspect(key).coverage })
+            f.provider.readableDatabase.rawQuery("SELECT length(data) FROM ExoPlayerDownloadsowned_partition",null).use {
+                assertTrue(it.moveToFirst()); assertEquals(8388608L,it.getLong(0))
+            }
+            assertArrayEquals(payload,f.original.readBytes())
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun deniedClaimAndLegacyOrPublishedOriginalsNeverReachOwnedPlayedDeletion() {
+        val f=Fixture(); val owner=f.owner(); val key=playedKey("saved/denied-owned")
+        val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
+        try {
+            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker { owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
+                DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
+            assertEquals(0,f.budget.resident)
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { owner.removePlayed(key) { false } })
+            assertEquals(0,f.budget.resident)
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { owner.removePlayed("old") { true } })
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { owner.removePlayed(playedKey("saved/not-owned")) { true } })
+            assertEquals(SavedCoverage.Full,onWorker { owner.audio.inspect(key).coverage })
+            assertArrayEquals(payload,f.original.readBytes()); assertTrue(f.barrier.quiescent)
+        } finally { teardown(owner); f.provider.close() }
+    }
+
 }

@@ -125,6 +125,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun copyPlayed(spec:androidx.media3.datasource.DataSpec,song:ByteArray,origin:String,upstream:DataSource.Factory,
         writerCreated:(PlayedCopyWriter)->Unit={},limit:()->Long)=
         resources().session.copyPlayed(spec,song,origin,upstream,writerCreated,limit)
+    fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
+        try { resources().session.removePlayed(key,removable) }
+        catch(_:IOException) { OfflineStore.SavedRemoval.Unavailable }
     fun prepareSave(request:DownloadRequest)=resources().manager.prepare(request)
     fun abandonPrepared(request:DownloadRequest)=resources().manager.abandonPrepared(request)
     fun deliverPrepared(request:DownloadRequest,start:(DownloadManager)->Unit)=resources().manager.deliverPrepared(request,start)
