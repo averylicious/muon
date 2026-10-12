@@ -2122,6 +2122,30 @@ class OwnedPartitionShelfTest {
             } finally {secondRelease.countDown()}
         } finally {release.countDown();m.close()}
     }
+    @Test fun savedMigrationAdmissionRejectsAliasesAndPlayedCopiesAndPreservesActualOriginal() {
+        val m=MigrationDispatchFixture()
+        try {
+            val alias=requireNotNull(SavedRef.download(SavedShelf.Phone,"other",m.f.oldKey))
+            assertFalse(OfflineStore.beginSavedMigration(m.app,alias,true))
+            val played=requireNotNull(SavedRef.played(playedKey("saved/fixture")))
+            assertFalse(OfflineStore.beginSavedMigration(m.app,played,true))
+            val original=requireNotNull(SavedRef.download(SavedShelf.Phone,m.f.oldKey,m.f.oldKey))
+            assertFalse(OfflineStore.beginSavedMigration(m.app,original,false))
+            assertTrue(OfflineStore.beginSavedMigration(m.app,original,true));m.drain()
+            assertEquals(MigrationWorkPhase.Ready,m.store.migrationStatus!!.progress.phase);m.intact()
+        } finally {m.close()}
+    }
+    @Test fun selectedMigrationOfferIsOffMainBoundedAndDisappearsAfterActualPublication() {
+        val m=MigrationDispatchFixture()
+        try {
+            assertThrows(IllegalStateException::class.java) {m.owner.freshMigrationAvailable(m.f.oldKey)}
+            assertFalse(onWorker {m.owner.freshMigrationAvailable("missing")})
+            assertFalse(onWorker {m.owner.freshMigrationAvailable(playedKey("saved/fixture"))})
+            assertTrue(onWorker {m.owner.freshMigrationAvailable(m.f.oldKey)})
+            assertTrue(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true));m.drain()
+            assertFalse(onWorker {m.owner.freshMigrationAvailable(m.f.oldKey)});m.intact()
+        } finally {m.close()}
+    }
     @Test fun staleApplicationRetryCannotAdoptOrReplaceAnUnshownJournal() {
         val m=MigrationDispatchFixture()
         try {

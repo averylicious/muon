@@ -31,6 +31,8 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
     val scroll = rememberLazyListState()
     LaunchedEffect(offset) { scroll.scrollToItem(0) }
     var confirm by remember { mutableStateOf<SavedEntry?>(null) }
+    var migration by remember {mutableStateOf<SavedEntry?>(null)}
+    val store=OfflineStore.current()
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = if (back != null) 4.dp else 20.dp, end = 20.dp, top = 8.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -73,10 +75,14 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
         LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(bottom = 24.dp)) {
             items(entries, key = { it.ref.handle }, contentType = { "saved" }) { entry ->
                 SavedRow(entry, current == entry.ref.handle, ready && !busy && !preparing && error == null,
-                    play = { play(entry) }, remove = { if (!busy && error == null) confirm = entry })
+                    play = { play(entry) }, remove = { if (!busy && error == null) confirm = entry },
+                    optimize = if(entry.complete && entry.ref.migrationLocator() &&
+                        (if(entry.ref.shelf==SavedShelf.Card) store?.card?.partition else store?.phone?.partition)!=null)
+                        ({if(!busy && !preparing && error==null && DownloadMarks.moving==null) migration=entry}) else null)
             }
         }
     }
+    migration?.let {entry -> SavedMigrationDialog(entry) {migration=null}}
     confirm?.let { entry ->
         AlertDialog(onDismissRequest = { confirm = null },
             title = { Text("Remove this saved copy?") },
@@ -88,7 +94,7 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, play: () -> Unit, remove: () -> Unit) {
+private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, play: () -> Unit, remove: () -> Unit, optimize:(()->Unit)?=null) {
     val colors = MaterialTheme.colorScheme
     val status = when {
         entry.stoppedAfterRestart -> if (entry.complete) "Kept after restart · plays from saved bytes"
@@ -117,6 +123,7 @@ private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, play: 
         },
         trailingContent = {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                optimize?.let {TextButton(enabled=ready && DownloadMarks.moving==null,onClick=it) {Text("Optimize")}}
                 if (entry.ref.source == SavedSource.Download) DownloadBadge(entry.mark)
                 if (entry.removable) IconButton(onClick = remove,
                     modifier = Modifier.semantics { contentDescription = "Remove saved copy ${entry.title()}" }) {

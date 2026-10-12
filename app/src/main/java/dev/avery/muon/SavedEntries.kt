@@ -521,3 +521,6 @@ internal fun SavedEntry.mediaItem(): MediaItem = MediaItem.Builder()
         .apply { if (ownCover) setArtworkUri(Uri.parse(savedArtUrl(ref.requestId))) }
         .build())
     .build().let(::queueOccurrence)
+
+/** Locator shape only, never data identity or permission to mutate storage. */
+internal fun SavedRef.migrationLocator():Boolean=source==SavedSource.Download && requestId==key && !key.startsWith(PLAYED_PREFIX)

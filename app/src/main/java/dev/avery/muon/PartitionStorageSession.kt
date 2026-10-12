@@ -785,6 +785,14 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         if(route!=null && route.phase!=MigrationPhase.Ready || route==null && catalog.find(key)!=null)
             throw IOException("Original removal has an unverified partition claim")
     }
+    /** Bounded selected-copy offer only. Dispatch must still recheck Fresh under exclusive
+     * ownership; a positive UI observation is neither a persisted claim nor Delete authority. */
+    internal fun freshMigrationAvailable(key:String):Boolean = operation {
+        if(key.isEmpty() || key.startsWith(PLAYED_PREFIX) || key.length.toLong()*2>MIGRATION_KEY_BYTES ||
+            holdsDisposition(key) || saves.find(key)!=null || migrations.find(key)!=null || catalog.find(key)!=null) false
+        else completionIndex.findOriginal(key)!=null && !completionIndex.holdsOtherOriginalName(key) &&
+            audio.inspect(key).coverage==SavedCoverage.Full
+    }
     internal fun originalCompletion(key:String,permit:SavedStorageBarrier.Lease,
         unclaimedElsewhere:(String)->Boolean,allowAbsent:Boolean=false):PartitionSaveCompletion? {
         originalClaims(key,permit,unclaimedElsewhere)

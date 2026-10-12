@@ -1433,6 +1433,12 @@ internal object OfflineStore {
         return true // Submission only; scalar callbacks/journal determine completion.
     }
 
+    /** Saved-screen admission uses its exact locator, never a live Tauon ID or a display tag. */
+    internal fun beginSavedMigration(context:Context,ref:SavedRef,explicitConsent:Boolean):Boolean {
+        if(!ref.migrationLocator()) return false
+        return beginPartitionMigration(context,ref.shelf==SavedShelf.Card,ref.key,explicitConsent)
+    }
+
     /** Explicit single-resource optimization on the existing serial storage worker. The admission
      * deadline includes its pending slot; cancellation never releases exclusion before worker exit.
      * Originals/records/covers remain, and equal byte counters do not imply durable Ready. */

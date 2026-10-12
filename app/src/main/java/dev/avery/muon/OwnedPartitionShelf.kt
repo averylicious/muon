@@ -684,6 +684,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun retirementRecoveryPage(after:String?=null):List<LegacyRetirementRecord> = recoveryRead {it.retirements.page(after)}
     fun migrationRecoveryPage(after:String?=null):List<MigrationRecord> = recoveryRead { it.migrations.page(after) }
     internal fun pendingMigrationSummaries(after:String?=null):MigrationRecoveryPage = recoveryRead {it.migrations.pendingPage(after)}
+    internal fun freshMigrationAvailable(key:String):Boolean = recoveryRead {it.session.freshMigrationAvailable(key)}
     fun deleteRecoveryPage(after:String?=null):List<PartitionSavedDeleteRecord> = recoveryRead {it.deletes.page(after)}
     fun moveRecoveryPage(after:String?=null):List<PartitionSavedMoveRecord> = recoveryRead {it.moves.page(after)}
     fun saveRecoveryPage(after:String?=null):List<PartitionSaveRecord> = recoveryRead { it.saves.page(after) }
