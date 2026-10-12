@@ -1,6 +1,5 @@
 package dev.avery.muon
 
-import android.content.ContentValues
 import android.database.Cursor
 import android.database.sqlite.SQLiteCursor
 import android.database.sqlite.SQLiteDatabase
@@ -18,7 +17,13 @@ internal data class PartitionSaveRecord(val ticket:PartitionSaveTicket,val phase
  * Opening/Open left by a crash NEVER authorizes reopen. Only the owned native lifecycle records
  * Closed after durable index/metadata checks; Unknown retains bytes and requires explicit recovery.
  * Exact remote identity, command exclusion and completion still belong to the production owner. */
-internal class PartitionSaveJournal(root:File,create:Boolean=false,
+internal class PartitionSaveJournal(private val root:File,private val create:Boolean=false,
+    private val io:MigrationIoOwnership=MigrationIoOwnership(),private val autoOpen:Boolean=true,
+    private val openDatabase:(File,Boolean)->SQLiteDatabase={file,fresh ->
+        if(fresh) SQLiteDatabase.openOrCreateDatabase(file,null)
+        else SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READWRITE)},
+    private val closeDatabase:(SQLiteDatabase)->Unit={it.close()},
+    private val finishTransaction:(SQLiteDatabase)->Unit={it.endTransaction()},
     private val token:()->String={UUID.randomUUID().toString()}) : Closeable {
     private val schema="CREATE TABLE saves(key BLOB PRIMARY KEY NOT NULL,directory TEXT UNIQUE NOT NULL,token TEXT UNIQUE NOT NULL,phase INTEGER NOT NULL,uid INTEGER)"
     private val projection=listOf(
@@ -27,42 +32,84 @@ internal class PartitionSaveJournal(root:File,create:Boolean=false,
         "CASE WHEN typeof(token)='text' AND length(CAST(token AS BLOB))=36 THEN token ELSE NULL END",
         "CASE WHEN typeof(phase)='integer' THEN phase ELSE NULL END",
         "CASE WHEN typeof(uid) IN ('integer','null') THEN uid ELSE 'invalid' END").joinToString(",")
-    private val db:SQLiteDatabase
-    init {
-        if(create && !root.exists() && !root.mkdirs()) throw IOException("Save journal directory unavailable")
-        if(!root.isDirectory || root.absoluteFile!=root.canonicalFile || Files.isSymbolicLink(root.toPath()))
-            throw IOException("Save journal directory differs")
-        val file=File(root,"new-save-journal-v1.db")
-        if(create) {
-            if(file.exists()) throw IOException("Fresh save journal already exists")
-        } else if(!file.isFile || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
-            throw IOException("Save journal is missing or changed")
-        db=if(create) SQLiteDatabase.openOrCreateDatabase(file,null)
-            else SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READWRITE)
+    private enum class Phase { New,Opening,Open,Unsupported,Closing,Uncertain,Closed }
+    private var phase=Phase.New
+    private var database:SQLiteDatabase?=null
+    @get:Synchronized val ownershipUncertain:Boolean get()=phase==Phase.Uncertain
+    private fun unknown(failure:Throwable):Nothing {
+        phase=Phase.Uncertain
+        throw PartitionOwnershipUncertain(this,failure)
+    }
+    private fun db():SQLiteDatabase {
+        if(phase!=Phase.Open) throw IOException("Save journal is not open or its ownership is uncertain")
+        if(!io.quiescent) unknown(MigrationIoUncertain(io,null))
+        return requireNotNull(database)
+    }
+    private fun <R:Closeable,T> useOwned(create:()->R,read:(R)->T):T {
         try {
-            db.execSQL("PRAGMA cache_size=-256"); db.execSQL("PRAGMA synchronous=FULL")
-            transaction {
+            return io.useOwned(create,read).also {
+                if(phase==Phase.Uncertain) unknown(IOException("Save journal became uncertain during I/O"))
+            }
+        } catch(failure:Throwable) {
+            if(failure is MigrationIoUncertain || phase==Phase.Uncertain) unknown(failure)
+            throw failure
+        }
+    }
+    private fun begin(db:SQLiteDatabase) {
+        try {db.beginTransaction()} catch(failure:Throwable) {unknown(failure)}
+    }
+    private fun successful(db:SQLiteDatabase) {
+        try {db.setTransactionSuccessful()} catch(failure:Throwable) {unknown(failure)}
+    }
+    private fun end(db:SQLiteDatabase) {
+        // Never roll back/release a database over an actual statement whose close is unknown.
+        if(phase==Phase.Uncertain || !io.quiescent) unknown(IOException("Save transaction still owns uncertain I/O"))
+        try {finishTransaction(db)} catch(failure:Throwable) {unknown(failure)}
+    }
+    init {if(autoOpen) open()}
+    /** Production owns this object before any schema/transaction work. No automatic recovery. */
+    @Synchronized fun open() {
+        if(phase==Phase.Open) return
+        if(phase!=Phase.New) throw IOException("Save journal startup cannot be retried")
+        phase=Phase.Opening
+        try {
+            if(create && !root.exists() && !root.mkdirs()) throw IOException("Save journal directory unavailable")
+            if(!root.isDirectory || root.absoluteFile!=root.canonicalFile || Files.isSymbolicLink(root.toPath()))
+                throw IOException("Save journal directory differs")
+            val file=File(root,"new-save-journal-v1.db")
+            if(create) {
+                if(file.exists()) throw IOException("Fresh save journal already exists")
+            } else if(!file.isFile || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
+                throw IOException("Save journal is missing or changed")
+            val opened=try {openDatabase(file,create)} catch(failure:Throwable) {unknown(failure)}
+            database=opened
+            opened.execSQL("PRAGMA cache_size=-256");opened.execSQL("PRAGMA synchronous=FULL")
+            transaction(opened) {
                 if(create) {
-                    if(db.version!=0) throw IOException("Fresh save journal version differs")
-                    db.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND NOT (type='table' AND name='android_metadata')",null).use {
+                    if(opened.version!=0) throw IOException("Fresh save journal version differs")
+                    useOwned({opened.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND NOT (type='table' AND name='android_metadata')",null)}) {
                         if(!it.moveToFirst() || it.getLong(0)!=0L) throw IOException("Fresh save journal has foreign objects")
                     }
-                    db.execSQL(schema); db.version=1
+                    opened.execSQL(schema);opened.version=1
                 } else {
-                    if(db.version!=1) throw IOException("Unsupported save journal version")
-                    // Never load arbitrary schema text before its byte budget, and stop after two rows.
-                    db.rawQuery("SELECT CASE WHEN type='table' AND name='saves' AND length(CAST(sql AS BLOB))<=1024 THEN sql ELSE NULL END FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND NOT (type='table' AND name='android_metadata') LIMIT 2",null).use {
+                    if(opened.version!=1) throw IOException("Unsupported save journal version")
+                    useOwned({opened.rawQuery("SELECT CASE WHEN type='table' AND name='saves' AND length(CAST(sql AS BLOB))<=1024 THEN sql ELSE NULL END FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND NOT (type='table' AND name='android_metadata') LIMIT 2",null)}) {
                         if(!it.moveToFirst() || it.getType(0)!=Cursor.FIELD_TYPE_STRING || it.getString(0)!=schema || it.moveToNext())
                             throw IOException("Save journal schema differs")
                     }
                 }
             }
-        } catch(failure:Throwable) { db.close(); throw failure }
+            phase=Phase.Open
+        } catch(failure:Throwable) {
+            if(phase==Phase.Uncertain || !io.quiescent) unknown(failure)
+            database?.let {actual ->try {closeDatabase(actual);database=null} catch(close:Throwable) {unknown(close)}}
+            phase=Phase.Unsupported;throw failure
+        }
     }
-    private inline fun <T> transaction(block:()->T):T {
-        db.beginTransaction()
-        try { val result=block(); db.setTransactionSuccessful(); return result }
-        finally { db.endTransaction() }
+    private fun <T> transaction(actual:SQLiteDatabase=db(),block:()->T):T {
+        begin(actual)
+        try {val result=block();successful(actual);return result}
+        finally {end(actual)}
     }
     private fun requireKey(value:String) {
         if(value.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Save key exceeds budget")
@@ -85,25 +132,29 @@ internal class PartitionSaveJournal(root:File,create:Boolean=false,
             throw IOException("Save journal UID/state differs")
         return PartitionSaveRecord(ticket,state,uid)
     }
-    private fun lookup(key:String):PartitionSaveRecord?=db.rawQueryWithFactory({_,driver,table,query ->
-        query.bindBlob(1,savedCatalogSortKey(key)); SQLiteCursor(driver,table,query)
-    },"SELECT $projection FROM saves WHERE key=?",null,"saves").use { if(it.moveToFirst()) decode(it) else null }
-    @Synchronized fun find(key:String):PartitionSaveRecord? { requireKey(key); return lookup(key) }
+    private fun lookup(key:String):PartitionSaveRecord? {
+        val db=db()
+        return useOwned({db.rawQueryWithFactory({_,driver,table,query ->
+            query.bindBlob(1,savedCatalogSortKey(key));SQLiteCursor(driver,table,query)
+        },"SELECT $projection FROM saves WHERE key=?",null,"saves")}) {if(it.moveToFirst()) decode(it) else null}
+    }
+    @Synchronized fun find(key:String):PartitionSaveRecord? { db();requireKey(key); return lookup(key) }
     /** Replacement requires an explicitly identified Uncertain row and a fresh allocation; never
      * overwrites a usable, in-flight or another resource's record. Old bytes are not touched. */
     @Synchronized fun begin(allocation:CachePartitionAllocation,expectedToken:String?=null):PartitionSaveTicket {
+        val db=db()
         requireKey(allocation.key); uuid(allocation.directory); val ticket=PartitionSaveTicket(allocation,token()); identity(ticket)
         transaction {
             val old=lookup(allocation.key)
             if(old?.ticket?.token!=expectedToken || old!=null && (old.phase!=PartitionSavePhase.Uncertain || old.ticket.allocation==allocation))
                 throw IOException("Save allocation is already owned or uncertain claim differs")
-            val values=ContentValues().apply {
-                put("directory",allocation.directory); put("token",ticket.token); put("phase",PartitionSavePhase.Reserved.ordinal); putNull("uid")
-            }
-            if(old==null) { values.put("key",savedCatalogSortKey(allocation.key)); db.insertOrThrow("saves",null,values) }
-            else db.compileStatement("UPDATE saves SET directory=?,token=?,phase=?,uid=NULL WHERE key=? AND token=?").use {
-                it.bindString(1,allocation.directory); it.bindString(2,ticket.token); it.bindLong(3,PartitionSavePhase.Reserved.ordinal.toLong())
-                it.bindBlob(4,savedCatalogSortKey(allocation.key)); it.bindString(5,expectedToken!!)
+            if(old==null) useOwned({db.compileStatement("INSERT INTO saves(key,directory,token,phase,uid) VALUES(?,?,?,?,NULL)")}) {
+                it.bindBlob(1,savedCatalogSortKey(allocation.key));it.bindString(2,allocation.directory)
+                it.bindString(3,ticket.token);it.bindLong(4,PartitionSavePhase.Reserved.ordinal.toLong())
+                if(it.executeInsert()==-1L) throw IOException("Save reservation failed")
+            } else useOwned({db.compileStatement("UPDATE saves SET directory=?,token=?,phase=?,uid=NULL WHERE key=? AND token=?")}) {
+                it.bindString(1,allocation.directory);it.bindString(2,ticket.token);it.bindLong(3,PartitionSavePhase.Reserved.ordinal.toLong())
+                it.bindBlob(4,savedCatalogSortKey(allocation.key));it.bindString(5,expectedToken!!)
                 if(it.executeUpdateDelete()!=1) throw IOException("Save replacement lost ownership")
             }
         }
@@ -115,7 +166,8 @@ internal class PartitionSaveJournal(root:File,create:Boolean=false,
         return row
     }
     private fun update(ticket:PartitionSaveTicket,phase:PartitionSavePhase,uid:Long?) {
-        db.compileStatement("UPDATE saves SET phase=?,uid=? WHERE key=? AND token=?").use {
+        val db=db()
+        useOwned({db.compileStatement("UPDATE saves SET phase=?,uid=? WHERE key=? AND token=?")}) {
             it.bindLong(1,phase.ordinal.toLong()); if(uid==null) it.bindNull(2) else it.bindLong(2,uid)
             it.bindBlob(3,savedCatalogSortKey(ticket.allocation.key)); it.bindString(4,ticket.token)
             if(it.executeUpdateDelete()!=1) throw IOException("Save lifecycle lost ownership")
@@ -141,11 +193,18 @@ internal class PartitionSaveJournal(root:File,create:Boolean=false,
         if(row.phase!=PartitionSavePhase.Uncertain) update(ticket,PartitionSavePhase.Uncertain,row.uid)
     }
     @Synchronized fun page(after:String?=null):List<PartitionSaveRecord> {
+        val db=db()
         after?.let(::requireKey); val where=if(after==null) "" else " WHERE key>?"
-        return db.rawQueryWithFactory({_,driver,table,query -> after?.let { query.bindBlob(1,savedCatalogSortKey(it)) }; SQLiteCursor(driver,table,query)
-        },"SELECT $projection FROM saves$where ORDER BY key LIMIT $PARTITION_LOCATOR_WINDOW",null,"saves").use { c ->
+        return useOwned({db.rawQueryWithFactory({_,driver,table,query -> after?.let { query.bindBlob(1,savedCatalogSortKey(it)) }; SQLiteCursor(driver,table,query)
+        },"SELECT $projection FROM saves$where ORDER BY key LIMIT $PARTITION_LOCATOR_WINDOW",null,"saves")}) { c ->
             val rows=ArrayList<PartitionSaveRecord>(PARTITION_LOCATOR_WINDOW); while(c.moveToNext()) rows+=decode(c); rows
         }
     }
-    @Synchronized override fun close()=db.close()
+    @Synchronized override fun close() {
+        if(phase==Phase.Closed || phase==Phase.Unsupported) return
+        if(phase==Phase.New) {phase=Phase.Closed;return}
+        val actual=db();phase=Phase.Closing
+        try {closeDatabase(actual);database=null;phase=Phase.Closed}
+        catch(failure:Throwable) {unknown(failure)}
+    }
 }

@@ -2698,4 +2698,39 @@ class OwnedPartitionShelfTest {
         }        } // SQLite transaction cleanup must run on the same worker as the injected write.
     }
 
+    @Test fun actualNewSaveReservationUncertaintyQuarantinesSourceGateBeforeNativeWriter() {
+        val f=Fixture();val owner=f.owner();onWorker {owner.prepare()}
+        val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply {isAccessible=true}.get(owner)
+        val resources=StorageStartup::class.java.getDeclaredField("opened").apply {isAccessible=true}.get(startup)!!
+        val journal=resources.javaClass.getDeclaredField("saves").apply {isAccessible=true}.get(resources) as PartitionSaveJournal
+        val db=PartitionSaveJournal::class.java.getDeclaredField("database").apply {isAccessible=true}.get(journal) as SQLiteDatabase
+        var child:java.io.Closeable?=null;var closes=0
+        val io=MigrationIoOwnership(closeHandle={
+            if(it is android.database.sqlite.SQLiteStatement) {child=it;closes++;throw IOException("Unknown actual migration write close")}
+            it.close()
+        })
+        PartitionSaveJournal::class.java.getDeclaredField("io").apply {isAccessible=true}.set(journal,io)
+        onWorker {
+        try {
+            assertThrows(PartitionOwnershipUncertain::class.java) {owner.prepareSave(DownloadRequest.Builder("saved/new-journal-failure",Uri.parse("http://127.0.0.1:7814/file")).setCustomCacheKey("saved/new-journal-failure").build())}
+            assertFalse(f.barrier.allowsShared);assertTrue(db.isOpen);assertTrue(db.inTransaction())
+            assertTrue(journal.ownershipUncertain);assertEquals(1,closes);assertEquals(0,f.budget.resident)
+            assertArrayEquals(payload,f.original.readBytes());assertThrows(IOException::class.java) {journal.close()};assertEquals(1,closes)
+        } finally {
+            // Injected callback did not reach raw close. Fixture-only rollback/cleanup, never a
+            // production retry, forced release or reset of the quarantined source gate.
+            child?.close();db.endTransaction();db.close()
+            (resources.javaClass.getDeclaredField("workers").apply {isAccessible=true}.get(resources) as java.util.concurrent.ExecutorService).shutdown()
+            val legacy=resources.javaClass.getDeclaredField("legacy").apply {isAccessible=true}.get(resources)
+            (LegacyTransitionOwner::class.java.getDeclaredField("index").apply {isAccessible=true}.get(legacy) as SQLiteDatabase?)?.close()
+            for(name in listOf("catalog","migrations"))
+                (resources.javaClass.getDeclaredField(name).apply {isAccessible=true}.get(resources) as java.io.Closeable).close()
+            onWorker {
+                (resources.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(resources) as LegacyRetirementJournal).close()
+                (resources.javaClass.getDeclaredField("moves").apply {isAccessible=true}.get(resources) as PartitionSavedMoveJournal).close()
+                (resources.javaClass.getDeclaredField("deletes").apply {isAccessible=true}.get(resources) as PartitionSavedDeleteJournal).close()
+            }
+            f.provider.close()
+        }        } // SQLite transaction cleanup must run on the same worker as the injected write.
+    }
 }

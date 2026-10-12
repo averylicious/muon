@@ -103,4 +103,103 @@ class PartitionSaveJournalTest {
             journal.closed(ticket,17); assertEquals(PartitionSavePhase.Closed,journal.find("kept")?.phase)
         }
     }
+    private fun actualDatabase(journal:PartitionSaveJournal)=PartitionSaveJournal::class.java
+        .getDeclaredField("database").apply {isAccessible=true}.get(journal) as SQLiteDatabase
+    @Test fun saveStartupRetainsActualConnectionBeforeSchemaCursorCanBecomeUncertain() {
+        val root=folders.newFolder();var child:java.io.Closeable?=null;var closes=0
+        val journal=PartitionSaveJournal(root,create=true,autoOpen=false,io=MigrationIoOwnership(closeHandle={
+            child=it;closes++;throw IOException("Unknown save schema cursor close")
+        }))
+        assertFalse(File(root,"new-save-journal-v1.db").exists())
+        val startup=StorageStartup<PartitionSaveJournal>()
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {startup.open {opening ->opening.own {journal}.also {it.open()}}}
+            assertSame(journal,failure.owner);assertEquals(1,startup.retained);assertTrue(journal.ownershipUncertain)
+            val handles=StorageStartup::class.java.getDeclaredField("handles").apply {isAccessible=true}.get(startup) as Array<*>
+            assertSame(journal,handles[0]);assertTrue(actualDatabase(journal).isOpen);assertTrue(actualDatabase(journal).inTransaction())
+            assertThrows(IOException::class.java) {startup.open {throw AssertionError("Uncertain save startup retried")}}
+            assertThrows(IOException::class.java) {journal.open()};assertThrows(IOException::class.java) {journal.close()};assertEquals(1,closes)
+        } finally {child?.close();actualDatabase(journal).endTransaction();actualDatabase(journal).close()}
+    }
+    @Test fun actualSaveInsertAndReplacementCloseFailureNeverReturnsATicket() {
+        for(replace in listOf(false,true)) {
+            val root=folders.newFolder();val original=File(root,"unrelated-original").apply {writeBytes(byteArrayOf(3,5,7))}
+            var fail=false;var child:java.io.Closeable?=null;var closes=0
+            val journal=PartitionSaveJournal(root,create=true,io=MigrationIoOwnership(closeHandle={
+                if(fail && it is android.database.sqlite.SQLiteStatement) {child=it;closes++;throw IOException("Unknown save reservation close")}
+                it.close()
+            }))
+            val old=if(replace) journal.begin(allocation("kept")).also {journal.uncertain(it)} else null
+            val db=actualDatabase(journal);fail=true
+            try {
+                val failure=assertThrows(PartitionOwnershipUncertain::class.java) {journal.begin(allocation("kept"),old?.token)}
+                assertSame(journal,failure.owner);assertTrue(journal.ownershipUncertain);assertTrue(db.isOpen);assertTrue(db.inTransaction())
+                db.rawQuery("SELECT COUNT(*) FROM saves",null).use {assertTrue(it.moveToFirst());assertEquals(1,it.getInt(0))}
+                assertThrows(IOException::class.java) {journal.find("kept")};assertThrows(IOException::class.java) {journal.close()};assertEquals(1,closes)
+                assertArrayEquals(byteArrayOf(3,5,7),original.readBytes())
+            } finally {child?.close();db.endTransaction();db.close()}
+            PartitionSaveJournal(root).use {resumed ->assertEquals(old,resumed.find("kept")?.ticket)}
+        }
+    }
+    @Test fun everyActualLifecycleStatementRetainsUnknownTransactionAndPreviousReceipt() {
+        for(operation in listOf("opening","opened","closed","uncertain")) {
+            val root=folders.newFolder();var fail=false;var child:java.io.Closeable?=null;var closes=0
+            val journal=PartitionSaveJournal(root,create=true,io=MigrationIoOwnership(closeHandle={
+                if(fail && it is android.database.sqlite.SQLiteStatement) {child=it;closes++;throw IOException("Unknown lifecycle close")}
+                it.close()
+            }))
+            val ticket=journal.begin(allocation("kept"))
+            if(operation in listOf("opened","closed")) journal.opening(ticket)
+            if(operation=="closed") journal.opened(ticket,17)
+            val old=journal.find("kept");val db=actualDatabase(journal);fail=true
+            try {
+                val failure=assertThrows(PartitionOwnershipUncertain::class.java) {when(operation) {
+                    "opening" -> journal.opening(ticket);"opened" ->journal.opened(ticket,17)
+                    "closed" ->journal.closed(ticket,17);else ->journal.uncertain(ticket)
+                }}
+                assertSame(journal,failure.owner);assertTrue(db.inTransaction());assertTrue(db.isOpen)
+                assertThrows(IOException::class.java) {journal.closed(ticket,17)};assertThrows(IOException::class.java) {journal.close()};assertEquals(1,closes)
+            } finally {child?.close();db.endTransaction();db.close()}
+            PartitionSaveJournal(root).use {assertEquals(old,it.find("kept"))}
+        }
+    }
+    @Test fun actualSaveLookupAndPageCloseFailureRefusesFurtherLifecycleOrClose() {
+        for(page in listOf(false,true)) {
+            var fail=false;var child:java.io.Closeable?=null;var closes=0
+            val journal=PartitionSaveJournal(folders.newFolder(),create=true,io=MigrationIoOwnership(closeHandle={
+                if(fail) {child=it;closes++;throw IOException("Unknown save read close")}
+                it.close()
+            }))
+            val ticket=journal.begin(allocation("kept"));val db=actualDatabase(journal);fail=true
+            try {
+                val failure=assertThrows(PartitionOwnershipUncertain::class.java) {if(page) journal.page() else journal.find("kept")}
+                assertSame(journal,failure.owner);assertTrue(db.isOpen);assertTrue(journal.ownershipUncertain)
+                assertThrows(IOException::class.java) {journal.opening(ticket)};assertThrows(IOException::class.java) {journal.close()};assertEquals(1,closes)
+            } finally {child?.close();db.close()}
+        }
+    }
+    @Test fun actualSaveCommitFollowedByLostAcknowledgementCannotReturnATicketOrReplay() {
+        val root=folders.newFolder();var fail=false;var ends=0
+        val journal=PartitionSaveJournal(root,create=true,finishTransaction={db ->db.endTransaction();ends++
+            if(fail) throw IOException("Save commit acknowledgement lost")})
+        val db=actualDatabase(journal);fail=true
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {journal.begin(allocation("kept"))}
+            assertSame(journal,failure.owner);assertFalse(db.inTransaction());assertTrue(journal.ownershipUncertain)
+            db.rawQuery("SELECT COUNT(*) FROM saves",null).use {assertTrue(it.moveToFirst());assertEquals(1,it.getInt(0))}
+            val before=ends;assertThrows(IOException::class.java) {journal.begin(allocation("kept"))};assertThrows(IOException::class.java) {journal.close()};assertEquals(before,ends)
+        } finally {db.close()}
+        PartitionSaveJournal(root).use {assertEquals(PartitionSavePhase.Reserved,it.find("kept")?.phase)}
+    }
+    @Test fun unknownSaveDatabaseCloseRetainsOwnerAndNeverRetriesClose() {
+        var closes=0
+        val journal=PartitionSaveJournal(folders.newFolder(),create=true,closeDatabase={closes++;throw IOException("Unknown save database close")})
+        val db=actualDatabase(journal);journal.begin(allocation("kept"))
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {journal.close()}
+            assertSame(journal,failure.owner);assertTrue(db.isOpen);assertTrue(journal.ownershipUncertain)
+            assertThrows(IOException::class.java) {journal.close()};assertThrows(IOException::class.java) {journal.page()};assertEquals(1,closes)
+        } finally {db.close()}
+    }
+
 }
