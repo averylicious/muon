@@ -12,6 +12,8 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.attribute.BasicFileAttributes
 
+private class PartitionDeleteAdmissionBusy(cause:IOException):IOException("Saved Delete admission is busy",cause)
+
 internal enum class PartitionShelfStart { Fresh, Resume }
 internal enum class PartitionOriginalMoveStage { Waiting, Copied, Published, Pending, Complete }
 /** Fixed result only; durable recovery rereads the bounded journals, never a retained request/list. */
@@ -152,7 +154,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         unclaimedElsewhere:(String)->Boolean,checkpoint:()->Unit={},other:OwnedPartitionShelf?=null):PartitionSavedDeleteRecord {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved Delete intent requires a worker"}
         if(!explicitConsent || other===this || other!=null && other.storageBarrier!==barrier) throw IOException("Saved Delete requires consent and exact same-gate owners")
-        val made=resources();val permit=barrier.exclusive();var quarantined=false
+        val made=resources();val permit=try {barrier.exclusive()} catch(failure:IOException) {throw PartitionDeleteAdmissionBusy(failure)}
+        var quarantined=false
         val treeOwnership=MigrationIoOwnership()
         fun live() {permit.check();located();checkpoint();permit.check();located()}
         fun unclaimed(name:String)=other?.claimsMoveName(name,permit)!=true && unclaimedElsewhere(name)
@@ -243,7 +246,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 val pending=beginSavedDelete(key,true,art,artwork,unclaimedElsewhere,other=other)
                 completeSavedDelete(pending,true,art,artwork,unclaimedElsewhere,other=other)
             }
-        } catch(_:IOException) {OfflineStore.SavedRemoval.Unavailable}
+        } catch(_:PartitionDeleteAdmissionBusy) {OfflineStore.SavedRemoval.Busy}
+        catch(_:IOException) {OfflineStore.SavedRemoval.Unavailable}
     }
     /** Renewed exact-key/token Delete recovery supports both new and completed-original sources.
      * A legacy Move or unbound files-only intent cannot authorize original terminal-row removal. */
