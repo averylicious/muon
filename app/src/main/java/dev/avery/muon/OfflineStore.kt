@@ -237,6 +237,19 @@ internal object OfflineStore {
         })
     }
 
+    /** Persisted startup boundary, still not called by the default selector/UI. Settings owner is
+     * retained before the first write; Preparing is durable before any native participant. A failed
+     * preparation/Ready write stays sticky in StorageStartup, never retries or opens legacy. */
+    internal fun preparePersistedPartition(context:Context,owner:StorageStartup<PreparedStorage>.Opening,
+        plan:PartitionStorePlan):PreparedStorage {
+        check(Looper.myLooper()!=Looper.getMainLooper()) {"Persisted partition preparation requires a worker"}
+        val settings=owner.own {PartitionStartupSettings(context.getSharedPreferences("storage",Context.MODE_PRIVATE))}
+        val attempt=settings.begin(settings.read(),plan)
+        val ready=preparePartition(context,owner,plan)
+        settings.prepared(attempt)
+        return ready
+    }
+
     /** Actual app preparation for a reviewed, explicit partition plan. Production choice still
      * does not call this: unsupported destructive/migration opt-in paths must be finished first.
      * Register each real owner before prepare; a partial card/root failure is sticky and retained,

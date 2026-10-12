@@ -95,7 +95,10 @@ class PartitionStorePreparationTest {
             }
         }
         for(root in handles.filterIsInstance<OwnedPartitionShelf>()) {
-            resources(root)?.let {made -> worker {(made.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(made) as LegacyRetirementJournal).close()}}
+            resources(root)?.let {made -> worker {
+                for(name in listOf("retirements","moves","deletes"))
+                    (made.javaClass.getDeclaredField(name).apply {isAccessible=true}.get(made) as java.io.Closeable).close()
+            }}
         }
         for(handle in handles) when(handle) {
             is java.util.concurrent.ExecutorService -> { handle.shutdown(); assertTrue(handle.awaitTermination(10,TimeUnit.SECONDS)) }
@@ -247,6 +250,46 @@ class PartitionStorePreparationTest {
             assertFalse(SimpleCache.isCacheFolderLocked(File(app.filesDir,"downloads")))
             f.originals.forEach { assertArrayEquals(bytes,it.readBytes()) }
         } finally { cleanup(startup); f.seed.close() }
+    }
+
+    @Test fun actualPersistedPreparerMarksResumeAfterBothRealRootsBeforeManagerBindingAndRestarts() {
+        val f=Fixture();val prefs=app.getSharedPreferences("storage",android.content.Context.MODE_PRIVATE)
+        prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()
+        val settings=PartitionStartupSettings(prefs);val startup=StorageStartup<OfflineStore.PreparedStorage>()
+        var firstClosed=false;var next:StorageStartup<OfflineStore.PreparedStorage>?=null
+        try {
+            settings.request(f.plan(),true)
+            val ready=worker {startup.open {OfflineStore.preparePersistedPartition(app,it,f.plan())}}
+            val choice=settings.read();assertEquals(PartitionStartupPhase.Ready,choice.phase);assertEquals(PartitionShelfStart.Resume,choice.start)
+            assertNotNull(ready.phone.partition);assertNotNull(ready.card!!.partition);assertNull(ready.phone.cache)
+            assertTrue(f.phoneRoot.isDirectory);assertTrue(f.cardRoot.isDirectory);assertEquals(0,PartitionNativeBudget.process.resident)
+            cleanup(startup);firstClosed=true
+            val resumed=StorageStartup<OfflineStore.PreparedStorage>();next=resumed
+            val fresh=f.plan();val plan=fresh.copy(phone=fresh.phone.copy(start=PartitionShelfStart.Resume),card=fresh.card!!.copy(start=PartitionShelfStart.Resume))
+            val reopened=worker {resumed.open {OfflineStore.preparePersistedPartition(app,it,plan)}}
+            assertNotNull(reopened.phone.partition);assertNotNull(reopened.card!!.partition);assertEquals(choice,settings.read())
+            f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
+            assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy));assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
+        } finally {
+            next?.let(::cleanup);if(!firstClosed) cleanup(startup);f.seed.close()
+            prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()
+        }
+    }
+    @Test fun interruptedPersistedSetupRefusesBeforeAnyProviderOrRootAndStaysSticky() {
+        val f=Fixture();val prefs=app.getSharedPreferences("storage",android.content.Context.MODE_PRIVATE)
+        prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()
+        val settings=PartitionStartupSettings(prefs);val choice=settings.request(f.plan(),true);val pending=settings.begin(choice,f.plan())
+        val before=app.databaseList().toSet();val startup=StorageStartup<OfflineStore.PreparedStorage>()
+        try {
+            assertThrows(IOException::class.java) {worker {startup.open {OfflineStore.preparePersistedPartition(app,it,f.plan())}}}
+            assertEquals(1,startup.retained);assertEquals(before,app.databaseList().toSet())
+            assertFalse(f.phoneRoot.exists());assertFalse(f.cardRoot.exists());assertEquals(pending,settings.read())
+            settings.reviewResume(pending,true)
+            assertThrows(IOException::class.java) {worker {startup.open {OfflineStore.preparePersistedPartition(app,it,f.plan())}}}
+            f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
+        } finally {
+            cleanup(startup);f.seed.close();prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()
+        }
     }
 
 }
