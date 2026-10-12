@@ -176,8 +176,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         completed:PartitionSaveCompletion,explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
         checkpoint:()->Unit={}):PartitionSavedMoveRecord {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved Move intent requires a worker"}
-        if(!explicitConsent || destination===this || destination.storageBarrier!==barrier ||
-            !art.usesBarrier(barrier) || !artwork.usesBarrier(barrier))
+        if(!explicitConsent || destination===this || destination.storageBarrier!==barrier)
             throw IOException("Saved Move intent needs consent and actual same-gate owners")
         val source=resources(); val target=destination.resources(); val permit=barrier.exclusive(); var quarantined=false
         fun owned() {permit.check(); located(); destination.located(); permit.check()}
