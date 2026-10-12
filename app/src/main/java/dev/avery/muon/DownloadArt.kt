@@ -5,6 +5,13 @@ import java.io.FileOutputStream
 import java.io.FileInputStream
 import java.io.InputStream
 import java.io.IOException
+import java.nio.channels.FileChannel
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.NoSuchFileException
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardOpenOption.READ
+import java.nio.file.attribute.BasicFileAttributes
 import okio.source
 import okio.buffer
 import java.io.OutputStream
@@ -116,6 +123,148 @@ internal class DownloadArt(private val dir: File,
         java.nio.file.Files.deleteIfExists(file.toPath())
         if(java.nio.file.Files.exists(file.toPath(),java.nio.file.LinkOption.NOFOLLOW_LINKS))
             throw IOException("Saved cover removal unconfirmed")
+        permit.check()
+    }
+    /** Copies only this source entry's own cover, without removing it. Caller cancels queued
+     * source/target artwork first under the same gate. Exact reads/closes and file/directory sync
+     * precede the receipt; a differing existing target is never overwritten. Worker-only. */
+    internal fun copyEntryConfirmed(sourceId:String,targetId:String,permit:SavedStorageBarrier.Lease):SavedMoveCoverIdentity {
+        requireCoverPermit(permit)
+        if(sourceId.isEmpty() || sourceId==targetId || !targetId.startsWith(NEW_SAVE_PREFIX) || targetId==NEW_SAVE_PREFIX ||
+            sourceId.length.toLong()*2>MIGRATION_KEY_BYTES || targetId.length.toLong()*2>MIGRATION_KEY_BYTES)
+            throw IOException("Cover copy requires distinct bounded saved identities")
+        val source=entryFile(sourceId); val target=entryFile(targetId)
+        val original=coverIdentity(source,permit)
+        val existing=coverIdentity(target,permit)
+        if(original.length==0L) {
+            if(existing.length!=0L) throw IOException("Absent source cannot adopt an existing target cover")
+            return original
+        }
+        if(existing.length!=0L) {
+            if(existing!=original) throw IOException("Existing target cover differs; overwrite refused")
+            syncCoverDirectory(permit)
+            if(coverIdentity(source,permit)!=original || coverIdentity(target,permit)!=original)
+                throw IOException("Cover identity changed during confirmation")
+            return original
+        }
+        val directory=coverAttributes(dir) ?: throw IOException("Cover directory disappeared")
+        if(!directory.isDirectory || directory.fileKey()==null) throw IOException("Cover directory identity unavailable")
+        val temp=Files.createTempFile(dir.toPath(),target.name+".move-", ".part").toFile()
+        val created=coverAttributes(temp) ?: throw IOException("Cover temporary file disappeared")
+        if(!created.isRegularFile || created.fileKey()==null) throw IOException("Cover temporary identity unavailable")
+        val io=SavedCoverIo(); var failure:Throwable?=null; var unknown=false
+        io.disposition=arrayOf(source,target,temp,directory,created)
+        try {
+            try {
+                permit.check(); checkCoverPath(source); checkCoverPath(temp)
+                val input=inputs(source).also {io.input=it}
+                val output=outputs(temp).also {io.output=it}
+                if(output !is FileOutputStream) throw IOException("Cover copy needs a syncable file output")
+                val buffer=ByteArray(8192); var left=original.length
+                while(left>0) {
+                    permit.check()
+                    val count=input.read(buffer,0,minOf(buffer.size.toLong(),left).toInt())
+                    if(count<=0) throw IOException("Source cover ended before its confirmed length")
+                    output.write(buffer,0,count); left-=count
+                }
+                if(input.read()!=-1) throw IOException("Source cover grew during copy")
+                output.flush(); output.fd.sync(); permit.check()
+            } catch(error:Throwable) {failure=error; throw error}
+            finally {try {io.finish()} catch(close:SavedCoverCloseUncertain) {
+                if(failure!=null && failure!==close && failure!==close.cause) close.addSuppressed(failure)
+                throw close
+            }}
+            if(coverIdentity(source,permit)!=original || coverIdentity(temp,permit)!=original ||
+                coverAttributes(dir)?.fileKey()!=directory.fileKey() || coverIdentity(target,permit).length!=0L)
+                throw IOException("Cover paths or bytes changed before publication")
+            // An ambiguous rename retains its exact paths and blocks this owner. No retry/cleanup.
+            try {Files.move(temp.toPath(),target.toPath(),ATOMIC_MOVE)}
+            catch(error:Throwable) {
+                unknown=true; val owner=SavedCoverIo().also {it.disposition=arrayOf(source,target,temp,directory,created,error)}
+                retain(owner); permit.quarantine(owner); throw PartitionOwnershipUncertain(owner,error)
+            }
+            syncCoverDirectory(permit)
+            if(coverAttributes(dir)?.fileKey()!=directory.fileKey() ||
+                coverIdentity(source,permit)!=original || coverIdentity(target,permit)!=original)
+                throw IOException("Published cover identity changed")
+            return original
+        } catch(close:SavedCoverCloseUncertain) {
+            unknown=true; retain(close.owner); permit.quarantine(close.owner); throw close
+        } finally {
+            if(!unknown && retained==null) {
+                // Only our known-closed unpublished temporary inode; never source/target/other parts.
+                val remaining=coverAttributes(temp)
+                if(remaining!=null && remaining.fileKey()==created.fileKey()) Files.delete(temp.toPath())
+            }
+        }
+    }
+
+    /** Reobserve both own covers before a Move retirement. No source deletion authority. */
+    internal fun verifyCopiedEntry(sourceId:String,targetId:String,expected:SavedMoveCoverIdentity,
+        permit:SavedStorageBarrier.Lease) {
+        requireCoverPermit(permit); expected.validate()
+        if(sourceId==targetId || coverIdentity(sourceEntry(sourceId),permit)!=expected ||
+            coverIdentity(sourceEntry(targetId),permit)!=expected) throw IOException("Moved cover identity changed")
+    }
+    private fun sourceEntry(id:String):File {
+        if(id.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Cover identity exceeds supported bound")
+        return entryFile(id)
+    }
+    private fun requireCoverPermit(permit:SavedStorageBarrier.Lease) {
+        val gate=barrier ?: throw IOException("Confirmed cover copy needs its actual storage gate")
+        if(!permit.exclusive || !permit.belongsTo(gate) || retained!=null)
+            throw IOException("Confirmed cover copy ownership unavailable")
+        permit.check()
+    }
+    private fun checkCoverPath(file:File) {
+        if(dir.absoluteFile!=dir.canonicalFile || file.absoluteFile!=file.canonicalFile ||
+            Files.isSymbolicLink(dir.toPath()) || Files.isSymbolicLink(file.toPath()) ||
+            (dir.exists() && !dir.isDirectory)) throw IOException("Saved cover path changed")
+    }
+    private fun coverAttributes(file:File):BasicFileAttributes? {
+        checkCoverPath(file)
+        return try {Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,NOFOLLOW_LINKS)}
+        catch(_:NoSuchFileException) {null}
+    }
+    private fun coverIdentity(file:File,permit:SavedStorageBarrier.Lease):SavedMoveCoverIdentity {
+        permit.check()
+        val before=coverAttributes(file) ?: return SavedMoveCoverIdentity(0,null)
+        if(!before.isRegularFile || before.fileKey()==null || before.size() !in 1..COVER_BYTES)
+            throw IOException("Saved cover file is unsupported")
+        val io=SavedCoverIo(); io.disposition=arrayOf(file,before)
+        val digest=MessageDigest.getInstance("SHA-256"); var failure:Throwable?=null
+        try {
+            try {
+                val input=inputs(file).also {io.input=it}; val bytes=ByteArray(8192); var left=before.size()
+                while(left>0) {
+                    permit.check(); val count=input.read(bytes,0,minOf(bytes.size.toLong(),left).toInt())
+                    if(count<=0) throw IOException("Saved cover ended early")
+                    digest.update(bytes,0,count); left-=count
+                }
+                if(input.read()!=-1) throw IOException("Saved cover exceeds its exact length")
+            } catch(error:Throwable) {failure=error; throw error}
+            finally {try {io.finish()} catch(close:SavedCoverCloseUncertain) {
+                if(failure!=null && failure!==close && failure!==close.cause) close.addSuppressed(failure)
+                throw close
+            }}
+        } catch(close:SavedCoverCloseUncertain) {
+            retain(close.owner); permit.quarantine(close.owner); throw close
+        }
+        val after=coverAttributes(file)
+        if(after==null || after.fileKey()!=before.fileKey() || after.size()!=before.size() ||
+            after.lastModifiedTime()!=before.lastModifiedTime()) throw IOException("Saved cover changed during read")
+        permit.check()
+        return SavedMoveCoverIdentity(before.size(),digest.digest().joinToString("") {"%02x".format(it)})
+    }
+    private fun syncCoverDirectory(permit:SavedStorageBarrier.Lease) {
+        permit.check(); val io=SavedCoverIo(); io.disposition=dir
+        try {
+            try {
+                val channel=FileChannel.open(dir.toPath(),READ).also {io.extra=it}; channel.force(true)
+            } finally {io.finish()}
+        } catch(close:SavedCoverCloseUncertain) {
+            retain(close.owner); permit.quarantine(close.owner); throw close
+        }
         permit.check()
     }
     private companion object { const val COVER_BYTES = 4L * 1024 * 1024 }

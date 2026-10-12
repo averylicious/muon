@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -14,6 +15,8 @@ internal class SavedCoverIo {
     var source:BufferedSource?=null
     var output:OutputStream?=null
     var input:InputStream?=null // Installed before wrapping a real cover file in an Okio source.
+    var extra:Closeable?=null // Actual directory durability channel, if this operation owns one.
+    var disposition:Any?=null // Exact paths/identities retained on uncertain publication.
     private var closing=false
     private var finished=false
     private var uncertain=false
@@ -33,8 +36,13 @@ internal class SavedCoverIo {
                 uncertain=true
                 if(failure==null) failure=error else if(failure!==error) failure!!.addSuppressed(error)
             }
+            try { extra?.close(); if(!uncertain) extra=null }
+            catch(error:Throwable) {
+                uncertain=true
+                if(failure==null) failure=error else if(failure!==error) failure!!.addSuppressed(error)
+            }
             if(uncertain) throw SavedCoverCloseUncertain(this,failure)
-            response=null; finished=true
+            response=null; disposition=null; finished=true
         } finally { closing=false }
     }
 }
