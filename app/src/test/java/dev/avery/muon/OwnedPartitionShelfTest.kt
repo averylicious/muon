@@ -1410,7 +1410,7 @@ class OwnedPartitionShelfTest {
         coverFile(art,"81").writeBytes(byteArrayOf(7))
         try {
             val result=onWorker {f.source.moveCompletedOriginalTo(f.target,"81",f.key,true,art,work,{true},boundary={stages+=it})}
-            assertEquals(PartitionOriginalMoveResult(PartitionOriginalMoveStage.Complete,OfflineStore.SavedRemoval.Sent),result)
+            assertEquals(PartitionOriginalMoveResult(PartitionOriginalMoveStage.Complete,OfflineStore.SavedRemoval.Sent,4),result)
             assertEquals(listOf(PartitionOriginalMoveStage.Copied,PartitionOriginalMoveStage.Published,PartitionOriginalMoveStage.Pending),stages)
             assertFalse(f.f.original.exists()); assertNull(f.index.getDownload("81")); assertFalse(coverFile(art,"81").exists())
             assertTrue(onWorker {f.target.audio.contains(f.key)}); assertArrayEquals(byteArrayOf(7),coverFile(art,f.key).readBytes())
@@ -1423,7 +1423,7 @@ class OwnedPartitionShelfTest {
         try {
             val result=onWorker {f.source.moveCompletedOriginalTo(f.target,"81",f.key,true,art,work,{true},
                 boundary={if(it==PartitionOriginalMoveStage.Copied) throw java.io.InterruptedIOException("Cancelled")})}
-            assertEquals(PartitionOriginalMoveResult(PartitionOriginalMoveStage.Copied,OfflineStore.SavedRemoval.Failed),result)
+            assertEquals(PartitionOriginalMoveResult(PartitionOriginalMoveStage.Copied,OfflineStore.SavedRemoval.Failed,4),result)
             assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
             assertNull(f.target.initializeManager().downloadIndex.getDownload(f.key))
             assertTrue(onWorker {f.source.retirementRecoveryPage().isEmpty()})
@@ -1437,7 +1437,7 @@ class OwnedPartitionShelfTest {
         try {
             val result=onWorker {f.source.moveCompletedOriginalTo(f.target,"81",f.key,true,art,work,{true},
                 boundary={if(it==PartitionOriginalMoveStage.Published) throw java.io.InterruptedIOException("Cancelled")})}
-            assertEquals(PartitionOriginalMoveResult(PartitionOriginalMoveStage.Published,OfflineStore.SavedRemoval.Failed),result)
+            assertEquals(PartitionOriginalMoveResult(PartitionOriginalMoveStage.Published,OfflineStore.SavedRemoval.Failed,4),result)
             assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
             assertTrue(onWorker {f.source.audio.contains("81")}); assertTrue(onWorker {f.target.audio.contains(f.key)})
             assertTrue(onWorker {f.source.retirementRecoveryPage().isEmpty()})
@@ -1450,7 +1450,7 @@ class OwnedPartitionShelfTest {
         try {
             val result=onWorker {f.source.moveCompletedOriginalTo(f.target,"81",f.key,true,art,work,{true},
                 boundary={if(it==PartitionOriginalMoveStage.Pending) throw java.io.InterruptedIOException("Cancelled")})}
-            assertEquals(PartitionOriginalMoveResult(PartitionOriginalMoveStage.Pending,OfflineStore.SavedRemoval.Failed),result)
+            assertEquals(PartitionOriginalMoveResult(PartitionOriginalMoveStage.Pending,OfflineStore.SavedRemoval.Failed,4),result)
             assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
             val pending=onWorker {f.source.retirementRecoveryPage().single()}; assertEquals(LegacyRetirementPhase.Pending,pending.phase)
             assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {
@@ -1524,6 +1524,78 @@ class OwnedPartitionShelfTest {
                 java.nio.file.Files.move(held.toPath(),f.targetRoot.toPath())
             }
             f.close()
+        }
+    }
+
+    @Test fun actualOriginalPublicationRejectsSourceAliasEvenWhenCallerClaimsFreshName() {
+        val f=LocalPublicationFixture()
+        try {
+            val copy=f.prepare()
+            val alias=DownloadRequest.Builder("alias",Uri.parse("http://127.0.0.1:7814/alias"))
+                .setCustomCacheKey(f.key).build()
+            f.index.putDownload(Download(alias,Download.STATE_FAILED,1,2,0,Download.STOP_REASON_NONE,Download.FAILURE_REASON_UNKNOWN))
+            assertThrows(IOException::class.java) {onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}}
+            assertNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun actualMoveFinishRejectsDestinationAliasAddedAfterPendingEvenWhenCallerClaimsSoleOwnership() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            val alias=DownloadRequest.Builder("alias",Uri.parse("http://127.0.0.1:7814/alias"))
+                .setCustomCacheKey("81").build()
+            val targetIndex=DefaultDownloadIndex(f.f.provider,"publication_target")
+            targetIndex.putDownload(Download(alias,Download.STATE_FAILED,1,2,0,Download.STOP_REASON_NONE,Download.FAILURE_REASON_UNKNOWN))
+            assertThrows(IOException::class.java) {onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            }}
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertEquals(intent,onWorker {f.source.retirementRecoveryPage().single()})
+            assertEquals(SavedCoverage.Full,onWorker {f.target.audio.inspect(f.key).coverage})
+            targetIndex.removeDownload("alias")
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+            assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun publicStoreMoveUsesActualPartitionControllerAndPublishesScalarStatusOnMain() {
+        val f=LocalPublicationFixture(); val app=RuntimeEnvironment.getApplication()
+        val field=OfflineStore::class.java.getDeclaredField("store").apply {isAccessible=true}
+        val previous=field.get(OfflineStore)
+        val mover=OfflineStore::class.java.getDeclaredField("mover").apply {isAccessible=true}
+            .get(OfflineStore) as java.util.concurrent.ExecutorService
+        val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+        val phone=Shelf.partitioned(f.source,MuonDownloadService::class.java)
+        val card=Shelf.partitioned(f.target,MuonCardDownloadService::class.java)
+        val recorded=ArrayList<DownloadStatus>(); val removed=ArrayList<String>()
+        phone.partitionRemoved={id -> assertSame(Looper.getMainLooper(),Looper.myLooper()); removed+=id}
+        val store=OfflineStore.Store(phone,art,PlayedSongEvictor(8192L) {},
+            app.getSharedPreferences("partition-public-move-fixture",0),f.f.provider,{status ->
+                assertSame(Looper.getMainLooper(),Looper.myLooper()); recorded+=status
+            },{},artwork=work,storageBarrier=f.f.barrier)
+        store.card=card
+        try {
+            field.set(OfflineStore,store)
+            OfflineStore.move(app,true)
+            mover.submit {}.get(10,TimeUnit.SECONDS); shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(listOf("81"),removed); assertEquals(1,recorded.size)
+            val status=recorded.single(); assertTrue(status.id.startsWith("saved/"))
+            assertEquals(Download.STATE_COMPLETED,status.state); assertEquals(4L,status.bytesDownloaded)
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(status.id))
+            assertFalse(f.f.original.exists()); assertNull(f.index.getDownload("81"))
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {f.source.retirementRecoveryPage().single().phase})
+            assertNull(DownloadMarks.moving); assertTrue(f.f.barrier.quiescent)
+            // The partition branch cannot use either shelf's legacy SimpleCache getter.
+            assertThrows(IOException::class.java) {phone.cache}
+            assertThrows(IOException::class.java) {card.cache}
+        } finally {
+            mover.submit {}.get(10,TimeUnit.SECONDS); shadowOf(Looper.getMainLooper()).idle()
+            field.set(OfflineStore,previous); DownloadMarks.moving=null; f.close()
         }
     }
 

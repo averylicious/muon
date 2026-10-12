@@ -642,6 +642,14 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         retirements?.holdsName(name)==true || catalog.find(name)!=null || saves.find(name)!=null || migrations.find(name)!=null ||
             completionIndex.holdsName(name) || mixed.contains(name)
     }
+    /** Borrow the caller's actual exclusive lease; do not acquire a nested shared lease while
+     * another shelf is publishing/retiring a Move. Legacy raw-index names are checked by its owner. */
+    internal fun claimsPartitionNameUnderExclusive(name:String,permit:SavedStorageBarrier.Lease):Boolean {
+        originalPermit(permit)
+        val claimed=retirements?.holdsName(name)==true || catalog.find(name)!=null || saves.find(name)!=null ||
+            migrations.find(name)!=null || completionIndex.holdsName(name)
+        originalPermit(permit); return claimed
+    }
     fun containsId(id:String,completedOnly:Boolean=false)=operation { completionIndex.containsId(id,completedOnly) }
     fun prepared(request:DownloadRequest)=operation { commands.prepared(request) }
     fun abandonPrepared(request:DownloadRequest):Boolean=operation {

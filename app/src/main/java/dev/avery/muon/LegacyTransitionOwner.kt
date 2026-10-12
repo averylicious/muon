@@ -117,6 +117,27 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             checkpoint(); checked(); checkpoint()
         }
     }
+    /** Scalar claim under a borrowed same-gate exclusive lease, with actual cursor ownership.
+     * No nested BarrierSavedAudio lease, full metadata hydration or native cache allocation. */
+    @Synchronized internal fun claimsOriginalName(name:String,permit:SavedStorageBarrier.Lease):Boolean {
+        if(!permit.exclusive || !permit.belongsTo(barrier) || name.length.toLong()*2>MIGRATION_KEY_BYTES)
+            throw IOException("Original name probe needs actual exclusive ownership and a bounded name")
+        try {
+            checkpoint(); permit.check()
+            LegacyResourceProjection.validate(directory,requireNotNull(uid),requireNotNull(index),::checkpoint,directoryIo)()
+            val table="ExoPlayerCacheIndex"+java.lang.Long.toHexString(requireNotNull(uid))
+            val found=directoryIo.useOwned({requireNotNull(index).rawQuery(
+                "SELECT CASE WHEN typeof(key)='text' THEN 1 ELSE 0 END FROM $table WHERE key=? OR typeof(key)!='text' LIMIT 1",arrayOf(name))}) {
+                if(!it.moveToFirst()) false else if(it.getInt(0)==1) true else throw IOException("Original name census has unsupported types")
+            }
+            checkpoint(); permit.check(); return found
+        } catch(failure:Throwable) {
+            if(failure is MigrationIoUncertain || !directoryIo.quiescent) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,failure))
+            }
+            throw failure
+        }
+    }
     /** Prepared copy from the actual closed legacy owner, with full metadata and local-only
      * remapping to a fresh destination key. The same shared gate pins both shelves against removal.
      * Returned scalar observation is NOT durable Move/deletion authority; publication and exact
@@ -173,7 +194,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
      */
     @Synchronized fun publishCopiedOriginalTo(session:PartitionStorageSession,destination:PartitionStorageSession,
         copy:PartitionOriginalCopy,explicitConsent:Boolean,unclaimedElsewhere:(String)->Boolean,
-        checked:()->Unit,timestamp:Long):PartitionSaveCompletion {
+        checked:()->Unit,timestamp:Long,otherClaims:((String,SavedStorageBarrier.Lease)->Boolean)?=null):PartitionSaveCompletion {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original publication requires a worker"}
         if(!explicitConsent || session===destination || !session.usesBarrier(barrier) || !destination.usesBarrier(barrier))
             throw IOException("Original publication needs consent, another shelf and the same gate")
@@ -204,7 +225,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
                 }
             }
             val published=destination.publishLocalSaved(copy.destination,request,copy.source.length,metadata,source,
-                permit,::live,unclaimedElsewhere,timestamp)
+                permit,::live,{name -> otherClaims?.invoke(name,permit)!=true && unclaimedElsewhere(name)},timestamp)
             live()
             if(session.originalCompletion(copy.source.key,permit,{true})!=copy.source)
                 throw IOException("Original record changed after destination publication; source retained")
@@ -375,7 +396,8 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
     @Synchronized internal fun completeMovedOriginal(session:PartitionStorageSession,journal:LegacyRetirementJournal,
         expected:LegacyRetirementRecord,explicitConsent:Boolean,unclaimedElsewhere:(String)->Boolean,
         verifyDestination:(SavedStorageBarrier.Lease)->Unit,
-        disposeCover:(String,SavedStorageBarrier.Lease)->Unit,checked:()->Unit):OfflineStore.SavedRemoval {
+        disposeCover:(String,SavedStorageBarrier.Lease)->Unit,checked:()->Unit,
+        otherClaims:((String,SavedStorageBarrier.Lease)->Boolean)?=null):OfflineStore.SavedRemoval {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original Move finish requires a worker"}
         if(!explicitConsent || !session.usesBarrier(barrier)) return OfflineStore.SavedRemoval.NotOwned
         if(expected.phase!=LegacyRetirementPhase.Pending || expected.manifest.moveDestination==null || expected.manifest.moveCover==null)
@@ -385,17 +407,18 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
         var quarantined=false; var finalMutation=false
         try {
             fun live() {permit.check(); checkpoint(); checked(); checkpoint()}
+            fun unclaimed(name:String)=otherClaims?.invoke(name,permit)!=true && unclaimedElsewhere(name)
             fun target() {live(); verifyDestination(permit); live()}
             live()
             if(journal.find(expected.manifest.key)!=expected) return OfflineStore.SavedRemoval.Waiting
-            session.verifyOriginalCompletion(expected,permit,unclaimedElsewhere); target()
+            session.verifyOriginalCompletion(expected,permit,::unclaimed); target()
             session.retireMigratedOriginal(expected,permit); target()
             val files=LegacyRetirementFiles(); retirement=files
             files.runMoved(expected,directory,requireNotNull(index),::live,::target)
             target(); finalMutation=true
-            session.eraseOriginalRecord(expected,permit,unclaimedElsewhere)
+            session.eraseOriginalRecord(expected,permit,::unclaimed)
             target(); disposeCover(expected.manifest.key,permit); target()
-            session.verifyOriginalRecordAbsent(expected,permit,unclaimedElsewhere)
+            session.verifyOriginalRecordAbsent(expected,permit,::unclaimed)
             if(journal.find(expected.manifest.key)!=expected) throw IOException("Move intent changed before completion")
             journal.complete(expected)
             // Complete is durable; caller cancellation cannot relabel a completed Move Pending.

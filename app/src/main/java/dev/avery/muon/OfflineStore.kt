@@ -1302,11 +1302,74 @@ internal object OfflineStore {
         }
         val main = Handler(Looper.getMainLooper())
         val batch = moveOwnership.begin()
-        try { mover.execute { moveBatch(context, store, from, to, batch, main) } }
+        try { mover.execute {
+            if(from.partition!=null || to.partition!=null) moveOriginalPartitionBatch(context,store,from,to,batch,main)
+            else moveBatch(context, store, from, to, batch, main)
+        } }
         catch (failure: RuntimeException) {
             moveOwnership.finish(batch)
             moveExclusion.release()
             throw failure
+        }
+    }
+
+    /** Supported completed transition originals use fresh destination IDs and exact durable
+     * target-aware cleanup, never the legacy cache getter/manager hand-over. Selection holds only
+     * bounded names; its actual census/cursor closes BEFORE any exclusive publication/retirement.
+     * Production selection remains disabled until new-partition-source Move/recovery is ready. */
+    private fun moveOriginalPartitionBatch(context:Context,store:Store,from:Shelf,to:Shelf,
+        batch:DownloadMoveOwnership.Batch,main:Handler) {
+        var total=0; var handled=0; var kept=0; var later=0; var needsRecovery=false
+        try {
+            val source=from.partition; val target=to.partition
+            if(source==null || target==null || source.storageBarrier!==store.storageBarrier || target.storageBarrier!==store.storageBarrier) {
+                notice(context,"Those storage backends can't be moved together. Nothing was changed."); return
+            }
+            val selection=RemovalSelection()
+            readCensus(context,from).use {census ->
+                total=census.countCompleted()
+                census.forEachRow(completedOnly=true) {row ->
+                    if(!census.soleOwner(row.id)) kept++
+                    else if(!selection.take(from,row.id)) later++
+                    true
+                }
+            }
+            main.post {DownloadMarks.moving=0 to total}
+            for(entry in selection.targets) {
+                fun checked() {
+                    if(!canMove(from,to) || !moveOwnership.permits(batch,entry.id))
+                        throw java.io.InterruptedIOException("Original Move cancelled or storage unavailable")
+                }
+                checked()
+                if(target.claimsName(entry.id)) {kept++; continue}
+                val key=newSaveId {source.claimsName(it) || target.claimsName(it) || store.art.hasEntry(it)}
+                val result=source.moveCompletedOriginalTo(target,entry.id,key,true,store.art,store.artwork,{name ->
+                    if(name==entry.id) true else !store.art.hasEntry(name)
+                },::checked)
+                if(result.stage in setOf(PartitionOriginalMoveStage.Published,PartitionOriginalMoveStage.Pending,PartitionOriginalMoveStage.Complete)) {
+                    val status=DownloadStatus(key,Download.STATE_COMPLETED,result.bytes)
+                    val removed=result.outcome==SavedRemoval.Sent
+                    main.post {
+                        store.record(status)
+                        if(removed) from.partitionRemoved(entry.id)
+                        else DownloadMarks.revision++ // Explicit recovery must inspect the durable Pending.
+                    }
+                }
+                handled++
+                val done=handled; main.post {DownloadMarks.moving=done to total}
+                if(result.outcome!=SavedRemoval.Sent) {
+                    if(result.stage==PartitionOriginalMoveStage.Waiting && result.outcome==SavedRemoval.Failed) {kept++; continue}
+                    needsRecovery=result.stage==PartitionOriginalMoveStage.Pending || result.outcome==SavedRemoval.Unavailable
+                    later+=selection.targets.size-handled; break
+                }
+            }
+            if(kept>0) notice(context,"$kept saved copies weren't moved: their current ownership or storage format isn't supported by this Move path.")
+            if(later>0) notice(context,"$later more saved copies remain for a later Move.")
+            if(needsRecovery) notice(context,"Move stopped with recovery work pending. Existing destination copies remain recorded; review storage recovery before retrying.")
+        } catch(_:Exception) {
+            notice(context,"Move stopped before it could finish. Check saved storage and recovery before retrying.")
+        } finally {
+            main.post {try {moveExclusion.release()} finally {moveOwnership.finish(batch); DownloadMarks.moving=null}}
         }
     }
 
