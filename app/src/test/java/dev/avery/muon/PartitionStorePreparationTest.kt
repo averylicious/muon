@@ -448,4 +448,22 @@ class PartitionStorePreparationTest {
         } finally {cleanup(startup);f.seed.close();assertTrue(prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit())}
     }
 
+    @Test fun appLegacyPreparerRefusesNewerGlobalDatabaseBeforeItsNativeCacheCanResetRecords() {
+        val f=Fixture();val startup=StorageStartup<OfflineStore.PreparedStorage>()
+        val prefs=app.getSharedPreferences("storage",android.content.Context.MODE_PRIVATE)
+        assertTrue(prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit())
+        try {
+            DefaultDownloadIndex(f.seed).putDownload(Download(request("saved/global-version"),Download.STATE_COMPLETED,1,2,4,0,0))
+            f.seed.writableDatabase.execSQL("UPDATE ExoPlayerDownloads SET data=zeroblob(8388608)")
+            f.seed.writableDatabase.version=2
+            assertThrows(android.database.sqlite.SQLiteException::class.java) {worker {startup.open {OfflineStore.prepareSelectedStorage(app,it)}}}
+            assertEquals(2,f.seed.readableDatabase.version)
+            f.seed.readableDatabase.rawQuery("SELECT state,length(data) FROM ExoPlayerDownloads",null).use {
+                assertTrue(it.moveToFirst());assertEquals(Download.STATE_COMPLETED,it.getInt(0));assertEquals(8388608L,it.getLong(1))
+            }
+            assertFalse(SimpleCache.isCacheFolderLocked(File(app.filesDir,"downloads")))
+            assertFalse(f.phoneRoot.exists());f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
+        } finally {cleanup(startup);f.seed.close()}
+    }
+
 }

@@ -239,7 +239,7 @@ internal object OfflineStore {
         // constructing legacy owners; production partition routing/opt-in remains a separate gate.
         return StorageBackendSelection.read(prefs).open(legacy={
             val barrier=owner.own { SavedStorageBarrier() }
-            val database=owner.own { StandaloneDatabaseProvider(context) }
+            val database=owner.own { PreservingMediaDatabase(context) }
             PartitionCompletionIndex(database,"").requireSupportedOrAbsent()
             PartitionCompletionIndex(database,"card").requireSupportedOrAbsent()
             val limit=prefs.getLong("cacheLimit",DEFAULT_CACHE_LIMIT)
@@ -305,7 +305,7 @@ internal object OfflineStore {
         check(Looper.myLooper()!=Looper.getMainLooper()) { "Partition preparation requires a worker" }
         plan.validate() // Before any provider, derived database, cache or worker allocation.
         val barrier=owner.own { SavedStorageBarrier() }
-        val database=owner.own { StandaloneDatabaseProvider(context) }
+        val database=owner.own { PreservingMediaDatabase(context) }
         PartitionCompletionIndex(database,"").requireSupportedOrAbsent()
         PartitionCompletionIndex(database,"card").requireSupportedOrAbsent()
         val prefs=context.getSharedPreferences("storage",Context.MODE_PRIVATE)
