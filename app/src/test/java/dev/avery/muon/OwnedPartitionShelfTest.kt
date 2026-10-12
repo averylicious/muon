@@ -2661,4 +2661,39 @@ class OwnedPartitionShelfTest {
         }
     }
 
+    @Test fun actualMigrationLocatorWriteUncertaintyQuarantinesSourceGateAndRetainsItsStatement() {
+        val f=Fixture();val owner=f.owner();onWorker {owner.prepare()}
+        val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply {isAccessible=true}.get(owner)
+        val resources=StorageStartup::class.java.getDeclaredField("opened").apply {isAccessible=true}.get(startup)!!
+        val catalog=resources.javaClass.getDeclaredField("catalog").apply {isAccessible=true}.get(resources) as CachePartitionCatalog
+        val db=CachePartitionCatalog::class.java.getDeclaredField("database").apply {isAccessible=true}.get(catalog) as SQLiteDatabase
+        var child:java.io.Closeable?=null;var closes=0
+        val io=MigrationIoOwnership(closeHandle={
+            if(it is android.database.sqlite.SQLiteStatement) {child=it;closes++;throw IOException("Unknown actual migration write close")}
+            it.close()
+        })
+        CachePartitionCatalog::class.java.getDeclaredField("io").apply {isAccessible=true}.set(catalog,io)
+        try {
+            assertThrows(PartitionOwnershipUncertain::class.java) {onWorker {owner.migrate(CacheMigrationControl(30000),f.oldKey,{Long.MAX_VALUE},{})}}
+            assertFalse(f.barrier.allowsShared);assertTrue(db.isOpen);assertTrue(db.inTransaction())
+            assertTrue(catalog.ownershipUncertain);assertEquals(1,closes);assertEquals(0,f.budget.resident)
+            assertArrayEquals(payload,f.original.readBytes());assertThrows(IOException::class.java) {catalog.close()};assertEquals(1,closes)
+        } finally {
+            // Injected callback did not reach raw close. Fixture-only rollback/cleanup, never a
+            // production retry, forced release or reset of the quarantined source gate.
+            child?.close();db.endTransaction();db.close()
+            (resources.javaClass.getDeclaredField("workers").apply {isAccessible=true}.get(resources) as java.util.concurrent.ExecutorService).shutdown()
+            val legacy=resources.javaClass.getDeclaredField("legacy").apply {isAccessible=true}.get(resources)
+            (LegacyTransitionOwner::class.java.getDeclaredField("index").apply {isAccessible=true}.get(legacy) as SQLiteDatabase?)?.close()
+            for(name in listOf("saves","migrations"))
+                (resources.javaClass.getDeclaredField(name).apply {isAccessible=true}.get(resources) as java.io.Closeable).close()
+            onWorker {
+                (resources.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(resources) as LegacyRetirementJournal).close()
+                (resources.javaClass.getDeclaredField("moves").apply {isAccessible=true}.get(resources) as PartitionSavedMoveJournal).close()
+                (resources.javaClass.getDeclaredField("deletes").apply {isAccessible=true}.get(resources) as PartitionSavedDeleteJournal).close()
+            }
+            f.provider.close()
+        }
+    }
+
 }

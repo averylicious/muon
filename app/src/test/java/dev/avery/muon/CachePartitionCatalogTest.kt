@@ -145,4 +145,82 @@ class CachePartitionCatalogTest {
         }
     }
 
+    private fun actualDatabase(catalog:CachePartitionCatalog)=CachePartitionCatalog::class.java
+        .getDeclaredField("database").apply {isAccessible=true}.get(catalog) as SQLiteDatabase
+    @Test fun catalogStartupOwnsActualConnectionBeforeSchemaCursorAndRefusesFailedReopen() {
+        val root=folders.newFolder();var child:java.io.Closeable?=null;var closes=0
+        val catalog=CachePartitionCatalog(root,autoOpen=false,io=MigrationIoOwnership(closeHandle={
+            child=it;closes++;throw IOException("Unknown locator schema cursor close")
+        }))
+        assertFalse(File(root,"partition-locators-v1.db").exists())
+        val startup=StorageStartup<CachePartitionCatalog>()
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {startup.open {opening ->opening.own {catalog}.also {it.open()}}}
+            assertSame(catalog,failure.owner);assertEquals(1,startup.retained);assertTrue(catalog.ownershipUncertain)
+            val handles=StorageStartup::class.java.getDeclaredField("handles").apply {isAccessible=true}.get(startup) as Array<*>
+            assertSame(catalog,handles[0]);assertTrue(actualDatabase(catalog).isOpen);assertTrue(actualDatabase(catalog).inTransaction())
+            assertThrows(IOException::class.java) {startup.open {throw AssertionError("Failed locator startup retried")}}
+            assertThrows(IOException::class.java) {catalog.open()};assertThrows(IOException::class.java) {catalog.close()};assertEquals(1,closes)
+        } finally {child?.close();actualDatabase(catalog).endTransaction();actualDatabase(catalog).close()}
+    }
+    @Test fun actualInsertAndReplacementStatementUncertaintyRetainsTransactionAndOldBytes() {
+        for(replace in listOf(false,true)) {
+            val root=folders.newFolder();val original=File(root,"unrelated-original").apply {writeBytes(byteArrayOf(3,5,7))}
+            var fail=false;var child:java.io.Closeable?=null;var closes=0
+            val catalog=CachePartitionCatalog(root,io=MigrationIoOwnership(closeHandle={
+                if(fail && it is android.database.sqlite.SQLiteStatement) {child=it;closes++;throw IOException("Unknown locator statement close")}
+                it.close()
+            }))
+            val old=if(replace) catalog.reserve("kept") else null
+            val db=actualDatabase(catalog);fail=true
+            try {
+                val failure=assertThrows(PartitionOwnershipUncertain::class.java) {if(replace) catalog.reserveFresh("kept") else catalog.reserve("kept")}
+                assertSame(catalog,failure.owner);assertTrue(catalog.ownershipUncertain);assertTrue(db.isOpen);assertTrue(db.inTransaction())
+                db.rawQuery("SELECT COUNT(*) FROM partitions",null).use {assertTrue(it.moveToFirst());assertEquals(1,it.getInt(0))}
+                assertThrows(IOException::class.java) {catalog.find("kept")};assertThrows(IOException::class.java) {catalog.close()};assertEquals(1,closes)
+                assertArrayEquals(byteArrayOf(3,5,7),original.readBytes())
+            } finally {child?.close();db.endTransaction();db.close()}
+            CachePartitionCatalog(root).use {resumed ->assertEquals(old,resumed.find("kept"))}
+        }
+    }
+    @Test fun everyActualCatalogReadRetainsUnknownCursorAndRefusesFurtherReservation() {
+        for(operation in listOf("find","count","page")) {
+            var fail=false;var child:java.io.Closeable?=null;var closes=0
+            val catalog=CachePartitionCatalog(folders.newFolder(),io=MigrationIoOwnership(closeHandle={
+                if(fail) {child=it;closes++;throw IOException("Unknown actual locator read close")}
+                it.close()
+            }))
+            catalog.reserve("kept");val db=actualDatabase(catalog);fail=true
+            try {
+                val failure=assertThrows(PartitionOwnershipUncertain::class.java) {when(operation) {
+                    "find" -> catalog.find("kept");"count" -> catalog.count();else -> catalog.page()
+                }}
+                assertSame(catalog,failure.owner);assertTrue(db.isOpen);assertTrue(catalog.ownershipUncertain)
+                assertThrows(IOException::class.java) {catalog.reserveFresh("kept")};assertThrows(IOException::class.java) {catalog.close()};assertEquals(1,closes)
+            } finally {child?.close();db.close()}
+        }
+    }
+    @Test fun locatorCommitAcknowledgementLossNeverReturnsAFreshAllocationOrReplaysWork() {
+        var fail=false;var ends=0
+        val catalog=CachePartitionCatalog(folders.newFolder(),finishTransaction={db ->db.endTransaction();ends++
+            if(fail) throw IOException("Locator commit acknowledgement lost")})
+        val db=actualDatabase(catalog);fail=true
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {catalog.reserve("kept")}
+            assertSame(catalog,failure.owner);assertFalse(db.inTransaction());assertTrue(catalog.ownershipUncertain)
+            db.rawQuery("SELECT COUNT(*) FROM partitions",null).use {assertTrue(it.moveToFirst());assertEquals(1,it.getInt(0))}
+            val before=ends;assertThrows(IOException::class.java) {catalog.reserve("kept")};assertThrows(IOException::class.java) {catalog.close()};assertEquals(before,ends)
+        } finally {db.close()}
+    }
+    @Test fun catalogDatabaseCloseKeepsActualOwnerAndCannotBeRetriedAfterUnknownResult() {
+        var closes=0
+        val catalog=CachePartitionCatalog(folders.newFolder(),closeDatabase={closes++;throw IOException("Unknown locator database close")})
+        val db=actualDatabase(catalog);catalog.reserve("kept")
+        try {
+            val failure=assertThrows(PartitionOwnershipUncertain::class.java) {catalog.close()}
+            assertSame(catalog,failure.owner);assertTrue(db.isOpen);assertTrue(catalog.ownershipUncertain)
+            assertThrows(IOException::class.java) {catalog.close()};assertThrows(IOException::class.java) {catalog.count()};assertEquals(1,closes)
+        } finally {db.close()}
+    }
+
 }
