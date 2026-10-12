@@ -147,7 +147,8 @@ class PartitionShelfManagerTest {
         assertEquals(OfflineStore.SavedRemoval.Sent,onWorker { f.session.removeCompleted(request.id) {true} })
         assertNull(f.index.getDownload(request.id)); assertTrue(f.manager.currentDownloads.isEmpty())
         assertEquals(PartitionSavePhase.Closed,f.saves.find(request.id)?.phase)
-        assertEquals(SavedCoverage.Missing,onWorker { f.session.audio.inspect(request.id).coverage })
+        assertFalse(onWorker { f.session.audio.contains(request.id) })
+        assertThrows(IOException::class.java) { onWorker { f.session.audio.inspect(request.id) } }
         assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker { f.session.removeCompleted(request.id) {true} })
         assertTrue(f.barrier.quiescent)
     }
