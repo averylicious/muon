@@ -1,6 +1,7 @@
 # Main-branch audit
 
-Current engineering continuation: [October 13 retirement, migration and startup checkpoint](../handoffs/2026-10-12-legacy-retirement-progress.md). #549/.1071 verified 1,566 tests per variant and actual APK safeguards; journal ownership #550/#551 corrected fixture thread affinity and await reruns .1075/.1076, new-save #552/.1077 and missing-card #553/.1078 pending. Partition mode disabled; app PRs OPEN for inherited UAT. First-opt-in admission/bootstrap/setup-recovery and final composed failures remain engineering. Solo GPT-6; no Claude/phones; continue useful authorized work while capacity permits.
+Current engineering continuation: [October 13 storage checkpoint](../handoffs/2026-10-12-legacy-retirement-progress.md). #549–#555 exact-head reports/APKs verified; #556/.1084 startup review and #557/.1085 composed recovery pending CI. Atomic empty setup publication is the active branch; read-only global database version guarding follows. Activation disabled; cumulative app PRs OPEN for UAT. Solo GPT-6, no Claude/phones. Continue useful authorized engineering while capacity permits.
+
 
 Current #253 continuation: [legacy-retirement progress](../handoffs/2026-10-12-legacy-retirement-progress.md) on #515. Latest fully verified cumulative application #548 6fb274fc97f918216392825b58d06262cd357640 / Actions .1070,1561 tests per variant and actual APK safeguards. #549/.1071 green with downloads pending; #550/.1072 and #551/.1073 journal lifetime pending. New-save lifetime successor is active; verify dirty state. Partition mode disabled; full supported legacy Delete/Move before activation remains required. No Claude/phone this cycle; application PRs OPEN for inherited UAT. See checkpoint for exact heads/owners and remaining engineering.
 
