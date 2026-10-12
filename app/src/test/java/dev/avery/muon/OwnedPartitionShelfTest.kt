@@ -1004,6 +1004,7 @@ class OwnedPartitionShelfTest {
         originalIndex.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
         try {
             onWorker {source.prepare(); target.prepare()}
+            await(source.initializeManager()) {true}; await(target.initializeManager()) {true}
             val receipt=onWorker {source.copyCompletedOriginalTo(target,"41","saved/local-move",true)}
             assertEquals("41",receipt.source.key); assertEquals(4L,receipt.source.length)
             assertEquals(PartitionSavePhase.Closed,onWorker {target.saveRecoveryPage().single().phase})
@@ -1031,6 +1032,7 @@ class OwnedPartitionShelfTest {
         index.putDownload(Download(request,Download.STATE_COMPLETED,1,2,5,0,0))
         try {
             onWorker {source.prepare(); target.prepare(); foreign.prepare()}
+            await(source.initializeManager()) {true}; await(target.initializeManager()) {true}
             assertThrows(IOException::class.java) {onWorker {source.copyCompletedOriginalTo(target,"42","saved/no-consent",false)}}
             assertThrows(IOException::class.java) {onWorker {source.copyCompletedOriginalTo(foreign,"42","saved/foreign",true)}}
             assertThrows(IOException::class.java) {onWorker {source.copyCompletedOriginalTo(target,"42","saved/length-mismatch",true)}}
