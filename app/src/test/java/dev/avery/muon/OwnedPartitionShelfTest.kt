@@ -2700,6 +2700,9 @@ class OwnedPartitionShelfTest {
 
     @Test fun actualNewSaveReservationUncertaintyQuarantinesSourceGateBeforeNativeWriter() {
         val f=Fixture();val owner=f.owner();onWorker {owner.prepare()}
+        // Actual known empty manager index: otherwise admission correctly refuses missing schema
+        // before reaching the injected reservation write.
+        DefaultDownloadIndex(f.provider,"owned_partition").getDownloads().use {assertFalse(it.moveToNext())}
         val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply {isAccessible=true}.get(owner)
         val resources=StorageStartup::class.java.getDeclaredField("opened").apply {isAccessible=true}.get(startup)!!
         val journal=resources.javaClass.getDeclaredField("saves").apply {isAccessible=true}.get(resources) as PartitionSaveJournal
@@ -2719,7 +2722,7 @@ class OwnedPartitionShelfTest {
         } finally {
             // Injected callback did not reach raw close. Fixture-only rollback/cleanup, never a
             // production retry, forced release or reset of the quarantined source gate.
-            child?.close();db.endTransaction();db.close()
+            child?.close();if(db.inTransaction()) db.endTransaction();db.close()
             (resources.javaClass.getDeclaredField("workers").apply {isAccessible=true}.get(resources) as java.util.concurrent.ExecutorService).shutdown()
             val legacy=resources.javaClass.getDeclaredField("legacy").apply {isAccessible=true}.get(resources)
             (LegacyTransitionOwner::class.java.getDeclaredField("index").apply {isAccessible=true}.get(legacy) as SQLiteDatabase?)?.close()
