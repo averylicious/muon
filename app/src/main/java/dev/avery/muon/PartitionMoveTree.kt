@@ -7,9 +7,15 @@ import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.NoSuchFileException
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
+
+/** Only a reported nonexistent path proves absence; access/I/O errors are not missing files. */
+private fun moveTreePathPresent(file:File):Boolean=try {
+    Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS); true
+} catch(_:NoSuchFileException) {false}
 
 internal const val PARTITION_MOVE_TREE_FILES=MIGRATION_RANGES+9
 internal const val PARTITION_MOVE_TREE_DIRECTORIES=14
@@ -63,7 +69,7 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
         validate(); parent(root)
         for(d in directories.sortedBy {it.path.length}) {
             checkpoint(); val file=if(d.path.isEmpty()) root else File(root,d.path)
-            if(!Files.exists(file.toPath(),LinkOption.NOFOLLOW_LINKS)) {
+            if(!moveTreePathPresent(file)) {
                 if(!allowMissing) throw IOException("Move tree directory is missing")
                 continue
             }
@@ -85,11 +91,11 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
             // Check all existing ancestors before touching the leaf; no symlink traversal.
             for(d in directories.filter {it.path.isEmpty() || f.path.startsWith(it.path+"/")}) {
                 val ancestor=if(d.path.isEmpty()) root else File(root,d.path)
-                if(Files.exists(ancestor.toPath(),LinkOption.NOFOLLOW_LINKS) &&
+                if(moveTreePathPresent(ancestor) &&
                     (!attributes(ancestor).isDirectory || fileIdentity(ancestor)!=d.identity))
                     throw IOException("Move tree ancestor changed")
             }
-            if(!Files.exists(file.toPath(),LinkOption.NOFOLLOW_LINKS)) {
+            if(!moveTreePathPresent(file)) {
                 if(!allowMissing) throw IOException("Move tree file is missing")
                 continue
             }
@@ -213,7 +219,7 @@ internal class PartitionMoveTreeRemoval(private val ownership:MigrationIoOwnersh
             current=file
             try {
                 unlink(file)
-                if(Files.exists(file.toPath(),LinkOption.NOFOLLOW_LINKS)) throw IOException("Move tree unlink did not establish absence")
+                if(moveTreePathPresent(file)) throw IOException("Move tree unlink did not establish absence")
                 sync(requireNotNull(file.parentFile)); current=null
             } catch(failure:Throwable) {phase=Phase.Uncertain; throw PartitionOwnershipUncertain(this,failure)}
         }
@@ -222,14 +228,14 @@ internal class PartitionMoveTreeRemoval(private val ownership:MigrationIoOwnersh
             // All databases are already closed. Remove spans first, marker last; no native reopen.
             for(entry in tree.files.sortedBy {if(it.path.endsWith(".v3.exo")) 0 else if(it.path.endsWith(".uid")) 2 else 1}) {
                 checked(); val file=File(root,entry.path)
-                if(Files.exists(file.toPath(),LinkOption.NOFOLLOW_LINKS)) remove(file)
+                if(moveTreePathPresent(file)) remove(file)
             }
             for(entry in tree.directories.sortedByDescending {it.path.length}) {
                 checked(); val file=if(entry.path.isEmpty()) root else File(root,entry.path)
-                if(Files.exists(file.toPath(),LinkOption.NOFOLLOW_LINKS)) remove(file)
+                if(moveTreePathPresent(file)) remove(file)
             }
             verifyDestination(); tree.parent(root)
-            if(Files.exists(root.toPath(),LinkOption.NOFOLLOW_LINKS)) throw IOException("Move tree root remains")
+            if(moveTreePathPresent(root)) throw IOException("Move tree root remains")
             phase=Phase.Finished
         } catch(failure:Throwable) {
             if(failure is MigrationIoUncertain || !ownership.quiescent || phase==Phase.Uncertain) {

@@ -83,10 +83,16 @@ class PartitionMoveTreeTest {
         assertTrue(tree.files.all {File(root,it.path).isFile})
     }
     @Test fun unknownActualReaderCloseRetainsTrackerAndPreventsFurtherHandles() {
-        val root=source(); val ownership=MigrationIoOwnership(closeHandle={throw IOException("Unknown actual close")})
+        val root=source(); var actual:java.io.Closeable?=null
+        val ownership=MigrationIoOwnership(closeHandle={handle ->
+            if(handle is java.io.RandomAccessFile) {actual=handle; throw IOException("Unknown actual close")}
+            handle.close()
+        })
         val error=assertThrows(MigrationIoUncertain::class.java) {PartitionMoveTree.capture(root,10,ownership) {}}
         assertSame(ownership,error.ownership); assertFalse(ownership.quiescent)
         assertThrows(IOException::class.java) {ownership.input(File(root,"bytes/a.uid"))}
+        // Fixture knows its injection did not reach the real close; production cannot assume that.
+        requireNotNull(actual).close()
     }
     @Test fun missingFilesBeforePendingAreRefusedAndEncodedCountsAreBounded() {
         val root=source(); val tree=capture(root); assertTrue(File(root,"bytes/0/0.0.1.v3.exo").delete())
