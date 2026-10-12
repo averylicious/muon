@@ -206,6 +206,27 @@ internal class DownloadArt(private val dir: File,
         if(sourceId==targetId || coverIdentity(sourceEntry(sourceId),permit)!=expected ||
             coverIdentity(sourceEntry(targetId),permit)!=expected) throw IOException("Moved cover identity changed")
     }
+    /** The destination is rechecked even when a previous explicit attempt already removed source.
+     * The persisted receipt is required; absence after an interrupted Move never invents proof. */
+    internal fun verifyMovedTarget(targetId:String,expected:SavedMoveCoverIdentity,permit:SavedStorageBarrier.Lease) {
+        requireCoverPermit(permit); expected.validate()
+        if(!targetId.startsWith(NEW_SAVE_PREFIX) || targetId==NEW_SAVE_PREFIX ||
+            coverIdentity(sourceEntry(targetId),permit)!=expected) throw IOException("Moved target cover changed")
+    }
+    internal fun verifyMovedSource(sourceId:String,expected:SavedMoveCoverIdentity,permit:SavedStorageBarrier.Lease) {
+        requireCoverPermit(permit); expected.validate()
+        val original=coverIdentity(sourceEntry(sourceId),permit)
+        if(original.length!=0L && original!=expected) throw IOException("Move original cover changed")
+    }
+    internal fun removeMovedSourceConfirmed(sourceId:String,targetId:String,expected:SavedMoveCoverIdentity,
+        permit:SavedStorageBarrier.Lease) {
+        if(sourceId==targetId) throw IOException("Moved cover source aliases destination")
+        verifyMovedTarget(targetId,expected,permit)
+        verifyMovedSource(sourceId,expected,permit)
+        removeEntryConfirmed(sourceId,permit)
+        syncCoverDirectory(permit)
+        verifyMovedTarget(targetId,expected,permit)
+    }
     private fun sourceEntry(id:String):File {
         if(id.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Cover identity exceeds supported bound")
         return entryFile(id)

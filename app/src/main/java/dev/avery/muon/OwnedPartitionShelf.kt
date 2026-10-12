@@ -175,6 +175,25 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             art.copyEntryConfirmed(copy.source.key,copy.destination.allocation.key,permit)
         },recovery) {located(); destination.located()}
     }
+    internal fun completeCoveredOriginalMove(destination:OwnedPartitionShelf,expected:LegacyRetirementRecord,
+        explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
+        unclaimedElsewhere:(String)->Boolean):OfflineStore.SavedRemoval {
+        if(destination===this || destination.storageBarrier!==barrier) return OfflineStore.SavedRemoval.NotOwned
+        val bound=expected.manifest.moveDestination ?: return OfflineStore.SavedRemoval.Waiting
+        val cover=expected.manifest.moveCover ?: return OfflineStore.SavedRemoval.Waiting
+        val source=resources(); val target=destination.resources()
+        return source.legacy.completeMovedOriginal(source.session,source.retirements,expected,explicitConsent,
+            unclaimedElsewhere,{permit ->
+                located(); destination.located()
+                target.session.verifyMoveDestination(bound,destination.volume,
+                    destination.key(destination.directory).toString(),permit) {located(); destination.located()}
+                artwork.cancelForConfirmedRemoval(expected.manifest.key,permit)
+                artwork.cancelForConfirmedRemoval(bound.ticket.allocation.key,permit)
+                art.verifyMovedTarget(bound.ticket.allocation.key,cover,permit)
+                art.verifyMovedSource(expected.manifest.key,cover,permit)
+            },{key,permit ->art.removeMovedSourceConfirmed(key,bound.ticket.allocation.key,cover,permit)},
+            {located(); destination.located()})
+    }
     fun playedBytes(checkpoint:()->Unit={}):Long=resources().session.playedBytes(checkpoint)
     fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
         try { resources().session.removePlayed(key,removable) }

@@ -1254,4 +1254,132 @@ class OwnedPartitionShelfTest {
         } finally {f.close()}
     }
 
+    @Test fun actualCoveredMoveCompletesOnlyAfterDestinationProofAndKeepsTargetReadableAfterRestart() {
+        val f=LocalPublicationFixture(); var resumedSource:OwnedPartitionShelf?=null; var resumedTarget:OwnedPartitionShelf?=null
+        val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+        val cover=byteArrayOf(1,3,5); coverFile(art,"81").writeBytes(cover)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+            assertFalse(f.f.original.exists()); assertNull(f.index.getDownload("81")); assertFalse(coverFile(art,"81").exists())
+            assertArrayEquals(cover,coverFile(art,f.key).readBytes()); assertNotNull(f.target.initializeManager().downloadIndex.getDownload(f.key))
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {f.source.retirementRecoveryPage().single().phase})
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+            teardown(f.source); f.sourceClosed=true; teardown(f.target); f.targetClosed=true
+            val source=f.f.owner(PartitionShelfStart.Resume); resumedSource=source
+            val target=f.target(PartitionShelfStart.Resume); resumedTarget=target
+            onWorker {source.prepare(); target.prepare()}
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {source.retirementRecoveryPage().single().phase})
+            onWorker {
+                val reader=target.audio.source.createDataSource()
+                try {
+                    assertEquals(4L,reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(f.key).build()))
+                    val bytes=ByteArray(4); assertEquals(4,reader.read(bytes,0,4)); assertArrayEquals(payload,bytes)
+                } finally {reader.close()}
+            }
+            assertEquals(0,f.f.budget.resident); assertTrue(f.f.barrier.quiescent)
+        } finally {resumedTarget?.let(::teardown); resumedSource?.let(::teardown); f.close()}
+    }
+    @Test fun changedTargetAudioRefusesMoveCleanupAndPreservesOriginalRowBytesAndCover() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier); coverFile(art,"81").writeBytes(byteArrayOf(5))
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            f.targetRoot.walkTopDown().single {it.isFile && it.name.endsWith(".v3.exo")}.writeBytes(byteArrayOf(9,9,9,9))
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertArrayEquals(byteArrayOf(5),coverFile(art,"81").readBytes())
+            assertEquals(intent,onWorker {f.source.retirementRecoveryPage().single()}); assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun missingTargetCoverOrChangedOriginalCoverRefusesBeforeAnyAudioRemoval() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier); val bytes=byteArrayOf(5); coverFile(art,"81").writeBytes(bytes)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            coverFile(art,f.key).delete()
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+            coverFile(art,f.key).writeBytes(bytes); coverFile(art,"81").writeBytes(byteArrayOf(7))
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertArrayEquals(byteArrayOf(7),coverFile(art,"81").readBytes()); assertEquals(intent,onWorker {f.source.retirementRecoveryPage().single()})
+        } finally {f.close()}
+    }
+    @Test fun changedDestinationCompletedRowOrMissingConsentRefusesBeforeSourceMutation() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,false,art,work,{true})
+            })
+            val index=DefaultDownloadIndex(f.f.provider,"publication_target"); val row=index.getDownload(f.key)!!
+            index.putDownload(Download(row.request,Download.STATE_COMPLETED,99,100,4,0,0))
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertEquals(intent,onWorker {f.source.retirementRecoveryPage().single()})
+        } finally {f.close()}
+    }
+    @Test fun exactCoveredPendingRecoversMissingOriginalFilesRowAndCoverOnlyAfterRestartAndRenewedConsent() {
+        val f=LocalPublicationFixture(); var resumed:OwnedPartitionShelf?=null
+        val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+        coverFile(art,"81").writeBytes(byteArrayOf(5))
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            teardown(f.source); f.sourceClosed=true
+            // Simulate an interrupted already-confirmed source-disposition stage; target untouched.
+            assertTrue(f.f.original.delete()); f.index.removeDownload("81"); assertTrue(coverFile(art,"81").delete())
+            val next=f.f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
+            assertEquals(intent,onWorker {next.retirementRecoveryPage().single()})
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {
+                next.completeCoveredOriginalMove(f.target,intent,false,art,work,{true})
+            })
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {
+                next.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {next.retirementRecoveryPage().single().phase})
+            assertArrayEquals(byteArrayOf(5),coverFile(art,f.key).readBytes()); assertNotNull(f.target.initializeManager().downloadIndex.getDownload(f.key))
+        } finally {resumed?.let(::teardown); f.close()}
+    }
+    @Test fun activeDestinationReaderBlocksMoveCleanupAndUnboundCoverIntentCannotFinish() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val old=onWorker {f.source.beginCopiedOriginalMove(f.target,copy,completed,true)}
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,old,true,art,work,{true})
+            })
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work,old)}
+            onWorker {
+                val reader=f.target.audio.source.createDataSource()
+                try {
+                    reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(f.key).build())
+                    assertEquals(OfflineStore.SavedRemoval.Busy,f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true}))
+                    assertTrue(f.f.original.exists()); assertNotNull(f.index.getDownload("81"))
+                } finally {reader.close()}
+            }
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {
+                f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
+            })
+        } finally {f.close()}
+    }
+
 }

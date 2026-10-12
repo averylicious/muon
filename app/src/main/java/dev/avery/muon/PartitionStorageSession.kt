@@ -280,6 +280,21 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             throw failure
         }
     }
+    /** Reobserve an exact persisted Move binding through this actual destination owner. Receipt
+     * equality alone is insufficient: current completion, native UID, bytes and metadata are read
+     * again, with real closes, while both shelves remain under the caller's exclusive gate. */
+    internal fun verifyMoveDestination(expected:PartitionMoveDestination,volume:String,rootIdentity:String,
+        permit:SavedStorageBarrier.Lease,checkpoint:()->Unit) {
+        originalPermit(permit); expected.validate()
+        if(volume!=expected.volume || rootIdentity!=expected.rootIdentity)
+            throw IOException("Move destination volume or root changed")
+        val completion=completionIndex.find(expected.ticket.allocation.key)
+            ?: throw IOException("Move destination completed record is absent")
+        if(completion.retirementIdentity()!=expected.completionIdentity || completion.length!=expected.length)
+            throw IOException("Move destination completed record changed")
+        if(moveDestinationIdentity(expected.ticket,completion,volume,rootIdentity,permit,checkpoint)!=expected)
+            throw IOException("Move destination no longer matches its durable binding")
+    }
     internal fun originalCopyRequest(expected:PartitionSaveCompletion,permit:SavedStorageBarrier.Lease):DownloadRequest {
         originalPermit(permit)
         if(originalCompletion(expected.key,permit,{true})!=expected)

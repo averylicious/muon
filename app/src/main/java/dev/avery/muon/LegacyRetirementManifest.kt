@@ -95,7 +95,7 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
      * This does not dispose of a Ready duplicate, download record or artwork, or mark Complete.
      */
     internal fun retireRemaining(root:File,index:SQLiteDatabase,checkpoint:()->Unit,
-        unlink:(File)->Unit,ownership:MigrationIoOwnership):LegacyRetirementFileResult {
+        unlink:(File)->Unit,ownership:MigrationIoOwnership,beforeUnlink:()->Unit={}):LegacyRetirementFileResult {
         verifyRemaining(root,index,true,checkpoint,ownership)
         var removed=0L; var missing=0L
         for(span in spans) {
@@ -103,6 +103,7 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
             if(!Files.exists(file.toPath(),LinkOption.NOFOLLOW_LINKS)) {
                 missing=Math.addExact(missing,span.length); continue
             }
+            beforeUnlink(); checkpoint()
             exactSpan(root,file,span.length,span.fileIdentity)
             if(digest(file,span.length,ownership,checkpoint)!=span.digest)
                 throw IOException("Legacy retirement bytes changed before unlink")

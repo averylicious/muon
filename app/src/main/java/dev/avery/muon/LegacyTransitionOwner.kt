@@ -260,7 +260,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
                 else journal.bindMoveCover(recovery,requireNotNull(cover))
             live(); return record
         } catch(failure:Throwable) {
-            if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || journal.ownershipUncertain || !directoryIo.quiescent) {
+            if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || failure is SavedCoverCloseUncertain || journal.ownershipUncertain || !directoryIo.quiescent) {
                 phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,digest,observeDestination,failure)); quarantined=true
             }
             throw failure
@@ -362,6 +362,45 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             if(finalMutation || failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain ||
                 journal.ownershipUncertain || retirement?.uncertain==true) {
                 phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,retirement,disposeCover,failure)); quarantined=true
+            } else retirement=null
+            return OfflineStore.SavedRemoval.Failed
+        } finally {if(!quarantined) permit.close()}
+    }
+    /** Complete only an exact shown covered Move Pending, with renewed consent. Destination
+     * bytes/UID/completion/root AND persisted own-cover proof are checked before every unlink and
+     * again before Complete. Missing originals may recover only under this exact durable intent.
+     * No generic Delete, automatic replay, same-ID reuse or full old native-index allocation. */
+    @Synchronized internal fun completeMovedOriginal(session:PartitionStorageSession,journal:LegacyRetirementJournal,
+        expected:LegacyRetirementRecord,explicitConsent:Boolean,unclaimedElsewhere:(String)->Boolean,
+        verifyDestination:(SavedStorageBarrier.Lease)->Unit,
+        disposeCover:(String,SavedStorageBarrier.Lease)->Unit,checked:()->Unit):OfflineStore.SavedRemoval {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original Move finish requires a worker"}
+        if(!explicitConsent || !session.usesBarrier(barrier)) return OfflineStore.SavedRemoval.NotOwned
+        if(expected.phase!=LegacyRetirementPhase.Pending || expected.manifest.moveDestination==null || expected.manifest.moveCover==null)
+            return OfflineStore.SavedRemoval.Waiting
+        checkpoint()
+        val permit=try {barrier.exclusive()} catch(_:IOException) {return OfflineStore.SavedRemoval.Busy}
+        var quarantined=false; var finalMutation=false
+        try {
+            fun live() {permit.check(); checkpoint(); checked(); checkpoint()}
+            fun target() {live(); verifyDestination(permit); live()}
+            live()
+            if(journal.find(expected.manifest.key)!=expected) return OfflineStore.SavedRemoval.Waiting
+            session.verifyOriginalCompletion(expected,permit,unclaimedElsewhere); target()
+            session.retireMigratedOriginal(expected,permit); target()
+            val files=LegacyRetirementFiles(); retirement=files
+            files.runMoved(expected,directory,requireNotNull(index),::live,::target)
+            target(); finalMutation=true
+            session.eraseOriginalRecord(expected,permit,unclaimedElsewhere)
+            target(); disposeCover(expected.manifest.key,permit); target()
+            session.verifyOriginalRecordAbsent(expected,permit,unclaimedElsewhere)
+            if(journal.find(expected.manifest.key)!=expected) throw IOException("Move intent changed before completion")
+            journal.complete(expected); live(); retirement=null
+            return OfflineStore.SavedRemoval.Sent
+        } catch(failure:Throwable) {
+            if(finalMutation || failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain ||
+                failure is SavedCoverCloseUncertain || journal.ownershipUncertain || retirement?.uncertain==true) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,retirement,verifyDestination,disposeCover,failure)); quarantined=true
             } else retirement=null
             return OfflineStore.SavedRemoval.Failed
         } finally {if(!quarantined) permit.close()}
