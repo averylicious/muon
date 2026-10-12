@@ -73,6 +73,30 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
         if(!key.startsWith(NEW_SAVE_PREFIX)) throw IOException("Fresh save ID is unsupported")
         return containsId(key)
     }
+    /** An absent optional shelf's index can have never existed. Only a genuinely absent table
+     * AND absent version receipt mean no claim; a view, orphaned version or malformed layout is
+     * uncertainty. No DefaultDownloadIndex initialization/migration or payload projection occurs.
+     */
+    @Synchronized fun holdsNameIfPresent(key:String):Boolean {
+        if(key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Save name exceeds supported budget")
+        try {
+            val db=provider.readableDatabase
+            fun tablePresent(name:String):Boolean=db.rawQuery(
+                "SELECT CASE WHEN type='table' THEN 1 ELSE 0 END FROM sqlite_master WHERE name=? LIMIT 2",arrayOf(name)).use {
+                if(!it.moveToFirst()) false else {
+                    if(it.getInt(0)!=1 || it.moveToNext()) throw IOException("Optional save index identity is unsupported")
+                    true
+                }
+            }
+            if(!tablePresent(table)) {
+                if(tablePresent(versions)) db.rawQuery("SELECT 1 FROM $versions WHERE feature=0 AND instance_uid=? LIMIT 1",arrayOf(name)).use {
+                    if(it.moveToFirst()) throw IOException("Optional save index version exists without its table")
+                }
+                return false
+            }
+            return holdsName(key)
+        } catch(failure:SQLiteException) { throw IOException("Optional save index cannot be established",failure) }
+    }
     /** Existing legacy row IDs are observed without projecting their raw payloads/URI/metadata. */
     @Synchronized fun containsId(key:String,completedOnly:Boolean=false):Boolean {
         if(key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Save ID exceeds supported budget")

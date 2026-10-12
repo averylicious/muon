@@ -155,6 +155,13 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         commands.reconcileCompleted(completionIndex::find)
         commands.prepare(request)
     }
+    /** Complete scalar name ownership for another app shelf; no metadata hydration or whole-key set.
+     * Pending/uncertain/empty journal claims still reserve their names, not merely playable copies.
+     */
+    fun claimsName(name:String):Boolean=operation {
+        catalog.find(name)!=null || saves.find(name)!=null || migrations.find(name)!=null ||
+            completionIndex.holdsName(name) || mixed.contains(name)
+    }
     fun containsId(id:String,completedOnly:Boolean=false)=operation { completionIndex.containsId(id,completedOnly) }
     fun prepared(request:DownloadRequest)=operation { commands.prepared(request) }
     fun abandonPrepared(request:DownloadRequest):Boolean=operation {

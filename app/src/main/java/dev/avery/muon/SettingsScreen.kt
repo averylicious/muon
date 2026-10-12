@@ -153,7 +153,7 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
         SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
-                if (full) " · full, oldest songs make room" else "",
+                if (full) { if(store.phone.partition==null) " · full, oldest songs make room" else " · full, existing copies kept" } else "",
             trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } })
         // The limit is chosen right here, from four sizes side by side, rather than in a dialog.
         Surface(shape = rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {

@@ -163,13 +163,13 @@ internal object OfflineStore {
     fun current(): Store? = store
 
     // Neither a screen cancellation nor a cold service restart may allocate a second native owner.
-    private val preparation = StorageStartup<PreparedLegacy>()
+    private val preparation = StorageStartup<PreparedStorage>()
     private val startup = StorageStartup<Store>()
     private val initialization = StorageInitialization(
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()+kotlinx.coroutines.Dispatchers.Main.immediate),
         kotlinx.coroutines.Dispatchers.Main.immediate,kotlinx.coroutines.Dispatchers.IO,
         prepare={ preparation.open { prepareLegacy(requireNotNull(startupContext),it) } },
-        bind={ ready:PreparedLegacy -> startup.open { bindLegacy(ready,it) }.also { store=it } })
+        bind={ ready:PreparedStorage -> startup.open { bindStorage(ready,it) }.also { store=it } })
     @Volatile private var startupContext:Context?=null
     val availability:kotlinx.coroutines.flow.StateFlow<StorageAvailability> get()=initialization.availability
     suspend fun await(context:Context):Store {
@@ -183,15 +183,16 @@ internal object OfflineStore {
     @Suppress("UNUSED_PARAMETER")
     fun get(context:Context):Store=store ?: throw initialization.unavailable()
 
-    private class PreparedShelf(val cache:SimpleCache,val evictor:androidx.media3.datasource.cache.CacheEvictor,
-        val index:String,val service:Class<out DownloadService>,val present:()->Boolean)
-    private class PreparedLegacy(val context:Context,val prefs:android.content.SharedPreferences,
+    internal class PreparedShelf(val cache:SimpleCache?,val evictor:androidx.media3.datasource.cache.CacheEvictor?,
+        val index:String,val service:Class<out DownloadService>,val present:()->Boolean,
+        val partition:OwnedPartitionShelf?=null)
+    internal class PreparedStorage(val context:Context,val prefs:android.content.SharedPreferences,
         val barrier:SavedStorageBarrier,val database:StandaloneDatabaseProvider,val limit:Long,
         val claims:PlayedClaims,val played:PlayedSongEvictor,val phone:PreparedShelf,val card:PreparedShelf?,
         val cardFolder:File?,val art:DownloadArt,val artwork:DownloadArtworkWork,val sizes:DownloadByteTotals,
         val marks:DownloadMarkLedger)
 
-    private fun prepareLegacy(context:Context,owner:StorageStartup<PreparedLegacy>.Opening):PreparedLegacy {
+    private fun prepareLegacy(context:Context,owner:StorageStartup<PreparedStorage>.Opening):PreparedStorage {
         check(Looper.myLooper()!=Looper.getMainLooper()) { "Native storage preparation requires a worker" }
         val prefs=context.getSharedPreferences("storage",Context.MODE_PRIVATE)
         // Freeze authority BEFORE any provider/cache. Staged partition choice refuses without
@@ -223,11 +224,68 @@ internal object OfflineStore {
             val marks=owner.own { DownloadMarkLedger(File(context.noBackupFilesDir,"download-marks-v1.db")) {
                 main.post { DownloadMarks.countsKnown=false }
             } }
-            PreparedLegacy(context,prefs,barrier,database,limit,claims,played,phone,card,folder,art,artwork,sizes,marks)
+            PreparedStorage(context,prefs,barrier,database,limit,claims,played,phone,card,folder,art,artwork,sizes,marks)
         })
     }
 
-    private fun bindLegacy(ready:PreparedLegacy,owner:StorageStartup<Store>.Opening):Store {
+    /** Actual app preparation for a reviewed, explicit partition plan. Production choice still
+     * does not call this: unsupported destructive/migration opt-in paths must be finished first.
+     * Register each real owner before prepare; a partial card/root failure is sticky and retained,
+     * never retried with a legacy cache or silently demoted to a phone-only store.
+     */
+    internal fun preparePartition(context:Context,owner:StorageStartup<PreparedStorage>.Opening,
+        plan:PartitionStorePlan):PreparedStorage {
+        check(Looper.myLooper()!=Looper.getMainLooper()) { "Partition preparation requires a worker" }
+        plan.validate() // Before any provider, derived database, cache or worker allocation.
+        val barrier=owner.own { SavedStorageBarrier() }
+        val database=owner.own { StandaloneDatabaseProvider(context) }
+        val prefs=context.getSharedPreferences("storage",Context.MODE_PRIVATE)
+        val limit=prefs.getLong("cacheLimit",DEFAULT_CACHE_LIMIT)
+        val main=Handler(Looper.getMainLooper())
+        val claims=owner.own { PlayedClaims(context) }
+        // Legacy evictor remains a Store compatibility field; no partition target uses it or opens
+        // its order. Partition accounting/admission/Clear use the session's actual mixed route.
+        val order=owner.own { DiskPlayedSpanOrder(File(context.noBackupFilesDir,"played-span-order-v1.db")) }
+        val played=owner.own { PlayedSongEvictor(limit,claims::removable,order) { used -> main.post { PlayedCacheState.used=used } } }
+        val art=owner.own { DownloadArt(File(context.filesDir,"downloads-art"),barrier=barrier) }
+        val legacyDatabase=File(database.readableDatabase.path)
+        var phoneOwner:OwnedPartitionShelf?=null; var cardOwner:OwnedPartitionShelf?=null
+        var claimsReady=false
+        var extraClaims:((String)->Boolean)?=null
+        fun prepare(root:PartitionRootPlan,index:String,service:Class<out DownloadService>):PreparedShelf {
+            val partition=owner.own { OwnedPartitionShelf(context.applicationContext,root.directory,root.legacyDirectory,
+                legacyDatabase,database,index,root.volume,root.currentVolume,root.start,barrier,
+                { name ->
+                    if(!claimsReady) throw java.io.IOException("Partition app-wide claims are not ready")
+                    val other=if(index.isEmpty()) cardOwner else phoneOwner
+                    !art.hasEntry(name) && requireNotNull(extraClaims)(name) && (other?.claimsName(name)!=true)
+                },OkHttpDataSource.Factory(Transport.client)) }
+            if(index.isEmpty()) phoneOwner=partition else cardOwner=partition
+            partition.prepare()
+            return PreparedShelf(null,null,index,service,{ root.currentVolume()==root.volume },partition)
+        }
+        val phone=prepare(plan.phone,"",MuonDownloadService::class.java)
+        val card=plan.card?.let { prepare(it,"card",MuonCardDownloadService::class.java) }
+        // Even an absent card's retained manager names protect new allocations. This scalar probe
+        // works without constructing either manager or hydrating any request data.
+        val phoneIndex=PartitionCompletionIndex(database,""); val cardIndex=PartitionCompletionIndex(database,"card")
+        val appClaims:(String)->Boolean={ name -> !phoneIndex.holdsNameIfPresent(name) && !cardIndex.holdsNameIfPresent(name) }
+        // Each shelf's injected predicate is augmented below through this one frozen callback.
+        // Retained startup names must be checked on every allocation, not just at plan creation.
+        extraClaims=appClaims
+        claimsReady=true
+        val workers=owner.own { Executors.newSingleThreadExecutor() }
+        val artwork=owner.own { DownloadArtworkWork(workers,art::fetchEntry,art::removeEntry,
+            barrier=barrier,knownRejectionBeforeSubmission=true) }
+        val sizes=owner.own { DownloadByteTotals(context) }
+        val marks=owner.own { DownloadMarkLedger(File(context.noBackupFilesDir,"download-marks-v1.db")) {
+            main.post { DownloadMarks.countsKnown=false }
+        } }
+        return PreparedStorage(context,prefs,barrier,database,limit,claims,played,phone,card,
+            plan.card?.legacyDirectory?.parentFile,art,artwork,sizes,marks)
+    }
+
+    private fun bindStorage(ready:PreparedStorage,owner:StorageStartup<Store>.Opening):Store {
         check(Looper.myLooper()==Looper.getMainLooper()) { "Download managers require main" }
         owner.own { ready } // Retain the complete prepared root even if binding fails partway.
         val context=ready.context; val prefs=ready.prefs; val barrier=ready.barrier; val database=ready.database
@@ -235,7 +293,8 @@ internal object OfflineStore {
         val artwork=ready.artwork; val sizes=ready.sizes; val marks=ready.marks; val main=Handler(Looper.getMainLooper())
         PlayedCacheState.limit=limit
         fun shelf(prepared:PreparedShelf):Shelf {
-            val index=prepared.index; val evictor=prepared.evictor; val cache=prepared.cache
+            prepared.partition?.let { return Shelf.partitioned(it,prepared.service,prepared.present) }
+            val index=prepared.index; val evictor=requireNotNull(prepared.evictor); val cache=requireNotNull(prepared.cache)
             val manager=owner.own { DownloadManager(context,ManagerStartupIndex(RetainedDownloadIndex(
                 StorageDownloadIndex(DefaultDownloadIndex(database,index),barrier,
                     onUncertain={ (evictor as? PlayedSongEvictor)?.quarantine() }),
@@ -290,7 +349,14 @@ internal object OfflineStore {
         made.card?.let { watch(context,it,made,main) }
         saver.execute {
             claims.read(phone.manager.downloadIndex)
-            if(claims.known) playedWork.resize(barrier) { played.resize(limit) }
+            if(claims.known) {
+                val partition=phone.partition
+                if(partition==null) playedWork.resize(barrier) { played.resize(limit) }
+                else playedWork.resize {
+                    val used=runCatching { partition.playedBytes() }.getOrNull()
+                    main.post { used?.let { PlayedCacheState.used=it } }
+                }
+            }
         }
         return made
     }
@@ -490,7 +556,7 @@ internal object OfflineStore {
         } else if (store.played.hasDiskOrder) store.played.anyKey(::matches) else store.cache.keys.any(::matches)
     }.getOrDefault(false)
 
-    /** A new cache limit, kept for next time; lowering it makes room at once. */
+    /** A persistent limit. Legacy evicts now; partition admission preserves protected existing copies. */
     fun setCacheLimit(context: Context, limit: Long) {
         val store = commandStore(context) ?: return
         store.prefs.edit().putLong("cacheLimit", limit).apply()

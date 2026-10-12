@@ -118,4 +118,27 @@ class PartitionCompletionIndexTest {
         assertEquals(1L,count())
     }
 
+    @Test fun genuinelyAbsentOptionalIndexHasNoClaimWithoutCreatingAnySchema() {
+        val lookup=PartitionCompletionIndex(database,"optional")
+        assertFalse(lookup.holdsNameIfPresent(key))
+        db.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('ExoPlayerDownloadsoptional','ExoPlayerVersions')",null).use {
+            assertTrue(it.moveToFirst()); assertEquals(0L,it.getLong(0))
+        }
+        seed() // Another shelf's valid version receipt does not imply an optional table existed.
+        assertFalse(lookup.holdsNameIfPresent(key))
+        db.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE name='ExoPlayerDownloadsoptional'",null).use {
+            assertTrue(it.moveToFirst()); assertEquals(0L,it.getLong(0))
+        }
+    }
+    @Test fun orphanedOptionalVersionAndViewAreUncertaintyAndNeverNoClaim() {
+        val lookup=PartitionCompletionIndex(database,"optional")
+        VersionTable.setVersion(db,VersionTable.FEATURE_OFFLINE,"optional",3)
+        assertThrows(IOException::class.java) { lookup.holdsNameIfPresent(key) }
+        db.execSQL("CREATE VIEW ExoPlayerDownloadsoptional AS SELECT 'saved/fixture' AS id")
+        assertThrows(IOException::class.java) { lookup.holdsNameIfPresent(key) }
+        db.rawQuery("SELECT type FROM sqlite_master WHERE name='ExoPlayerDownloadsoptional'",null).use {
+            assertTrue(it.moveToFirst()); assertEquals("view",it.getString(0))
+        }
+    }
+
 }
