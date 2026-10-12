@@ -29,6 +29,7 @@ internal class SavedStorageBarrier(private val budget:Int=16) {
         return Lease(slot,exclusive).also { slots[slot]=it }
     }
     internal inner class Lease internal constructor(private val slot:Int,internal val exclusive:Boolean) {
+        internal fun belongsTo(candidate:SavedStorageBarrier):Boolean=candidate===this@SavedStorageBarrier
         private var retained:Any?=null
         fun check()=synchronized(this@SavedStorageBarrier) {
             if(slots[slot]!==this || invalid || retained!=null)

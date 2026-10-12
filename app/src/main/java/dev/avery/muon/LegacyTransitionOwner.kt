@@ -154,6 +154,8 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             fun live() {permit.check(); checkpoint(); checked(); checkpoint()}
             live()
             if(journal.find(expected.manifest.key)!=expected) throw IOException("Original retirement intent changed")
+            session.retireMigratedOriginal(expected,permit)
+            live()
             val actual=makeFiles(); retirement=actual // No constructor I/O; own before run.
             val result=actual.run(expected,directory,requireNotNull(index),::live)
             live(); retirement=null; return result

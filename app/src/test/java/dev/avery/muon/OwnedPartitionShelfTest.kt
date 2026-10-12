@@ -860,4 +860,46 @@ class OwnedPartitionShelfTest {
         } finally {resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close()}
     }
 
+    @Test fun originalCleanupAlsoRetiresReadyDuplicateAndDoesNotResurrectItOnRestart() {
+        val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
+        try {
+            onWorker {first.prepare()}
+            val ready=first.migrate(CacheMigrationControl(1000,nanoTime={0L}),"old",{Long.MAX_VALUE},{})
+            val target=File(File(f.root,"resources"),ready.ticket.allocation.directory)
+            assertTrue(target.walkTopDown().any {it.isFile && it.name.endsWith(".exo")})
+            assertTrue(first.audio.contains("old"))
+            val pending=onWorker {first.beginOriginalRetirement("old",true)}
+            assertThrows(IOException::class.java) {onWorker {first.retireOriginalFiles(pending,false)}}
+            assertTrue(f.original.exists()); assertTrue(target.walkTopDown().any {it.isFile && it.name.endsWith(".exo")})
+            assertEquals(LegacyRetirementFileResult(4,0),onWorker {first.retireOriginalFiles(pending,true)})
+            assertFalse(f.original.exists()); assertFalse(target.walkTopDown().any {it.isFile && it.name.endsWith(".exo")})
+            assertEquals(0,f.budget.resident); assertFalse(first.audio.contains("old"))
+            CacheMigrationJournal(f.root).use {assertEquals(ready,it.ready("old"))}
+            assertEquals(listOf(pending),onWorker {first.retirementRecoveryPage()})
+            teardown(first); firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
+            assertFalse(next.audio.contains("old")); assertTrue(next.claimsName("old"))
+            assertEquals(LegacyRetirementFileResult(0,4),onWorker {next.retireOriginalFiles(pending,true)})
+            assertFalse(target.walkTopDown().any {it.isFile && it.name.endsWith(".exo")})
+            assertEquals(0,f.budget.resident)
+        } finally {resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close()}
+    }
+
+    @Test fun originalDuplicateCleanupRejectsAnExclusivePermitFromAnotherGate() {
+        val f=Fixture(); val owner=f.owner()
+        try {
+            onWorker {owner.prepare()}
+            owner.migrate(CacheMigrationControl(1000,nanoTime={0L}),"old",{Long.MAX_VALUE},{})
+            val pending=onWorker {owner.beginOriginalRetirement("old",true)}
+            val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply {isAccessible=true}.get(owner)
+            val made=StorageStartup::class.java.getDeclaredField("opened").apply {isAccessible=true}.get(startup)
+            val session=made.javaClass.getDeclaredField("session").apply {isAccessible=true}.get(made) as PartitionStorageSession
+            val foreign=SavedStorageBarrier().exclusive()
+            try {assertThrows(IOException::class.java) {onWorker {session.retireMigratedOriginal(pending,foreign)}}}
+            finally {foreign.close()}
+            assertArrayEquals(payload,f.original.readBytes()); assertEquals(0,f.budget.resident)
+            assertEquals(LegacyRetirementFileResult(4,0),onWorker {owner.retireOriginalFiles(pending,true)})
+        } finally {teardown(owner); f.provider.close()}
+    }
+
 }

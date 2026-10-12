@@ -334,6 +334,53 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             return OfflineStore.SavedRemoval.Failed
         } finally { if(!quarantined) permit.close() }
     }
+    private var retainedOriginalCleanup:Any?=null
+    /** Internal Ready-duplicate stage, called only by the actual legacy owner with the SAME
+     * exclusive permit after exact Pending validation. The tombstone already suppresses routes.
+     * Keep the Ready receipt (no ID reuse/fallback); successful return proves only target absence.
+     * No download-index/cover removal or Complete transition is supplied by this primitive.
+     */
+    internal fun retireMigratedOriginal(record:LegacyRetirementRecord,permit:SavedStorageBarrier.Lease) {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original duplicate cleanup requires a worker"}
+        if(!permit.exclusive || !permit.belongsTo(barrier) || record.phase!=LegacyRetirementPhase.Pending)
+            throw IOException("Original duplicate cleanup requires the actual exclusive gate and Pending intent")
+        requireOpen(); permit.check()
+        val key=record.manifest.key
+        if(retirements?.find(key)!=record || saves.find(key)!=null)
+            throw IOException("Original duplicate cleanup ownership changed")
+        val expected=migrations.find(key)
+        if(expected==null) {
+            if(catalog.find(key)!=null) throw IOException("Original has an unverified partition claim")
+            return
+        }
+        if(expected.phase!=MigrationPhase.Ready || expected.ticket.sourceUid!=record.manifest.uid ||
+            native.readyRoute(key)!=expected)
+            throw IOException("Original migrated-copy receipt differs or is not Ready")
+        var actual:Cache?=null; var mutated=false
+        try {
+            writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+            requireOpen(); permit.check()
+            if(retirements?.find(key)!=record || native.readyRoute(key)!=expected || saves.find(key)!=null)
+                throw IOException("Original duplicate changed before cleanup")
+            actual=native.openReady(key); retainedOriginalCleanup=actual
+            if(actual.uid!=expected.targetUid || actual.keys.any {it!=key})
+                throw IOException("Original duplicate native identity differs")
+            permit.check(); mutated=true; actual.removeResource(key)
+            permit.check()
+            if(actual.getCachedSpans(key).isNotEmpty() || actual.uid!=expected.targetUid || native.readyRoute(key)!=expected)
+                throw IOException("Original duplicate bytes remain or ownership changed")
+            actual.release(); actual=null; retainedOriginalCleanup=null
+            requireOpen(); permit.check()
+            if(retirements?.find(key)!=record || native.readyRoute(key)!=expected)
+                throw IOException("Original duplicate disposition changed after close")
+        } catch(failure:Throwable) {
+            if(actual!=null || mutated || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) {
+                val retained=arrayOf(this,actual,record,failure); retainedOriginalCleanup=retained; uncertain=true
+                throw PartitionOwnershipUncertain(retained,failure)
+            }
+            throw failure
+        }
+    }
     fun prepare(request:DownloadRequest)=operation {
         commands.reconcileCompleted(completionIndex::find)
         commands.prepare(request)
