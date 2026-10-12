@@ -245,8 +245,20 @@ internal object OfflineStore {
     internal fun preparePersistedPartition(context:Context,owner:StorageStartup<PreparedStorage>.Opening,
         plan:PartitionStorePlan):PreparedStorage {
         check(Looper.myLooper()!=Looper.getMainLooper()) {"Persisted partition preparation requires a worker"}
+        return prepareChosenPartition(context,owner) {plan}
+    }
+    /** Production-shaped resolver/preparer, still not used by the default initializer. The exact
+     * persisted receipt selects trusted Android roots; resolution cannot infer Fresh or drop a card. */
+    internal fun preparePlatformPartition(context:Context,owner:StorageStartup<PreparedStorage>.Opening):PreparedStorage =
+        prepareChosenPartition(context,owner) {choice ->
+            owner.own {PartitionPlatformRoots.from(context)}.resume(choice)
+        }
+    private fun prepareChosenPartition(context:Context,owner:StorageStartup<PreparedStorage>.Opening,
+        resolve:(PartitionStartupChoice)->PartitionStorePlan):PreparedStorage {
+        check(Looper.myLooper()!=Looper.getMainLooper()) {"Partition root resolution requires a worker"}
         val settings=owner.own {PartitionStartupSettings(context.getSharedPreferences("storage",Context.MODE_PRIVATE))}
-        val attempt=settings.begin(settings.read(),plan)
+        val choice=settings.read();val plan=resolve(choice)
+        val attempt=settings.begin(choice,plan)
         val ready=preparePartition(context,owner,plan)
         settings.prepared(attempt)
         return ready
