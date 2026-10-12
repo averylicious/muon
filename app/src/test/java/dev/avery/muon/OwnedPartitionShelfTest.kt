@@ -1550,9 +1550,9 @@ class OwnedPartitionShelfTest {
                 .setCustomCacheKey("81").build()
             val targetIndex=DefaultDownloadIndex(f.f.provider,"publication_target")
             targetIndex.putDownload(Download(alias,Download.STATE_FAILED,1,2,0,Download.STOP_REASON_NONE,Download.FAILURE_REASON_UNKNOWN))
-            assertThrows(IOException::class.java) {onWorker {
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {
                 f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true})
-            }}
+            })
             assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
             assertEquals(intent,onWorker {f.source.retirementRecoveryPage().single()})
             assertEquals(SavedCoverage.Full,onWorker {f.target.audio.inspect(f.key).coverage})

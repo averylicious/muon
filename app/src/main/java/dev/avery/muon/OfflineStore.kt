@@ -82,7 +82,10 @@ internal class Shelf private constructor(private val legacyCache:SimpleCache?, v
     internal fun retainUncertainMoveReader() { moveReaderUncertain=true }
     internal val hasUncertainMoveReader:Boolean get()=moveReaderUncertain
     /** Checked at each decision (#179 S1); see [cardPresent] for the card. */
-    override fun available(): Boolean = !moveReaderUncertain && playedSourceUncertain==null && !storagePaused && runCatching(present).getOrDefault(false)
+    /** Physical/owner availability for a controller already checking its actual exclusive lease.
+     * Ordinary commands still use available(), which also refuses a held storage gate. */
+    internal fun locationAvailable():Boolean = !moveReaderUncertain && playedSourceUncertain==null && runCatching(present).getOrDefault(false)
+    override fun available(): Boolean = !storagePaused && locationAvailable()
 
     override fun completed(id: String): Boolean =
         runCatching { partition?.containsId(id,completedOnly=true) ?: (manager.downloadIndex.getDownload(id)?.state == Download.STATE_COMPLETED) }.getOrDefault(false)
@@ -1337,7 +1340,7 @@ internal object OfflineStore {
             main.post {DownloadMarks.moving=0 to total}
             for(entry in selection.targets) {
                 fun checked() {
-                    if(!canMove(from,to) || !moveOwnership.permits(batch,entry.id))
+                    if(!from.locationAvailable() || !to.locationAvailable() || !moveOwnership.permits(batch,entry.id))
                         throw java.io.InterruptedIOException("Original Move cancelled or storage unavailable")
                 }
                 checked()
