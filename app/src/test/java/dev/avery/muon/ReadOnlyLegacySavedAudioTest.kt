@@ -53,9 +53,9 @@ class ReadOnlyLegacySavedAudioTest {
             } finally { cache.release() }
             read=SQLiteDatabase.openDatabase(database.readableDatabase.path,null,SQLiteDatabase.OPEN_READONLY).also(reads::add)
         }
-        fun audio(files:DataSource.Factory?=null)=ReadOnlyLegacySavedAudio(root,uid,read,barrier,{
+        fun audio(files:DataSource.Factory?=null,io:()->MigrationIoOwnership={MigrationIoOwnership()})=ReadOnlyLegacySavedAudio(root,uid,read,barrier,{
             if(!available) throw IOException("Fixture storage unavailable")
-        },files)
+        },files,io)
     }
     @After fun close() { try { reads.asReversed().forEach { it.close() } } finally { database.close() } }
     private fun spec(key:String="key/0",position:Long=0)=DataSpec.Builder().setUri("muon-saved:fixture").setKey(key).setPosition(position).build()
@@ -237,4 +237,45 @@ class ReadOnlyLegacySavedAudioTest {
             assertArrayEquals(payload,f.originals.first().readBytes())
         } finally { actual.forEach { it.close() } } // Test-only cleanup of disposable actual handle.
     }
+    @Test fun failedActualContainsCursorCloseRetainsHandleAndInvalidatesStorageGate() {
+        val f=Fixture(); var held:android.database.Cursor?=null; var failedCloses=0
+        val ownership=MigrationIoOwnership(closeHandle={handle ->
+            if(handle is android.database.Cursor && handle.columnNames.contentEquals(arrayOf("1"))) {
+                held=handle; failedCloses++; throw IOException("Unknown actual scalar lookup close")
+            }
+            handle.close()
+        })
+        try {
+            val failure=assertThrows(MigrationIoUncertain::class.java) {f.audio(io={ownership}).contains("key/0")}
+            assertSame(ownership,failure.ownership); assertNotNull(held); assertFalse(held!!.isClosed)
+            assertFalse(ownership.quiescent); assertFalse(f.barrier.allowsShared); assertEquals(1,f.barrier.active)
+            assertThrows(IOException::class.java) {f.audio().contains("key/0")}
+            assertEquals(1,failedCloses); assertArrayEquals(payload,f.originals.single().readBytes())
+        } finally {held?.close()} // Test-owned disposable cursor only; no production reset/second close.
+    }
+    @Test fun stoppingInventoryStillRequiresActualPageCursorClose() {
+        val f=Fixture(35); var held:android.database.Cursor?=null; var visits=0; var failedCloses=0
+        val ownership=MigrationIoOwnership(closeHandle={handle ->
+            if(handle is android.database.Cursor && handle.columnCount==2) {
+                held=handle; failedCloses++; throw IOException("Unknown actual inventory page close")
+            }
+            handle.close()
+        })
+        try {
+            val failure=assertThrows(MigrationIoUncertain::class.java) {
+                f.audio(io={ownership}).forEachKey {visits++; false}
+            }
+            assertSame(ownership,failure.ownership); assertEquals(1,visits); assertEquals(1,failedCloses)
+            assertNotNull(held); assertFalse(held!!.isClosed); assertFalse(ownership.quiescent)
+            assertEquals(1,f.barrier.active); assertThrows(IOException::class.java) {f.barrier.exclusive()}
+            f.originals.forEach {assertArrayEquals(payload,it.readBytes())}
+        } finally {held?.close()}
+    }
+    @Test fun knownClosedInventoryCallbackFailureReturnsPermitWithoutSuppressingFailure() {
+        val f=Fixture(35); val failure=IOException("Fixture visitor cancelled")
+        assertSame(failure,assertThrows(IOException::class.java) {f.audio().forEachKey {throw failure}})
+        assertTrue(f.barrier.quiescent); assertTrue(f.audio().contains("key/0"))
+        f.originals.forEach {assertArrayEquals(payload,it.readBytes())}
+    }
+
 }

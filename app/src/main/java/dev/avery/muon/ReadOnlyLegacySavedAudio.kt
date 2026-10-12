@@ -19,48 +19,49 @@ import java.io.IOException
  */
 internal class ReadOnlyLegacySavedAudio(private val directory:File,private val uid:Long,
     private val index:SQLiteDatabase,barrier:SavedStorageBarrier,private val checkpoint:()->Unit,
-    private val files:DataSource.Factory?=null):SavedAudio {
+    private val files:DataSource.Factory?=null,
+    private val io:()->MigrationIoOwnership={MigrationIoOwnership()}):SavedAudio {
     private val table=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+java.lang.Long.toHexString(uid)
-    private fun checked()=LegacyResourceProjection.validate(directory,uid,index,checkpoint)
+    private fun checked(ownership:MigrationIoOwnership)=LegacyResourceProjection.validate(directory,uid,index,checkpoint,ownership)
     private fun validateKey(value:String) {
         if(value.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Legacy key exceeds read budget")
     }
     private val bounded=BarrierSavedAudio(object:SavedAudio {
         override val source=DataSource.Factory { Reader() }
         override fun inspect(key:String):SavedAudioState {
-            val view=LegacyResourceProjection.readAudio(directory,uid,key,index,checkpoint)
+            val view=LegacyResourceProjection.readAudio(directory,uid,key,index,checkpoint,io())
             return savedAudioState(view.cache,key).copy(displayMetadataLimited=view.displayMetadataLimited)
         }
         override fun contains(key:String):Boolean {
-            validateKey(key); val live=checked()
-            return index.rawQuery("SELECT 1 FROM $table WHERE key=? LIMIT 2",arrayOf(key)).use { c ->
+            validateKey(key); val ownership=io(); val live=checked(ownership)
+            return ownership.useOwned({index.rawQuery("SELECT 1 FROM $table WHERE key=? LIMIT 2",arrayOf(key))}) { c ->
                 live(); val found=c.moveToFirst()
                 if(found && c.moveToNext()) throw IOException("Legacy key is not unique")
                 live(); found
             }
         }
         override fun forEachKey(visit:(String)->Boolean) {
-            val live=checked(); var after=-1L
-            index.rawQuery("SELECT 1 FROM $table WHERE id<0 OR id>2147483647 LIMIT 1",null).use {
+            val ownership=io(); val live=checked(ownership); var after=-1L
+            ownership.useOwned({index.rawQuery("SELECT 1 FROM $table WHERE id<0 OR id>2147483647 LIMIT 1",null)}) {
                 if(it.moveToFirst()) throw IOException("Unsupported legacy inventory ID")
             }
             // CursorWindow holds only <=32 bounded scalars/keys, never metadata blobs or all rows.
             while(true) {
-                var rows=0
-                index.rawQuery("SELECT CASE WHEN typeof(id)='integer' THEN id ELSE NULL END,"+
+                var rows=0; var stopped=false
+                ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(id)='integer' THEN id ELSE NULL END,"+
                     "CASE WHEN typeof(key)='text' AND length(CAST(key AS BLOB))<=${MIGRATION_KEY_BYTES*2} THEN key ELSE NULL END "+
-                    "FROM $table WHERE id>? ORDER BY id LIMIT 32",arrayOf(after.toString())).use { c ->
+                    "FROM $table WHERE id>? ORDER BY id LIMIT 32",arrayOf(after.toString()))}) { c ->
                     while(c.moveToNext()) {
                         live()
                         if(c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0) !in 0L..Int.MAX_VALUE.toLong() ||
                             c.getLong(0)<=after || c.getType(1)!=Cursor.FIELD_TYPE_STRING)
                             throw IOException("Legacy inventory identity exceeds read budget")
                         val value=c.getString(1); validateKey(value); after=c.getLong(0); rows++
-                        if(!visit(value)) { live(); return }
+                        if(!visit(value)) {live(); stopped=true; break}
                         live()
                     }
                 }
-                if(rows<32) return
+                if(stopped || rows<32) return
             }
         }
     },barrier)
@@ -84,7 +85,7 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
         override fun open(spec:DataSpec):Long {
             check(child==null && uncertainty==null) { "Legacy reader already active or uncertain" }
             val name=spec.key ?: throw IOException("Saved legacy read requires exact key")
-            val projection=try { LegacyResourceProjection.readAudio(directory,uid,name,index,checkpoint).cache }
+            val projection=try { LegacyResourceProjection.readAudio(directory,uid,name,index,checkpoint,io()).cache }
                 catch(failure:MigrationIoUncertain) { uncertainty=failure; throw failure }
             val opened=savedCacheReader(projection,files); child=opened
             for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)
