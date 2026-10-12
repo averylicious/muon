@@ -116,7 +116,20 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
      */
     private var retainedPlayedRemoval:Any?=null
     fun removePlayed(key:String,removable:(String)->Boolean)=removePlayedDetailed(key,removable).outcome
-    fun removePlayedDetailed(key:String,removable:(String)->Boolean):OwnedPlayedRemoval {
+    fun removePlayedDetailed(key:String,removable:(String)->Boolean):OwnedPlayedRemoval =
+        removePlayedOwned(key,removable,null)
+    private data class PlayedCandidate(val record:PartitionSaveRecord,val touched:Long)
+    private fun touched(cache:Cache,key:String):Long? {
+        val spans=cache.getCachedSpans(key)
+        if(spans.isEmpty()) return null
+        var latest=Long.MIN_VALUE
+        for(span in spans) {
+            if(span.lastTouchTimestamp<0) throw IOException("Played access time is unsupported")
+            latest=maxOf(latest,span.lastTouchTimestamp)
+        }
+        return latest
+    }
+    private fun removePlayedOwned(key:String,removable:(String)->Boolean,candidate:PlayedCandidate?):OwnedPlayedRemoval {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Played removal requires a worker" }
         if(!key.startsWith(playedKey(NEW_SAVE_PREFIX)) || key.length.toLong()*2>MIGRATION_KEY_BYTES)
             return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
@@ -128,12 +141,19 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             val expected=native.savedReadRoute(key)
             if(expected !is PartitionReadRoute.NewSave || expected.record.phase!=PartitionSavePhase.Closed ||
                 !removable(key) || completionIndex.holdsName(key)) return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
-            if(native.savedReadRoute(key)!=expected) return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
+            if(native.savedReadRoute(key)!=expected || candidate!=null && expected.record!=candidate.record)
+                return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
             writers.trimIdle(); published.trimIdle(); completed.trimIdle()
             requireOpen(); permit.check()
             cache=native.openClosedSaveRead(key)
             if(native.savedReadRoute(key)!=expected || cache.uid!=expected.record.uid)
                 throw IOException("Played-copy ownership changed before removal")
+            if(candidate!=null && touched(cache,key)!=candidate.touched) {
+                // A newer real read invalidates the observed LRU candidate. Close exactly once;
+                // failure to prove native release is handled by the same retained-owner path.
+                cache.release(); cache=null
+                return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
+            }
             val bytes=cache.getCachedBytes(key,0,Long.MAX_VALUE)
             if(bytes<0) throw IOException("Invalid played-copy byte count")
             cache.removeResource(key)
@@ -151,6 +171,72 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             return OwnedPlayedRemoval(OfflineStore.SavedRemoval.Failed)
         } finally { if(!quarantined) permit.close() }
     }
+    /** Fixed-size journal pages and one native resource probe at a time. Observing age never
+     * authorizes deletion; the selected Closed identity and newest span timestamp are rechecked
+     * under exclusive access. Protected originals/Ready copies and manager aliases are ineligible.
+     */
+    private fun oldestPlayed(removable:(String)->Boolean,checkpoint:()->Unit):PlayedCandidate?=operation {
+        writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+        var answer:PlayedCandidate?=null; var after:String?=null
+        while(true) {
+            val page=saves.page(after)
+            if(page.isEmpty()) break
+            for(row in page) {
+                checkpoint(); val key=row.ticket.allocation.key
+                if(row.phase!=PartitionSavePhase.Closed || !key.startsWith(playedKey(NEW_SAVE_PREFIX)) ||
+                    !removable(key) || completionIndex.holdsName(key)) continue
+                val route=native.savedReadRoute(key)
+                if(route !is PartitionReadRoute.NewSave || route.record!=row) continue
+                var cache:Cache?=null; var releasing=false
+                try {
+                    cache=native.openClosedSaveRead(key)
+                    if(cache.uid!=row.uid || native.savedReadRoute(key)!=route) throw IOException("Played age owner changed")
+                    val age=touched(cache,key)
+                    releasing=true; cache.release(); cache=null
+                    requireOpen()
+                    if(native.savedReadRoute(key)!=route) throw IOException("Played age route changed")
+                    if(age!=null && (answer==null || age<answer!!.touched ||
+                        age==answer!!.touched && key<answer!!.record.ticket.allocation.key)) answer=PlayedCandidate(row,age)
+                } catch(failure:Throwable) {
+                    if(cache!=null) {
+                        if(!releasing && failure !is PartitionOwnershipUncertain) {
+                            try { releasing=true; cache.release(); cache=null }
+                            catch(close:Throwable) { if(close!==failure) close.addSuppressed(failure)
+                                throw PartitionOwnershipUncertain(arrayOf(cache,close),close) }
+                        } else throw PartitionOwnershipUncertain(arrayOf(cache,failure),failure)
+                    }
+                    throw failure
+                }
+            }
+            after=page.last().ticket.allocation.key
+        }
+        checkpoint(); answer
+    }
+    /** Shrink to the saved limit without retaining a whole library/LRU set. Recount after each
+     * actual deletion; never turn a snapshot into bytes or race a new played writer for headroom.
+     * Busy readers, stale ages, protected originals and uncertainty leave truthful remaining usage.
+     * This is resize/startup maintenance; admission of a new copy remains conservative when full.
+     */
+    fun resizePlayed(limit:Long,removable:(String)->Boolean,checkpoint:()->Unit={}):OwnedPlayedClear {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Played resize requires a worker" }
+        if(!playedAdmission.compareAndSet(false,true)) return OwnedPlayedClear(0,0,null,false)
+        var removed=0L; var bytes=0L; var remaining:Long?=null
+        try {
+            while(true) {
+                remaining=playedBytes(checkpoint)
+                if(remaining<=limit.coerceAtLeast(0)) return OwnedPlayedClear(removed,bytes,remaining,true)
+                val candidate=oldestPlayed(removable,checkpoint) ?: return OwnedPlayedClear(removed,bytes,remaining,false)
+                checkpoint()
+                val result=removePlayedOwned(candidate.record.ticket.allocation.key,removable,candidate)
+                if(result.outcome!=OfflineStore.SavedRemoval.Sent || result.bytes<=0)
+                    return OwnedPlayedClear(removed,bytes,runCatching { playedBytes(checkpoint) }.getOrNull(),false)
+                removed=Math.addExact(removed,1); bytes=Math.addExact(bytes,result.bytes)
+            }
+        } catch(_:PartitionCacheBusy) { return OwnedPlayedClear(removed,bytes,remaining,false) }
+        catch(_:Exception) { return OwnedPlayedClear(removed,bytes,null,false) }
+        finally { playedAdmission.set(false) }
+    }
+
     /** Explicit Delete for a clean NEW completed manager save only. No destructive manager
      * command is forwarded. Media3 keeps only nonterminal rows in its in-memory task list; once
      * exact COMPLETED ownership and exclusive admission are established, its PUBLIC writable index

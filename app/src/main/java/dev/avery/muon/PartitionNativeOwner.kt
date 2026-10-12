@@ -222,7 +222,11 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
             // After constructor entry, an exception can leave a background native initializer alive.
             // Do not close its DB or return a residency permit merely because no object was returned.
             h.attempted=true
-            val native=SimpleCache(bytes,NoOpCacheEvictor(),provider).also { h.native=it; it.checkInitialization() }
+            val native=SimpleCache(bytes,object:androidx.media3.datasource.cache.CacheEvictor by NoOpCacheEvictor() {
+                // Supported native timestamps supply bounded resource-level LRU observations.
+                // No resident span collection or eviction callback is installed by this owner.
+                override fun requiresCacheSpanTouches()=true
+            },provider).also { h.native=it; it.checkInitialization() }
             available()
             if(native.uid<0 || native.uid==forbiddenUid || (!fresh && native.uid!=expectedUid)) throw IOException("Partition native UID changed")
             if(fresh) h.metadata=PartitionContentMetadata(metadata,native.uid,allocation.key,create=true)

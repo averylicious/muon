@@ -359,8 +359,8 @@ internal object OfflineStore {
                 val partition=phone.partition
                 if(partition==null) playedWork.resize(barrier) { played.resize(limit) }
                 else playedWork.resize {
-                    val used=runCatching { partition.playedBytes() }.getOrNull()
-                    main.post { used?.let { PlayedCacheState.used=it } }
+                    val result=runCatching { partition.resizePlayed(limit,claims::removable) }.getOrNull()
+                    main.post { result?.remainingBytes?.let { PlayedCacheState.used=it }; DownloadMarks.revision++ }
                 }
             }
         }
@@ -575,10 +575,12 @@ internal object OfflineStore {
         PlayedCacheState.limit = limit
         store.phone.partition?.let { partition ->
             playedWork.resize {
-                val used=runCatching { partition.playedBytes() }.getOrNull()
-                Handler(Looper.getMainLooper()).post { used?.let { PlayedCacheState.used=it } }
-                if(used==null || used>limit) notice(context,
-                    "The cache limit was saved. Existing played copies were kept; clear eligible copies to reduce usage.")
+                val result=runCatching { partition.resizePlayed(limit,store.playedClaims::removable) }.getOrNull()
+                Handler(Looper.getMainLooper()).post {
+                    result?.remainingBytes?.let { PlayedCacheState.used=it }; DownloadMarks.revision++
+                }
+                if(result?.complete!=true) notice(context,
+                    "The cache limit was saved. Protected, busy or unavailable copies were kept; try again after playback or storage work finishes.")
             }
             return
         }

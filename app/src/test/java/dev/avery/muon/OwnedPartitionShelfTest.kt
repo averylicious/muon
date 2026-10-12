@@ -392,6 +392,71 @@ class OwnedPartitionShelfTest {
         } finally { resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
     }
 
+    private fun copyPlayed(owner:OwnedPartitionShelf,key:String) {
+        val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
+        onWorker { owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
+            DataSource.Factory { ByteArrayDataSource(payload) }) {8192L} }
+    }
+    @Test fun playedResizeUsesRealLastReadAndKeepsItsDeletionAfterRestart() {
+        val f=Fixture(); val first=f.owner(); var closed=false; var resumed:OwnedPartitionShelf?=null
+        val older=playedKey("saved/older"); val newer=playedKey("saved/newer")
+        try {
+            first.prepare(); await(first.initializeManager()) {true}
+            copyPlayed(first,older); Thread.sleep(20); copyPlayed(first,newer); Thread.sleep(20)
+            onWorker {
+                val reader=first.audio.source.createDataSource()
+                try {
+                    reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(older).build())
+                    assertEquals(4,reader.read(ByteArray(4),0,4))
+                } finally {reader.close()}
+            }
+            val result=onWorker {first.resizePlayed(4) {true}}
+            assertTrue(result.complete); assertEquals(1L,result.removed); assertEquals(4L,result.removedBytes)
+            assertEquals(4L,result.remainingBytes)
+            assertEquals(SavedCoverage.Full,onWorker {first.audio.inspect(older).coverage})
+            assertEquals(SavedCoverage.Missing,onWorker {first.audio.inspect(newer).coverage})
+            assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+            teardown(first); closed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare(); await(next.initializeManager()) {true}
+            assertEquals(SavedCoverage.Full,onWorker {next.audio.inspect(older).coverage})
+            assertEquals(SavedCoverage.Missing,onWorker {next.audio.inspect(newer).coverage})
+            assertEquals(0L,onWorker {next.resizePlayed(4) {true}}.removed)
+        } finally {resumed?.let(::teardown); if(!closed) teardown(first); f.provider.close()}
+    }
+    @Test fun playedResizeReportsProtectedLegacyBytesAndStopsAtRealActiveReader() {
+        val f=Fixture(oldKey=playedKey("saved/protected-legacy")); val owner=f.owner()
+        val key=playedKey("saved/resize-owned")
+        try {
+            owner.prepare(); await(owner.initializeManager()) {true}; copyPlayed(owner,key)
+            val reader=owner.audio.source.createDataSource()
+            onWorker {
+                reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(key).build())
+                assertEquals(4,reader.read(ByteArray(4),0,4))
+                assertEquals(androidx.media3.common.C.RESULT_END_OF_INPUT,reader.read(ByteArray(4),0,4))
+            }
+            try {
+                val busy=onWorker {owner.resizePlayed(0) {true}}
+                assertFalse(busy.complete); assertEquals(0L,busy.removed); assertEquals(8L,busy.remainingBytes)
+                assertArrayEquals(payload,f.original.readBytes())
+            } finally {onWorker {reader.close()}}
+            val protected=onWorker {owner.resizePlayed(0) {true}}
+            assertFalse(protected.complete); assertEquals(1L,protected.removed); assertEquals(4L,protected.remainingBytes)
+            assertEquals(SavedCoverage.Missing,onWorker {owner.audio.inspect(key).coverage})
+            assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+        } finally {teardown(owner); f.provider.close()}
+    }
+    @Test fun playedResizePagesPastFirstWindowAndPreservesCallerClaims() {
+        val f=Fixture(); val owner=f.owner(); val keep=playedKey("saved/resize-00")
+        try {
+            owner.prepare(); await(owner.initializeManager()) {true}
+            for(i in 0..18) copyPlayed(owner,playedKey("saved/resize-"+i.toString().padStart(2,'0')))
+            val result=onWorker {owner.resizePlayed(4) {it!=keep}}
+            assertTrue(result.complete); assertEquals(18L,result.removed); assertEquals(72L,result.removedBytes)
+            assertEquals(4L,result.remainingBytes); assertEquals(SavedCoverage.Full,onWorker {owner.audio.inspect(keep).coverage})
+            assertEquals(19,onWorker { owner.saveRecoveryPage().size+owner.saveRecoveryPage(owner.saveRecoveryPage().last().ticket.allocation.key).size })
+            assertArrayEquals(payload,f.original.readBytes())
+        } finally {teardown(owner); f.provider.close()}
+    }
     @Test fun actualStoreCompletedDeletePublishesScalarRemovalAndCannotReappearAfterRestart() {
         val f=Fixture(); val first=f.owner(); var closed=false; var resumed:OwnedPartitionShelf?=null
         val field=OfflineStore::class.java.getDeclaredField("store").apply { isAccessible=true }; val previous=field.get(OfflineStore)
