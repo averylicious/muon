@@ -54,9 +54,11 @@ internal fun queueSummary(count: Int, length: QueueLength): String {
  * The stream address for a queue item that is being put back, rebuilt from its `origin/id` media ID.
  * An item read back from the player may come without its address, and the playback service accepts
  * only Tauon file addresses it can validate, so Undo supplies the same address `mediaItem` would.
- * Null when the ID is not one Muon made.
+ * A saved copy (#213) is put back by its own exact handle, never by a stream address rebuilt from a
+ * track number. Null when the ID is not one Muon made.
  */
 internal fun restoreUrl(mediaId: String): String? {
+    if (isSavedHandle(mediaId)) return SavedRef.parse(mediaId)?.handle
     val id = mediaId.substringAfterLast('/', "").toLongOrNull()?.takeIf { it >= 0 } ?: return null
     val endpoint = runCatching { ServerEndpoint.parse(mediaId.substringBeforeLast('/')) }.getOrNull() ?: return null
     return if (endpoint.origin + "/$id" == mediaId) endpoint.url("/api1/file/$id") else null
