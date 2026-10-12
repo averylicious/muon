@@ -1,0 +1,11 @@
+# Local saved-copy Move destination preparation — 2026-10-12
+
+Cumulative successor to #516 at 37828e9a46fa1989d8472e6d5f52ce6bdf83a027; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. Solo; no Claude/device. Full Delete/Move required before activation; partition mode remains disabled.
+
+The existing one-attempt fresh-copy lifecycle now also admits an unpublished local saved destination. It requires a fresh saved/ key, full positive exact length, and a bounded FULL metadata snapshot; copies every admitted field through Media3's copying byte-array mutation setter. It does not use the lossy legacy playback projection, invent a manager completion, migrate/adopt an old key or delete a source. Before returning a clean Closed ticket it proves exact full destination bytes/metadata and actual source/native closure. Known incomplete attempts clean only fresh unpublished bytes; unknown close retains actual native/writer/gate and refuses retry. Existing played-copy policy stays separate.
+
+Published sources inspected: pinned Media3 datasource sources already available in /tmp/muon-oct11-media3/datasource-sources.jar, ContentMetadataMutations byte-array setter clones values; PartitionResourceCache.measured enforces all fields/bytes. Temporary path is evidence convenience, not a continuation prerequisite.
+
+Local diff check passed. Actions is first Android compile; exact-head CI/reports pending. JVM tests cover full unknown-field preservation, no fabricated completion, key/partial/oversize preflight, short source cleanup, actual unknown source close and no retry. No phone/performance claims. PR stays open for inherited acceptance.
+
+Next engineering: compose real source metadata/identity observation with a remapping local-only reader, verify bytes under bounded reader ownership, publish an exact destination row durably, then revalidate destination before source retirement/recovery. This helper alone does NOT complete Move. Original Delete metadata disposal/nonterminal disposition, production Fresh/Resume selection, opt-in/recovery controls, final lifecycle coverage and played/card-startup evidence also remain.

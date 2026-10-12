@@ -6,6 +6,8 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.ContentMetadata
+import androidx.media3.datasource.cache.ContentMetadataMutations
+import androidx.media3.datasource.cache.DefaultContentMetadata
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -124,4 +126,68 @@ class PartitionPlayedCopyTest {
             raw.close(); retained?.let { worker { it.release() } }; f.close()
         }
     }
+    private fun localMetadata(length:Long=payload.size.toLong())=DefaultContentMetadata.EMPTY.copyWithMutationsApplied(
+        ContentMetadataMutations.setContentLength(ContentMetadataMutations().set(SONG_METADATA,song)
+            .set(SAVED_FROM_METADATA,origin).set("custom/private-field",byteArrayOf(6,9)),length))
+    private fun localSpec(id:String="saved/local-destination",length:Long=payload.size.toLong())=
+        DataSpec.Builder().setUri("muon-saved:copy").setKey(id).setLength(length).build()
+    @Test fun localSavedDestinationKeepsFullMetadataAndBytesWithoutInventingCompletion() {
+        val f=Fixture(); val spec=localSpec(); val metadata=localMetadata()
+        try {
+            val ticket=worker {f.copy.copyLocalSaved(spec,metadata,upstream())}
+            assertEquals(PartitionSavePhase.Closed,f.saves.find(spec.key!!)?.phase)
+            assertEquals(0,f.budget.resident); assertTrue(f.barrier.quiescent)
+            worker {
+                val cache=f.native.openClosedSaveRead(spec.key!!)
+                try {
+                    assertEquals(metadata,cache.getContentMetadata(spec.key!!))
+                    assertEquals(payload.size.toLong(),cache.getCachedBytes(spec.key!!,0,Long.MAX_VALUE))
+                } finally {cache.release()}
+                val noRecord=PartitionCompletedAudio(f.native,{null},capacity=1)
+                try {assertFalse(noRecord.contains(ticket.allocation.key))} finally {noRecord.close()}
+            }
+            assertThrows(IOException::class.java) {worker {f.copy.copyLocalSaved(spec,metadata,upstream())}}
+        } finally {f.close()}
+    }
+    @Test fun localSavedRejectsNonfreshPartialOrOversizedMetadataBeforeReservation() {
+        val f=Fixture()
+        try {
+            val wrong=listOf(localSpec("old"),localSpec(NEW_SAVE_PREFIX),localSpec(playedKey("saved/local")),
+                localSpec().buildUpon().setPosition(1).build(),localSpec(length=3))
+            for(spec in wrong) assertThrows(IOException::class.java) {worker {f.copy.copyLocalSaved(spec,localMetadata(),upstream())}}
+            val huge=localMetadata().copyWithMutationsApplied(ContentMetadataMutations().set("too-large",ByteArray(MIGRATION_METADATA_BYTES)))
+            assertThrows(IOException::class.java) {worker {f.copy.copyLocalSaved(localSpec(),huge,upstream())}}
+            assertNull(f.catalog.find("saved/local-destination")); assertNull(f.saves.find("saved/local-destination"))
+            assertFalse(File(f.root,"resources").exists()); assertTrue(f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun localSavedShortSourceKeepsSourceAndRefusesIncompleteDestination() {
+        val f=Fixture(); val spec=localSpec()
+        try {
+            assertThrows(IOException::class.java) {worker {f.copy.copyLocalSaved(spec,localMetadata(),
+                DataSource.Factory {ByteArrayDataSource(payload.copyOf(12))})}}
+            assertEquals(PartitionSavePhase.Closed,f.saves.find(spec.key!!)?.phase)
+            assertEquals(0,f.budget.resident); assertTrue(f.barrier.quiescent)
+            worker {
+                val cache=f.native.openClosedSaveRead(spec.key!!)
+                try {assertEquals(0L,cache.getCachedBytes(spec.key!!,0,Long.MAX_VALUE))} finally {cache.release()}
+            }
+        } finally {f.close()}
+    }
+    @Test fun localSavedUnknownSourceCloseRetainsExactNativeAndWriterWithoutRetirement() {
+        val f=Fixture(); val spec=localSpec(); val raw=ByteArrayDataSource(payload); var closes=0; var held:Cache?=null
+        val source=DataSource.Factory {object:DataSource by raw {
+            override fun close():Unit {closes++; throw IOException("Unknown local source close")}
+        }}
+        try {
+            assertThrows(PartitionOwnershipUncertain::class.java) {worker {f.copy.copyLocalSaved(spec,localMetadata(),source)}}
+            assertEquals(1,closes); assertEquals(1,f.budget.resident); assertFalse(f.barrier.allowsShared)
+            val handles=PartitionPlayedCopy::class.java.getDeclaredField("retained").apply {isAccessible=true}.get(f.copy) as Array<*>
+            held=handles[0] as Cache; assertTrue(handles[1] is PlayedCopyWriter)
+            assertEquals(payload.size.toLong(),held.getCachedBytes(spec.key!!,0,Long.MAX_VALUE))
+            assertThrows(IOException::class.java) {worker {f.copy.copyLocalSaved(localSpec("saved/another"),localMetadata(),upstream())}}
+            assertEquals(1,closes)
+        } finally {raw.close(); held?.let {worker {it.release()}}; f.close()}
+    }
+
 }
