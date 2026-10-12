@@ -715,6 +715,7 @@ internal object OfflineStore {
      * removes the bytes is set out at [soleOwner].
      */
     fun removeSaved(context: Context, ref: SavedRef) {
+        if(commandStore(context)==null) return
         saver.execute {
             when (removeSavedNow(context, ref)) {
                 // Its outcome is said once the service has answered ([removalDeliveryMessage]).
@@ -774,7 +775,7 @@ internal object OfflineStore {
 
     /** [removeSaved]'s checks and command, on the calling thread; reads one index row. */
     internal fun removeSavedNow(context: Context, ref: SavedRef): SavedRemoval {
-        val store = commandStore(context) ?: return
+        val store = current() ?: return SavedRemoval.Busy
         if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
@@ -1378,17 +1379,18 @@ internal object OfflineStore {
 
     /** Removes every download from the available shelves; an unavailable card keeps its own (#179 S1). */
     fun removeAll(context: Context) {
-        if (get(context).moves.removalInFlight) {
+        val store=commandStore(context) ?: return
+        if (store.moves.removalInFlight) {
             notice(context, "A move is finishing, so nothing was removed. Try again when it finishes.")
             return
         }
-        if (get(context).removalDelivery.busy) {
+        if (store.removalDelivery.busy) {
             notice(context, "Saved copies are still being removed, so nothing more was. Try again when that finishes.")
             return
         }
         // Every move in flight loses its publication, whichever shelves receive the commands (#234).
         moveOwnership.removeAll()
-        get(context).moves.invalidateAll()
+        store.moves.invalidateAll()
         // #230: nothing reaches a manager while a move is in flight. Its hand-overs were just revoked, so
         // nothing it copied is added; the removal is not kept to run later.
         if (moveExclusion.held) {
@@ -1400,7 +1402,7 @@ internal object OfflineStore {
             val plan = removeAllNow(context)
             if (plan.busy) notice(context, "Saved copies are still being removed, so nothing more was. " +
                 "Try again when that finishes.")
-            if (get(context).shelves.any { !it.available() })
+            if (store.shelves.any { !it.available() })
                 notice(context, "The SD card isn't available, so its saved copies weren't removed.")
             if (plan.kept > 0) notice(context, "${plan.kept} saved ${if (plan.kept == 1) "copy was" else "copies were"} kept: " +
                 "Muon can't tell their bytes belong to them alone.")
@@ -1424,7 +1426,7 @@ internal object OfflineStore {
      * own Remove all would also delete bytes a kept played copy or an unknown row shares (#213).
      */
     internal fun removeAllNow(context: Context): RemoveAllPlan {
-        val store = commandStore(context) ?: return
+        val store = current() ?: return RemoveAllPlan(0,0,busy=true)
         if (store.removalDelivery.busy) return RemoveAllPlan(0, 0, busy = true)
         val selection = RemovalSelection()
         var kept = 0
