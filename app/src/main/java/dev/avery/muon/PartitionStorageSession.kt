@@ -231,6 +231,78 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             }
         }
     }
+    private var retainedSavedPublication:Any?=null
+    /** Exact local publication for a previously copied NEW completed save. Reopen/recompare both
+     * actual allocations under one exclusive gate. A confirmed destination does not authorize
+     * source deletion; source and its own-cover remain untouched until a durable Move intent. */
+    internal fun publishCopiedSavedTo(destination:PartitionStorageSession,copy:PartitionSavedCopy,
+        explicitConsent:Boolean,unclaimedElsewhere:(String)->Boolean,
+        otherClaims:(String,SavedStorageBarrier.Lease)->Boolean,checkpoint:()->Unit,ownerCheckpoint:()->Unit,
+        timestamp:Long):PartitionSaveCompletion {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved publication requires a worker"}
+        if(!explicitConsent || destination===this || !destination.usesBarrier(barrier))
+            throw IOException("Saved publication needs consent, another shelf and the same gate")
+        val permit=barrier.exclusive(); var quarantined=false
+        var cache:Cache?=null; var releasing=false
+        fun unknown(failure:Throwable):Nothing {
+            val handles=arrayOf(this,destination,cache,copy,failure); retainedSavedPublication=handles; uncertain=true
+            permit.quarantine(handles); quarantined=true
+            throw PartitionOwnershipUncertain(handles,failure)
+        }
+        fun owned() {originalPermit(permit); ownerCheckpoint(); originalPermit(permit)}
+        fun live() {owned(); checkpoint(); owned()}
+        try {
+            live(); writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+            val key=copy.completion.key; val newKey=copy.destination.allocation.key
+            fun claims(cancel:Boolean=true) {
+                if(cancel) live() else owned()
+                val route=native.savedReadRoute(key)
+                if(key==newKey || route !is PartitionReadRoute.NewSave || route.record!=copy.source ||
+                    copy.source.phase!=PartitionSavePhase.Closed || saves.find(key)!=copy.source ||
+                    catalog.find(key)!=copy.source.ticket.allocation || migrations.find(key)!=null ||
+                    retirements?.holdsName(key)==true || completionIndex.find(key)!=copy.completion ||
+                    completionIndex.holdsOtherName(key) || otherClaims(newKey,permit) || !unclaimedElsewhere(newKey))
+                    throw IOException("Saved publication source or fresh destination claims changed")
+            }
+            claims()
+            val old=completionIndex.completedRequest(key,copy.completion) ?: throw IOException("Saved publication request unavailable")
+            val request=DownloadRequest.Builder(newKey,old.uri).setMimeType(old.mimeType).setCustomCacheKey(newKey).setData(old.data).build()
+            val actual=native.openClosedSaveRead(key); cache=actual
+            val initial=savedAudioState(actual,key)
+            val metadata=PartitionResourceCache.measured(initial.metadata,PartitionResourceLimits())
+            fun full(cancel:Boolean=true) {
+                claims(cancel); val state=savedAudioState(actual,key)
+                if(actual.uid!=copy.source.uid || state.coverage!=SavedCoverage.Full || state.bytes!=copy.completion.length || state.metadata!=metadata)
+                    throw IOException("Saved publication source audio or metadata changed")
+            }
+            full(); val local=LegacySavedAudio(actual).source
+            val source=DataSource.Factory {
+                val child=local.createDataSource()
+                object:DataSource by child {
+                    override fun open(spec:DataSpec):Long {
+                        live(); if(spec.key!=newKey) throw IOException("Saved publication remapping changed")
+                        return child.open(spec.buildUpon().setKey(key).build()).also {live()}
+                    }
+                    override fun read(bytes:ByteArray,offset:Int,length:Int):Int {
+                        live(); return child.read(bytes,offset,length).also {live()}
+                    }
+                }
+            }
+            val published=destination.publishLocalSaved(copy.destination,request,copy.completion.length,metadata,source,
+                permit,::live,{name -> !otherClaims(name,permit) && unclaimedElsewhere(name)},timestamp,::owned)
+            // No user cancellation after the public destination commit until its confirmed receipt
+            // returns. Actual source closure/root/index confirmation still must succeed.
+            full(false); releasing=true; actual.release(); cache=null; releasing=false
+            claims(false); owned(); return published
+        } catch(failure:Throwable) {
+            if(releasing || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) unknown(failure)
+            cache?.let {actual ->
+                try {actual.release(); cache=null}
+                catch(close:Throwable) {if(close!==failure) close.addSuppressed(failure); unknown(close)}
+            }
+            throw failure
+        } finally {if(!quarantined) permit.close()}
+    }
     private var retainedLocalPublication:Any?=null
     /** Publish a byte-verified, exact clean local destination, never via a destructive downloader
      * or an Add token invented after the copy. Source owner holds the SAME exclusive gate and owes
@@ -370,7 +442,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         originalPermit(permit)
         if(originalCompletion(expected.key,permit,{true})!=expected)
             throw IOException("Original completion changed before local publication")
-        return (completionIndex.originalRequest(expected.key,expected) ?: throw IOException("Original request is absent"))
+        return (completionIndex.completedRequest(expected.key,expected) ?: throw IOException("Original request is absent"))
             .also {originalPermit(permit)}
     }
     internal fun originalCopyCompletion(key:String,permit:SavedStorageBarrier.Lease):PartitionSaveCompletion {

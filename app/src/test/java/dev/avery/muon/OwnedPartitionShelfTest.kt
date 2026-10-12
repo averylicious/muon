@@ -1688,4 +1688,68 @@ class OwnedPartitionShelfTest {
         } finally {f.close()}
     }
 
+    @Test fun actualSavedCopyPublicationPreservesRequestMetadataAndSourceAcrossBothRestarts() {
+        val f=LocalPublicationFixture(); val back="saved/published-copy-back"
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            val copy=onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}
+            val completion=onWorker {f.target.publishCopiedSavedTo(f.source,copy,true,{true},20)}
+            assertEquals(back,completion.key); assertEquals(4L,completion.length); assertEquals(0,f.f.budget.resident)
+            val record=f.index.getDownload(back)!!
+            assertEquals(f.request.uri,record.request.uri); assertArrayEquals(f.request.data,record.request.data)
+            assertEquals(back,record.request.customCacheKey)
+            assertEquals(SavedCoverage.Full,onWorker {f.source.audio.inspect(back).coverage})
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            teardown(f.source); f.sourceClosed=true; teardown(f.target); f.targetClosed=true
+            val resumedSource=f.f.owner(PartitionShelfStart.Resume); val resumedTarget=f.target(PartitionShelfStart.Resume)
+            try {
+                onWorker {resumedSource.prepare(); resumedTarget.prepare()}
+                await(resumedSource.initializeManager()) {true}; await(resumedTarget.initializeManager()) {true}
+                assertEquals(SavedCoverage.Full,onWorker {resumedSource.audio.inspect(back).coverage})
+                assertEquals(SavedCoverage.Full,onWorker {resumedTarget.audio.inspect(f.key).coverage})
+                val reader=resumedSource.audio.source.createDataSource()
+                try {
+                    onWorker {
+                        reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(back).build())
+                        val bytes=ByteArray(4); assertEquals(4,reader.read(bytes,0,4)); assertArrayEquals(payload,bytes)
+                    }
+                } finally {onWorker {reader.close()}}
+                assertTrue(onWorker {resumedSource.retirementRecoveryPage().isEmpty()})
+                assertTrue(onWorker {resumedTarget.retirementRecoveryPage().isEmpty()})
+            } finally {teardown(resumedTarget); teardown(resumedSource)}
+            assertArrayEquals(payload,f.f.original.readBytes())
+        } finally {f.close()}
+    }
+    @Test fun savedCopyPublicationRejectsActualSourceAliasAndChangedCompletionWithoutDeletingEitherCopy() {
+        val f=LocalPublicationFixture(); val back="saved/publication-alias"
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            val copy=onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}
+            val targetIndex=DefaultDownloadIndex(f.f.provider,"publication_target")
+            val alias=DownloadRequest.Builder("alias",Uri.parse("http://127.0.0.1:7814/alias")).setCustomCacheKey(back).build()
+            targetIndex.putDownload(Download(alias,Download.STATE_FAILED,1,2,0,Download.STOP_REASON_NONE,Download.FAILURE_REASON_UNKNOWN))
+            assertThrows(IOException::class.java) {onWorker {f.target.publishCopiedSavedTo(f.source,copy,true,{true},20)}}
+            assertNull(f.index.getDownload(back)); targetIndex.removeDownload("alias")
+            val current=targetIndex.getDownload(f.key)!!
+            targetIndex.putDownload(Download(current.request,Download.STATE_COMPLETED,10,11,4,Download.STOP_REASON_NONE,Download.FAILURE_REASON_NONE))
+            assertThrows(IOException::class.java) {onWorker {f.target.publishCopiedSavedTo(f.source,copy,true,{true},20)}}
+            assertNull(f.index.getDownload(back)); assertTrue(f.f.barrier.quiescent)
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(targetIndex.getDownload(f.key))
+        } finally {f.close()}
+    }
+    @Test fun savedCopyPublicationDefersLateCancellationUntilConfirmedReceiptAndSourceClosure() {
+        val f=LocalPublicationFixture(); val back="saved/publication-late-cancel"
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            val copy=onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}
+            val index=PartitionCompletionIndex(f.f.provider,"owned_partition")
+            val completion=onWorker {f.target.publishCopiedSavedTo(f.source,copy,true,{true},20) {
+                if(index.find(back)!=null) throw java.io.InterruptedIOException("Cancel after actual publication")
+            }}
+            assertEquals(completion,index.find(back)); assertEquals(0,f.f.budget.resident)
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertTrue(f.f.barrier.quiescent); assertTrue(onWorker {f.target.retirementRecoveryPage().isEmpty()})
+        } finally {f.close()}
+    }
+
 }

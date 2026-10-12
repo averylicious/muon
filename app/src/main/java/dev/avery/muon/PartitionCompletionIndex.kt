@@ -164,8 +164,8 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
     @Synchronized fun findOriginal(key:String):PartitionSaveCompletion?=completed(key,false) {PartitionSaveCompletion.fromOriginal(it)}
     /** One bounded full request, scoped to a local-copy publication. Caller must hold the actual
      * source/destination exclusive gate; returned payload must not enter a batch/history/queue. */
-    @Synchronized fun originalRequest(key:String,expected:PartitionSaveCompletion):DownloadRequest?=completed(key,false) {
-        if(PartitionSaveCompletion.fromOriginal(it)!=expected) throw IOException("Original request changed since preparation")
+    @Synchronized fun completedRequest(key:String,expected:PartitionSaveCompletion):DownloadRequest?=completed(key,false) {
+        if(PartitionSaveCompletion.fromOriginal(it)!=expected) throw IOException("Completed request changed since preparation")
         it.request
     }
     private fun <T> completed(key:String,requireFresh:Boolean,project:(Download)->T):T? {
