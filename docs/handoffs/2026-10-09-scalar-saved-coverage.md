@@ -1,0 +1,9 @@
+# #253 scalar saved coverage — 2026-10-09
+
+Continuation of #422 on the unmerged main-audit acceptance stack. GPT-6 / Codex desktop implemented and self-checked; exact variant/effort not exposed. Claude idle after its five-hour limit; no phone commands this cycle.
+
+`savedCoverage` uses the supported `Cache.getCachedBytes(key,0,Long.MAX_VALUE)` query instead of cloning every span into a TreeSet just to sum lengths and check for missing bytes. It still counts all cached bytes, including unknown lengths, holes and bytes past declared content length; missing/unknown/full/partial and exact full-range checks preserve the prior behavior. Scalar-query errors propagate rather than publish a false partial inventory. This does not change destructive extent/ownership/move checks.
+
+Pinned published Media3 datasource 1.11.0 `SimpleCache.getCachedBytes` source was checked: it traverses native cached/hole ranges under the cache lock without a span-set copy. Source SHA256 a54ddd9858ed2de57e07c5461dcebdae7a53d92a60210a2a3f5bf501398a5e4a. Native fixtures compare results with the previous span sum for missing/metadata-only/adjacent/full/holes/unknown/zero/beyond-declared cases, prohibit the getter during actual coverage, and verify 400-fragment counting plus failure preservation. CI is the first compile/full test/lint run; exact final receipts belong on the PR/coordinator checkpoint. UAT pending: saved count/byte labels and playability after refresh remain consistent, all copies accessible.
+
+No native whole-process memory/latency improvement was measured. SimpleCache still holds native content/metadata/spans; whole-key enumeration and destructive span snapshots remain separate required #253 engineering. #401 diagnostics do not identify its cause without authorized runtime comparison. No app merge or Stable/tag/publication.
