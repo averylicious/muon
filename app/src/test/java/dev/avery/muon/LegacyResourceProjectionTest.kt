@@ -128,14 +128,16 @@ class LegacyResourceProjectionTest {
             openDatabase={file,_ ->SQLiteDatabase.openOrCreateDatabase(file,null).also {actual=it}},
             closeDatabase={dbAttempts++; it.close()},
             closeIo={child=it; childAttempts++; throw IOException("injected unknown cursor close")})
-        try {worker {
-            assertThrows(IOException::class.java) {journal.open()}
-            assertThrows(IOException::class.java) {journal.close()}; assertThrows(IOException::class.java) {journal.open()}
-            assertEquals(1,childAttempts); assertEquals(0,dbAttempts); assertTrue(requireNotNull(actual).isOpen)
-        }} finally {
-            child?.close()
-            actual?.let {if(it.inTransaction()) it.endTransaction(); it.close()}
-        } // Only fixture-controlled injected failure is cleaned here; production has no reset path.
+        worker {
+            try {
+                assertThrows(IOException::class.java) {journal.open()}
+                assertThrows(IOException::class.java) {journal.close()}; assertThrows(IOException::class.java) {journal.open()}
+                assertEquals(1,childAttempts); assertEquals(0,dbAttempts); assertTrue(requireNotNull(actual).isOpen)
+            } finally {
+                child?.close()
+                actual?.let {if(it.inTransaction()) it.endTransaction(); it.close()}
+            } // Injected fixture cleanup stays on the transaction's owner thread; no production reset.
+        }
     }
     @Test fun retirementManifestRoundTripsOnlySelectedFilesWithoutNativeReopenOrMutation() {
         val f=Fixture(40); val index=f.db()
