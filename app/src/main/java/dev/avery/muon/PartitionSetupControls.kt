@@ -48,7 +48,7 @@ internal fun PartitionSetupControls(store:OfflineStore.Store?,availability:Stora
                     "The setup choice could not be confirmed. Existing copies are kept. Fully restart Muon before reviewing it again."
                 pending -> "Saving the startup choice. Wait for confirmation before fully restarting Muon; saved storage may already be paused."
                 stopped -> "The startup choice is saved. Use Android App info to Force stop Muon, then reopen it before using saved storage. Existing copies are kept; no managers are replaced while the app is running."
-                interrupted -> "Setup stopped before every storage owner was ready. Review Resume to preserve partial roots; Muon will not recreate or repair them automatically. Reconnect the original SD card first."
+                interrupted -> "Setup stopped before every storage owner was ready. Review Resume to reuse completed roots and finish unpublished setup. Interrupted temporary folders are kept; unsupported published journals are not repaired. Reconnect the original SD card first."
                 else -> "Use bounded saved-storage owners after a full restart. Existing originals stay readable. Optimizing each copy is a separate action that needs temporary free space; deleting or moving remains explicit."
             },style=MaterialTheme.typography.bodyMedium)
             if(refused || optIn==PartitionOptInPhase.Refused) Text("Couldn't start. Stop saved playback and downloads, wait for storage work, and reconnect the original card before trying again.",style=MaterialTheme.typography.bodySmall)
@@ -59,7 +59,7 @@ internal fun PartitionSetupControls(store:OfflineStore.Store?,availability:Stora
         }
     }
     if(confirm) AlertDialog(onDismissRequest={confirm=false},title={Text(if(interrupted) "Resume setup after restart?" else "Use optimized saved storage?")},
-        text={Text(if(interrupted) "Keep the exact selected volumes and partial setup. Muon will validate them after a full restart; missing or unsupported journals remain protected. This does not retry Fresh or erase any copies."
+        text={Text(if(interrupted) "Keep the exact selected volumes. After a full restart, Muon reuses completed roots and can create a complete new root only where none was published. Interrupted temporary folders remain intact. Missing or unsupported journals inside an existing published root are protected; no copies are erased."
             else "Reconnect the original SD card and stop saved playback/downloads first. This saves a startup choice and pauses saved storage until you fully restart Muon. Originals remain; no automatic bulk migration or deletion occurs. Individual replacement copies need temporary free space. Obsolete old index metadata may remain; this is not secure erasure.")},
         confirmButton={TextButton(onClick={
             confirm=false

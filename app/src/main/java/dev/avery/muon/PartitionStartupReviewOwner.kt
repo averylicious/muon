@@ -19,7 +19,7 @@ internal class PartitionStartupReviewOwner(private val admission:StorageStartupA
         try {
             if(!admission.reviewing || !explicitConsent) throw IOException("First opt-in needs exclusive startup review and explicit consent")
             plan.validate()
-            if(plan.missingCardVolume!=null || plan.phone.start!=PartitionShelfStart.Fresh || plan.card?.start==PartitionShelfStart.Resume)
+            if(plan.missingCardVolume!=null || plan.phone.start!=PartitionShelfStart.Fresh || plan.card?.let {it.start!=PartitionShelfStart.Fresh}==true)
                 throw IOException("First opt-in requires exact Fresh roots")
             for(root in listOfNotNull(plan.phone,plan.card))
                 if(root.directory.exists() || java.nio.file.Files.isSymbolicLink(root.directory.toPath()))

@@ -422,4 +422,28 @@ class PartitionStorePreparationTest {
         }
     }
 
+    @Test fun explicitInterruptedSetupReusesPublishedPhoneAndCreatesOnlyUnpublishedCardRoot() {
+        val f=Fixture();val prefs=app.getSharedPreferences("storage",android.content.Context.MODE_PRIVATE)
+        assertTrue(prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit())
+        val settings=PartitionStartupSettings(prefs);val chosen=settings.request(f.plan(),true)
+        settings.begin(chosen,f.plan())
+        worker {PartitionBootstrapOwner(f.phoneRoot,SavedStorageBarrier(),{true}).publish()}
+        val phoneBefore=f.phoneRoot.listFiles()!!.associate {it.name to it.readBytes().toList()}
+        val interrupted=File(f.cardRoot.parentFile,".${f.cardRoot.name}.setup-interrupted").apply {assertTrue(mkdir())}
+        val evidence=File(interrupted,"new-save-journal-v1.db").apply {writeBytes(byteArrayOf(11,22,33))}
+        val reviewed=PartitionSetupResumeOwner().request(true) {PartitionStartupSettings(prefs)}
+        assertEquals(PartitionShelfStart.ReviewedSetup,reviewed.start)
+        val plan=f.plan().let {it.copy(phone=it.phone.copy(start=reviewed.start),card=it.card!!.copy(start=reviewed.start))}
+        val startup=StorageStartup<OfflineStore.PreparedStorage>()
+        try {
+            val ready=worker {startup.open {OfflineStore.prepareSelectedStorage(app,it,partitionEnabled=true,resolve={plan})}}
+            assertNotNull(ready.phone.partition);assertNotNull(ready.card!!.partition)
+            assertEquals(PartitionStartupPhase.Ready,settings.read().phase);assertEquals(PartitionShelfStart.Resume,settings.read().start)
+            assertArrayEquals(byteArrayOf(11,22,33),evidence.readBytes())
+            assertEquals(phoneBefore,f.phoneRoot.listFiles()!!.associate {it.name to it.readBytes().toList()})
+            f.originals.forEach {assertArrayEquals(bytes,it.readBytes())};assertEquals(0,PartitionNativeBudget.process.resident)
+            assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy));assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
+        } finally {cleanup(startup);f.seed.close();assertTrue(prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit())}
+    }
+
 }

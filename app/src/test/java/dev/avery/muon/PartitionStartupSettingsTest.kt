@@ -46,8 +46,8 @@ class PartitionStartupSettingsTest {
         val next=PartitionStartupSettings(prefs);assertEquals(attempt,next.read())
         assertThrows(IOException::class.java) {next.begin(attempt,plan())}
         assertThrows(IOException::class.java) {next.reviewResume(attempt,false)};assertEquals(attempt,next.read())
-        val reviewed=next.reviewResume(attempt,true);assertEquals(PartitionShelfStart.Resume,reviewed.start)
-        val resumed=next.begin(reviewed,plan(PartitionShelfStart.Resume));val ready=next.prepared(resumed)
+        val reviewed=next.reviewResume(attempt,true);assertEquals(PartitionShelfStart.ReviewedSetup,reviewed.start)
+        val resumed=next.begin(reviewed,plan(PartitionShelfStart.ReviewedSetup));val ready=next.prepared(resumed)
         assertEquals(PartitionStartupPhase.Ready,ready.phase);assertEquals(PartitionShelfStart.Resume,ready.start)
         assertEquals(ready,PartitionStartupSettings(prefs).begin(ready,plan(PartitionShelfStart.Resume)))
         assertThrows(IOException::class.java) {next.begin(ready,plan())}

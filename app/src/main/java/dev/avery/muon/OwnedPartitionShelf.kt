@@ -14,7 +14,7 @@ import java.nio.file.attribute.BasicFileAttributes
 
 private class PartitionDeleteAdmissionBusy(cause:IOException):IOException("Saved Delete admission is busy",cause)
 
-internal enum class PartitionShelfStart { Fresh, Resume }
+internal enum class PartitionShelfStart { Fresh, Resume, ReviewedSetup }
 internal enum class PartitionOriginalMoveStage { Waiting, Copied, Published, Pending, Complete }
 /** Fixed result only; durable recovery rereads the bounded journals, never a retained request/list. */
 internal data class PartitionOriginalMoveResult(val stage:PartitionOriginalMoveStage,val outcome:OfflineStore.SavedRemoval,val bytes:Long=0)
@@ -48,7 +48,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private enum class Phase { New,Preparing,Ready,Uncertain }
     @Volatile private var phase=Phase.New
     private var rootIdentity:Any?=null
-    private val journalNames=arrayOf("partition-locators-v1.db","migration-journal-v1.db","new-save-journal-v1.db","legacy-retirements-v1.db","partition-moves-v1.db","partition-deletes-v1.db")
+    private val journalNames=PARTITION_BOOTSTRAP_JOURNALS
+    private var creating=false
     private val identities=arrayOfNulls<Any>(journalNames.size)
     private class Resources(val legacy:LegacyTransitionOwner,val retirements:LegacyRetirementJournal,val moves:PartitionSavedMoveJournal,val deletes:PartitionSavedDeleteJournal,val catalog:CachePartitionCatalog,
         val migrations:CacheMigrationJournal,val saves:PartitionSaveJournal,val session:PartitionStorageSession,
@@ -78,16 +79,16 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             directory.toPath().startsWith(legacyDirectory.toPath()) || legacyDirectory.toPath().startsWith(directory.toPath()))
             throw IOException("Partition shelf cannot alias or replace legacy storage")
         exactDirectory(requireNotNull(directory.parentFile))
-        when(start) {
-            PartitionShelfStart.Fresh -> if(directory.exists()) throw IOException("Fresh partition shelf root already exists")
-            PartitionShelfStart.Resume -> {
+        creating=start==PartitionShelfStart.Fresh || start==PartitionShelfStart.ReviewedSetup && !Files.exists(directory.toPath(),LinkOption.NOFOLLOW_LINKS)
+        if(creating) {
+            if(Files.exists(directory.toPath(),LinkOption.NOFOLLOW_LINKS)) throw IOException("Fresh partition shelf root already exists")
+        } else {
                 exactDirectory(directory)
                 rootIdentity=key(directory)
                 for(i in journalNames.indices) {
                     val file=File(directory,journalNames[i]); exactJournal(file); identities[i]=key(file)
                 }
                 located()
-            }
         }
     }
     /** Bounded filesystem/schema work; run off main before the UI/service exposes this backend.
@@ -102,27 +103,21 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             preflight()
             val legacy=owner.own { LegacyTransitionOwner(legacyDirectory,legacyDatabase,barrier,{currentVolume()==volume}) }
             val audio=legacy.open()
-            if(start==PartitionShelfStart.Fresh) Files.createDirectory(directory.toPath())
+            if(creating) owner.own {PartitionBootstrapOwner(directory,barrier,{currentVolume()==volume})}.publish()
             exactDirectory(directory)
-            if(start==PartitionShelfStart.Fresh) rootIdentity=key(directory) else located()
-            val catalog=owner.own { CachePartitionCatalog(directory,create=start==PartitionShelfStart.Fresh,autoOpen=false) }
-            catalog.open()
-            if(start==PartitionShelfStart.Resume) located()
-            val migrations=owner.own { CacheMigrationJournal(directory,create=start==PartitionShelfStart.Fresh,autoOpen=false) }
-            migrations.open()
-            if(start==PartitionShelfStart.Resume) located()
-            val saves=owner.own { PartitionSaveJournal(directory,create=start==PartitionShelfStart.Fresh,autoOpen=false) }
-            saves.open()
-            val retirements=owner.own {LegacyRetirementJournal(directory,start==PartitionShelfStart.Fresh)}
-            retirements.open()
-            val moves=owner.own {PartitionSavedMoveJournal(directory,start==PartitionShelfStart.Fresh)}
-            moves.open()
-            val deletes=owner.own {PartitionSavedDeleteJournal(directory,start==PartitionShelfStart.Fresh)}
-            deletes.open()
-            if(start==PartitionShelfStart.Fresh) for(i in journalNames.indices) {
-                val file=File(directory,journalNames[i]); exactJournal(file); identities[i]=key(file)
+            if(creating) {
+                rootIdentity=key(directory)
+                for(i in journalNames.indices) {
+                    val file=File(directory,journalNames[i]);exactJournal(file);identities[i]=key(file)
+                }
             }
             located()
+            val catalog=owner.own {CachePartitionCatalog(directory,create=false,autoOpen=false)};catalog.open();located()
+            val migrations=owner.own {CacheMigrationJournal(directory,create=false,autoOpen=false)};migrations.open();located()
+            val saves=owner.own {PartitionSaveJournal(directory,create=false,autoOpen=false)};saves.open();located()
+            val retirements=owner.own {LegacyRetirementJournal(directory,false)};retirements.open();located()
+            val moves=owner.own {PartitionSavedMoveJournal(directory,false)};moves.open();located()
+            val deletes=owner.own {PartitionSavedDeleteJournal(directory,false)};deletes.open();located()
             val native=owner.own { PartitionNativeOwner(catalog,migrations,volume,
                 { if(runCatching { located(); true }.getOrDefault(false)) volume else null },budget=budget,saves=saves) }
             val index=PartitionCompletionIndex(database,indexName)

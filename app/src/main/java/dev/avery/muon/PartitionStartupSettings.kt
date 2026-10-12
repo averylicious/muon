@@ -87,7 +87,7 @@ internal class PartitionStartupSettings(private val prefs:SharedPreferences,
         if(StorageBackendSelection.read(prefs)!=StorageBackendSelection.Legacy || prefs.contains(KEY))
             throw IOException("Existing partition startup choice cannot be replaced")
         plan.validate()
-        if(plan.phone.start!=PartitionShelfStart.Fresh || plan.card?.start==PartitionShelfStart.Resume)
+        if(plan.phone.start!=PartitionShelfStart.Fresh || plan.card?.let {it.start!=PartitionShelfStart.Fresh}==true)
             throw IOException("First partition opt-in requires an explicit Fresh plan")
         return write(PartitionStartupChoice(token(),PartitionStartupPhase.Planned,plan.phone.volume,plan.card?.volume,PartitionShelfStart.Fresh))
     }
@@ -115,7 +115,8 @@ internal class PartitionStartupSettings(private val prefs:SharedPreferences,
         current(expected)
         if(!explicitConsent || expected.phase!=PartitionStartupPhase.Preparing)
             throw IOException("Interrupted partition setup needs explicit renewed Resume confirmation")
-        return write(expected.copy(phase=PartitionStartupPhase.Planned,start=PartitionShelfStart.Resume))
+        return write(expected.copy(phase=PartitionStartupPhase.Planned,start=
+            if(expected.start==PartitionShelfStart.Resume) PartitionShelfStart.Resume else PartitionShelfStart.ReviewedSetup))
     }
     companion object {
         internal const val KEY="partitionStartupChoiceV1"

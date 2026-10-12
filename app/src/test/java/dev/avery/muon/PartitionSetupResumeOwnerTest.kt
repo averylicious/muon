@@ -27,7 +27,7 @@ class PartitionSetupResumeOwnerTest {
         val plan=plan();val settings=PartitionStartupSettings(prefs);val pending=settings.begin(settings.request(plan,true),plan)
         val owner=PartitionSetupResumeOwner();val reviewed=owner.request(true) {settings}
         assertEquals(pending.token,reviewed.token);assertEquals(pending.phoneVolume,reviewed.phoneVolume)
-        assertEquals(PartitionStartupPhase.Planned,reviewed.phase);assertEquals(PartitionShelfStart.Resume,reviewed.start)
+        assertEquals(PartitionStartupPhase.Planned,reviewed.phase);assertEquals(PartitionShelfStart.ReviewedSetup,reviewed.start)
         assertEquals(reviewed,settings.read());assertEquals(PartitionSetupReviewPhase.RestartRequired,owner.phase)
         assertEquals(1,startup(owner).retained);assertFalse(plan.phone.directory.exists())
         assertThrows(IOException::class.java) {owner.request(true) {throw AssertionError("Review replayed")}}
@@ -61,6 +61,6 @@ class PartitionSetupResumeOwnerTest {
         val handles=StorageStartup::class.java.getDeclaredField("handles").apply {isAccessible=true}.get(startup(owner)) as Array<*>
         assertSame(settings,handles[0]);assertThrows(IOException::class.java) {settings.read()}
         assertThrows(IOException::class.java) {owner.request(true) {throw AssertionError("Unknown write retried")}}
-        assertEquals(PartitionShelfStart.Resume,PartitionStartupSettings(prefs).read().start);assertFalse(plan.phone.directory.exists())
+        assertEquals(PartitionShelfStart.ReviewedSetup,PartitionStartupSettings(prefs).read().start);assertFalse(plan.phone.directory.exists())
     }
 }

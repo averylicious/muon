@@ -20,7 +20,7 @@ internal class PartitionOptInOwner(private val barrier:SavedStorageBarrier,
             if(!explicitConsent) throw IOException("Partition setup requires explicit opt-in")
             plan.validate()
             if(plan.missingCardVolume!=null || plan.phone.start!=PartitionShelfStart.Fresh ||
-                plan.card?.start==PartitionShelfStart.Resume) throw IOException("First opt-in needs every selected original shelf")
+                plan.card?.let {it.start!=PartitionShelfStart.Fresh}==true) throw IOException("First opt-in needs every selected original shelf")
             for(root in listOfNotNull(plan.phone,plan.card))
                 if(root.directory.exists() || java.nio.file.Files.isSymbolicLink(root.directory.toPath()))
                     throw IOException("Partition setup root already exists; review recovery instead")
