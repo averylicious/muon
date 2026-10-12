@@ -69,6 +69,23 @@ class PartitionStorePreparationTest {
             check(System.nanoTime()<end); Thread.sleep(5)
         }
     }
+    /** Claims publication precedes the actual startup resize. Drain its producer first, then
+     * the real serial played worker; a momentary empty barrier is not completion evidence. */
+    private fun drainStartupPlayedWork() {
+        for(name in listOf("saver","copier")) {
+            val executor=OfflineStore::class.java.getDeclaredField(name).apply {isAccessible=true}.get(OfflineStore)
+                as java.util.concurrent.Executor
+            val drained=java.util.concurrent.CountDownLatch(1)
+            executor.execute {drained.countDown()}
+            val end=System.nanoTime()+TimeUnit.SECONDS.toNanos(10)
+            while(drained.count!=0L) {
+                shadowOf(Looper.getMainLooper()).idle()
+                check(System.nanoTime()<end) {"Actual startup $name worker did not drain"}
+                drained.await(5,TimeUnit.MILLISECONDS)
+            }
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+    }
     private fun request(key:String)=DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/file")).setCustomCacheKey(key).build()
     private fun resources(root:OwnedPartitionShelf):Any? {
         val state=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply { isAccessible=true }.get(root)
@@ -392,6 +409,7 @@ class PartitionStorePreparationTest {
                 shadowOf(Looper.getMainLooper()).idle();check(System.nanoTime()<end);Thread.sleep(5)
             }
             assertFalse(store.bootstrapFailed);assertEquals(PartitionStartupPhase.Ready,PartitionStartupSettings(prefs).read().phase)
+            drainStartupPlayedWork()
             assertTrue(store.storageBarrier.quiescent);assertNull(ready.phone.cache);assertNull(ready.card!!.cache)
             worker {
                 val phone=requireNotNull(store.phone.partition)
