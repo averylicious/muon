@@ -222,7 +222,9 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
      */
     @Synchronized fun beginMovedRetirement(session:PartitionStorageSession,journal:LegacyRetirementJournal,
         copy:PartitionOriginalCopy,explicitConsent:Boolean,
-        observeDestination:(SavedStorageBarrier.Lease)->PartitionMoveDestination,checked:()->Unit):LegacyRetirementRecord {
+        observeDestination:(SavedStorageBarrier.Lease)->PartitionMoveDestination,
+        observeCover:((SavedStorageBarrier.Lease)->SavedMoveCoverIdentity)?=null,
+        recovery:LegacyRetirementRecord?=null,checked:()->Unit):LegacyRetirementRecord {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Move intent requires a worker"}
         if(!explicitConsent || !session.usesBarrier(barrier)) throw IOException("Move intent needs consent and the same gate")
         checkpoint(); val permit=barrier.exclusive(); var quarantined=false
@@ -244,12 +246,19 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             if(target.ticket!=copy.destination || target.length!=copy.source.length || target.audioDigest!=audioHash ||
                 target.metadataDigest!=partitionMoveMetadataDigest(PartitionResourceCache.measured(state.metadata,PartitionResourceLimits())))
                 throw IOException("Move destination no longer matches original audio")
-            val manifest=original.withMoveDestination(target)
+            val audioBound=original.withMoveDestination(target)
+            if(recovery!=null && (observeCover==null || recovery.phase!=LegacyRetirementPhase.Pending ||
+                recovery.manifest.moveCover!=null || recovery.manifest!=audioBound || journal.find(copy.source.key)!=recovery))
+                throw IOException("Move cover recovery requires the exact fully present original and Pending intent")
+            val cover=observeCover?.invoke(permit)
+            val manifest=if(cover==null) audioBound else audioBound.withMoveCover(cover)
             manifest.verifyRemaining(directory,requireNotNull(index),false,::live,directoryIo)
             live()
             if(session.originalCompletion(copy.source.key,permit,{true})!=copy.source)
                 throw IOException("Original completed record changed before durable Move intent")
-            val record=journal.begin(manifest,true); live(); return record
+            val record=if(recovery==null) journal.begin(manifest,true)
+                else journal.bindMoveCover(recovery,requireNotNull(cover))
+            live(); return record
         } catch(failure:Throwable) {
             if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || journal.ownershipUncertain || !directoryIo.quiescent) {
                 phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,digest,observeDestination,failure)); quarantined=true

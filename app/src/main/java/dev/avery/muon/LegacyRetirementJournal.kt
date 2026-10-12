@@ -184,6 +184,32 @@ internal class LegacyRetirementJournal(private val root:File,private val create:
         finally {endTransaction(db)}
         return LegacyRetirementRecord(token,LegacyRetirementPhase.Pending,manifest)
     }
+    /** Explicit upgrade of an exact pre-cover Move Pending. Caller must reverify ALL original
+     * files/row and actual destination, and copy/verify the cover first. This grants no cleanup.
+     * Same token/phase/audio binding is preserved; never upgrades an already partial source. */
+    @Synchronized internal fun bindMoveCover(expected:LegacyRetirementRecord,cover:SavedMoveCoverIdentity):LegacyRetirementRecord {
+        val db=db(); key(expected.manifest.key); uuid(expected.token); cover.validate()
+        if(expected.phase!=LegacyRetirementPhase.Pending || expected.manifest.moveDestination==null || expected.manifest.moveCover!=null)
+            throw IOException("Cover binding needs an exact unbound Move Pending")
+        val manifest=expected.manifest.withMoveCover(cover); val bytes=manifest.encode()
+        beginTransaction(db); var writing=false
+        try {
+            if(lookup(db,manifest.key)!=expected) throw IOException("Move cover intent is stale")
+            writing=true
+            useOwned({db.compileStatement("UPDATE retirements SET manifest=? WHERE key=? AND token=?")}) {
+                it.bindBlob(1,bytes); it.bindBlob(2,savedCatalogSortKey(manifest.key)); it.bindString(3,expected.token)
+                if(it.executeUpdateDelete()!=1) throw IOException("Move cover intent was not recorded")
+            }
+            db.setTransactionSuccessful()
+        } catch(failure:Throwable) {
+            if(writing || phase==Phase.Uncertain) {
+                phase=Phase.Uncertain
+                throw if(failure is PartitionOwnershipUncertain) failure else PartitionOwnershipUncertain(this,failure)
+            }
+            throw failure
+        } finally {endTransaction(db)}
+        return expected.copy(manifest=manifest)
+    }
     /** Record the controller's final verified disposition, not a substitute for performing it.
      * Exact pending manifest/token must still match. Caller owes physical/index/route/cover checks.
      * A complete record stays as a no-fallback/no-ID-reuse tombstone across restart.

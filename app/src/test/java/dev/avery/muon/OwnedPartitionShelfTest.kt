@@ -1177,4 +1177,81 @@ class OwnedPartitionShelfTest {
         } finally {f.close()}
     }
 
+    private fun coverFile(art:DownloadArt,id:String):File=DownloadArt::class.java
+        .getDeclaredMethod("entryFile",String::class.java).apply {isAccessible=true}.invoke(art,id) as File
+    private fun coverWork(art:DownloadArt,gate:SavedStorageBarrier)=DownloadArtworkWork(
+        java.util.concurrent.Executor {throw AssertionError("Covered Move must not fetch live artwork")},
+        {_,_ ->throw AssertionError("Covered Move must not fetch live artwork")},art::removeEntry,barrier=gate)
+    @Test fun coveredMovePersistsPresentCoverBeforeAnySourceRemovalAndReadsAfterRestart() {
+        val f=LocalPublicationFixture(); var resumed:OwnedPartitionShelf?=null
+        val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+        val bytes=byteArrayOf(8,6,4,2); val original=coverFile(art,"81").apply {writeBytes(bytes)}
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            assertEquals(4L,intent.manifest.moveCover!!.length)
+            assertEquals(intent.manifest,LegacyRetirementManifest.decode(intent.manifest.encode()))
+            assertArrayEquals(bytes,original.readBytes()); assertArrayEquals(bytes,coverFile(art,f.key).readBytes())
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            teardown(f.source); f.sourceClosed=true
+            val next=f.f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
+            assertEquals(intent,onWorker {next.retirementRecoveryPage().single()})
+        } finally {resumed?.let(::teardown); f.close()}
+    }
+    @Test fun explicitCoverUpgradePreservesExactPendingTokenAndRefusesRepeatedOrUnconsentedUpgrade() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val old=onWorker {f.source.beginCopiedOriginalMove(f.target,copy,completed,true)}
+            // Actual v3 payload compatibility: remove only the absent v4 cover tail.
+            val v3=old.manifest.encode().dropLast(1).toByteArray().also {it[3]=3}
+            assertEquals(old.manifest,LegacyRetirementManifest.decode(v3))
+            assertThrows(IOException::class.java) {onWorker {
+                f.source.beginCoveredOriginalMove(f.target,copy,completed,false,art,work,old)
+            }}
+            assertEquals(old,onWorker {f.source.retirementRecoveryPage().single()})
+            val bound=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work,old)}
+            assertEquals(old.token,bound.token); assertEquals(SavedMoveCoverIdentity(0,null),bound.manifest.moveCover)
+            assertThrows(IOException::class.java) {onWorker {
+                f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work,old)
+            }}
+            assertEquals(bound,onWorker {f.source.retirementRecoveryPage().single()})
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+        } finally {f.close()}
+    }
+    @Test fun missingOriginalCannotUpgradeCoverProofOnAnOlderPendingMove() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val old=onWorker {f.source.beginCopiedOriginalMove(f.target,copy,completed,true)}
+            assertTrue(f.f.original.delete())
+            assertThrows(IOException::class.java) {onWorker {
+                f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work,old)
+            }}
+            assertEquals(old,onWorker {f.source.retirementRecoveryPage().single()}); assertNotNull(f.index.getDownload("81"))
+            assertFalse(coverFile(art,f.key).exists())
+        } finally {f.close()}
+    }
+    @Test fun differentTargetCoverOrForeignCoverGateRefusesBeforeMoveIntent() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            coverFile(art,"81").writeBytes(byteArrayOf(1)); coverFile(art,f.key).writeBytes(byteArrayOf(2))
+            assertThrows(IOException::class.java) {onWorker {
+                f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)
+            }}
+            val foreign=DownloadArt(folders.newFolder(),barrier=SavedStorageBarrier())
+            assertThrows(IOException::class.java) {onWorker {
+                f.source.beginCoveredOriginalMove(f.target,copy,completed,true,foreign,work)
+            }}
+            assertTrue(onWorker {f.source.retirementRecoveryPage().isEmpty()})
+            assertArrayEquals(byteArrayOf(1),coverFile(art,"81").readBytes())
+            assertArrayEquals(byteArrayOf(2),coverFile(art,f.key).readBytes())
+            assertArrayEquals(payload,f.f.original.readBytes())
+        } finally {f.close()}
+    }
+
 }

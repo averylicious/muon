@@ -155,7 +155,25 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             destination.located()
             target.session.moveDestinationIdentity(copy.destination,completed,destination.volume,
                 destination.key(destination.directory).toString(),permit) {destination.located()}
-        }) {located(); destination.located()}
+        },checked={located(); destination.located()})
+    }
+    /** Own-cover binding is persisted before ANY source cleanup; source bytes/record are rechecked
+     * under the same gate. Exact older unbound Pending can upgrade only while all originals remain. */
+    internal fun beginCoveredOriginalMove(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,
+        completed:PartitionSaveCompletion,explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
+        recovery:LegacyRetirementRecord?=null):LegacyRetirementRecord {
+        if(destination===this || destination.storageBarrier!==barrier)
+            throw IOException("Covered Move needs another actual shelf on the same gate")
+        val source=resources(); val target=destination.resources()
+        return source.legacy.beginMovedRetirement(source.session,source.retirements,copy,explicitConsent,{permit ->
+            destination.located()
+            target.session.moveDestinationIdentity(copy.destination,completed,destination.volume,
+                destination.key(destination.directory).toString(),permit) {destination.located()}
+        },{permit ->
+            artwork.cancelForConfirmedRemoval(copy.source.key,permit)
+            artwork.cancelForConfirmedRemoval(copy.destination.allocation.key,permit)
+            art.copyEntryConfirmed(copy.source.key,copy.destination.allocation.key,permit)
+        },recovery) {located(); destination.located()}
     }
     fun playedBytes(checkpoint:()->Unit={}):Long=resources().session.playedBytes(checkpoint)
     fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
