@@ -263,7 +263,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 saved!=null && saved.token==token && saved.phase==PartitionSavedDeletePhase.Pending ->
                     completeSavedDelete(saved,true,art,artwork,unclaimedElsewhere,checkpoint,other)
                 original!=null && original.token==token && original.phase==LegacyRetirementPhase.Pending &&
-                    original.manifest.moveDestination==null && original.manifest.completedDownloadIdentity!=null ->
+                    original.manifest.moveDestination==null && (original.manifest.completedDownloadIdentity!=null ||
+                        original.manifest.retainedDownloadIdentity!=null) ->
                     removeOriginalCompleted(key,true,{name ->unclaimedElsewhere(name)}, {name,permit ->
                         if(other?.claimsMoveName(name,permit)==true) throw IOException("Original Delete acquired another shelf claim")
                         artwork.cancelForConfirmedRemoval(name,permit)
@@ -670,7 +671,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         val originals=made.retirements.pendingPage(after).map {record ->
             val manifest=record.manifest
             val action=if(manifest.moveDestination!=null) PartitionRecoveryAction.Move
-                else if(manifest.completedDownloadIdentity==null) PartitionRecoveryAction.UnsupportedDelete else PartitionRecoveryAction.Delete
+                else if(manifest.completedDownloadIdentity==null && manifest.retainedDownloadIdentity==null) PartitionRecoveryAction.UnsupportedDelete else PartitionRecoveryAction.Delete
             PartitionStorageRecoverySummary(manifest.key,record.token,manifest.spans.sumOf {it.length},action)
         }
         val combined=(saved+originals).sortedBy {it.key}

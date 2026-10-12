@@ -344,7 +344,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             throw failure
         } finally {if(!quarantined) permit.close()}
     }
-    /** Complete internal Delete for a supported completed original. Bind its exact row BEFORE
+    /** Complete internal Delete for a supported completed or stable retained original. Bind its exact row BEFORE
      * durable intent; after restart only the exact shown Pending record plus renewed consent can
      * recover. Complete follows both copy stages, public terminal-index removal and confirmed own
      * cover disposition. No automatic replay or full legacy native-index allocation.
@@ -366,10 +366,9 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             val existing=journal.find(key)
             val pending=if(existing==null) {
                 if(recovery!=null) return OfflineStore.SavedRemoval.NotOwned
-                val completion=requireNotNull(session.originalCompletion(key,permit,unclaimedElsewhere))
                 val manifest=LegacyRetirementManifest.capture(directory,requireNotNull(uid),key,requireNotNull(index),::live)
-                    .withCompletedDownload(completion)
-                live(); journal.begin(manifest,true)
+                val bound=session.bindOriginalDelete(manifest,permit,unclaimedElsewhere)
+                live(); journal.begin(bound,true)
             } else {
                 if(recovery!=existing || existing.phase!=LegacyRetirementPhase.Pending)
                     return OfflineStore.SavedRemoval.Waiting
@@ -379,7 +378,9 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             session.verifyOriginalCompletion(pending,permit,unclaimedElsewhere); live()
             session.retireMigratedOriginal(pending,permit); live()
             val files=LegacyRetirementFiles(); retirement=files
-            files.run(pending,directory,requireNotNull(index),::live)
+            files.runBoundDelete(pending,directory,requireNotNull(index),::live) {
+                session.verifyOriginalCompletion(pending,permit,unclaimedElsewhere); live()
+            }
             live(); finalMutation=true
             session.eraseOriginalRecord(pending,permit,unclaimedElsewhere)
             live(); disposeCover(key,permit); live()

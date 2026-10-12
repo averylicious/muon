@@ -777,24 +777,55 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         verifyPendingSavedMove(expected,permit,unclaimedElsewhere)
         if(completionIndex.containsId(expected.binding.key)) throw IOException("Moved saved source record reappeared")
     }
-    internal fun originalCompletion(key:String,permit:SavedStorageBarrier.Lease,
-        unclaimedElsewhere:(String)->Boolean,allowAbsent:Boolean=false):PartitionSaveCompletion? {
+    private fun originalClaims(key:String,permit:SavedStorageBarrier.Lease,unclaimedElsewhere:(String)->Boolean) {
         originalPermit(permit)
         if(saves.find(key)!=null || completionIndex.holdsOtherOriginalName(key) || !unclaimedElsewhere(key))
             throw IOException("Original removal has conflicting save/index/shelf claims")
         val route=migrations.find(key)
         if(route!=null && route.phase!=MigrationPhase.Ready || route==null && catalog.find(key)!=null)
             throw IOException("Original removal has an unverified partition claim")
+    }
+    internal fun originalCompletion(key:String,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean,allowAbsent:Boolean=false):PartitionSaveCompletion? {
+        originalClaims(key,permit,unclaimedElsewhere)
         val current=completionIndex.findOriginal(key)
         if(current==null && (!allowAbsent || completionIndex.containsId(key)))
             throw IOException("Original removal is not an exact completed record")
         originalPermit(permit); return current
     }
+    internal fun originalRetained(key:String,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean,allowAbsent:Boolean=false):PartitionRetainedOriginal? {
+        originalClaims(key,permit,unclaimedElsewhere)
+        val current=completionIndex.findRetainedOriginal(key)
+        if(current==null && (!allowAbsent || completionIndex.containsId(key)))
+            throw IOException("Original removal is not an exact retained record")
+        originalPermit(permit); return current
+    }
+    internal fun bindOriginalDelete(manifest:LegacyRetirementManifest,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean):LegacyRetirementManifest {
+        val key=manifest.key; originalClaims(key,permit,unclaimedElsewhere)
+        val completed=completionIndex.findOriginal(key)
+        val bound=if(completed!=null) manifest.withCompletedDownload(completed)
+        else manifest.withRetainedDownload(completionIndex.findRetainedOriginal(key)
+            ?: throw IOException("Original Delete needs a completed or stable retained record"))
+        originalPermit(permit); return bound
+    }
     internal fun verifyOriginalCompletion(record:LegacyRetirementRecord,permit:SavedStorageBarrier.Lease,
         unclaimedElsewhere:(String)->Boolean) {
-        val bound=record.manifest.completedDownloadIdentity ?: throw IOException("Files-only intent cannot remove a saved record")
-        val current=originalCompletion(record.manifest.key,permit,unclaimedElsewhere,true)
-        if(current!=null && current.retirementIdentity()!=bound) throw IOException("Original completed record changed after consent")
+        val manifest=record.manifest
+        when {
+            manifest.completedDownloadIdentity!=null -> {
+                val current=originalCompletion(manifest.key,permit,unclaimedElsewhere,true)
+                if(current!=null && current.retirementIdentity()!=manifest.completedDownloadIdentity)
+                    throw IOException("Original completed record changed after consent")
+            }
+            manifest.retainedDownloadIdentity!=null -> {
+                val current=originalRetained(manifest.key,permit,unclaimedElsewhere,true)
+                if(current!=null && current.identity!=manifest.retainedDownloadIdentity)
+                    throw IOException("Original retained record changed after consent")
+            }
+            else -> throw IOException("Files-only intent cannot remove a saved record")
+        }
     }
     internal fun verifyOriginalRecordAbsent(record:LegacyRetirementRecord,permit:SavedStorageBarrier.Lease,
         unclaimedElsewhere:(String)->Boolean) {

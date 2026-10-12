@@ -1211,8 +1211,8 @@ class OwnedPartitionShelfTest {
         try {
             val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
             val old=onWorker {f.source.beginCopiedOriginalMove(f.target,copy,completed,true)}
-            // Actual v3 payload compatibility: remove only the absent v4 cover tail.
-            val v3=old.manifest.encode().dropLast(1).toByteArray().also {it[3]=3}
+            // Actual v3 payload compatibility: remove the absent v4 cover and v5 retained tails.
+            val v3=old.manifest.encode().dropLast(2).toByteArray().also {it[3]=3}
             assertEquals(old.manifest,LegacyRetirementManifest.decode(v3))
             assertThrows(IOException::class.java) {onWorker {
                 f.source.beginCoveredOriginalMove(f.target,copy,completed,false,art,work,old)
@@ -2342,4 +2342,84 @@ class OwnedPartitionShelfTest {
             assertTrue(g.original.exists())
         } finally {teardown(next);g.provider.close()}
     }
+    private fun seedRetainedOriginal(f:Fixture,state:Int=Download.STATE_STOPPED):DefaultDownloadIndex {
+        val request=DownloadRequest.Builder(f.oldKey,Uri.parse("http://127.0.0.1:7814/api1/fileopus/42"))
+            .setCustomCacheKey(f.oldKey).setData(byteArrayOf(7)).build()
+        return DefaultDownloadIndex(f.provider,"owned_partition").also {
+            it.putDownload(Download(request,state,1,2,-1,if(state==Download.STATE_STOPPED) RETAINED_STOP_REASON else 0,
+                if(state==Download.STATE_FAILED) Download.FAILURE_REASON_UNKNOWN else 0,
+                androidx.media3.exoplayer.offline.DownloadProgress().apply {bytesDownloaded=2;percentDownloaded=-1f}))
+        }
+    }
+    private fun boundRetainedIntent(f:Fixture,owner:OwnedPartitionShelf):LegacyRetirementRecord {
+        val permit=f.barrier.exclusive()
+        try {return onWorker {
+            val db=SQLiteDatabase.openDatabase(f.databaseFile.path,null,SQLiteDatabase.OPEN_READONLY)
+            val uid=f.legacy.listFiles()!!.single {it.name.endsWith(".uid")}.name.removeSuffix(".uid").toLong(16)
+            val identity=requireNotNull(PartitionCompletionIndex(f.provider,"owned_partition").findRetainedOriginal(f.oldKey))
+            val manifest=try {LegacyRetirementManifest.capture(f.legacy,uid,f.oldKey,db,{}).withRetainedDownload(identity)} finally {db.close()}
+            fixtureRetirements(owner).begin(manifest,true)
+        }} finally {permit.close()}
+    }
+    @Test fun actualStoppedAndFailedOriginalDeletesBindPartialIdentityWithoutCompletedAuthority() {
+        for(state in listOf(Download.STATE_STOPPED,Download.STATE_FAILED)) {
+            val f=Fixture("retained-$state");val index=seedRetainedOriginal(f,state);val owner=f.owner();var covers=0
+            try {
+                onWorker {owner.prepare()}
+                assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {owner.removeOriginalCompleted(f.oldKey,false,{true},{_,_ ->covers++})})
+                assertTrue(onWorker {owner.retirementRecoveryPage()}.isEmpty());assertTrue(f.original.exists())
+                assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {owner.removeOriginalCompleted(f.oldKey,true,{true},{_,_ ->covers++})})
+                val done=onWorker {owner.retirementRecoveryPage().single()}
+                assertEquals(LegacyRetirementPhase.Complete,done.phase);assertNotNull(done.manifest.retainedDownloadIdentity)
+                assertNull(done.manifest.completedDownloadIdentity);assertNull(done.manifest.moveDestination)
+                assertFalse(f.original.exists());assertNull(index.getDownload(f.oldKey));assertEquals(1,covers)
+                assertEquals(0,f.budget.resident);assertTrue(f.barrier.quiescent)
+            } finally {teardown(owner);f.provider.close()}
+        }
+    }
+    @Test fun changedRetainedProgressOrStateCannotRecoverOriginalDeleteOrBecomeMoveSource() {
+        val f=Fixture("retained-changed");val index=seedRetainedOriginal(f);val owner=f.owner();var covers=0
+        try {
+            onWorker {owner.prepare()};val pending=boundRetainedIntent(f,owner);val before=requireNotNull(index.getDownload(f.oldKey))
+            assertEquals(PartitionRecoveryAction.Delete,onWorker {owner.pendingDeleteSummaries().entries.single().action})
+            f.provider.writableDatabase.execSQL("UPDATE ExoPlayerDownloadsowned_partition SET bytes_downloaded=3 WHERE id=?",arrayOf(f.oldKey))
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {owner.removeOriginalCompleted(f.oldKey,true,{true},{_,_ ->covers++},pending)})
+            index.putDownload(Download(before.request,Download.STATE_QUEUED,1,2,-1,0,0))
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {owner.removeOriginalCompleted(f.oldKey,true,{true},{_,_ ->covers++},pending)})
+            assertEquals(0,covers);assertArrayEquals(payload,f.original.readBytes());assertNotNull(index.getDownload(f.oldKey))
+            assertEquals(pending,onWorker {owner.retirementRecoveryPage().single()});assertTrue(f.barrier.quiescent)
+        } finally {teardown(owner);f.provider.close()}
+    }
+    @Test fun retainedDeleteRechecksActualRowBeforeIrreversibleUnlink() {
+        val f=Fixture("retained-race");val index=seedRetainedOriginal(f);val owner=f.owner();var changed=false
+        try {
+            onWorker {owner.prepare()}
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {owner.removeOriginalCompleted(f.oldKey,true,{true},
+                {_,_ ->fail("Changed source must not reach cover")},checkpoint={
+                    if(!changed && fixtureRetirements(owner).find(f.oldKey)!=null) {
+                        f.provider.writableDatabase.execSQL("UPDATE ExoPlayerDownloadsowned_partition SET bytes_downloaded=3 WHERE id=?",arrayOf(f.oldKey))
+                        changed=true
+                    }
+                })})
+            assertTrue(changed);assertArrayEquals(payload,f.original.readBytes());assertNotNull(index.getDownload(f.oldKey))
+            assertEquals(LegacyRetirementPhase.Pending,onWorker {owner.retirementRecoveryPage().single().phase})
+            assertTrue(f.barrier.quiescent)
+        } finally {teardown(owner);f.provider.close()}
+    }
+    @Test fun exactRetainedDeleteRecoveryFinishesAfterRestartAndAlreadyRemovedRowAndBytes() {
+        val f=Fixture("retained-restart");val index=seedRetainedOriginal(f);val first=f.owner();var firstClosed=false;var resumed:OwnedPartitionShelf?=null
+        val art=DownloadArt(folders.newFolder(),barrier=f.barrier);val work=coverWork(art,f.barrier)
+        try {
+            onWorker {first.prepare()};val pending=boundRetainedIntent(f,first)
+            onWorker {first.retireOriginalFiles(pending,true)}
+            val permit=f.barrier.exclusive();try {index.removeDownload(f.oldKey)} finally {permit.close()}
+            teardown(first);firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume);resumed=next;onWorker {next.prepare()}
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {next.recoverCompletedDelete(f.oldKey,"00000000-0000-0000-0000-000000000001",true,art,work,{true})})
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {next.recoverCompletedDelete(f.oldKey,pending.token,true,art,work,{true})})
+            assertNull(index.getDownload(f.oldKey));assertFalse(f.original.exists())
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {next.retirementRecoveryPage().single().phase})
+        } finally {resumed?.let(::teardown);if(!firstClosed) teardown(first);f.provider.close()}
+    }
+
 }
