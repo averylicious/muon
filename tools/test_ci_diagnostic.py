@@ -205,5 +205,65 @@ class GradleTest(unittest.TestCase):
         self.assertIn('if (diagnosticDebug) applicationIdSuffix = ".diagnostic"', debug)
 
 
+
+
+class PackagedManifestIntegrationTest(unittest.TestCase):
+    """The merged verifier must keep the export gate in ordinary and diagnostic runs."""
+
+    @staticmethod
+    def manifest(package, playback_exported=False):
+        return f'''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package}">
+          <application>
+            <activity android:name="dev.avery.muon.MainActivity" android:exported="true" />
+            <service android:name="dev.avery.muon.PlaybackService" android:exported="{str(playback_exported).lower()}" />
+            <service android:name="dev.avery.muon.MuonDownloadService" android:exported="false" />
+            <service android:name="dev.avery.muon.MuonCardDownloadService" android:exported="false" />
+          </application>
+        </manifest>'''
+
+    def run_verifier(self, diagnostic, playback_exported=False):
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        from io import StringIO
+        values = env(request='true' if diagnostic else 'false',
+                     gradle='true' if diagnostic else 'false', ANDROID_HOME='/sdk')
+        expected = {row[0]: row for row in verify.expectations(values)}
+        fingerprints = (ROOT / 'docs/signing-certificates.txt').read_text().splitlines()
+        manifests = []
+
+        def tool_output(args, **kwargs):
+            variant = 'debug' if Path(args[-1]).name == 'app-debug.apk' else 'release'
+            _, package, label, suffix, debuggable = expected[variant]
+            if Path(args[0]).name == 'apksigner':
+                cert = next(line.split(': ', 1)[1] for line in fingerprints
+                            if line.lower().startswith(variant))
+                return f'certificate SHA-256 digest: {cert}'
+            if Path(args[0]).name == 'aapt':
+                return ApkExpectationTest.badging(package, '0.1.0' + suffix, label, debuggable)
+            self.assertEqual(args[1:3], ['manifest', 'print'])
+            self.assertEqual(Path(args[0]).name, 'apkanalyzer')
+            manifests.append(package)
+            return self.manifest(package, playback_exported)
+
+        with patch.object(verify.subprocess, 'check_output', side_effect=tool_output), redirect_stdout(StringIO()):
+            verify.main(Path('/sdk/build-tools'), values)
+        return manifests
+
+    def test_both_build_modes_verify_both_packaged_manifests(self):
+        for diagnostic in (False, True):
+            with self.subTest(diagnostic=diagnostic):
+                self.assertEqual(self.run_verifier(diagnostic),
+                                 ['dev.avery.muon.diagnostic' if diagnostic else 'dev.avery.muon',
+                                  'dev.avery.muon.release'])
+
+    def test_ordinary_exported_playback_service_fails_the_actual_verifier(self):
+        with self.assertRaisesRegex(ValueError, 'Unapproved exported'):
+            self.run_verifier(False, playback_exported=True)
+
+    def test_debuggable_diagnostic_does_not_exempt_service_exports(self):
+        with self.assertRaisesRegex(ValueError, 'Unapproved exported'):
+            self.run_verifier(True, playback_exported=True)
+
+
 if __name__ == '__main__':
     unittest.main()
