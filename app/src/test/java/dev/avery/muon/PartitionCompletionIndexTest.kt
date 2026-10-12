@@ -98,4 +98,24 @@ class PartitionCompletionIndexTest {
         assertThrows(IOException::class.java) { lookup.find("saved/"+"x".repeat(MIGRATION_KEY_BYTES)) }
         assertEquals(before,tables())
     }
+    @Test fun playedNameCensusObservesIdsCustomKeysAndUriFallbackWithoutHydratingHugeRows() {
+        val (_,lookup)=seed(); val played=playedKey("saved/candidate")
+        db.execSQL("UPDATE $table SET custom_cache_key=?,data=zeroblob(8388608)",arrayOf(played))
+        assertTrue(lookup.holdsName(played)); assertTrue(lookup.holdsName(key))
+        assertFalse(lookup.holdsName("played:saved/unclaimed"))
+        db.execSQL("UPDATE $table SET custom_cache_key=NULL,uri=?",arrayOf(played))
+        assertTrue(lookup.holdsName(played))
+        db.rawQuery("SELECT length(data) FROM $table",null).use { assertTrue(it.moveToFirst()); assertEquals(8388608L,it.getLong(0)) }
+        assertEquals(1L,count())
+    }
+    @Test fun unsupportedNameTypesRefuseOwnershipWithoutRewritingTheStoredRow() {
+        val (_,lookup)=seed()
+        db.execSQL("UPDATE $table SET custom_cache_key=zeroblob(8388608)")
+        assertThrows(IOException::class.java) { lookup.holdsName("played:saved/new") }
+        db.rawQuery("SELECT typeof(custom_cache_key),length(custom_cache_key) FROM $table",null).use {
+            assertTrue(it.moveToFirst()); assertEquals("blob",it.getString(0)); assertEquals(8388608L,it.getLong(1))
+        }
+        assertEquals(1L,count())
+    }
+
 }

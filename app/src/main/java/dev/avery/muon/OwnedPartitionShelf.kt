@@ -101,7 +101,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 { if(runCatching { located(); true }.getOrDefault(false)) volume else null },budget=budget,saves=saves) }
             val index=PartitionCompletionIndex(database,indexName)
             val session=owner.own { PartitionStorageSession(catalog,saves,migrations,native,database,indexName,
-                audio,upstream,{ name -> !audio.contains(name) && !index.holdsId(name) && unclaimed(name) },::available,barrier) }
+                audio,upstream,{ name -> !audio.contains(name) && !index.holdsName(name) && unclaimed(name) },::available,barrier) }
             val manager=owner.own { PartitionShelfManager(context.applicationContext,database,indexName,session,barrier) }
             val workers=owner.own { java.util.concurrent.Executors.newSingleThreadExecutor() }
             val work=owner.own { PartitionMigrationWork(workers,{ control,name ->

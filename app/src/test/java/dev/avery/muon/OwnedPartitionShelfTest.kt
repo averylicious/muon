@@ -369,7 +369,7 @@ class OwnedPartitionShelfTest {
         val key=playedKey("saved/owned-played"); val song=byteArrayOf(1,2,3)
         val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/api1/fileopus/7").setKey(key).build()
         try {
-            first.prepare()
+            first.prepare(); val manager=first.initializeManager(); await(manager) { true }
             onWorker { first.copyPlayed(spec,song,"http://127.0.0.1:7814/7",
                 DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
             assertEquals(0,f.budget.resident); assertTrue(onWorker { first.audio.contains(key) })

@@ -86,6 +86,25 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
             }
         } catch(failure:SQLiteException) { throw IOException("Save ID census unavailable",failure) }
     }
+    /** Candidate-name ownership, including custom keys and URI fallback, in EVERY row state.
+     * Played keys are not download IDs. Observe only a scalar before CursorWindow allocation;
+     * malformed name types make the census unavailable rather than granting fresh ownership.
+     */
+    @Synchronized fun holdsName(key:String):Boolean {
+        if(key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Storage name exceeds supported budget")
+        val invalid="typeof(id)!='text' OR typeof(custom_cache_key) NOT IN ('text','null') OR " +
+            "(custom_cache_key IS NULL AND typeof(uri)!='text')"
+        try {
+            val db=provider.readableDatabase; schema(db)
+            return db.rawQuery("SELECT CASE WHEN ($invalid) THEN 0 ELSE 1 END FROM $table WHERE "+
+                "id=? OR custom_cache_key=? OR (custom_cache_key IS NULL AND uri=?) OR ($invalid) LIMIT 1",
+                arrayOf(key,key,key)).use { cursor ->
+                if(!cursor.moveToFirst()) false
+                else if(cursor.getLong(0)==1L) true
+                else throw IOException("Storage name census has unsupported row types")
+            }
+        } catch(failure:SQLiteException) { throw IOException("Storage name census unavailable",failure) }
+    }
     @Synchronized fun find(key:String):PartitionSaveCompletion? {
         if(key.length.toLong()*2>MIGRATION_KEY_BYTES || !key.startsWith(NEW_SAVE_PREFIX))
             throw IOException("Completed-save lookup key exceeds its supported budget")
