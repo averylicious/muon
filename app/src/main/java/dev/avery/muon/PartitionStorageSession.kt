@@ -685,6 +685,43 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     }
     /** Exact scalar preflight/recheck under actual exclusive ownership. An absent completed row is
      * allowed only by the final controller's already durable, bound Pending recovery intent. */
+    /** Exact Pending new-source record checks only: never reopen its partially retired native
+     * allocation. Absence is allowed solely for the bound interrupted terminal-row stage. */
+    internal fun verifyPendingSavedMove(expected:PartitionSavedMoveRecord,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean) {
+        originalPermit(permit); expected.binding.validate()
+        val bound=expected.binding.source; val key=bound.ticket.allocation.key
+        if(expected.phase!=PartitionSavedMovePhase.Pending || expected.binding.sourceTree==null || moves?.find(key)!=expected ||
+            saves.find(key)!=PartitionSaveRecord(bound.ticket,PartitionSavePhase.Closed,bound.uid) ||
+            catalog.find(key)!=bound.ticket.allocation || migrations.find(key)!=null || retirements?.holdsName(key)==true ||
+            completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key))
+            throw IOException("Pending saved Move source ownership changed")
+        val current=completionIndex.find(key)
+        if(current==null && completionIndex.containsId(key) || current!=null &&
+            (current.retirementIdentity()!=bound.completionIdentity || current.length!=bound.length))
+            throw IOException("Pending saved Move completed source changed")
+        originalPermit(permit)
+    }
+    internal fun eraseMovedSavedRecord(expected:PartitionSavedMoveRecord,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean) {
+        verifyPendingSavedMove(expected,permit,unclaimedElsewhere)
+        val key=expected.binding.key
+        if(!completionIndex.containsId(key)) return
+        val index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(database,indexName)
+        try {
+            completionIndex.requireSupportedOrAbsent(); index.removeDownload(key)
+            verifyPendingSavedMove(expected,permit,unclaimedElsewhere)
+            if(completionIndex.containsId(key)) throw IOException("Moved saved source record remains")
+        } catch(failure:Throwable) {
+            val retained=arrayOf(this,index,expected,failure); retainedOriginalCleanup=retained; uncertain=true
+            throw PartitionOwnershipUncertain(retained,failure)
+        }
+    }
+    internal fun verifyMovedSavedRecordAbsent(expected:PartitionSavedMoveRecord,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean) {
+        verifyPendingSavedMove(expected,permit,unclaimedElsewhere)
+        if(completionIndex.containsId(expected.binding.key)) throw IOException("Moved saved source record reappeared")
+    }
     internal fun originalCompletion(key:String,permit:SavedStorageBarrier.Lease,
         unclaimedElsewhere:(String)->Boolean,allowAbsent:Boolean=false):PartitionSaveCompletion? {
         originalPermit(permit)

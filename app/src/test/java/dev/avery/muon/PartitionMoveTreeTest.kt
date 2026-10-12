@@ -28,6 +28,14 @@ class PartitionMoveTreeTest {
         val bytes=ByteArrayOutputStream(); DataOutputStream(bytes).use {tree.write(it)}
         return DataInputStream(ByteArrayInputStream(bytes.toByteArray())).use {PartitionMoveTree.read(it)}
     }
+    @Test fun capturedAudioMustStillMatchTheBoundWholeSongBeforePending() {
+        val root=source(); val tree=capture(root)
+        val digest=java.security.MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1,2,3,4)).joinToString("") {"%02x".format(it)}
+        tree.verifyAudio(root,4,digest,MigrationIoOwnership()) {}
+        assertThrows(IOException::class.java) {tree.verifyAudio(root,4,"a".repeat(64),MigrationIoOwnership()) {}}
+        assertThrows(IOException::class.java) {tree.requireAudioLength(5)}
+        assertTrue(tree.files.all {File(root,it.path).isFile})
+    }
     @Test fun persistedExactTreeRetiresAllFilesAndDedicatedRootWithoutNativeReopen() {
         val root=source(); val tree=persisted(capture(root)); var checked=0
         PartitionMoveTreeRemoval().run(tree,root) {checked++}

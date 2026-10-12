@@ -1813,4 +1813,105 @@ class OwnedPartitionShelfTest {
         } finally {f.close()}
     }
 
+    private inner class NewSourceMoveFixture {
+        val f=LocalPublicationFixture(); val back="saved/finished-new-source"
+        val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+        val pending:PartitionSavedMoveRecord
+        val originalAllocation:File
+        init {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            coverFile(art,f.key).writeBytes(byteArrayOf(2,4,6))
+            val copy=onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}
+            val completed=onWorker {f.target.publishCopiedSavedTo(f.source,copy,true,{true},20)}
+            pending=onWorker {f.target.beginCoveredSavedMove(f.source,copy,completed,true,art,work)}
+            originalAllocation=File(f.targetRoot,"resources/"+pending.binding.source.ticket.allocation.directory)
+        }
+        fun finish(consent:Boolean=true,record:PartitionSavedMoveRecord=pending,checkpoint:()->Unit={})=onWorker {
+            f.target.completeCoveredSavedMove(f.source,record,consent,art,work,{true},checkpoint)
+        }
+        fun sourceRecord()=PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key)
+        fun close()=f.close()
+    }
+    @Test fun actualNewSourceMoveFinishesTreeRowAndOwnCoverAndSurvivesRestart() {
+        val n=NewSourceMoveFixture(); val f=n.f
+        try {
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+            assertFalse(n.originalAllocation.exists()); assertNull(n.sourceRecord()); assertFalse(coverFile(n.art,f.key).exists())
+            assertArrayEquals(byteArrayOf(2,4,6),coverFile(n.art,n.back).readBytes())
+            assertEquals(PartitionSavedMovePhase.Complete,onWorker {f.target.moveRecoveryPage().single().phase})
+            assertEquals(OfflineStore.SavedRemoval.Waiting,n.finish())
+            teardown(f.source); f.sourceClosed=true; teardown(f.target); f.targetClosed=true
+            val target=f.f.owner(PartitionShelfStart.Resume); val source=f.target(PartitionShelfStart.Resume)
+            try {
+                onWorker {target.prepare(); source.prepare()}
+                assertEquals(PartitionSavedMovePhase.Complete,onWorker {source.moveRecoveryPage().single().phase})
+                assertFalse(onWorker {source.audio.contains(f.key)})
+                onWorker {
+                    val reader=target.audio.source.createDataSource()
+                    try {
+                        assertEquals(4L,reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(n.back).build()))
+                        val bytes=ByteArray(4); assertEquals(4,reader.read(bytes,0,4)); assertArrayEquals(payload,bytes)
+                    } finally {reader.close()}
+                }
+            } finally {teardown(source);teardown(target)}
+            assertTrue(f.f.barrier.quiescent)
+        } finally {n.close(); assertEquals(0,f.f.budget.resident)}
+    }
+    @Test fun actualNewSourcePartialAudioUnlinkCanResumeFromExactPendingAfterBothShelvesRestart() {
+        val n=NewSourceMoveFixture(); val f=n.f
+        try {
+            val audio=n.originalAllocation.walkTopDown().single {it.name.endsWith(".v3.exo")}
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish {if(!audio.exists()) throw java.io.InterruptedIOException("Stop after actual unlink")})
+            assertFalse(audio.exists()); assertNotNull(n.sourceRecord()); assertTrue(n.originalAllocation.exists())
+            assertEquals(n.pending,onWorker {f.target.moveRecoveryPage().single()}); assertTrue(f.f.barrier.quiescent)
+            teardown(f.source); f.sourceClosed=true; teardown(f.target); f.targetClosed=true
+            val target=f.f.owner(PartitionShelfStart.Resume); val source=f.target(PartitionShelfStart.Resume)
+            try {
+                onWorker {target.prepare();source.prepare()}
+                assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {source.completeCoveredSavedMove(target,n.pending,false,n.art,n.work,{true})})
+                assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {source.completeCoveredSavedMove(target,n.pending,true,n.art,n.work,{true})})
+                assertFalse(n.originalAllocation.exists()); assertNull(n.sourceRecord())
+                assertEquals(SavedCoverage.Full,onWorker {target.audio.inspect(n.back).coverage})
+            } finally {teardown(source);teardown(target)}
+        } finally {n.close(); assertEquals(0,f.f.budget.resident)}
+    }
+    @Test fun newSourceMoveRejectsMissingConsentStaleIntentAndChangedTargetBeforeAnySourceUnlink() {
+        val n=NewSourceMoveFixture(); val f=n.f
+        try {
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,n.finish(false))
+            assertEquals(OfflineStore.SavedRemoval.Waiting,n.finish(record=n.pending.copy(token="00000000-0000-0000-0000-000000000001")))
+            val target=File(f.f.root,"resources/"+n.pending.binding.destination.ticket.allocation.directory)
+                .walkTopDown().single {it.name.endsWith(".v3.exo")}
+            target.writeBytes(byteArrayOf(9,9,9,9))
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish())
+            assertTrue(n.originalAllocation.walkTopDown().any {it.name.endsWith(".v3.exo")})
+            assertNotNull(n.sourceRecord()); assertTrue(coverFile(n.art,f.key).exists())
+            assertEquals(n.pending,onWorker {f.target.moveRecoveryPage().single()}); assertTrue(f.f.barrier.quiescent)
+        } finally {n.close()}
+    }
+    @Test fun newSourceMoveRejectsChangedSourceCompletionAndForeignTreeWithoutRemovingBytes() {
+        val n=NewSourceMoveFixture(); val f=n.f
+        try {
+            val index=DefaultDownloadIndex(f.f.provider,"publication_target")
+            val before=index.getDownload(f.key)!!
+            index.putDownload(Download(before.request,Download.STATE_COMPLETED,1,99,4,0,0))
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish())
+            index.putDownload(before)
+            File(n.originalAllocation,"metadata/foreign").writeText("Keep")
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish())
+            assertNotNull(n.sourceRecord()); assertTrue(n.originalAllocation.walkTopDown().any {it.name.endsWith(".v3.exo")})
+            assertTrue(f.f.barrier.quiescent)
+        } finally {n.close()}
+    }
+    @Test fun actualNewSourceMoveResumesAfterKnownTerminalRowRemovalAndDoesNotRelabelDurableComplete() {
+        val n=NewSourceMoveFixture(); val f=n.f
+        try {
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish {if(n.sourceRecord()==null) throw java.io.InterruptedIOException("Stop after row")})
+            assertFalse(n.originalAllocation.exists()); assertNull(n.sourceRecord()); assertTrue(coverFile(n.art,f.key).exists())
+            assertTrue(f.f.barrier.quiescent); assertEquals(n.pending,onWorker {f.target.moveRecoveryPage().single()})
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+            assertFalse(coverFile(n.art,f.key).exists())
+        } finally {n.close()}
+    }
+
 }

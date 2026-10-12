@@ -201,7 +201,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             live()
             // Last source native observation is now closed. Do NOT reopen it after capture: native
             // last-touch/index writes would invalidate this exact recovery snapshot.
-            val tree=PartitionMoveTree.capture(source.catalog.directory(before.ticket.allocation),before.uid,treeOwnership,::live)
+            val treeRoot=source.catalog.directory(before.ticket.allocation)
+            val tree=PartitionMoveTree.capture(treeRoot,before.uid,treeOwnership,::live)
+            tree.verifyAudio(treeRoot,before.length,before.audioDigest,treeOwnership,::live)
             live()
             val result=source.moves.begin(provisional.copy(cover=cover,sourceTree=tree),true)
             // Pending is durable: caller cancellation cannot relabel the committed intent.
@@ -211,6 +213,68 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 phase=Phase.Uncertain; permit.quarantine(arrayOf(this,destination,source.moves,art,artwork,treeOwnership,failure)); quarantined=true
             }
             throw failure
+        } finally {if(!quarantined) permit.close()}
+    }
+    private var retainedSavedMoveCleanup:Any?=null
+    /** Renewed, exact Pending recovery; no automatic replay or generic Delete delegation. Actual
+     * target bytes/metadata/row/cover are revalidated before each source tree mutation. */
+    internal fun completeCoveredSavedMove(destination:OwnedPartitionShelf,expected:PartitionSavedMoveRecord,
+        explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
+        unclaimedElsewhere:(String)->Boolean,checkpoint:()->Unit={}):OfflineStore.SavedRemoval {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved Move finish requires a worker"}
+        if(!explicitConsent || destination===this || destination.storageBarrier!==barrier) return OfflineStore.SavedRemoval.NotOwned
+        val tree=expected.binding.sourceTree ?: return OfflineStore.SavedRemoval.Waiting
+        if(expected.phase!=PartitionSavedMovePhase.Pending) return OfflineStore.SavedRemoval.Waiting
+        val source=resources(); val target=destination.resources()
+        val permit=try {barrier.exclusive()} catch(_:IOException) {return OfflineStore.SavedRemoval.Busy}
+        var quarantined=false; var coverMutation=false
+        val cleanup=PartitionMoveTreeRemoval()
+        fun owned() {
+            permit.check(); located(); destination.located()
+            if(expected.binding.source.volume!=volume || expected.binding.source.rootIdentity!=key(directory).toString())
+                throw IOException("Saved Move source volume or root changed")
+            permit.check()
+        }
+        fun live() {owned(); checkpoint(); owned()}
+        fun unclaimed(name:String)=!destination.claimsMoveName(name,permit) &&
+            !source.legacy.claimsOriginalName(name,permit) && unclaimedElsewhere(name)
+        fun current() {live(); source.session.verifyPendingSavedMove(expected,permit,::unclaimed); live()}
+        fun verifiedTarget() {
+            current()
+            val fresh=expected.binding.destination.ticket.allocation.key
+            if(claimsMoveName(fresh,permit)) throw IOException("Move destination acquired a source-shelf alias")
+            target.session.verifyMoveDestination(expected.binding.destination,destination.volume,
+                destination.key(destination.directory).toString(),permit,::live)
+            artwork.cancelForConfirmedRemoval(expected.binding.key,permit)
+            artwork.cancelForConfirmedRemoval(fresh,permit)
+            art.verifyMovedTarget(fresh,expected.binding.cover,permit)
+            art.verifyMovedSource(expected.binding.key,expected.binding.cover,permit)
+            current()
+        }
+        try {
+            owned()
+            if(source.moves.find(expected.binding.key)!=expected) return OfflineStore.SavedRemoval.Waiting
+            verifiedTarget()
+            val root=source.catalog.directory(expected.binding.source.ticket.allocation)
+            retainedSavedMoveCleanup=cleanup
+            cleanup.runMoved(tree,root,::current,::verifiedTarget)
+            verifiedTarget(); source.session.eraseMovedSavedRecord(expected,permit,::unclaimed)
+            verifiedTarget(); coverMutation=true
+            art.removeMovedSourceConfirmed(expected.binding.key,expected.binding.destination.ticket.allocation.key,
+                expected.binding.cover,permit)
+            coverMutation=false
+            verifiedTarget(); source.session.verifyMovedSavedRecordAbsent(expected,permit,::unclaimed)
+            art.verifyEntryAbsent(expected.binding.key,permit)
+            source.moves.complete(expected)
+            // Complete is durable. Ignore late user cancellation, but keep actual owner checks.
+            owned(); retainedSavedMoveCleanup=null
+            return OfflineStore.SavedRemoval.Sent
+        } catch(failure:Throwable) {
+            if(coverMutation || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain ||
+                failure is SavedCoverCloseUncertain || source.moves.ownershipUncertain) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,destination,cleanup,source.moves,art,artwork,failure)); quarantined=true
+            } else retainedSavedMoveCleanup=null
+            return OfflineStore.SavedRemoval.Failed
         } finally {if(!quarantined) permit.close()}
     }
     internal fun beginCopiedOriginalMove(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,

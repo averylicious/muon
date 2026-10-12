@@ -218,6 +218,11 @@ internal class DownloadArt(private val dir: File,
         val original=coverIdentity(sourceEntry(sourceId),permit)
         if(original.length!=0L && original!=expected) throw IOException("Move original cover changed")
     }
+    internal fun verifyEntryAbsent(sourceId:String,permit:SavedStorageBarrier.Lease) {
+        requireCoverPermit(permit)
+        if(coverAttributes(sourceEntry(sourceId))!=null) throw IOException("Removed own-cover reappeared")
+        requireCoverPermit(permit)
+    }
     internal fun removeMovedSourceConfirmed(sourceId:String,targetId:String,expected:SavedMoveCoverIdentity,
         permit:SavedStorageBarrier.Lease) {
         if(sourceId==targetId) throw IOException("Moved cover source aliases destination")

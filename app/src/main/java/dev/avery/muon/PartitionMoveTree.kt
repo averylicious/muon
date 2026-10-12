@@ -63,6 +63,41 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
         if(uid<0 || files.count {it.path=="bytes/"+java.lang.Long.toHexString(uid)+".uid"}!=1)
             throw IOException("Move tree UID marker differs from bound source")
     }
+    private fun audioFiles(length:Long):List<PartitionMoveTreeFile> {
+        validate()
+        val spans=files.filter {it.path.endsWith(".v3.exo")}.sortedBy {
+            it.path.substringAfterLast('/').split('.')[1].toLongOrNull() ?: throw IOException("Move audio position unsupported")
+        }
+        var end=0L
+        for(span in spans) {
+            val position=span.path.substringAfterLast('/').split('.')[1].toLongOrNull()
+            if(position!=end || span.length>Long.MAX_VALUE-end) throw IOException("Move audio coverage is not contiguous")
+            end+=span.length
+        }
+        if(length<=0 || end!=length) throw IOException("Move audio length differs from its source binding")
+        return spans
+    }
+    internal fun requireAudioLength(length:Long) {audioFiles(length)}
+    /** Capture must match the bound full audio digest, not merely hash whatever files remain. */
+    internal fun verifyAudio(root:File,length:Long,expected:String,ownership:MigrationIoOwnership,checkpoint:()->Unit) {
+        val digest=MessageDigest.getInstance("SHA-256"); val buffer=ByteArray(64*1024)
+        for(span in audioFiles(length)) {
+            checkpoint(); val file=File(root,span.path); exact(file,span)
+            val reader=ownership.input(file)
+            try {
+                var left=span.length
+                while(left>0) {
+                    checkpoint(); val n=reader.read(buffer,0,minOf(left,buffer.size.toLong()).toInt())
+                    if(n<=0) throw IOException("Move audio ended early")
+                    digest.update(buffer,0,n); left-=n
+                }
+                if(reader.read()!=-1) throw IOException("Move audio grew")
+            } finally {ownership.close(reader)}
+            exact(file,span)
+        }
+        if(digest.digest().joinToString("") {"%02x".format(it)}!=expected) throw IOException("Move audio changed before Pending")
+        verify(root,false,ownership,checkpoint)
+    }
     internal fun write(out:DataOutputStream) {
         validate(); out.writeUTF(parentIdentity); out.writeInt(directories.size)
         for(d in directories) {out.writeUTF(d.path); out.writeUTF(d.identity)}
@@ -212,10 +247,12 @@ internal class PartitionMoveTreeRemoval(private val ownership:MigrationIoOwnersh
     private enum class Phase { New,Active,Finished,Uncertain }
     private var phase=Phase.New
     private var current:File?=null
-    @Synchronized internal fun run(tree:PartitionMoveTree,root:File,verifyDestination:()->Unit) {
+    @Synchronized internal fun run(tree:PartitionMoveTree,root:File,verifyDestination:()->Unit) =
+        runMoved(tree,root,verifyDestination,verifyDestination)
+    @Synchronized internal fun runMoved(tree:PartitionMoveTree,root:File,checkpoint:()->Unit,verifyDestination:()->Unit) {
         if(phase!=Phase.New) throw IOException("Move tree attempt already used or uncertain")
         phase=Phase.Active
-        fun checked() {verifyDestination(); tree.verify(root,true,ownership,verifyDestination)}
+        fun checked() {verifyDestination(); tree.verify(root,true,ownership,checkpoint); checkpoint()}
         fun sync(directory:File) {
             tree.parent(root)
             ownership.useOwned({FileChannel.open(directory.toPath(),StandardOpenOption.READ)}) {it.force(true)}

@@ -12,7 +12,7 @@ internal data class PartitionSavedMoveBinding(val source:PartitionMoveDestinatio
     val destination:PartitionMoveDestination,val cover:SavedMoveCoverIdentity,val sourceTree:PartitionMoveTree?=null) {
     val key:String get()=source.ticket.allocation.key
     fun validate() {
-        source.validate(); destination.validate(); cover.validate(); sourceTree?.requireUid(source.uid)
+        source.validate(); destination.validate(); cover.validate(); sourceTree?.requireUid(source.uid); sourceTree?.requireAudioLength(source.length)
         if(key==destination.ticket.allocation.key || source.rootIdentity==destination.rootIdentity ||
             source.ticket.allocation.directory==destination.ticket.allocation.directory ||
             source.length!=destination.length || source.audioDigest!=destination.audioDigest ||
