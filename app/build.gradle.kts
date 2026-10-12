@@ -10,6 +10,8 @@ android {
     compileSdkMinor = 0
     buildToolsVersion = "37.0.0"
     defaultConfig {
+        // Stable/benchmark stay disabled until the explicit storage acceptance gate is cleared.
+        buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "false")
         applicationId = "dev.avery.muon"
         minSdk = 28
         // At 37, reaching the LAN needs ACCESS_LOCAL_NETWORK, asked for before connecting (LocalNetwork.kt).
@@ -40,6 +42,8 @@ android {
     }
     buildTypes {
         getByName("debug") {
+            // Prepared channel boundary only; keep false until activation approval and acceptance.
+            buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "false")
             // Canary is built like Stable in the one way that matters for QA: not debuggable, so
             // Compose runs at full speed and phone testing reflects real performance (#125). The
             // package, signing key and update path are unchanged. "Muon β" fits the launcher's
@@ -77,7 +81,7 @@ android {
             matchingFallbacks += listOf("release")
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     // The service lifecycle harness loads the real notification-channel resources/manifest.
     testOptions { unitTests.isIncludeAndroidResources = true }
     compileOptions {

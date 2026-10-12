@@ -42,14 +42,14 @@ internal fun PartitionSetupControls(store:OfflineStore.Store?,availability:Stora
     if(!legacy && !interrupted && !stopped) return false
     Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh,modifier=Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text(if(interrupted) "Interrupted saved-storage setup" else "Saved storage optimization",style=MaterialTheme.typography.titleSmall)
+            Text(if(interrupted) "Interrupted saved-storage setup" else "Saved storage optimization · Canary preview",style=MaterialTheme.typography.titleSmall)
             Text(when {
                 optIn==PartitionOptInPhase.Uncertain || review==PartitionSetupReviewPhase.Uncertain ->
                     "The setup choice could not be confirmed. Existing copies are kept. Fully restart Muon before reviewing it again."
                 pending -> "Saving the startup choice. Wait for confirmation before fully restarting Muon; saved storage may already be paused."
                 stopped -> "The startup choice is saved. Use Android App info to Force stop Muon, then reopen it before using saved storage. Existing copies are kept; no managers are replaced while the app is running."
                 interrupted -> "Setup stopped before every storage owner was ready. Review Resume to reuse completed roots and finish unpublished setup. Interrupted temporary folders are kept; unsupported published journals are not repaired. Reconnect the original SD card first."
-                else -> "Use bounded saved-storage owners after a full restart. Existing originals stay readable. Optimizing each copy is a separate action that needs temporary free space; deleting or moving remains explicit."
+                else -> "Optional Canary preview. Keep a backup of your originals while testing. Use bounded saved-storage owners after a full restart. Existing originals stay readable. Optimizing each copy is a separate action that needs temporary free space; deleting or moving remains explicit."
             },style=MaterialTheme.typography.bodyMedium)
             if(refused || optIn==PartitionOptInPhase.Refused) Text("Couldn't start. Stop saved playback and downloads, wait for storage work, and reconnect the original card before trying again.",style=MaterialTheme.typography.bodySmall)
             if(stopped) TextButton(onClick={openMuonAppInfo(context)}) {Text("Open Android app info")}

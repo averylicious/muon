@@ -70,6 +70,7 @@ internal fun PartitionStartupReviewScreen(claimed:Boolean,darkTheme:Boolean) {
             Column(Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
                 verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 Text("Review saved storage",style=MaterialTheme.typography.headlineSmall)
+                Text("Canary storage preview · opt-in only. Keep a backup of originals while testing.",style=MaterialTheme.typography.bodyMedium)
                 Text(when {
                     !claimed -> "Normal storage startup already owns this process. Use Android App info to Force stop Muon, then long-press its app icon and choose Review saved storage."
                     phase==PartitionOptInPhase.Checking || pending -> "Checking existing storage and saving the startup choice. Wait for confirmation; keep the original SD card connected."

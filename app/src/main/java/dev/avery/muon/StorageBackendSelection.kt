@@ -9,9 +9,10 @@ import java.io.IOException
  * Future explicit opt-in must commit this exact choice before a full process restart, never toggle
  * an existing owner. StorageStartup retains the outcome even if preferences subsequently change.
  */
-/** Keep false until composed production/lifecycle and acceptance gates are cleared. No preference
- * override may activate this build; tests exercise explicit selector admission separately. */
-internal const val PARTITION_OPT_IN_AVAILABLE=false
+/** Prepared channel-specific acceptance path, currently disabled for EVERY build type. The release/benchmark build flag stays false until
+ * user acceptance and promotion; preferences cannot override the compiled channel gate. Normal
+ * startup is still Legacy until an exact persisted opt-in choice exists. */
+internal const val PARTITION_OPT_IN_AVAILABLE=BuildConfig.PARTITION_OPT_IN_AVAILABLE
 
 internal enum class StorageBackendSelection {
     Legacy, PartitionV1;
