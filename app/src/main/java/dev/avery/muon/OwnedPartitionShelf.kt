@@ -353,6 +353,45 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             return PartitionOriginalMoveResult(stage,outcome,bytes)
         }
     }
+    /** Dispatch by the actual bounded save journal, not key-prefix guesses: an older original
+     * may already have a saved/ ID. Existing Pending/Complete intents require explicit recovery. */
+    internal fun moveCompletedTo(destination:OwnedPartitionShelf,key:String,newKey:String,
+        explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,unclaimedElsewhere:(String)->Boolean,
+        checkpoint:()->Unit={},boundary:(PartitionOriginalMoveStage)->Unit={}):PartitionOriginalMoveResult {
+        if(!explicitConsent) return PartitionOriginalMoveResult(PartitionOriginalMoveStage.Waiting,OfflineStore.SavedRemoval.NotOwned)
+        val newSource=try {recoveryRead {
+            if(it.moves.holdsName(key) || it.retirements.holdsName(key)) throw IOException("Move needs explicit intent recovery")
+            it.saves.find(key)!=null
+        }} catch(_:IOException) {return PartitionOriginalMoveResult(PartitionOriginalMoveStage.Waiting,OfflineStore.SavedRemoval.Unavailable)}
+        return if(newSource) moveCompletedNewSaveTo(destination,key,newKey,true,art,artwork,unclaimedElsewhere,checkpoint,boundary)
+            else moveCompletedOriginalTo(destination,key,newKey,true,art,artwork,unclaimedElsewhere,checkpoint,boundary)
+    }
+    /** Composed new-source counterpart. Boundaries remain scalar; publication/Pending/Complete
+     * are recorded before another cancellation checkpoint. No automatic recovery or extra executor. */
+    internal fun moveCompletedNewSaveTo(destination:OwnedPartitionShelf,key:String,newKey:String,
+        explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,unclaimedElsewhere:(String)->Boolean,
+        checkpoint:()->Unit={},boundary:(PartitionOriginalMoveStage)->Unit={}):PartitionOriginalMoveResult {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved Move requires a worker"}
+        if(!explicitConsent) return PartitionOriginalMoveResult(PartitionOriginalMoveStage.Waiting,OfflineStore.SavedRemoval.NotOwned)
+        var stage=PartitionOriginalMoveStage.Waiting; var bytes=0L
+        try {
+            checkpoint()
+            val copy=copyCompletedSavedTo(destination,key,newKey,true,checkpoint)
+            bytes=copy.completion.length; stage=PartitionOriginalMoveStage.Copied; boundary(stage); checkpoint()
+            val completed=publishCopiedSavedTo(destination,copy,true,unclaimedElsewhere,checkpoint=checkpoint)
+            stage=PartitionOriginalMoveStage.Published; boundary(stage); checkpoint()
+            val pending=beginCoveredSavedMove(destination,copy,completed,true,art,artwork,checkpoint=checkpoint)
+            stage=PartitionOriginalMoveStage.Pending; boundary(stage); checkpoint()
+            val result=completeCoveredSavedMove(destination,pending,true,art,artwork,unclaimedElsewhere,checkpoint)
+            if(result==OfflineStore.SavedRemoval.Sent) stage=PartitionOriginalMoveStage.Complete
+            return PartitionOriginalMoveResult(stage,result,bytes)
+        } catch(failure:Exception) {
+            val outcome=if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain ||
+                failure is SavedCoverCloseUncertain || !barrier.allowsShared) OfflineStore.SavedRemoval.Unavailable
+                else OfflineStore.SavedRemoval.Failed
+            return PartitionOriginalMoveResult(stage,outcome,bytes)
+        }
+    }
     private fun claimsMoveName(name:String,permit:SavedStorageBarrier.Lease):Boolean {
         val made=resources(); located()
         return made.session.claimsPartitionNameUnderExclusive(name,permit) || made.legacy.claimsOriginalName(name,permit)

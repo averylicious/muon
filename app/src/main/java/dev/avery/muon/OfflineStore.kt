@@ -1306,7 +1306,7 @@ internal object OfflineStore {
         val main = Handler(Looper.getMainLooper())
         val batch = moveOwnership.begin()
         try { mover.execute {
-            if(from.partition!=null || to.partition!=null) moveOriginalPartitionBatch(context,store,from,to,batch,main)
+            if(from.partition!=null || to.partition!=null) movePartitionBatch(context,store,from,to,batch,main)
             else moveBatch(context, store, from, to, batch, main)
         } }
         catch (failure: RuntimeException) {
@@ -1316,11 +1316,12 @@ internal object OfflineStore {
         }
     }
 
-    /** Supported completed transition originals use fresh destination IDs and exact durable
-     * target-aware cleanup, never the legacy cache getter/manager hand-over. Selection holds only
-     * bounded names; its actual census/cursor closes BEFORE any exclusive publication/retirement.
-     * Production selection remains disabled until new-partition-source Move/recovery is ready. */
-    private fun moveOriginalPartitionBatch(context:Context,store:Store,from:Shelf,to:Shelf,
+    /** Supported completed originals AND new partition saves use fresh destination IDs and exact
+     * durable target-aware cleanup, never legacy cache getters/manager hand-over. Selection holds
+     * bounded names; its census/cursor closes BEFORE exclusive publication/retirement. Actual save
+     * journals choose the source path; Pending requires separate explicit recovery controls.
+     * Production selection remains disabled until opt-in/recovery/lifecycle work is complete. */
+    private fun movePartitionBatch(context:Context,store:Store,from:Shelf,to:Shelf,
         batch:DownloadMoveOwnership.Batch,main:Handler) {
         var total=0; var handled=0; var kept=0; var later=0; var needsRecovery=false
         try {
@@ -1341,12 +1342,12 @@ internal object OfflineStore {
             for(entry in selection.targets) {
                 fun checked() {
                     if(!from.locationAvailable() || !to.locationAvailable() || !moveOwnership.permits(batch,entry.id))
-                        throw java.io.InterruptedIOException("Original Move cancelled or storage unavailable")
+                        throw java.io.InterruptedIOException("Move cancelled or storage unavailable")
                 }
                 checked()
                 if(target.claimsName(entry.id)) {kept++; continue}
                 val key=newSaveId {source.claimsName(it) || target.claimsName(it) || store.art.hasEntry(it)}
-                val result=source.moveCompletedOriginalTo(target,entry.id,key,true,store.art,store.artwork,{name ->
+                val result=source.moveCompletedTo(target,entry.id,key,true,store.art,store.artwork,{name ->
                     if(name==entry.id) true else !store.art.hasEntry(name)
                 },::checked)
                 if(result.stage in setOf(PartitionOriginalMoveStage.Published,PartitionOriginalMoveStage.Pending,PartitionOriginalMoveStage.Complete)) {

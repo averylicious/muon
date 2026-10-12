@@ -1914,4 +1914,87 @@ class OwnedPartitionShelfTest {
         } finally {n.close()}
     }
 
+    @Test fun composedNewSourceMoveUsesActualOwnershipAndCompletesWithoutUpstream() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier); val back="saved/composed-new-back"
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            coverFile(art,f.key).writeBytes(byteArrayOf(4,5,6))
+            val boundaries=ArrayList<PartitionOriginalMoveStage>()
+            val result=onWorker {f.target.moveCompletedTo(f.source,f.key,back,true,art,work,{true},boundary={boundaries+=it})}
+            assertEquals(PartitionOriginalMoveStage.Complete,result.stage); assertEquals(OfflineStore.SavedRemoval.Sent,result.outcome)
+            assertEquals(4L,result.bytes)
+            assertEquals(listOf(PartitionOriginalMoveStage.Copied,PartitionOriginalMoveStage.Published,PartitionOriginalMoveStage.Pending),boundaries)
+            assertNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertEquals(SavedCoverage.Full,onWorker {f.source.audio.inspect(back).coverage})
+            assertArrayEquals(byteArrayOf(4,5,6),coverFile(art,back).readBytes()); assertFalse(coverFile(art,f.key).exists())
+            assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun composedNewMoveCancellationPreservesSourceOrExactPendingAtEachCommittedBoundary() {
+        for(stop in listOf(PartitionOriginalMoveStage.Copied,PartitionOriginalMoveStage.Published,PartitionOriginalMoveStage.Pending)) {
+            val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+            val work=coverWork(art,f.f.barrier); val back="saved/cancel-new-"+stop.name
+            try {
+                val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+                var cancelled=false
+                val result=onWorker {f.target.moveCompletedTo(f.source,f.key,back,true,art,work,{true},
+                    checkpoint={if(cancelled) throw java.io.InterruptedIOException("Cancel at boundary")},
+                    boundary={if(it==stop) cancelled=true})}
+                assertEquals(stop,result.stage); assertEquals(OfflineStore.SavedRemoval.Failed,result.outcome)
+                assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+                val completed=PartitionCompletionIndex(f.f.provider,"owned_partition").find(back)
+                if(stop==PartitionOriginalMoveStage.Copied) assertNull(completed) else assertNotNull(completed)
+                if(stop==PartitionOriginalMoveStage.Pending) {
+                    val pending=onWorker {f.target.moveRecoveryPage().single()}
+                    assertFalse(onWorker {f.target.audio.contains(f.key)})
+                    val retry=onWorker {f.target.moveCompletedTo(f.source,f.key,"saved/do-not-recopy",true,art,work,{true})}
+                    assertEquals(OfflineStore.SavedRemoval.Unavailable,retry.outcome)
+                    assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {f.target.completeCoveredSavedMove(f.source,pending,true,art,work,{true})})
+                } else assertEquals(SavedCoverage.Full,onWorker {f.target.audio.inspect(f.key).coverage})
+                assertTrue(f.f.barrier.quiescent)
+            } finally {f.close()}
+        }
+    }
+    @Test fun publicStoreMoveDispatchesNewPartitionSourceAndKeepsCallbacksOnMain() {
+        val f=LocalPublicationFixture(); val app=RuntimeEnvironment.getApplication()
+        val field=OfflineStore::class.java.getDeclaredField("store").apply {isAccessible=true}; val previous=field.get(OfflineStore)
+        val mover=OfflineStore::class.java.getDeclaredField("mover").apply {isAccessible=true}.get(OfflineStore) as java.util.concurrent.ExecutorService
+        val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+        val phone=Shelf.partitioned(f.source,MuonDownloadService::class.java); val card=Shelf.partitioned(f.target,MuonCardDownloadService::class.java)
+        val recorded=ArrayList<DownloadStatus>(); val removed=ArrayList<String>()
+        card.partitionRemoved={id ->assertSame(Looper.getMainLooper(),Looper.myLooper());removed+=id}
+        val store=OfflineStore.Store(phone,art,PlayedSongEvictor(8192L) {},app.getSharedPreferences("partition-new-public-move",0),
+            f.f.provider,{status ->assertSame(Looper.getMainLooper(),Looper.myLooper());recorded+=status},{},artwork=work,storageBarrier=f.f.barrier)
+        store.card=card
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            field.set(OfflineStore,store); OfflineStore.move(app,false)
+            mover.submit {}.get(10,TimeUnit.SECONDS); shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(listOf(f.key),removed); assertEquals(1,recorded.size)
+            assertNotEquals(f.key,recorded.single().id); assertEquals(4L,recorded.single().bytesDownloaded)
+            assertNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"owned_partition").find(recorded.single().id))
+            assertEquals(PartitionSavedMovePhase.Complete,onWorker {f.target.moveRecoveryPage().single().phase})
+            assertThrows(IOException::class.java) {phone.cache};assertThrows(IOException::class.java) {card.cache}
+            assertNull(DownloadMarks.moving); assertTrue(f.f.barrier.quiescent)
+        } finally {
+            mover.submit {}.get(10,TimeUnit.SECONDS);shadowOf(Looper.getMainLooper()).idle()
+            field.set(OfflineStore,previous);DownloadMarks.moving=null;f.close()
+        }
+    }
+    @Test fun newSourceMoveRecoveryRejectsActualCrossShelfAliasUntilExplicitlyResolved() {
+        val n=NewSourceMoveFixture(); val f=n.f
+        try {
+            val index=DefaultDownloadIndex(f.f.provider,"owned_partition")
+            val alias=DownloadRequest.Builder("alias-new-source",Uri.parse("http://127.0.0.1:7814/alias"))
+                .setCustomCacheKey(f.key).build()
+            index.putDownload(Download(alias,Download.STATE_FAILED,1,2,0,Download.STOP_REASON_NONE,Download.FAILURE_REASON_UNKNOWN))
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish()); assertNotNull(n.sourceRecord())
+            assertTrue(n.originalAllocation.walkTopDown().any {it.name.endsWith(".v3.exo")})
+            index.removeDownload("alias-new-source")
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish()); assertTrue(f.f.barrier.quiescent)
+        } finally {n.close()}
+    }
+
 }
