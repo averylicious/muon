@@ -37,8 +37,10 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     private val writers=PartitionCacheLeases(commands::open,capacity=2)
     private val published=PartitionPublishedAudio(native,capacity=2)
     private val completionIndex=PartitionCompletionIndex(database,indexName)
-    private val completed=PartitionCompletedAudio(native,completionIndex::find,capacity=2)
+    private val completed=PartitionCompletedAudio(native,completionIndex::find,capacity=2,allowPlayed=true)
     private val mixed=MixedSavedAudio(native,legacy,published,completed)
+    private val playedCopies=PartitionPlayedCopy(catalog,saves,migrations,native,barrier,
+        { !stopped && !closing && !uncertain && available() },unclaimed)
     val audio:SavedAudio=BarrierSavedAudio(object:SavedAudio {
         override val source=DataSource.Factory {
             // Constructing this adapter does no I/O. Refuse a stopped session at open, where
@@ -63,6 +65,16 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             }
             throw failure
         } finally { if(!quarantined) permit.close() }
+    }
+    /** Actual owned played writer: a separate lifecycle from completed manager downloads. */
+    fun copyPlayed(spec:DataSpec,song:ByteArray,origin:String,upstream:DataSource.Factory,
+        writerCreated:(PlayedCopyWriter)->Unit={},limit:()->Long):PartitionSaveTicket {
+        requireOpen()
+        return try { playedCopies.copy(spec,song,origin,upstream,writerCreated,limit) }
+        catch(failure:Throwable) {
+            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) uncertain=true
+            throw failure
+        }
     }
     fun prepare(request:DownloadRequest)=operation {
         commands.reconcileCompleted(completionIndex::find)

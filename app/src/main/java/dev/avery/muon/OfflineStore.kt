@@ -427,10 +427,8 @@ internal object OfflineStore {
                 val number = id.substringAfterLast('/')
                 val url = ServerEndpoint.parse(origin).url("/api1/fileopus/$number")
                 val key = playedKey(newSaveId { candidate ->
-                    playedKey(candidate) in store.cache.keys || !store.playedClaims.removable(playedKey(candidate))
+                    store.phone.audio.contains(playedKey(candidate)) || !store.playedClaims.removable(playedKey(candidate))
                 })
-                store.cache.applyContentMetadataMutations(key, ContentMetadataMutations()
-                    .set(SONG_METADATA, song).set(SAVED_FROM_METADATA, id))
                 val upstream = OkHttpDataSource.Factory(object : Call.Factory {
                     override fun newCall(request: Request): Call {
                         val made = Transport.client.newCall(request)
@@ -439,6 +437,15 @@ internal object OfflineStore {
                         return made
                     }
                 })
+                store.phone.partition?.let { partition ->
+                    partition.copyPlayed(DataSpec.Builder().setUri(Uri.parse(url)).setKey(key).build(),song,id,upstream,
+                        writerCreated={ copy -> writer.set(copy); if(owner.isCancelled) copy.cancel() }) {
+                        store.prefs.getLong("cacheLimit",DEFAULT_CACHE_LIMIT)
+                    }
+                    return@runCatching
+                }
+                store.cache.applyContentMetadataMutations(key, ContentMetadataMutations()
+                    .set(SONG_METADATA, song).set(SAVED_FROM_METADATA, id))
                 val source = CacheDataSource.Factory().setCache(store.cache)
                     .setUpstreamDataSourceFactory(upstream).createDataSourceForDownloading()
                 try {
@@ -468,12 +475,16 @@ internal object OfflineStore {
     private fun hasPlayedCopyFrom(store: Store, id: String, song: ByteArray): Boolean = runCatching {
         fun matches(key: String): Boolean {
             if (!key.startsWith(playedKey(NEW_SAVE_PREFIX))) return false
-            val metadata = store.cache.getContentMetadata(key)
-            return metadata.get(SAVED_FROM_METADATA, null as String?) == id &&
-                metadata.get(SONG_METADATA, null as ByteArray?)?.contentEquals(song) == true &&
-                savedCoverage(store.cache, key).first == SavedCoverage.Full
+            val state=store.phone.audio.inspect(key)
+            return state.metadata.get(SAVED_FROM_METADATA, null as String?) == id &&
+                state.metadata.get(SONG_METADATA, null as ByteArray?)?.contentEquals(song) == true &&
+                state.coverage==SavedCoverage.Full
         }
-        if (store.played.hasDiskOrder) store.played.anyKey(::matches) else store.cache.keys.any(::matches)
+        if(store.phone.partition!=null) {
+            var found=false
+            store.phone.audio.forEachKey { key -> found=matches(key); !found }
+            found
+        } else if (store.played.hasDiskOrder) store.played.anyKey(::matches) else store.cache.keys.any(::matches)
     }.getOrDefault(false)
 
     /** A new cache limit, kept for next time; lowering it makes room at once. */
@@ -655,7 +666,7 @@ internal object OfflineStore {
                 forEachSavedEntry(name, shelf.manager.downloadIndex, shelf.audio,
                     if (name == SavedShelf.Phone) store.playedClaims else null,
                     { store.art.hasEntry(it) }, include, checkpoint, ownership = owners::soleOwner,
-                    playedKeys = if (name == SavedShelf.Phone && store.played.hasDiskOrder) store.played::forEachKey else null,
+                    playedKeys = if (name == SavedShelf.Phone && shelf.partition==null && store.played.hasDiskOrder) store.played::forEachKey else null,
                     emit = { entry -> emit(if (entry.ref.source == SavedSource.Download)
                         entry.copy(mark = store.marks?.get(entry.ref.requestId)) else entry) })
             }
@@ -672,7 +683,7 @@ internal object OfflineStore {
             // Match savedEntries: a failed shelf contributes nothing, never its partial scan.
             runCatching { countCompleteSavedCopies(name, shelf.manager.downloadIndex, shelf.audio,
                 includePlayed = name == SavedShelf.Phone,
-                playedKeys = if (name == SavedShelf.Phone && store.played.hasDiskOrder) store.played::forEachKey else null) }.getOrDefault(0L)
+                playedKeys = if (name == SavedShelf.Phone && shelf.partition==null && store.played.hasDiskOrder) store.played::forEachKey else null) }.getOrDefault(0L)
         }
     }
 

@@ -364,4 +364,31 @@ class OwnedPartitionShelfTest {
         } finally { resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
     }
 
+    @Test fun shelfPlayedCopyUsesItsMixedReadRouteAfterRestartWithoutLegacyNativeOrManagerRows() {
+        val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
+        val key=playedKey("saved/owned-played"); val song=byteArrayOf(1,2,3)
+        val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/api1/fileopus/7").setKey(key).build()
+        try {
+            first.prepare()
+            onWorker { first.copyPlayed(spec,song,"http://127.0.0.1:7814/7",
+                DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
+            assertEquals(0,f.budget.resident); assertTrue(onWorker { first.audio.contains(key) })
+            teardown(first); firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            onWorker {
+                val state=next.audio.inspect(key); assertEquals(SavedCoverage.Full,state.coverage)
+                assertArrayEquals(song,state.metadata.get(SONG_METADATA,null as ByteArray?))
+                val reader=next.audio.source.createDataSource()
+                try {
+                    assertEquals(payload.size.toLong(),reader.open(spec))
+                    val bytes=ByteArray(payload.size); assertEquals(payload.size,reader.read(bytes,0,bytes.size))
+                    assertArrayEquals(payload,bytes)
+                } finally { reader.close() }
+                val keys=ArrayList<String>(); next.audio.forEachKey { keys+=it; true }
+                assertTrue(key in keys); assertTrue("old" in keys)
+            }
+            assertFalse(SimpleCache.isCacheFolderLocked(f.legacy)); assertArrayEquals(payload,f.original.readBytes())
+        } finally { resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
+    }
+
 }

@@ -122,6 +122,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun initializeManager():DownloadManager=resources().manager.initialize()
     fun managerForService():DownloadManager=resources().manager.managerForService()
     fun containsId(id:String,completedOnly:Boolean=false)=resources().session.containsId(id,completedOnly)
+    fun copyPlayed(spec:androidx.media3.datasource.DataSpec,song:ByteArray,origin:String,upstream:DataSource.Factory,
+        writerCreated:(PlayedCopyWriter)->Unit={},limit:()->Long)=
+        resources().session.copyPlayed(spec,song,origin,upstream,writerCreated,limit)
     fun prepareSave(request:DownloadRequest)=resources().manager.prepare(request)
     fun abandonPrepared(request:DownloadRequest)=resources().manager.abandonPrepared(request)
     fun deliverPrepared(request:DownloadRequest,start:(DownloadManager)->Unit)=resources().manager.deliverPrepared(request,start)
