@@ -26,12 +26,13 @@ internal data class LegacyRetirementSpan(val path:String,val position:Long,val l
  */
 internal data class LegacyRetirementManifest private constructor(val key:String,val uid:Long,
     val rootIdentity:String,val databaseIdentity:String,val markerIdentity:String,
-    val contentId:Long,val metadataDigest:String,val spans:List<LegacyRetirementSpan>) {
+    val contentId:Long,val metadataDigest:String,val spans:List<LegacyRetirementSpan>,
+    val completedDownloadIdentity:String?=null) {
     private fun validate() {
         if(key.length.toLong()*2>MIGRATION_KEY_BYTES || uid<0 || contentId !in 0L..Int.MAX_VALUE.toLong() ||
             spans.size>MIGRATION_RANGES) throw IOException("Legacy retirement identity exceeds its budget")
         listOf(rootIdentity,databaseIdentity,markerIdentity).forEach(::requireIdentity)
-        requireDigest(metadataDigest)
+        requireDigest(metadataDigest); completedDownloadIdentity?.let(::requireDigest)
         var end=0L
         for((i,span) in spans.withIndex()) {
             requireIdentity(span.fileIdentity); requireDigest(span.digest)
@@ -44,6 +45,12 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
                 (0 until i).any {spans[it].path==span.path}) throw IOException("Legacy retirement span differs")
             end=span.position+span.length
         }
+    }
+    /** Bind the exact completed row before durable intent. Unbound v1/files-only records remain
+     * readable for files-stage recovery, but cannot authorize terminal-index deletion. */
+    internal fun withCompletedDownload(expected:PartitionSaveCompletion):LegacyRetirementManifest {
+        if(expected.key!=key) throw IOException("Retirement completion belongs to another original")
+        return copy(completedDownloadIdentity=expected.retirementIdentity()).also {it.validate()}
     }
     /** SQL projection is bounded BEFORE CursorWindow; validation never rehydrates the whole old
      * index. Missing files are allowed ONLY when the future durable pending intent says they may
@@ -122,13 +129,15 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
             }
         }
         DataOutputStream(buffer).use { out ->
-            out.writeInt(1); out.writeUTF(key); out.writeLong(uid)
+            out.writeInt(2); out.writeUTF(key); out.writeLong(uid)
             out.writeUTF(rootIdentity); out.writeUTF(databaseIdentity); out.writeUTF(markerIdentity)
             out.writeLong(contentId); out.writeUTF(metadataDigest); out.writeInt(spans.size)
             for(span in spans) {
                 out.writeUTF(span.path); out.writeLong(span.position); out.writeLong(span.length)
                 out.writeUTF(span.fileIdentity); out.writeUTF(span.digest)
             }
+            out.writeBoolean(completedDownloadIdentity!=null)
+            completedDownloadIdentity?.let(out::writeUTF)
         }
         return buffer.toByteArray()
     }
@@ -214,14 +223,16 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
         fun decode(bytes:ByteArray):LegacyRetirementManifest {
             if(bytes.size>LEGACY_RETIREMENT_MANIFEST_BYTES) throw IOException("Retirement manifest exceeds budget")
             return DataInputStream(ByteArrayInputStream(bytes)).use { input ->
-                if(input.readInt()!=1) throw IOException("Unsupported retirement manifest version")
+                val version=input.readInt()
+                if(version !in 1..2) throw IOException("Unsupported retirement manifest version")
                 val key=input.readUTF(); val uid=input.readLong()
                 val root=input.readUTF(); val database=input.readUTF(); val marker=input.readUTF()
                 val id=input.readLong(); val metadata=input.readUTF(); val count=input.readInt()
                 if(count !in 0..MIGRATION_RANGES) throw IOException("Retirement manifest span budget exceeded")
                 val spans=ArrayList<LegacyRetirementSpan>(count)
                 repeat(count) {spans+=LegacyRetirementSpan(input.readUTF(),input.readLong(),input.readLong(),input.readUTF(),input.readUTF())}
-                LegacyRetirementManifest(key,uid,root,database,marker,id,metadata,spans).also {
+                val completed=if(version==2 && input.readBoolean()) input.readUTF() else null
+                LegacyRetirementManifest(key,uid,root,database,marker,id,metadata,spans,completed).also {
                     it.validate(); if(input.read()!=-1) throw IOException("Retirement manifest has trailing data")
                 }
             }

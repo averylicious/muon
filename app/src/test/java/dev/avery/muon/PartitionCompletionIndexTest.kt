@@ -168,4 +168,43 @@ class PartitionCompletionIndexTest {
         assertEquals(1L,count())
     }
 
+    @Test fun originalNumericKeysGetBoundedIdentityWithoutRelaxingFreshSaveAdmission() {
+        val old="42"; val request=DownloadRequest.Builder(old,Uri.parse("http://127.0.0.1:7814/api1/fileopus/42"))
+            .setCustomCacheKey(old).setData(byteArrayOf(7)).build()
+        val (actual,lookup)=seed(request)
+        val first=requireNotNull(lookup.findOriginal(old))
+        assertEquals(PartitionSaveCompletion.fromOriginal(requireNotNull(actual.getDownload(old))),first)
+        assertThrows(IOException::class.java) {lookup.find(old)}
+        assertThrows(IOException::class.java) {partitionSaveRequestKey(request)}
+        assertFalse(lookup.holdsOtherOriginalName(old))
+        actual.putDownload(Download(request,Download.STATE_COMPLETED,1,3,5,0,0))
+        assertNotEquals(first.retirementIdentity(),requireNotNull(lookup.findOriginal(old)).retirementIdentity())
+        val changed=DownloadRequest.Builder(old,request.uri).setCustomCacheKey(old).setData(byteArrayOf(8)).build(); actual.putDownload(row(changed))
+        assertNotEquals(first.retirementIdentity(),requireNotNull(lookup.findOriginal(old)).retirementIdentity())
+        assertEquals(1L,count())
+    }
+    @Test fun originalLookupRefusesOversizedPayloadAndAliasWithoutHydratingOrRewritingIt() {
+        val old="42"; val request=DownloadRequest.Builder(old,Uri.parse("http://127.0.0.1:7814/api1/fileopus/42"))
+            .setCustomCacheKey(old).build()
+        val (actual,lookup)=seed(request)
+        db.execSQL("UPDATE $table SET data=zeroblob(8388608) WHERE id=?",arrayOf(old))
+        assertThrows(IOException::class.java) {lookup.findOriginal(old)}
+        val alias=DownloadRequest.Builder("alias",request.uri).setCustomCacheKey(old).build()
+        actual.putDownload(row(alias)); assertTrue(lookup.holdsOtherOriginalName(old)); assertEquals(2L,count())
+        db.rawQuery("SELECT length(data) FROM $table WHERE id=?",arrayOf(old)).use {assertTrue(it.moveToFirst()); assertEquals(8388608L,it.getLong(0))}
+    }
+    @Test fun originalLookupRetainsActualUnknownCursorAndDoesNotCloseBorrowedDatabase() {
+        seed(); var retained:android.database.Cursor?=null
+        val ownership=MigrationIoOwnership(closeHandle={handle ->
+            if(handle is android.database.Cursor) {retained=handle; throw IOException("Unknown completed query close")}
+            handle.close()
+        })
+        val lookup=PartitionCompletionIndex(database,"test",ownership)
+        try {
+            assertThrows(MigrationIoUncertain::class.java) {lookup.findOriginal(key)}
+            assertFalse(ownership.quiescent); assertNotNull(retained); assertFalse(requireNotNull(retained).isClosed)
+            assertTrue(db.isOpen); assertEquals(1L,count())
+        } finally {retained?.close()}
+    }
+
 }

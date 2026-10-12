@@ -14,10 +14,21 @@ import java.io.IOException
  * A digest binds the exact local request, NOT remote audio authentication or migration verification. */
 internal data class PartitionSaveCompletion private constructor(val key:String,val length:Long,
     val started:Long,val updated:Long,val requestDigest:String) {
+    /** Fixed hash binds request, length and timestamps without retaining the original payload. */
+    fun retirementIdentity():String {
+        val hash=java.security.MessageDigest.getInstance("SHA-256")
+        for(value in listOf(length,started,updated)) for(shift in 56 downTo 0 step 8)
+            hash.update((value ushr shift).toByte())
+        for(c in key) {hash.update((c.code ushr 8).toByte()); hash.update(c.code.toByte())}
+        hash.update(requestDigest.toByteArray(Charsets.US_ASCII))
+        return hash.digest().joinToString("") {"%02x".format(it)}
+    }
     companion object {
-        fun from(download:Download):PartitionSaveCompletion? {
+        fun from(download:Download):PartitionSaveCompletion?=read(download,true)
+        fun fromOriginal(download:Download):PartitionSaveCompletion?=read(download,false)
+        private fun read(download:Download,requireFresh:Boolean):PartitionSaveCompletion? {
             if(download.state!=Download.STATE_COMPLETED) return null
-            val key=partitionSaveRequestKey(download.request)
+            val key=partitionFullRequestKey(download.request,requireFresh)
             if(download.contentLength<=0 || download.stopReason!=Download.STOP_REASON_NONE ||
                 download.failureReason!=Download.FAILURE_REASON_NONE)
                 throw IOException("Completed save record has invalid completion state")

@@ -375,4 +375,26 @@ class LegacyResourceProjectionTest {
         }} finally {retained?.close(); worker {journal.close()}}
     }
 
+    @Test fun retirementManifestBindsExactCompletedIdentityAndPreservesUnboundV1Recovery() {
+        val f=Fixture(); val index=f.db()
+        val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})}
+        val request=androidx.media3.exoplayer.offline.DownloadRequest.Builder("selected",android.net.Uri.parse("http://127.0.0.1:7814/api1/fileopus/42"))
+            .setCustomCacheKey("selected").setData(byteArrayOf(7)).build()
+        val completed=requireNotNull(PartitionSaveCompletion.fromOriginal(androidx.media3.exoplayer.offline.Download(request,
+            androidx.media3.exoplayer.offline.Download.STATE_COMPLETED,1,2,4,0,0)))
+        val bound=manifest.withCompletedDownload(completed)
+        assertEquals(completed.retirementIdentity(),bound.completedDownloadIdentity)
+        assertEquals(bound,LegacyRetirementManifest.decode(bound.encode()))
+        assertNull(manifest.completedDownloadIdentity)
+        // v1 has the same fields before v2's optional-completion tail; no row deletion authority.
+        val v1=manifest.encode().dropLast(1).toByteArray().also {it[3]=1}
+        assertEquals(manifest,LegacyRetirementManifest.decode(v1))
+        // A different key cannot be bound even when other scalar completion values match.
+        val other=androidx.media3.exoplayer.offline.DownloadRequest.Builder("other",request.uri).setCustomCacheKey("other").build()
+        val wrong=requireNotNull(PartitionSaveCompletion.fromOriginal(androidx.media3.exoplayer.offline.Download(other,
+            androidx.media3.exoplayer.offline.Download.STATE_COMPLETED,1,2,4,0,0)))
+        assertThrows(IOException::class.java) {manifest.withCompletedDownload(wrong)}
+        assertArrayEquals(payload,f.original.readBytes())
+    }
+
 }

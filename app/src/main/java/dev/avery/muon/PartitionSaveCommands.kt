@@ -152,9 +152,13 @@ internal class PartitionSaveCommands(private val catalog:CachePartitionCatalog,
     }
 }
 
-internal fun partitionSaveRequestKey(request:DownloadRequest):String {
+internal fun partitionSaveRequestKey(request:DownloadRequest):String=partitionFullRequestKey(request,true)
+/** Existing original records may predate fresh saved/ IDs. This is observation only: it never
+ * grants new allocation, Add or command-token admission for an old name. */
+internal fun partitionFullRequestKey(request:DownloadRequest,requireFresh:Boolean):String {
     val key=request.customCacheKey
-    if(key==null || key!=request.id || !key.startsWith(NEW_SAVE_PREFIX) ||
+    if(key.isNullOrEmpty() || key!=request.id || key.startsWith(PLAYED_PREFIX) ||
+        (requireFresh && !key.startsWith(NEW_SAVE_PREFIX)) ||
         key.length.toLong()*2>MIGRATION_KEY_BYTES || request.uri.toString().length.toLong()*2>MIGRATION_KEY_BYTES ||
         (request.mimeType?.length ?: 0).toLong()*2>MIGRATION_KEY_BYTES ||
         request.keySetId!=null || request.streamKeys.isNotEmpty() || request.byteRange!=null || request.timeRange!=null ||

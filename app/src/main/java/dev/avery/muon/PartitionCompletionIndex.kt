@@ -22,7 +22,8 @@ import java.io.IOException
  * authenticate the DB, repair legacy rows, enumerate the library, or bound other manager/index APIs.
  * Provider is borrowed and must remain live under the production ownership/availability barrier.
  */
-internal class PartitionCompletionIndex(private val provider:DatabaseProvider,private val name:String) {
+internal class PartitionCompletionIndex(private val provider:DatabaseProvider,private val name:String,
+    private val ownership:MigrationIoOwnership=MigrationIoOwnership()) {
     init { require(name.length<=64 && name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it=='_' }) }
     private val table=DatabaseProvider.TABLE_PREFIX+"Downloads"+name
     private val versions=DatabaseProvider.TABLE_PREFIX+"Versions"
@@ -47,14 +48,14 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
     private val projection="CASE WHEN "+predicates.joinToString(" AND ") { "($it)" }+" THEN 1 ELSE 0 END,"+
         projected.indices.joinToString(",") { i -> "CASE WHEN (${predicates[i]}) THEN ${projected[i]} ELSE NULL END" }
     private fun schema(db:SQLiteDatabase) {
-        db.rawQuery("SELECT CASE WHEN typeof(version)='integer' THEN version ELSE -1 END FROM $versions WHERE feature=0 AND instance_uid=? LIMIT 2",
-            arrayOf(name)).use {
+        ownership.useOwned({db.rawQuery("SELECT CASE WHEN typeof(version)='integer' THEN version ELSE -1 END FROM $versions WHERE feature=0 AND instance_uid=? LIMIT 2",
+            arrayOf(name))}) {
             if(!it.moveToFirst() || it.getLong(0)!=3L || it.moveToNext()) throw IOException("Unsupported completed-save index version")
         }
         // Don't fetch arbitrary schema SQL/default text or an unbounded PRAGMA list into Java.
-        db.rawQuery("SELECT cid,CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB))<=32 THEN name ELSE NULL END,"+
+        ownership.useOwned({db.rawQuery("SELECT cid,CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB))<=32 THEN name ELSE NULL END,"+
             "CASE WHEN typeof(type)='text' AND length(CAST(type AS BLOB))<=8 THEN type ELSE NULL END,\"notnull\",pk "+
-            "FROM pragma_table_info(?) ORDER BY cid LIMIT 16",arrayOf(table)).use { c ->
+            "FROM pragma_table_info(?) ORDER BY cid LIMIT 16",arrayOf(table))}) { c ->
             var i=0
             while(c.moveToNext()) {
                 if(i>=fields.size || c.getLong(0)!=i.toLong() || c.getType(1)!=Cursor.FIELD_TYPE_STRING ||
@@ -78,8 +79,8 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
      * uncertainty. No DefaultDownloadIndex initialization/migration or payload projection occurs.
      */
     private fun present(db:SQLiteDatabase):Boolean {
-        fun tablePresent(name:String):Boolean=db.rawQuery(
-            "SELECT CASE WHEN type='table' THEN 1 ELSE 0 END FROM sqlite_master WHERE name=? LIMIT 2",arrayOf(name)).use {
+        fun tablePresent(name:String):Boolean=ownership.useOwned({db.rawQuery(
+            "SELECT CASE WHEN type='table' THEN 1 ELSE 0 END FROM sqlite_master WHERE name=? LIMIT 2",arrayOf(name))}) {
             if(!it.moveToFirst()) false else {
                 if(it.getInt(0)!=1 || it.moveToNext()) throw IOException("Optional save index identity is unsupported")
                 true
@@ -91,7 +92,7 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
             if(!versionPresent) throw IOException("Saved index table has no version table")
             return true
         }
-        if(versionPresent) db.rawQuery("SELECT 1 FROM $versions WHERE feature=0 AND instance_uid=? LIMIT 1",arrayOf(name)).use {
+        if(versionPresent) ownership.useOwned({db.rawQuery("SELECT 1 FROM $versions WHERE feature=0 AND instance_uid=? LIMIT 1",arrayOf(name))}) {
             if(it.moveToFirst()) throw IOException("Optional save index version exists without its table")
         }
         return false
@@ -114,8 +115,8 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
         if(key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Save ID exceeds supported budget")
         try {
             val db=provider.readableDatabase; schema(db)
-            return db.rawQuery("SELECT 1 FROM $table WHERE id=?"+
-                (if(completedOnly) " AND typeof(state)='integer' AND state=${Download.STATE_COMPLETED}" else "")+" LIMIT 2",arrayOf(key)).use { cursor ->
+            return ownership.useOwned({db.rawQuery("SELECT 1 FROM $table WHERE id=?"+
+                (if(completedOnly) " AND typeof(state)='integer' AND state=${Download.STATE_COMPLETED}" else "")+" LIMIT 2",arrayOf(key))}) { cursor ->
                 val found=cursor.moveToFirst()
                 if(found && cursor.moveToNext()) throw IOException("Save ID is not unique")
                 found
@@ -132,9 +133,9 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
             "(custom_cache_key IS NULL AND typeof(uri)!='text')"
         try {
             val db=provider.readableDatabase; schema(db)
-            return db.rawQuery("SELECT CASE WHEN ($invalid) THEN 0 ELSE 1 END FROM $table WHERE "+
+            return ownership.useOwned({db.rawQuery("SELECT CASE WHEN ($invalid) THEN 0 ELSE 1 END FROM $table WHERE "+
                 "id=? OR custom_cache_key=? OR (custom_cache_key IS NULL AND uri=?) OR ($invalid) LIMIT 1",
-                arrayOf(key,key,key)).use { cursor ->
+                arrayOf(key,key,key))}) { cursor ->
                 if(!cursor.moveToFirst()) false
                 else if(cursor.getLong(0)==1L) true
                 else throw IOException("Storage name census has unsupported row types")
@@ -145,26 +146,30 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
      * hydrating its payload. Malformed aliases refuse; excluding the expected ID is safe only
      * together with find(key)'s exact progressive request/state identity, under exclusive admission.
      */
-    @Synchronized fun holdsOtherName(key:String):Boolean {
-        if(key.length.toLong()*2>MIGRATION_KEY_BYTES || !key.startsWith(NEW_SAVE_PREFIX))
+    @Synchronized fun holdsOtherName(key:String):Boolean=otherName(key,true)
+    @Synchronized fun holdsOtherOriginalName(key:String):Boolean=otherName(key,false)
+    private fun otherName(key:String,requireFresh:Boolean):Boolean {
+        if(key.isEmpty() || key.startsWith(PLAYED_PREFIX) || key.length.toLong()*2>MIGRATION_KEY_BYTES || (requireFresh && !key.startsWith(NEW_SAVE_PREFIX)))
             throw IOException("Completed removal name exceeds its budget")
         val invalid="typeof(id)!='text' OR typeof(custom_cache_key) NOT IN ('text','null') OR " +
             "(custom_cache_key IS NULL AND typeof(uri)!='text')"
         try {
             val db=provider.readableDatabase; schema(db)
-            return db.rawQuery("SELECT 1 FROM $table WHERE ($invalid) OR (id!=? AND "+
+            return ownership.useOwned({db.rawQuery("SELECT 1 FROM $table WHERE ($invalid) OR (id!=? AND "+
                 "(custom_cache_key=? OR (custom_cache_key IS NULL AND uri=?))) LIMIT 1",
-                arrayOf(key,key,key)).use { it.moveToFirst() }
+                arrayOf(key,key,key))}) { it.moveToFirst() }
         } catch(failure:SQLiteException) { throw IOException("Completed removal alias census unavailable",failure) }
     }
-    @Synchronized fun find(key:String):PartitionSaveCompletion? {
-        if(key.length.toLong()*2>MIGRATION_KEY_BYTES || !key.startsWith(NEW_SAVE_PREFIX))
+    @Synchronized fun find(key:String):PartitionSaveCompletion?=completed(key,true)
+    @Synchronized fun findOriginal(key:String):PartitionSaveCompletion?=completed(key,false)
+    private fun completed(key:String,requireFresh:Boolean):PartitionSaveCompletion? {
+        if(key.isEmpty() || key.startsWith(PLAYED_PREFIX) || key.length.toLong()*2>MIGRATION_KEY_BYTES || (requireFresh && !key.startsWith(NEW_SAVE_PREFIX)))
             throw IOException("Completed-save lookup key exceeds its supported budget")
         try {
             val db=provider.readableDatabase; schema(db)
-            return db.rawQuery("SELECT $projection FROM $table WHERE id=? AND state=${Download.STATE_COMPLETED} LIMIT 2",
-                arrayOf(key)).use { c ->
-                if(!c.moveToFirst()) return@use null
+            return ownership.useOwned({db.rawQuery("SELECT $projection FROM $table WHERE id=? AND state=${Download.STATE_COMPLETED} LIMIT 2",
+                arrayOf(key))}) { c ->
+                if(!c.moveToFirst()) return@useOwned null
                 if(c.getLong(0)!=1L) throw IOException("Completed-save row exceeds its supported types or budgets")
                 val id=c.getString(1)
                 if(id!=key) throw IOException("Completed-save lookup identity differs")
@@ -176,8 +181,8 @@ internal class PartitionCompletionIndex(private val provider:DatabaseProvider,pr
                     throw IOException("Completed-save row is not the exact full progressive request")
                 val request=DownloadRequest.Builder(id,uri).setMimeType(mime)
                     .setCustomCacheKey(customKey).setData(c.getBlob(6)).build()
-                val complete=PartitionSaveCompletion.from(Download(request,c.getInt(7),c.getLong(8),c.getLong(9),
-                    c.getLong(10),c.getInt(11),c.getInt(12)))
+                val download=Download(request,c.getInt(7),c.getLong(8),c.getLong(9),c.getLong(10),c.getInt(11),c.getInt(12))
+                val complete=if(requireFresh) PartitionSaveCompletion.from(download) else PartitionSaveCompletion.fromOriginal(download)
                 if(c.moveToNext()) throw IOException("Completed-save identity is not unique")
                 complete
             }
