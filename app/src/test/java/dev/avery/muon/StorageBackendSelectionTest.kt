@@ -60,14 +60,12 @@ class StorageBackendSelectionTest {
         val before=app.databaseList().toSet()
         val folder=java.io.File(app.filesDir,"downloads")
         assertFalse(folder.exists())
-        val startup=StorageStartup<Any>()
-        val create=OfflineStore::class.java.declaredMethods.single { it.name=="prepareLegacy" }.apply { isAccessible=true }
+        val startup=StorageStartup<OfflineStore.PreparedStorage>()
         val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
         try {
             val failure=assertThrows(java.util.concurrent.ExecutionException::class.java) {
                 worker.submit<Any> { startup.open { opening ->
-                    try { create.invoke(OfflineStore,app,opening) }
-                    catch(failure:java.lang.reflect.InvocationTargetException) { throw requireNotNull(failure.cause) }
+                    OfflineStore.prepareLegacy(app,opening)
                 } }.get(10,java.util.concurrent.TimeUnit.SECONDS)
             }
             assertTrue(failure.cause is IOException)
