@@ -2050,6 +2050,87 @@ class OwnedPartitionShelfTest {
             field.set(OfflineStore,previous);n.close()
         }
     }
+    private inner class MigrationDispatchFixture {
+        val f=Fixture();val index=seedOriginal(f);val owner=f.owner()
+        val app=RuntimeEnvironment.getApplication()
+        val field=OfflineStore::class.java.getDeclaredField("store").apply {isAccessible=true}
+        val previous=field.get(OfflineStore)
+        val mover=OfflineStore::class.java.getDeclaredField("mover").apply {isAccessible=true}.get(OfflineStore) as java.util.concurrent.ExecutorService
+        val art=DownloadArt(folders.newFolder(),barrier=f.barrier)
+        val originalCover=coverFile(art,f.oldKey).apply {writeBytes(byteArrayOf(9,8,7))}
+        val store:OfflineStore.Store
+        init {
+            onWorker {owner.prepare()}
+            val phone=Shelf.partitioned(owner,MuonDownloadService::class.java);await(phone.manager) {true}
+            store=OfflineStore.Store(phone,art,PlayedSongEvictor(8192L) {},app.getSharedPreferences("migration-dispatch",0),
+                f.provider,{}, {},artwork=coverWork(art,f.barrier),storageBarrier=f.barrier)
+            field.set(OfflineStore,store)
+        }
+        fun drain() {mover.submit {}.get(10,TimeUnit.SECONDS);shadowOf(Looper.getMainLooper()).idle()}
+        fun intact() {
+            assertArrayEquals(payload,f.original.readBytes());assertNotNull(index.getDownload(f.oldKey))
+            assertArrayEquals(byteArrayOf(9,8,7),originalCover.readBytes())
+        }
+        fun close() {drain();field.set(OfflineStore,previous);teardown(owner);f.provider.close()}
+    }
+    @Test fun applicationMigrationPublishesActualReadyAndKeepsOriginalRecordAndCover() {
+        val m=MigrationDispatchFixture()
+        try {
+            assertFalse(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,false))
+            assertTrue(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true));m.drain()
+            assertNull(m.store.migrationAttempt);assertNull(DownloadMarks.moving)
+            assertEquals(MigrationWorkProgress(MigrationWorkPhase.Ready,4,4),m.store.migrationStatus!!.progress)
+            CacheMigrationJournal(m.f.root,false).use {assertEquals(MigrationPhase.Ready,it.ready(m.f.oldKey)!!.phase)}
+            m.intact()
+            val reader=m.owner.audio.source.createDataSource()
+            try {
+                assertEquals(4L,reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(m.f.oldKey).build()))
+                val bytes=ByteArray(4);assertEquals(4,reader.read(bytes,0,4));assertArrayEquals(payload,bytes)
+            } finally {reader.close()}
+            assertTrue(m.f.barrier.quiescent)
+        } finally {m.close()}
+    }
+    @Test fun queuedApplicationCancellationRetainsExclusionUntilWorkerExitAndAllocatesNothing() {
+        val m=MigrationDispatchFixture();val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1)
+        try {
+            m.mover.execute {entered.countDown();check(release.await(10,TimeUnit.SECONDS))};assertTrue(entered.await(10,TimeUnit.SECONDS))
+            assertTrue(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true))
+            assertTrue(OfflineStore.cancelPartitionMigration());assertNotNull(m.store.migrationAttempt);assertNotNull(DownloadMarks.moving)
+            assertFalse(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true))
+            release.countDown();m.drain()
+            assertEquals(MigrationWorkPhase.Cancelled,m.store.migrationStatus!!.progress.phase)
+            assertNull(m.store.migrationAttempt);assertNull(DownloadMarks.moving);assertFalse(OfflineStore.cancelPartitionMigration())
+            CacheMigrationJournal(m.f.root,false).use {assertTrue(it.page().isEmpty())}
+            assertEquals(0,m.f.budget.resident);m.intact();assertTrue(m.f.barrier.quiescent)
+        } finally {release.countDown();m.close()}
+    }
+    @Test fun staleApplicationRetryCannotAdoptOrReplaceAnUnshownJournal() {
+        val m=MigrationDispatchFixture()
+        try {
+            val stale=MigrationRecord(MigrationTicket(CachePartitionAllocation(m.f.oldKey,java.util.UUID.randomUUID().toString()),
+                java.util.UUID.randomUUID().toString(),1L),MigrationPhase.Copying,null,null)
+            assertFalse(OfflineStore.beginPartitionMigration(m.app,false,"different",true,stale))
+            assertFalse(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true,stale.copy(phase=MigrationPhase.Ready)))
+            assertTrue(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true,stale));m.drain()
+            assertEquals(MigrationWorkPhase.Failed,m.store.migrationStatus!!.progress.phase)
+            CacheMigrationJournal(m.f.root,false).use {assertTrue(it.page().isEmpty())}
+            m.intact();assertTrue(m.f.barrier.quiescent)
+        } finally {m.close()}
+    }
+    @Test fun applicationMigrationRefusesEofReaderUntilActualCloseAndRequiresExplicitRetry() {
+        val m=MigrationDispatchFixture();val reader=m.owner.audio.source.createDataSource();var closed=false
+        try {
+            assertEquals(4L,reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(m.f.oldKey).build()))
+            val bytes=ByteArray(4);assertEquals(4,reader.read(bytes,0,4));assertEquals(-1,reader.read(bytes,0,4))
+            assertTrue(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true));m.drain()
+            assertEquals(MigrationWorkPhase.Failed,m.store.migrationStatus!!.progress.phase)
+            CacheMigrationJournal(m.f.root,false).use {assertTrue(it.page().isEmpty())};m.intact()
+            reader.close();closed=true
+            assertTrue(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true));m.drain()
+            assertEquals(MigrationWorkPhase.Ready,m.store.migrationStatus!!.progress.phase);m.intact()
+        } finally {if(!closed) reader.close();m.close()}
+    }
+
     @Test fun actualRecoveryCursorCloseUncertaintyQuarantinesTheRealShelfGate() {
         val f=Fixture();val owner=f.owner();onWorker {owner.prepare()}
         val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply {isAccessible=true}.get(owner)

@@ -705,6 +705,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         if(!explicitConsent || record.phase==MigrationPhase.Ready) return false
         return resources().work.start(record.ticket.allocation.key,timeoutMillis,true,MigrationExpectation.Retry(record))
     }
+    /** App dispatch uses this shelf's actual destination free space, not caller-supplied estimates. */
+    internal fun migrateWithSpace(control:CacheMigrationControl,name:String,checkpoint:()->Unit):MigrationRecord =
+        migrate(control,name,{directory.usableSpace},checkpoint)
     fun migrate(control:CacheMigrationControl,name:String,availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord {
         val made=resources()
         return made.legacy.migrate(made.session,control,name,availableBytes) { located(); checkpoint(); located() }

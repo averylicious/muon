@@ -134,6 +134,8 @@ internal object OfflineStore {
         val storageBarrier:SavedStorageBarrier=SavedStorageBarrier(),
         /** Scalar completed-partition removal publication; no request payload is retained. */
         val removedScalar:(String)->Unit = {}) {
+        @Volatile internal var migrationAttempt:PartitionMigrationAttempt?=null
+        @Volatile internal var migrationStatus:PartitionMigrationStatus?=null
         /** At most two final byte comparisons; uncertain actual readers remain owned until teardown. */
         val moveComparisons=MoveByteComparison(barrier=storageBarrier)
         /** The serial copy retains exact raw participants if any actual close remains unknown. */
@@ -1429,6 +1431,70 @@ internal object OfflineStore {
             moveOwnership.finish(batch);moveExclusion.release();DownloadMarks.moving=null;DownloadMarks.revision++;throw failure
         }
         return true // Submission only; scalar callbacks/journal determine completion.
+    }
+
+    /** Explicit single-resource optimization on the existing serial storage worker. The admission
+     * deadline includes its pending slot; cancellation never releases exclusion before worker exit.
+     * Originals/records/covers remain, and equal byte counters do not imply durable Ready. */
+    internal fun beginPartitionMigration(context:Context,sourceCard:Boolean,key:String,explicitConsent:Boolean,
+        expected:MigrationRecord?=null,timeoutMillis:Long=5L*60*1000):Boolean {
+        check(Looper.myLooper()==Looper.getMainLooper()) {"Migration admission requires main"}
+        if(!explicitConsent || key.isEmpty() || key.startsWith(PLAYED_PREFIX) || key.length.toLong()*2>MIGRATION_KEY_BYTES ||
+            timeoutMillis !in 1L..24L*60*60*1000 || expected!=null &&
+            (expected.ticket.allocation.key!=key || expected.phase==MigrationPhase.Ready)) return false
+        val store=commandStore(context) ?: return false
+        val shelf=(if(sourceCard) store.card else store.phone) ?: return false
+        val source=shelf.partition ?: return false
+        if(source.storageBarrier!==store.storageBarrier || !shelf.locationAvailable() || store.migrationAttempt!=null ||
+            store.moves.hasPending || store.removalDelivery.busy || store.shelves.any {!quiet(it.manager) || it.storagePaused}) return false
+        val control=CacheMigrationControl(timeoutMillis,acceptedNanos=System.nanoTime(),
+            expectation=expected?.let {MigrationExpectation.Retry(it)} ?: MigrationExpectation.Fresh)
+        if(!moveExclusion.tryAcquire()) return false
+        val attempt=PartitionMigrationAttempt(key,sourceCard,control);store.migrationAttempt=attempt;store.migrationStatus=null
+        val main=Handler(Looper.getMainLooper());val batch=moveOwnership.begin();DownloadMarks.moving=0 to 1
+        try {mover.execute {
+            var terminal:MigrationWorkProgress?=null
+            try {
+                fun checked() {
+                    if(current()!==store || !shelf.locationAvailable() || !moveOwnership.permits(batch,key))
+                        throw java.io.InterruptedIOException("Migration cancelled or storage unavailable")
+                }
+                checked()
+                if(source.migrationBusy) throw IOException("Another shelf migration is active")
+                source.migrateWithSpace(control,key,::checked)
+                terminal=control.progress
+            } catch(failure:Throwable) {
+                val observed=control.progress
+                terminal=when {
+                    failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain -> observed.copy(phase=MigrationWorkPhase.Uncertain)
+                    observed.phase in setOf(MigrationWorkPhase.Ready,MigrationWorkPhase.Cancelled,MigrationWorkPhase.Expired,
+                        MigrationWorkPhase.Failed,MigrationWorkPhase.Uncertain) -> observed
+                    else -> observed.copy(phase=MigrationWorkPhase.Failed)
+                }
+            } finally {
+                val finished=terminal ?: control.progress.copy(phase=MigrationWorkPhase.Uncertain)
+                main.post {
+                    try {
+                        if(current()===store && store.migrationAttempt===attempt) {
+                            store.migrationStatus=PartitionMigrationStatus(key,sourceCard,finished);store.migrationAttempt=null
+                        }
+                    } finally {
+                        try {moveExclusion.release()} finally {moveOwnership.finish(batch);DownloadMarks.moving=null;DownloadMarks.revision++}
+                    }
+                }
+            }
+        }} catch(_:java.util.concurrent.RejectedExecutionException) {
+            // mover is our fixed single-thread ThreadPoolExecutor: rejection precedes delivery.
+            store.migrationAttempt=null;store.migrationStatus=PartitionMigrationStatus(key,sourceCard,MigrationWorkProgress(MigrationWorkPhase.Failed))
+            moveOwnership.finish(batch);moveExclusion.release();DownloadMarks.moving=null;DownloadMarks.revision++
+            return false
+        }
+        return true // Submission, never by itself publication or deletion authority.
+    }
+    internal fun cancelPartitionMigration():Boolean {
+        check(Looper.myLooper()==Looper.getMainLooper()) {"Migration cancellation requires main"}
+        val attempt=current()?.migrationAttempt ?: return false
+        attempt.control.cancel();return true
     }
 
     /** Exact renewed-consent Delete recovery, using the existing serial worker/exclusion. No
