@@ -114,6 +114,29 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             checkpoint(); checked(); checkpoint()
         }
     }
+    /** Persist explicit cleanup intent while the actual legacy owner/volume and all app readers
+     * are excluded. No file/index deletion is performed here; the controller must complete it.
+     * Unknown manifest I/O or journal write retains both real owners and invalidates this gate.
+     */
+    @Synchronized fun beginRetirement(session:PartitionStorageSession,journal:LegacyRetirementJournal,
+        key:String,explicitConsent:Boolean,checked:()->Unit):LegacyRetirementRecord {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original retirement requires a worker"}
+        if(!explicitConsent) throw IOException("Original retirement requires explicit consent")
+        if(!session.usesBarrier(barrier)) throw IOException("Original retirement requires the same storage gate")
+        checkpoint()
+        val permit=barrier.exclusive(); var quarantined=false
+        try {
+            fun live() {permit.check(); checkpoint(); checked(); checkpoint()}
+            live()
+            val manifest=LegacyRetirementManifest.capture(directory,requireNotNull(uid),key,requireNotNull(index),::live)
+            live(); val record=journal.begin(manifest,true); live(); return record
+        } catch(failure:Throwable) {
+            if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || journal.ownershipUncertain) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,failure)); quarantined=true
+            }
+            throw failure
+        } finally {if(!quarantined) permit.close()}
+    }
     @Synchronized override fun close() {
         if(phase==Phase.Closed || phase==Phase.Unsupported || phase==Phase.New) { phase=Phase.Closed; return }
         if(phase!=Phase.Open) throw IOException("Legacy transition close is active or uncertain")

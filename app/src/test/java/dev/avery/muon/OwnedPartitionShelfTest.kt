@@ -72,11 +72,12 @@ class OwnedPartitionShelfTest {
             val resource=opened.javaClass.getDeclaredField(name).apply { isAccessible=true }.get(opened)
             (resource as java.io.Closeable).close()
         }
+        onWorker {(opened.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(opened) as LegacyRetirementJournal).close()}
     }
     @Test fun completeShelfStartsWithoutLegacyNativeCacheAndRoutesOriginalMigratedAndNewSavedBytes() {
         val f=Fixture(); val owner=f.owner()
         try {
-            owner.prepare(); owner.prepare(); assertEquals(0,f.budget.resident)
+            onWorker {owner.prepare()}; onWorker {owner.prepare()}; assertEquals(0,f.budget.resident)
             assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
             val manager=owner.initializeManager(); manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads()
             await(manager) { true }; assertSame(manager,owner.initializeManager())
@@ -111,7 +112,7 @@ class OwnedPartitionShelfTest {
         val f=Fixture(); val mainThread=Thread.currentThread(); val offMain=java.util.concurrent.atomic.AtomicBoolean()
         val owner=f.owner(currentVolume={ if(Thread.currentThread()!==mainThread) offMain.set(true); f.volume })
         try {
-            owner.prepare()
+            onWorker {owner.prepare()}
             assertFalse(owner.startMigration("old",30000,explicitConsent=false)); assertEquals(0,f.budget.resident)
             assertTrue(owner.startMigration("old",30000,explicitConsent=true)); awaitMigration(owner)
             assertEquals(MigrationWorkPhase.Ready,owner.migrationProgress.phase); assertTrue(offMain.get())
@@ -123,7 +124,7 @@ class OwnedPartitionShelfTest {
     @Test fun pendingWorkerCancellationHasNoReservationAndNoSecondQueuedMigration() {
         val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null
         try {
-            owner.prepare()
+            onWorker {owner.prepare()}
             val work=PartitionMigrationWork(java.util.concurrent.Executor { check(pending==null); pending=it },
                 {control,key -> owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
             assertTrue(work.start("old",1000,true)); assertTrue(work.busy)
@@ -137,7 +138,7 @@ class OwnedPartitionShelfTest {
     @Test fun deadlineIncludesWaitingBeforeWorkerRunsWithoutClaimingOrOpeningTarget() {
         val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null; var clock=0L
         try {
-            owner.prepare()
+            onWorker {owner.prepare()}
             val work=PartitionMigrationWork(java.util.concurrent.Executor { pending=it },
                 {control,key -> owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={clock})
             assertTrue(work.start("old",1,true)); clock=2_000_000
@@ -150,7 +151,7 @@ class OwnedPartitionShelfTest {
     @Test fun knownRejectionDrainsButUnknownPostSubmissionKeepsItsSingleSlotAndCancelsCooperatively() {
         val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null
         try {
-            owner.prepare()
+            onWorker {owner.prepare()}
             val rejected=PartitionMigrationWork(java.util.concurrent.Executor { throw java.util.concurrent.RejectedExecutionException() },
                 {control,key -> owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L},knownRejectionBeforeSubmission=true)
             assertFalse(rejected.start("old",1000,true)); assertFalse(rejected.busy)
@@ -168,7 +169,7 @@ class OwnedPartitionShelfTest {
     @Test fun acceptedThenRejectedRunnableNeverInvokesMigrationOrReleasesItsSlot() {
         val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null; var migrations=0
         try {
-            owner.prepare()
+            onWorker {owner.prepare()}
             val work=PartitionMigrationWork(java.util.concurrent.Executor { pending=it; throw java.util.concurrent.RejectedExecutionException("Accepted first") },
                 { control,key -> migrations++; owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
             assertFalse(work.start("old",1000,true)); assertTrue(work.busy)
@@ -182,7 +183,7 @@ class OwnedPartitionShelfTest {
     @Test fun inlineActualReadyThenExecutorThrowReportsKnownExecutionWithoutRewritingOutcome() {
         val f=Fixture(); val owner=f.owner(); var migrations=0
         try {
-            owner.prepare()
+            onWorker {owner.prepare()}
             val work=PartitionMigrationWork(java.util.concurrent.Executor { it.run(); throw IOException("After completion") },
                 { control,key -> migrations++; owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
             assertTrue(work.start("old",1000,true)); assertFalse(work.busy)
@@ -194,7 +195,7 @@ class OwnedPartitionShelfTest {
     @Test fun replayingAnAlreadyFinishedRunnableCannotBeginAnotherActualMigration() {
         val f=Fixture(); val owner=f.owner(); var pending:Runnable?=null; var migrations=0
         try {
-            owner.prepare()
+            onWorker {owner.prepare()}
             val work=PartitionMigrationWork(java.util.concurrent.Executor { pending=it },
                 { control,key -> migrations++; owner.migrate(control,key,{Long.MAX_VALUE},{}) },{owner.isAvailable},nanoTime={0L})
             assertTrue(work.start("old",1000,true)); requireNotNull(pending).run()
@@ -211,7 +212,7 @@ class OwnedPartitionShelfTest {
         val migrations=java.util.concurrent.atomic.AtomicInteger()
         val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
         try {
-            owner.prepare()
+            onWorker {owner.prepare()}
             val work=PartitionMigrationWork(java.util.concurrent.Executor { pending=it },
                 { control,key ->
                     migrations.incrementAndGet(); entered.countDown()
@@ -233,7 +234,7 @@ class OwnedPartitionShelfTest {
     @Test fun inlineActualFailureThenExecutorThrowDoesNotPretendNoSubmissionOccurred() {
         val f=Fixture(); val owner=f.owner(); var migrations=0
         try {
-            owner.prepare()
+            onWorker {owner.prepare()}
             val work=PartitionMigrationWork(java.util.concurrent.Executor { it.run(); throw java.util.concurrent.RejectedExecutionException("After execution") },
                 { _,_ -> migrations++; throw IOException("Known operation failure") },{owner.isAvailable},nanoTime={0L})
             assertTrue(work.start("old",1000,true)); assertEquals(1,migrations)
@@ -245,10 +246,10 @@ class OwnedPartitionShelfTest {
     @Test fun resumedShelfReadsReadyCopyWithoutReopeningLegacyCacheOrInventingNewMigration() {
         val f=Fixture(); val first=f.owner(); var resumed:OwnedPartitionShelf?=null; var firstClosed=false
         try {
-            first.prepare()
+            onWorker {first.prepare()}
             val record=first.migrate(CacheMigrationControl(1000,nanoTime={0L}),"old",{Long.MAX_VALUE},{})
             teardown(first); firstClosed=true; assertEquals(0,f.budget.resident)
-            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
             val reader=next.audio.source.createDataSource()
             try {
                 assertEquals(4L,reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey("old").build()))
@@ -261,7 +262,7 @@ class OwnedPartitionShelfTest {
     @Test fun resumePinsJournalIdentityBeforeAnyConstructorOrLegacyOpening() {
         val f=Fixture(); val first=f.owner(); var firstClosed=false
         try {
-            first.prepare(); teardown(first); firstClosed=true
+            onWorker {first.prepare()}; teardown(first); firstClosed=true
             val file=File(f.root,"partition-locators-v1.db"); val kept=File(f.root,"preserved-locators.db")
             var observations=0
             val resume=f.owner(PartitionShelfStart.Resume,currentVolume={
@@ -269,19 +270,19 @@ class OwnedPartitionShelfTest {
                 if(observations==2) { check(file.renameTo(kept)); kept.copyTo(file) }
                 f.volume
             })
-            assertThrows(IOException::class.java) { resume.prepare() }
+            assertThrows(IOException::class.java) { onWorker {resume.prepare()} }
             assertTrue(kept.isFile); assertTrue(file.isFile); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
             assertArrayEquals(payload,f.original.readBytes()); assertEquals(0,f.budget.resident)
-            assertThrows(IOException::class.java) { resume.prepare() }
+            assertThrows(IOException::class.java) { onWorker {resume.prepare()} }
         } finally { if(!firstClosed) teardown(first); f.provider.close() }
     }
     @Test fun resumeNeverCreatesAMissingJournalAndFreshNeverAdoptsExistingRoot() {
         val f=Fixture(); assertTrue(f.root.mkdir()); val marker=File(f.root,"user-original").apply { writeText("kept") }
         try {
-            val fresh=f.owner(); assertThrows(IOException::class.java) { fresh.prepare() }
+            val fresh=f.owner(); assertThrows(IOException::class.java) { onWorker {fresh.prepare()} }
             assertEquals("kept",marker.readText()); assertArrayEquals(payload,f.original.readBytes())
             val resume=f.owner(PartitionShelfStart.Resume)
-            assertThrows(IOException::class.java) { resume.prepare() }
+            assertThrows(IOException::class.java) { onWorker {resume.prepare()} }
             assertFalse(File(f.root,"new-save-journal-v1.db").exists())
             assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
         } finally { f.provider.close() }
@@ -289,7 +290,7 @@ class OwnedPartitionShelfTest {
     @Test fun partitionRootCannotAliasTheLegacyFolder() {
         val f=Fixture(); val owner=f.owner(path=f.legacy)
         try {
-            assertThrows(IOException::class.java) { owner.prepare() }
+            assertThrows(IOException::class.java) { onWorker {owner.prepare()} }
             assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
             assertEquals(0,f.budget.resident)
         } finally { f.provider.close() }
@@ -303,7 +304,7 @@ class OwnedPartitionShelfTest {
     @Test fun restartedInterruptedMigrationRequiresExactConsentAndPreservesAllEarlierBytes() {
         val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
         try {
-            first.prepare()
+            onWorker {first.prepare()}
             assertThrows(IOException::class.java) {
                 first.migrate(CacheMigrationControl(10000,nanoTime={0L}),"old",{Long.MAX_VALUE},{
                     CacheMigrationJournal(f.root,create=false).use {
@@ -316,7 +317,7 @@ class OwnedPartitionShelfTest {
             val files=File(f.root,"resources/${shown.ticket.allocation.directory}").walkTopDown()
                 .filter { it.isFile }.associateWith { it.readBytes() }
             assertTrue(files.isNotEmpty()); teardown(first); firstClosed=true
-            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
             assertThrows(IllegalStateException::class.java) { next.migrationRecoveryPage() }
             assertEquals(listOf(shown),onWorker { next.migrationRecoveryPage() })
             assertEquals(0,f.budget.resident); assertTrue(onWorker { next.audio.contains("old") })
@@ -339,7 +340,7 @@ class OwnedPartitionShelfTest {
     @Test fun recoveryPagesAreBoundedAndInterruptedSavesAreNotAdoptedAfterRestart() {
         val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
         try {
-            first.prepare()
+            onWorker {first.prepare()}
             CachePartitionCatalog(f.root,create=false).use { catalog ->
                 CacheMigrationJournal(f.root,create=false).use { migration ->
                     for(i in 0 until PARTITION_LOCATOR_WINDOW+3) {
@@ -353,7 +354,7 @@ class OwnedPartitionShelfTest {
                 }
             }
             teardown(first); firstClosed=true
-            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
             val page=onWorker { next.migrationRecoveryPage() }
             assertEquals(PARTITION_LOCATOR_WINDOW,page.size)
             assertEquals(3,onWorker { next.migrationRecoveryPage(page.last().ticket.allocation.key) }.size)
@@ -371,12 +372,12 @@ class OwnedPartitionShelfTest {
         val key=playedKey("saved/owned-played"); val song=byteArrayOf(1,2,3)
         val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/api1/fileopus/7").setKey(key).build()
         try {
-            first.prepare(); val manager=first.initializeManager(); await(manager) { true }
+            onWorker {first.prepare()}; val manager=first.initializeManager(); await(manager) { true }
             onWorker { first.copyPlayed(spec,song,"http://127.0.0.1:7814/7",
                 DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
             assertEquals(0,f.budget.resident); assertTrue(onWorker { first.audio.contains(key) })
             teardown(first); firstClosed=true
-            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
             onWorker {
                 val state=next.audio.inspect(key); assertEquals(SavedCoverage.Full,state.coverage)
                 assertArrayEquals(song,state.metadata.get(SONG_METADATA,null as ByteArray?))
@@ -402,7 +403,7 @@ class OwnedPartitionShelfTest {
         val f=Fixture(); val first=f.owner(); var closed=false; var resumed:OwnedPartitionShelf?=null
         val older=playedKey("saved/older"); val newer=playedKey("saved/newer")
         try {
-            first.prepare(); await(first.initializeManager()) {true}
+            onWorker {first.prepare()}; await(first.initializeManager()) {true}
             copyPlayed(first,older); Thread.sleep(20); copyPlayed(first,newer); Thread.sleep(20)
             onWorker {
                 val reader=first.audio.source.createDataSource()
@@ -418,7 +419,7 @@ class OwnedPartitionShelfTest {
             assertEquals(SavedCoverage.Missing,onWorker {first.audio.inspect(newer).coverage})
             assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
             teardown(first); closed=true
-            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare(); await(next.initializeManager()) {true}
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}; await(next.initializeManager()) {true}
             assertEquals(SavedCoverage.Full,onWorker {next.audio.inspect(older).coverage})
             assertEquals(SavedCoverage.Missing,onWorker {next.audio.inspect(newer).coverage})
             assertEquals(0L,onWorker {next.resizePlayed(4) {true}}.removed)
@@ -428,7 +429,7 @@ class OwnedPartitionShelfTest {
         val f=Fixture(oldKey=playedKey("saved/protected-legacy")); val owner=f.owner()
         val key=playedKey("saved/resize-owned")
         try {
-            owner.prepare(); await(owner.initializeManager()) {true}; copyPlayed(owner,key)
+            onWorker {owner.prepare()}; await(owner.initializeManager()) {true}; copyPlayed(owner,key)
             val reader=owner.audio.source.createDataSource()
             onWorker {
                 reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(key).build())
@@ -449,7 +450,7 @@ class OwnedPartitionShelfTest {
     @Test fun playedResizePagesPastFirstWindowAndPreservesCallerClaims() {
         val f=Fixture(); val owner=f.owner(); val keep=playedKey("saved/resize-00")
         try {
-            owner.prepare(); await(owner.initializeManager()) {true}
+            onWorker {owner.prepare()}; await(owner.initializeManager()) {true}
             for(i in 0..18) copyPlayed(owner,playedKey("saved/resize-"+i.toString().padStart(2,'0')))
             val result=onWorker(60) {owner.resizePlayed(4) {it!=keep}}
             assertTrue(result.complete); assertEquals(18L,result.removed); assertEquals(72L,result.removedBytes)
@@ -464,7 +465,7 @@ class OwnedPartitionShelfTest {
         try {
             val old=DownloadRequest.Builder("old",Uri.parse("http://127.0.0.1:7814/old")).setCustomCacheKey("old").build()
             DefaultDownloadIndex(f.provider,"owned_partition").putDownload(Download(old,Download.STATE_COMPLETED,1,2,4,0,0))
-            owner.prepare(); val manager=owner.initializeManager()
+            onWorker {owner.prepare()}; val manager=owner.initializeManager()
             manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads(); await(manager) {true}
             val ids=(0..1).map {"saved/bulk-$it"}
             for(id in ids) {
@@ -490,7 +491,7 @@ class OwnedPartitionShelfTest {
         val field=OfflineStore::class.java.getDeclaredField("store").apply {isAccessible=true}; val previous=field.get(OfflineStore)
         val id="saved/bulk-reader"
         try {
-            owner.prepare(); val manager=owner.initializeManager()
+            onWorker {owner.prepare()}; val manager=owner.initializeManager()
             manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads(); await(manager) {true}
             val request=DownloadRequest.Builder(id,Uri.parse("http://127.0.0.1:7814/file")).setCustomCacheKey(id).build()
             val command=owner.prepareSave(request); assertTrue(owner.deliver(command,request) {it.addDownload(request)})
@@ -518,7 +519,7 @@ class OwnedPartitionShelfTest {
         val request=DownloadRequest.Builder("saved/store-delete",Uri.parse("http://127.0.0.1:7814/api1/fileopus/1"))
             .setCustomCacheKey("saved/store-delete").build()
         try {
-            first.prepare(); val manager=first.initializeManager()
+            onWorker {first.prepare()}; val manager=first.initializeManager()
             manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads(); await(manager) {true}
             val command=first.prepareSave(request); assertTrue(first.deliver(command,request) {it.addDownload(request)})
             await(manager) { manager.downloadIndex.getDownload(request.id)?.state==Download.STATE_COMPLETED }
@@ -536,7 +537,7 @@ class OwnedPartitionShelfTest {
             assertThrows(IOException::class.java) {onWorker { first.audio.inspect(request.id) }}
             assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
             field.set(OfflineStore,previous); teardown(first); closed=true
-            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
             val nextManager=next.initializeManager(); await(nextManager) {true}
             assertNull(nextManager.downloadIndex.getDownload(request.id))
             assertFalse(onWorker { next.audio.contains(request.id) })
@@ -550,7 +551,7 @@ class OwnedPartitionShelfTest {
         val key=playedKey("saved/remove-owned"); val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
         val field=OfflineStore::class.java.getDeclaredField("store").apply { isAccessible=true }; val previous=field.get(OfflineStore)
         try {
-            first.prepare(); val manager=first.initializeManager(); await(manager) { true }
+            onWorker {first.prepare()}; val manager=first.initializeManager(); await(manager) { true }
             onWorker { first.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
                 DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
             val phone=Shelf.partitioned(first,MuonDownloadService::class.java)
@@ -575,7 +576,7 @@ class OwnedPartitionShelfTest {
             assertEquals(PartitionSavePhase.Closed,onWorker { first.saveRecoveryPage().single().phase })
             field.set(OfflineStore,previous)
             teardown(first); firstClosed=true
-            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
             assertEquals(SavedCoverage.Missing,onWorker { next.audio.inspect(key).coverage })
             assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
         } finally { field.set(OfflineStore,previous); resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
@@ -584,7 +585,7 @@ class OwnedPartitionShelfTest {
         val f=Fixture(); val owner=f.owner(); val key=playedKey("saved/protected-owned")
         val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
         try {
-            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {owner.prepare()}; val manager=owner.initializeManager(); await(manager) { true }
             onWorker { owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
                 DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
             val request=DownloadRequest.Builder("saved/foreign-alias",Uri.parse("http://127.0.0.1:7814/file"))
@@ -604,7 +605,7 @@ class OwnedPartitionShelfTest {
         val f=Fixture(); val owner=f.owner(); val key=playedKey("saved/denied-owned")
         val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
         try {
-            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {owner.prepare()}; val manager=owner.initializeManager(); await(manager) { true }
             onWorker { owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
                 DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
             assertEquals(0,f.budget.resident)
@@ -620,7 +621,7 @@ class OwnedPartitionShelfTest {
     @Test fun clearUsesBoundedJournalPagesAndReportsProtectedLegacyBytesWithoutErasingOriginals() {
         val f=Fixture(playedKey("legacy")); val owner=f.owner()
         try {
-            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {owner.prepare()}; val manager=owner.initializeManager(); await(manager) { true }
             val count=PARTITION_LOCATOR_WINDOW+3
             onWorker {
                 for(i in 0 until count) {
@@ -646,7 +647,7 @@ class OwnedPartitionShelfTest {
         val f=Fixture(); val owner=f.owner(); val key=playedKey("saved/clear-reader")
         val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
         try {
-            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {owner.prepare()}; val manager=owner.initializeManager(); await(manager) { true }
             onWorker { owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",
                 DataSource.Factory { ByteArrayDataSource(payload) }) { 8192L } }
             val reader=owner.audio.source.createDataSource()
@@ -666,7 +667,7 @@ class OwnedPartitionShelfTest {
         val f=Fixture(); val owner=f.owner()
         val alias=playedKey("saved/clear-alias"); val denied=playedKey("saved/clear-denied"); val eligible=playedKey("saved/clear-free")
         try {
-            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {owner.prepare()}; val manager=owner.initializeManager(); await(manager) { true }
             onWorker {
                 for(key in listOf(alias,denied,eligible)) owner.copyPlayed(
                     DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build(),byteArrayOf(1),
@@ -697,7 +698,7 @@ class OwnedPartitionShelfTest {
         val key=playedKey("saved/aggregate-first"); val denied=playedKey("saved/aggregate-denied")
         fun spec(name:String)=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(name).build()
         try {
-            first.prepare(); val manager=first.initializeManager(); await(manager) { true }
+            onWorker {first.prepare()}; val manager=first.initializeManager(); await(manager) { true }
             onWorker {
                 first.copyPlayed(spec(key),byteArrayOf(1),"http://127.0.0.1:7814/1",
                     DataSource.Factory { ByteArrayDataSource(payload) }) { 8L }
@@ -707,7 +708,7 @@ class OwnedPartitionShelfTest {
                 assertTrue(first.saveRecoveryPage().none { it.ticket.allocation.key==denied })
             }
             teardown(first); firstClosed=true
-            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
             onWorker {
                 assertEquals(8L,next.playedBytes())
                 assertThrows(PlayedCopyTooLarge::class.java) { next.copyPlayed(spec(denied),byteArrayOf(1),
@@ -724,7 +725,7 @@ class OwnedPartitionShelfTest {
         val first=playedKey("saved/headroom-first"); val tooLarge=playedKey("saved/headroom-large"); val last=playedKey("saved/headroom-last")
         fun spec(key:String)=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
         try {
-            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {owner.prepare()}; val manager=owner.initializeManager(); await(manager) { true }
             onWorker {
                 owner.copyPlayed(spec(first),byteArrayOf(1),"http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) }) { 6L }
                 assertThrows(PlayedCopyTooLarge::class.java) { owner.copyPlayed(spec(tooLarge),byteArrayOf(1),
@@ -743,7 +744,7 @@ class OwnedPartitionShelfTest {
         val first=playedKey("saved/concurrent-first"); val second=playedKey("saved/concurrent-second")
         fun spec(key:String)=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
         try {
-            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {owner.prepare()}; val manager=owner.initializeManager(); await(manager) { true }
             val raw=ByteArrayDataSource(payload)
             val blocked=DataSource.Factory { object:DataSource by raw {
                 override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
@@ -763,7 +764,7 @@ class OwnedPartitionShelfTest {
         val f=Fixture(); val owner=f.owner(); val key=playedKey("saved/cancelled-census")
         val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
         try {
-            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {owner.prepare()}; val manager=owner.initializeManager(); await(manager) { true }
             onWorker {
                 assertThrows(java.io.InterruptedIOException::class.java) {
                     owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) },
@@ -775,6 +776,71 @@ class OwnedPartitionShelfTest {
             }
             assertTrue(f.barrier.quiescent); assertArrayEquals(payload,f.original.readBytes())
         } finally { teardown(owner); f.provider.close() }
+    }
+
+    @Test fun originalIntentRequiresConsentAndRefusesReaderEvenAfterEof() {
+        val f=Fixture(); val owner=f.owner()
+        try {
+            onWorker {owner.prepare()}
+            assertThrows(IOException::class.java) {onWorker {owner.beginOriginalRetirement("old",false)}}
+            assertTrue(owner.audio.contains("old")); assertTrue(onWorker {owner.retirementRecoveryPage()}.isEmpty())
+            val reader=owner.audio.source.createDataSource()
+            try {
+                assertEquals(4L,reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey("old").build()))
+                assertEquals(4,reader.read(ByteArray(4),0,4)); assertEquals(-1,reader.read(ByteArray(1),0,1))
+                assertThrows(IOException::class.java) {onWorker {owner.beginOriginalRetirement("old",true)}}
+                assertTrue(onWorker {owner.retirementRecoveryPage()}.isEmpty())
+            } finally {reader.close()}
+            val pending=onWorker {owner.beginOriginalRetirement("old",true)}
+            assertEquals(LegacyRetirementPhase.Pending,pending.phase)
+            assertEquals(listOf(pending),onWorker {owner.retirementRecoveryPage()})
+            assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+            assertFalse(owner.audio.contains("old")); assertTrue(owner.claimsName("old"))
+            assertThrows(IOException::class.java) {owner.audio.inspect("old")}
+            val hidden=owner.audio.source.createDataSource()
+            try {assertThrows(IOException::class.java) {hidden.open(DataSpec.Builder().setUri("muon-saved:test").setKey("old").build())}}
+            finally {hidden.close()}
+            val keys=mutableListOf<String>(); owner.audio.forEachKey {keys.add(it); true}; assertFalse(keys.contains("old"))
+            assertThrows(IOException::class.java) {onWorker {owner.migrate(CacheMigrationControl(1000,nanoTime={0L}),"old",{Long.MAX_VALUE},{})}}
+            assertThrows(IOException::class.java) {onWorker {owner.beginOriginalRetirement("old",true)}}
+            assertEquals(0,f.budget.resident)
+        } finally {teardown(owner); f.provider.close()}
+    }
+    @Test fun pendingOriginalIntentSuppressesReadyRouteAndSurvivesActualShelfRestart() {
+        val f=Fixture(); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
+        try {
+            onWorker {first.prepare()}
+            val ready=first.migrate(CacheMigrationControl(1000,nanoTime={0L}),"old",{Long.MAX_VALUE},{})
+            assertEquals(MigrationPhase.Ready,ready.phase); assertTrue(first.audio.contains("old"))
+            val pending=onWorker {first.beginOriginalRetirement("old",true)}
+            assertFalse(first.audio.contains("old")); assertArrayEquals(payload,f.original.readBytes())
+            teardown(first); firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; onWorker {next.prepare()}
+            assertEquals(listOf(pending),onWorker {next.retirementRecoveryPage()})
+            assertFalse(next.audio.contains("old")); assertTrue(next.claimsName("old"))
+            assertThrows(IOException::class.java) {onWorker {next.migrate(CacheMigrationControl(1000,nanoTime={0L}),"old",{Long.MAX_VALUE},{})}}
+            assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+        } finally {resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close()}
+    }
+    @Test fun replacedRetirementJournalStopsRoutingWithoutAdoptingReplacement() {
+        val f=Fixture(); val owner=f.owner()
+        try {
+            onWorker {owner.prepare()}
+            val file=File(f.root,"legacy-retirements-v1.db"); val kept=File(f.root,"retained-retirements.db")
+            assertTrue(file.renameTo(kept)); kept.copyTo(file)
+            assertFalse(owner.isAvailable)
+            assertThrows(IOException::class.java) {owner.audio.contains("old")}
+            assertThrows(IOException::class.java) {onWorker {owner.beginOriginalRetirement("old",true)}}
+            assertArrayEquals(payload,f.original.readBytes()); assertTrue(kept.isFile)
+        } finally {teardown(owner); f.provider.close()}
+    }
+    @Test fun preparationRefusesMainThreadBeforeFilesystemOrOwnerConstruction() {
+        val f=Fixture(); val owner=f.owner()
+        try {
+            assertThrows(IllegalStateException::class.java) {owner.prepare()}
+            assertFalse(f.root.exists()); assertArrayEquals(payload,f.original.readBytes())
+            onWorker {owner.prepare()}; assertTrue(owner.isAvailable)
+        } finally {teardown(owner); f.provider.close()}
     }
 
 }

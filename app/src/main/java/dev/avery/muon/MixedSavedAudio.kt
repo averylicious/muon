@@ -10,6 +10,7 @@ import java.io.IOException
 
 internal sealed interface PartitionReadRoute {
     data object Legacy:PartitionReadRoute
+    data object Retired:PartitionReadRoute
     data class Published(val record:MigrationRecord):PartitionReadRoute
     data class NewSave(val record:PartitionSaveRecord):PartitionReadRoute
 }
@@ -23,9 +24,10 @@ internal sealed interface PartitionReadRoute {
  */
 internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
     private val legacy:SavedAudio,private val published:PartitionPublishedAudio,
-    private val completed:PartitionCompletedAudio):SavedAudio {
-    private fun route(key:String)=owner.savedReadRoute(key)
+    private val completed:PartitionCompletedAudio,private val retired:(String)->Boolean={false}):SavedAudio {
+    private fun route(key:String)=if(retired(key)) PartitionReadRoute.Retired else owner.savedReadRoute(key)
     private fun audio(route:PartitionReadRoute):SavedAudio=when(route) {
+        PartitionReadRoute.Retired -> throw IOException("Original copy removal is pending or complete; legacy fallback is unavailable")
         PartitionReadRoute.Legacy -> legacy
         is PartitionReadRoute.Published -> published
         is PartitionReadRoute.NewSave -> completed
@@ -35,7 +37,7 @@ internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
     }
     override fun contains(key:String):Boolean {
         val expected=route(key)
-        return audio(expected).contains(key).also { unchanged(key,expected) }
+        return (expected!=PartitionReadRoute.Retired && audio(expected).contains(key)).also { unchanged(key,expected) }
     }
     override fun inspect(key:String):SavedAudioState {
         val expected=route(key)
@@ -47,7 +49,7 @@ internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
             if(!more) return
             backend.forEachKey { key ->
                 val expected=route(key)
-                if(audio(expected)===backend) {
+                if(expected!=PartitionReadRoute.Retired && audio(expected)===backend) {
                     more=visit(key)
                     unchanged(key,expected)
                 }

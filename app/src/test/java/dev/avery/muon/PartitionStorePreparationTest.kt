@@ -94,6 +94,9 @@ class PartitionStorePreparationTest {
                 for(name in listOf("saves","migrations","catalog")) (field(name) as java.io.Closeable).close()
             }
         }
+        for(root in handles.filterIsInstance<OwnedPartitionShelf>()) {
+            resources(root)?.let {made -> worker {(made.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(made) as LegacyRetirementJournal).close()}}
+        }
         for(handle in handles) when(handle) {
             is java.util.concurrent.ExecutorService -> { handle.shutdown(); assertTrue(handle.awaitTermination(10,TimeUnit.SECONDS)) }
             is StandaloneDatabaseProvider -> handle.close()

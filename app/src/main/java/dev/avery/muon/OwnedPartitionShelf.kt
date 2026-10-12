@@ -32,9 +32,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private enum class Phase { New,Preparing,Ready,Uncertain }
     @Volatile private var phase=Phase.New
     private var rootIdentity:Any?=null
-    private val journalNames=arrayOf("partition-locators-v1.db","migration-journal-v1.db","new-save-journal-v1.db")
+    private val journalNames=arrayOf("partition-locators-v1.db","migration-journal-v1.db","new-save-journal-v1.db","legacy-retirements-v1.db")
     private val identities=arrayOfNulls<Any>(journalNames.size)
-    private class Resources(val legacy:LegacyTransitionOwner,val catalog:CachePartitionCatalog,
+    private class Resources(val legacy:LegacyTransitionOwner,val retirements:LegacyRetirementJournal,val catalog:CachePartitionCatalog,
         val migrations:CacheMigrationJournal,val saves:PartitionSaveJournal,val session:PartitionStorageSession,
         val manager:PartitionShelfManager,val workers:java.util.concurrent.ExecutorService,val work:PartitionMigrationWork)
     private fun exactDirectory(file:File) {
@@ -78,6 +78,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
      * A failed attempt is sticky and retains resources. Never construct another root over it.
      */
     @Synchronized fun prepare() {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Partition shelf preparation requires a worker"}
         if(phase==Phase.Ready) { located(); return }
         if(phase!=Phase.New) throw IOException("Partition shelf startup is active or uncertain")
         phase=Phase.Preparing
@@ -93,6 +94,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             val migrations=owner.own { CacheMigrationJournal(directory,create=start==PartitionShelfStart.Fresh) }
             if(start==PartitionShelfStart.Resume) located()
             val saves=owner.own { PartitionSaveJournal(directory,create=start==PartitionShelfStart.Fresh) }
+            val retirements=owner.own {LegacyRetirementJournal(directory,start==PartitionShelfStart.Fresh)}
+            retirements.open()
             if(start==PartitionShelfStart.Fresh) for(i in journalNames.indices) {
                 val file=File(directory,journalNames[i]); exactJournal(file); identities[i]=key(file)
             }
@@ -101,13 +104,13 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 { if(runCatching { located(); true }.getOrDefault(false)) volume else null },budget=budget,saves=saves) }
             val index=PartitionCompletionIndex(database,indexName)
             val session=owner.own { PartitionStorageSession(catalog,saves,migrations,native,database,indexName,
-                audio,upstream,{ name -> !audio.contains(name) && !index.holdsName(name) && unclaimed(name) },::available,barrier) }
+                audio,upstream,{ name -> !retirements.holdsName(name) && !audio.contains(name) && !index.holdsName(name) && unclaimed(name) },::available,barrier,retirements=retirements) }
             val manager=owner.own { PartitionShelfManager(context.applicationContext,database,indexName,session,barrier) }
             val workers=owner.own { java.util.concurrent.Executors.newSingleThreadExecutor() }
             val work=owner.own { PartitionMigrationWork(workers,{ control,name ->
                 legacy.migrate(session,control,name,{ directory.usableSpace }) { located() }
             },::available,knownRejectionBeforeSubmission=true) }
-            Resources(legacy,catalog,migrations,saves,session,manager,workers,work)
+            Resources(legacy,retirements,catalog,migrations,saves,session,manager,workers,work)
         }; phase=Phase.Ready }
         catch(failure:Throwable) {
             phase=Phase.Uncertain; barrier.invalidate(); throw failure
@@ -182,6 +185,14 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
      * journal, metadata or exception history survives. Call off main; pages are observations only.
      * An interrupted new save remains preserved, never automatically resumed/adopted or deleted.
      */
+    /** Internal controller boundary only: durable consent/route suppression is NOT physical Delete.
+     * Final app control must finish exact source/index disposition or expose pending recovery.
+     */
+    internal fun beginOriginalRetirement(name:String,explicitConsent:Boolean):LegacyRetirementRecord {
+        val made=resources()
+        return made.legacy.beginRetirement(made.session,made.retirements,name,explicitConsent) {located()}
+    }
+    fun retirementRecoveryPage(after:String?=null):List<LegacyRetirementRecord> = recoveryRead {it.retirements.page(after)}
     fun migrationRecoveryPage(after:String?=null):List<MigrationRecord> = recoveryRead { it.migrations.page(after) }
     fun saveRecoveryPage(after:String?=null):List<PartitionSaveRecord> = recoveryRead { it.saves.page(after) }
     private fun <T> recoveryRead(read:(Resources)->T):T {

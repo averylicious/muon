@@ -41,6 +41,12 @@ class PartitionShelfServiceTest {
     private val app get()=RuntimeEnvironment.getApplication()
     private val payload=byteArrayOf(1,4,1,4)
     private val storeField=OfflineStore::class.java.getDeclaredField("store").apply { isAccessible=true }
+    private fun <T> onWorker(read:()->T):T {
+        val executor=java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {return try {executor.submit<T> {read()}.get(30,TimeUnit.SECONDS)}
+            catch(error:java.util.concurrent.ExecutionException) {throw requireNotNull(error.cause)}}
+        finally {executor.shutdownNow(); check(executor.awaitTermination(10,TimeUnit.SECONDS))}
+    }
     private inner class Root(val name:String,val database:StandaloneDatabaseProvider,val budget:PartitionNativeBudget) {
         val legacy=folders.newFolder(); val root=File(folders.newFolder(),"partitions")
         val barrier=SavedStorageBarrier(); val original:File
@@ -57,7 +63,7 @@ class PartitionShelfServiceTest {
             } finally { native.release() }
             owner=OwnedPartitionShelf(app,root,legacy,db,database,name,"fixture",{"fixture"},PartitionShelfStart.Fresh,
                 barrier,{true},DataSource.Factory { ByteArrayDataSource(payload) },budget)
-            owner.prepare()
+            onWorker {owner.prepare()}
         }
         fun closeFixture() {
             val startup=OwnedPartitionShelf::class.java.getDeclaredField("startup").apply { isAccessible=true }.get(owner)
@@ -69,6 +75,7 @@ class PartitionShelfServiceTest {
             (made.javaClass.getDeclaredField("workers").apply { isAccessible=true }.get(made) as java.util.concurrent.ExecutorService).shutdown()
             for(name in listOf("manager","session","legacy","saves","migrations","catalog"))
                 (made.javaClass.getDeclaredField(name).apply { isAccessible=true }.get(made) as java.io.Closeable).close()
+            onWorker {(made.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(made) as LegacyRetirementJournal).close()}
         }
     }
     private inner class Fixture(val withCard:Boolean=true):java.io.Closeable {

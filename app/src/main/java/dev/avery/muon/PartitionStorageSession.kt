@@ -27,7 +27,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     private val native:PartitionNativeOwner,private val database:DatabaseProvider,private val indexName:String,
     legacy:SavedAudio,upstream:DataSource.Factory,unclaimed:(String)->Boolean,
     private val available:()->Boolean,private val barrier:SavedStorageBarrier,
-    commandCapacity:Int=DOWNLOAD_COMMAND_COUNT):Closeable {
+    commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,private val retirements:LegacyRetirementJournal?=null):Closeable {
     internal fun usesBarrier(candidate:SavedStorageBarrier):Boolean = candidate===barrier
     @Volatile private var stopped=false
     @Volatile private var closing=false
@@ -41,7 +41,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     private val published=PartitionPublishedAudio(native,capacity=2)
     private val completionIndex=PartitionCompletionIndex(database,indexName)
     private val completed=PartitionCompletedAudio(native,completionIndex::find,capacity=2,allowPlayed=true)
-    private val mixed=MixedSavedAudio(native,legacy,published,completed)
+    private val mixed=MixedSavedAudio(native,legacy,published,completed) {name -> retirements?.holdsName(name)==true}
     private val playedCopies=PartitionPlayedCopy(catalog,saves,migrations,native,barrier,
         { !stopped && !closing && !uncertain && available() },unclaimed)
     val audio:SavedAudio=BarrierSavedAudio(object:SavedAudio {
@@ -342,7 +342,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
      * Pending/uncertain/empty journal claims still reserve their names, not merely playable copies.
      */
     fun claimsName(name:String):Boolean=operation {
-        catalog.find(name)!=null || saves.find(name)!=null || migrations.find(name)!=null ||
+        retirements?.holdsName(name)==true || catalog.find(name)!=null || saves.find(name)!=null || migrations.find(name)!=null ||
             completionIndex.holdsName(name) || mixed.contains(name)
     }
     fun containsId(id:String,completedOnly:Boolean=false)=operation { completionIndex.containsId(id,completedOnly) }
@@ -377,7 +377,9 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
      */
     fun migrate(control:CacheMigrationControl,source:Cache,key:String,availableBytes:()->Long,
         checkpoint:()->Unit):MigrationRecord {
-        requireOpen()
+        operation {
+            if(retirements?.holdsName(key)==true) throw IOException("Migration cannot replace retired original intent")
+        }
         val publication=CacheMigrationPublication(catalog,migrations,native.migrationTarget(key))
         val adapter=BarrierCacheMigration(barrier) {
             requireOpen(); writers.trimIdle(); published.trimIdle(); completed.trimIdle()
@@ -385,6 +387,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         return try { adapter.run(control,source,key,publication,availableBytes) {
             requireOpen()
             if(saves.find(key)!=null) throw IOException("Migration cannot replace a new-save claim")
+            if(retirements?.holdsName(key)==true) throw IOException("Migration cannot replace retired original intent")
             checkpoint()
         } }
         catch(failure:Throwable) {
@@ -396,7 +399,9 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
      * caller supplies its correct readonly DB/UID/root and must keep that DB alive until return. */
     fun migrateLegacy(control:CacheMigrationControl,directory:File,uid:Long,key:String,index:SQLiteDatabase,
         availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord {
-        requireOpen()
+        operation {
+            if(retirements?.holdsName(key)==true) throw IOException("Migration cannot replace retired original intent")
+        }
         val publication=CacheMigrationPublication(catalog,migrations,native.migrationTarget(key))
         val adapter=BarrierCacheMigration(barrier) {
             requireOpen(); writers.trimIdle(); published.trimIdle(); completed.trimIdle()
@@ -405,6 +410,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             adapter.runProjected(control,key,publication,availableBytes,{
                 requireOpen()
                 if(saves.find(key)!=null) throw IOException("Migration cannot replace a new-save claim")
+                if(retirements?.holdsName(key)==true) throw IOException("Migration cannot replace retired original intent")
                 checkpoint()
             }) { checked -> LegacyResourceProjection.read(directory,uid,key,index,checked) }
         } catch(failure:Throwable) {

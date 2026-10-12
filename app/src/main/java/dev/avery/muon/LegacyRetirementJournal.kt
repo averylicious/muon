@@ -31,6 +31,7 @@ internal class LegacyRetirementJournal(private val root:File,private val create:
     private enum class Phase { New,Opening,Open,Unsupported,Uncertain,Closed }
     private var phase=Phase.New
     private var database:SQLiteDatabase?=null
+    @get:Synchronized val ownershipUncertain:Boolean get()=phase==Phase.Uncertain
     private var ownedIo:Closeable?=null
     private fun <T,R:Closeable> useOwned(open:()->R,read:(R)->T):T {
         if(ownedIo!=null) throw IOException("Retirement journal I/O is still owned")
@@ -42,12 +43,12 @@ internal class LegacyRetirementJournal(private val root:File,private val create:
             catch(close:Throwable) {
                 phase=Phase.Uncertain
                 if(failure!=null && failure!==close) close.addSuppressed(failure)
-                throw IOException("Retirement journal I/O close uncertain; owner retained",close)
+                throw PartitionOwnershipUncertain(this,close)
             }
         }
     }
     private fun beginTransaction(db:SQLiteDatabase) {
-        try {db.beginTransaction()} catch(failure:Throwable) {phase=Phase.Uncertain; throw failure}
+        try {db.beginTransaction()} catch(failure:Throwable) {phase=Phase.Uncertain; throw PartitionOwnershipUncertain(this,failure)}
     }
     private val schema="CREATE TABLE retirements(key BLOB PRIMARY KEY NOT NULL,token TEXT UNIQUE NOT NULL,phase INTEGER NOT NULL,manifest BLOB NOT NULL)"
     private val projection="CASE WHEN typeof(key)='blob' AND length(key)<=$MIGRATION_KEY_BYTES THEN key ELSE NULL END,"+
@@ -57,14 +58,14 @@ internal class LegacyRetirementJournal(private val root:File,private val create:
     private fun worker() {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Retirement journal requires a worker"}
     }
-    private fun db():SQLiteDatabase {
-        worker()
+    private fun db(offMain:Boolean=true):SQLiteDatabase {
+        if(offMain) worker()
         if(phase!=Phase.Open) throw IOException("Retirement journal is not open or its ownership is uncertain")
         return requireNotNull(database)
     }
     private fun endTransaction(db:SQLiteDatabase) {
         if(ownedIo!=null) {phase=Phase.Uncertain; return} // Never roll back over an unknown live statement.
-        try {db.endTransaction()} catch(failure:Throwable) {phase=Phase.Uncertain; throw failure}
+        try {db.endTransaction()} catch(failure:Throwable) {phase=Phase.Uncertain; throw PartitionOwnershipUncertain(this,failure)}
     }
     @Synchronized fun open() {
         worker()
@@ -100,9 +101,16 @@ internal class LegacyRetirementJournal(private val root:File,private val create:
             } finally {endTransaction(opened)}
             phase=Phase.Open
         } catch(failure:Throwable) {
-            if(ownedIo!=null || phase==Phase.Uncertain) {phase=Phase.Uncertain; throw failure}
+            if(ownedIo!=null || phase==Phase.Uncertain) {
+                phase=Phase.Uncertain
+                throw if(failure is PartitionOwnershipUncertain) failure else PartitionOwnershipUncertain(this,failure)
+            }
             try {database?.let(closeDatabase); database=null; phase=Phase.Unsupported}
-            catch(close:Throwable) {phase=Phase.Uncertain; if(close!==failure) failure.addSuppressed(close)}
+            catch(close:Throwable) {
+                phase=Phase.Uncertain
+                if(close!==failure) close.addSuppressed(failure)
+                throw PartitionOwnershipUncertain(this,close)
+            }
             throw failure
         }
     }
@@ -130,10 +138,11 @@ internal class LegacyRetirementJournal(private val root:File,private val create:
         if(!it.moveToFirst()) null else decode(it).also {_ -> if(it.moveToNext()) throw IOException("Retirement key is not unique")}
     }
     @Synchronized fun find(name:String):LegacyRetirementRecord? {key(name); return lookup(db(),name)}
-    /** Scalar name reservation includes complete tombstones; malformed row names make it unknown. */
+    /** Bounded scalar route/name lookup; caller owns dispatch. It never decodes manifest payloads.
+     * Complete tombstones reserve names; malformed row names make the result unknown. */
     @Synchronized fun holdsName(name:String):Boolean {
         key(name)
-        return useOwned({db().rawQueryWithFactory({_,driver,table,query ->
+        return useOwned({db(false).rawQueryWithFactory({_,driver,table,query ->
             query.bindBlob(1,savedCatalogSortKey(name)); SQLiteCursor(driver,table,query)
         },"SELECT CASE WHEN typeof(key)='blob' AND length(key)<=$MIGRATION_KEY_BYTES AND length(key)%2=0 THEN 1 ELSE 0 END FROM retirements "+
             "WHERE key=? OR typeof(key)!='blob' OR length(key)>$MIGRATION_KEY_BYTES OR length(key)%2!=0 LIMIT 1",null,"retirements")}) {
@@ -165,7 +174,13 @@ internal class LegacyRetirementJournal(private val root:File,private val create:
                 if(it.executeInsert()==-1L) throw IOException("Retirement intent was not recorded")
             }
             db.setTransactionSuccessful()
-        } catch(failure:Throwable) {if(writing) phase=Phase.Uncertain; throw failure}
+        } catch(failure:Throwable) {
+            if(writing || phase==Phase.Uncertain) {
+                phase=Phase.Uncertain
+                throw if(failure is PartitionOwnershipUncertain) failure else PartitionOwnershipUncertain(this,failure)
+            }
+            throw failure
+        }
         finally {endTransaction(db)}
         return LegacyRetirementRecord(token,LegacyRetirementPhase.Pending,manifest)
     }
@@ -185,7 +200,13 @@ internal class LegacyRetirementJournal(private val root:File,private val create:
                 it.bindString(3,expected.token); if(it.executeUpdateDelete()!=1) throw IOException("Retirement completion was not recorded")
             }
             db.setTransactionSuccessful()
-        } catch(failure:Throwable) {if(writing) phase=Phase.Uncertain; throw failure}
+        } catch(failure:Throwable) {
+            if(writing || phase==Phase.Uncertain) {
+                phase=Phase.Uncertain
+                throw if(failure is PartitionOwnershipUncertain) failure else PartitionOwnershipUncertain(this,failure)
+            }
+            throw failure
+        }
         finally {endTransaction(db)}
         return expected.copy(phase=LegacyRetirementPhase.Complete)
     }
@@ -195,7 +216,8 @@ internal class LegacyRetirementJournal(private val root:File,private val create:
             Phase.New,Phase.Unsupported,Phase.Closed -> {phase=Phase.Closed; return}
             Phase.Open -> {
                 phase=Phase.Uncertain // Record before actual close; no retry if it throws.
-                requireNotNull(database).let(closeDatabase); database=null; phase=Phase.Closed
+                try {requireNotNull(database).let(closeDatabase); database=null; phase=Phase.Closed}
+                catch(failure:Throwable) {throw PartitionOwnershipUncertain(this,failure)}
             }
             else -> throw IOException("Retirement journal close is active or uncertain; owner retained")
         }
