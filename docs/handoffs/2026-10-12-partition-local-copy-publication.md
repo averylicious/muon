@@ -11,3 +11,5 @@ Pinned sources inspected: Media3 DownloadRequest builder/data and progressive va
 Local diff check passed; Actions is first Android compile and latest-head results pending. No device/performance claims. PR remains open for inherited acceptance.
 
 Next: persist a destination-bound Move operation before source retirement, own-cover copy/verification, explicit cancellation and restart/recovery rules. A published copy alone must never authorize deleting its original. Supported nonterminal/large original disposition and old native metadata retention remain; production opt-in/Fresh/Resume controls and final lifecycle/played/card-startup evidence still need work. No release/backend activation.
+
+Initial .1013 compiled but Android lint rejected a literal zero passed to Media3's annotated failure-reason parameter. Use named STOP_REASON_NONE/FAILURE_REASON_NONE constants; latest-head CI pending after correction. No failed run is a verified pass.
