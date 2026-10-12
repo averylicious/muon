@@ -2104,6 +2104,24 @@ class OwnedPartitionShelfTest {
             assertEquals(0,m.f.budget.resident);m.intact();assertTrue(m.f.barrier.quiescent)
         } finally {release.countDown();m.close()}
     }
+    @Test fun staleCancelCannotCancelANewerAttemptForTheSameSavedCopy() {
+        val m=MigrationDispatchFixture();val release=java.util.concurrent.CountDownLatch(1)
+        try {
+            m.mover.execute {check(release.await(10,TimeUnit.SECONDS))}
+            assertTrue(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true))
+            val first=requireNotNull(m.store.migrationAttempt)
+            assertTrue(OfflineStore.cancelPartitionMigration(first));release.countDown();m.drain()
+            val secondRelease=java.util.concurrent.CountDownLatch(1)
+            try {
+                m.mover.execute {check(secondRelease.await(10,TimeUnit.SECONDS))}
+                assertTrue(OfflineStore.beginPartitionMigration(m.app,false,m.f.oldKey,true))
+                val second=requireNotNull(m.store.migrationAttempt);assertNotSame(first,second)
+                assertFalse(OfflineStore.cancelPartitionMigration(first))
+                assertTrue(OfflineStore.cancelPartitionMigration(second));secondRelease.countDown();m.drain()
+                assertEquals(MigrationWorkPhase.Cancelled,m.store.migrationStatus!!.progress.phase);m.intact()
+            } finally {secondRelease.countDown()}
+        } finally {release.countDown();m.close()}
+    }
     @Test fun staleApplicationRetryCannotAdoptOrReplaceAnUnshownJournal() {
         val m=MigrationDispatchFixture()
         try {

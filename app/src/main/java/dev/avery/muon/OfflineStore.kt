@@ -1491,9 +1491,10 @@ internal object OfflineStore {
         }
         return true // Submission, never by itself publication or deletion authority.
     }
-    internal fun cancelPartitionMigration():Boolean {
+    internal fun cancelPartitionMigration(expected:PartitionMigrationAttempt?=null):Boolean {
         check(Looper.myLooper()==Looper.getMainLooper()) {"Migration cancellation requires main"}
         val attempt=current()?.migrationAttempt ?: return false
+        if(expected!=null && attempt!==expected) return false
         attempt.control.cancel();return true
     }
 
