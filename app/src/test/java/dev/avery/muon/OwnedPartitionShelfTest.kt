@@ -74,6 +74,7 @@ class OwnedPartitionShelfTest {
         }
         onWorker {(opened.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(opened) as LegacyRetirementJournal).close()}
         onWorker {(opened.javaClass.getDeclaredField("moves").apply {isAccessible=true}.get(opened) as PartitionSavedMoveJournal).close()}
+        onWorker {(opened.javaClass.getDeclaredField("deletes").apply {isAccessible=true}.get(opened) as PartitionSavedDeleteJournal).close()}
     }
     @Test fun completeShelfStartsWithoutLegacyNativeCacheAndRoutesOriginalMigratedAndNewSavedBytes() {
         val f=Fixture(); val owner=f.owner()
@@ -2070,6 +2071,7 @@ class OwnedPartitionShelfTest {
             for(name in listOf("saves","migrations","catalog"))
                 (resources.javaClass.getDeclaredField(name).apply {isAccessible=true}.get(resources) as java.io.Closeable).close()
             onWorker {(resources.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(resources) as LegacyRetirementJournal).close()}
+            onWorker {(resources.javaClass.getDeclaredField("deletes").apply {isAccessible=true}.get(resources) as PartitionSavedDeleteJournal).close()}
             f.provider.close()
         }
     }
@@ -2095,4 +2097,71 @@ class OwnedPartitionShelfTest {
         } finally {f.close()}
     }
 
+    @Test fun actualSavedDeleteIntentPreservesFilesAndRowsSuppressesReadsAndSurvivesRestart() {
+        val f=LocalPublicationFixture();val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier);val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare();onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            coverFile(art,f.key).writeBytes(byteArrayOf(9,8,7))
+            val pending=onWorker {f.target.beginSavedDelete(f.key,true,art,work,{true})}
+            assertEquals(PartitionSavedDeletePhase.Pending,pending.phase);assertEquals(f.key,pending.binding.key)
+            assertEquals(4L,pending.binding.length);assertEquals(3L,pending.binding.cover.length)
+            val allocation=File(f.targetRoot,"resources/"+pending.binding.ticket.allocation.directory)
+            assertTrue(allocation.walkTopDown().any {it.name.endsWith(".v3.exo")})
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertArrayEquals(byteArrayOf(9,8,7),coverFile(art,f.key).readBytes())
+            assertFalse(f.target.audio.contains(f.key));assertTrue(f.target.claimsName(f.key))
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {f.target.removeCompleted(f.key) {true}})
+            assertThrows(IOException::class.java) {onWorker {f.target.copyCompletedSavedTo(f.source,f.key,"saved/conflict",true)}}
+            assertEquals(listOf(pending),onWorker {f.target.deleteRecoveryPage()})
+            teardown(f.target);f.targetClosed=true
+            val resumed=f.target(PartitionShelfStart.Resume)
+            try {
+                onWorker {resumed.prepare()};assertFalse(resumed.audio.contains(f.key))
+                assertEquals(listOf(pending),onWorker {resumed.deleteRecoveryPage()})
+                assertTrue(allocation.exists());assertTrue(resumed.claimsName(f.key))
+            } finally {teardown(resumed)}
+        } finally {f.close()}
+    }
+    @Test fun savedDeleteIntentNeedsConsentAndActualReaderReleaseEvenAfterEof() {
+        val f=LocalPublicationFixture();val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier);val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare();onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            assertThrows(IOException::class.java) {onWorker {f.target.beginSavedDelete(f.key,false,art,work,{true})}}
+            val reader=f.target.audio.source.createDataSource()
+            try {
+                reader.open(DataSpec.Builder().setUri("muon-saved:delete").setKey(f.key).build())
+                assertEquals(4,reader.read(ByteArray(4),0,4));assertEquals(-1,reader.read(ByteArray(1),0,1))
+                assertThrows(IOException::class.java) {onWorker {f.target.beginSavedDelete(f.key,true,art,work,{true})}}
+                assertTrue(onWorker {f.target.deleteRecoveryPage()}.isEmpty())
+            } finally {reader.close()}
+            assertEquals(PartitionSavedDeletePhase.Pending,onWorker {f.target.beginSavedDelete(f.key,true,art,work,{true})}.phase)
+            assertEquals(0,f.f.budget.resident)
+        } finally {f.close()}
+    }
+    @Test fun savedDeleteIntentRefusesActualIndexAliasAndOtherShelfClaimWithoutRecordingAuthority() {
+        val f=LocalPublicationFixture();val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier);val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare();onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            assertThrows(IOException::class.java) {onWorker {f.target.beginSavedDelete(f.key,true,art,work,{false})}}
+            val index=DefaultDownloadIndex(f.f.provider,"publication_target")
+            val alias=DownloadRequest.Builder("foreign-alias",Uri.parse("http://127.0.0.1:7814/alias")).setCustomCacheKey(f.key).build()
+            index.putDownload(Download(alias,Download.STATE_FAILED,1,2,0,Download.STOP_REASON_NONE,Download.FAILURE_REASON_UNKNOWN))
+            assertThrows(IOException::class.java) {onWorker {f.target.beginSavedDelete(f.key,true,art,work,{true})}}
+            assertTrue(onWorker {f.target.deleteRecoveryPage()}.isEmpty());assertNotNull(index.getDownload(f.key))
+            index.removeDownload("foreign-alias")
+            assertEquals(PartitionSavedDeletePhase.Pending,onWorker {f.target.beginSavedDelete(f.key,true,art,work,{true})}.phase)
+        } finally {f.close()}
+    }
+    @Test fun replacingDeleteJournalMakesActualShelfUnavailableWithoutOpeningAReplacementOwner() {
+        val f=Fixture();val owner=f.owner()
+        try {
+            onWorker {owner.prepare()}
+            val file=File(f.root,"partition-deletes-v1.db");val kept=File(f.root,"retained-deletes.db")
+            assertTrue(file.renameTo(kept));file.writeText("foreign")
+            assertFalse(owner.isAvailable)
+            assertThrows(IOException::class.java) {onWorker {owner.deleteRecoveryPage()}}
+            assertTrue(kept.isFile)
+            assertTrue(file.delete());assertTrue(kept.renameTo(file))
+        } finally {teardown(owner);f.provider.close()}
+    }
 }

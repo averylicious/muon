@@ -199,6 +199,11 @@ internal class DownloadArt(private val dir: File,
         }
     }
 
+    /** Snapshot this entry's own cover for explicit Delete; shared track covers are unrelated. */
+    internal fun savedDeleteCover(key:String,permit:SavedStorageBarrier.Lease):SavedMoveCoverIdentity {
+        requireCoverPermit(permit)
+        return coverIdentity(sourceEntry(key),permit).also {requireCoverPermit(permit)}
+    }
     /** Reobserve both own covers before a Move retirement. No source deletion authority. */
     internal fun verifyCopiedEntry(sourceId:String,targetId:String,expected:SavedMoveCoverIdentity,
         permit:SavedStorageBarrier.Lease) {

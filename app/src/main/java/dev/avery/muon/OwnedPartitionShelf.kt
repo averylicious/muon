@@ -43,9 +43,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private enum class Phase { New,Preparing,Ready,Uncertain }
     @Volatile private var phase=Phase.New
     private var rootIdentity:Any?=null
-    private val journalNames=arrayOf("partition-locators-v1.db","migration-journal-v1.db","new-save-journal-v1.db","legacy-retirements-v1.db","partition-moves-v1.db")
+    private val journalNames=arrayOf("partition-locators-v1.db","migration-journal-v1.db","new-save-journal-v1.db","legacy-retirements-v1.db","partition-moves-v1.db","partition-deletes-v1.db")
     private val identities=arrayOfNulls<Any>(journalNames.size)
-    private class Resources(val legacy:LegacyTransitionOwner,val retirements:LegacyRetirementJournal,val moves:PartitionSavedMoveJournal,val catalog:CachePartitionCatalog,
+    private class Resources(val legacy:LegacyTransitionOwner,val retirements:LegacyRetirementJournal,val moves:PartitionSavedMoveJournal,val deletes:PartitionSavedDeleteJournal,val catalog:CachePartitionCatalog,
         val migrations:CacheMigrationJournal,val saves:PartitionSaveJournal,val session:PartitionStorageSession,
         val manager:PartitionShelfManager,val workers:java.util.concurrent.ExecutorService,val work:PartitionMigrationWork)
     private fun exactDirectory(file:File) {
@@ -109,6 +109,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             retirements.open()
             val moves=owner.own {PartitionSavedMoveJournal(directory,start==PartitionShelfStart.Fresh)}
             moves.open()
+            val deletes=owner.own {PartitionSavedDeleteJournal(directory,start==PartitionShelfStart.Fresh)}
+            deletes.open()
             if(start==PartitionShelfStart.Fresh) for(i in journalNames.indices) {
                 val file=File(directory,journalNames[i]); exactJournal(file); identities[i]=key(file)
             }
@@ -117,13 +119,13 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 { if(runCatching { located(); true }.getOrDefault(false)) volume else null },budget=budget,saves=saves) }
             val index=PartitionCompletionIndex(database,indexName)
             val session=owner.own { PartitionStorageSession(catalog,saves,migrations,native,database,indexName,
-                audio,upstream,{ name -> !retirements.holdsName(name) && !moves.holdsName(name) && !audio.contains(name) && !index.holdsName(name) && unclaimed(name) },::available,barrier,retirements=retirements,moves=moves) }
+                audio,upstream,{ name -> !retirements.holdsName(name) && !moves.holdsName(name) && !deletes.holdsName(name) && !audio.contains(name) && !index.holdsName(name) && unclaimed(name) },::available,barrier,retirements=retirements,moves=moves,deletes=deletes) }
             val manager=owner.own { PartitionShelfManager(context.applicationContext,database,indexName,session,barrier) }
             val workers=owner.own { java.util.concurrent.Executors.newSingleThreadExecutor() }
             val work=owner.own { PartitionMigrationWork(workers,{ control,name ->
                 legacy.migrate(session,control,name,{ directory.usableSpace }) { located() }
             },::available,knownRejectionBeforeSubmission=true) }
-            Resources(legacy,retirements,moves,catalog,migrations,saves,session,manager,workers,work)
+            Resources(legacy,retirements,moves,deletes,catalog,migrations,saves,session,manager,workers,work)
         }; phase=Phase.Ready }
         catch(failure:Throwable) {
             phase=Phase.Uncertain; barrier.invalidate(); throw failure
@@ -142,6 +144,39 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun copyPlayed(spec:androidx.media3.datasource.DataSpec,song:ByteArray,origin:String,upstream:DataSource.Factory,
         writerCreated:(PlayedCopyWriter)->Unit={},checkpoint:()->Unit={},limit:()->Long)=
         resources().session.copyPlayed(spec,song,origin,upstream,writerCreated,checkpoint,limit)
+    /** Durable explicit Delete preparation only: actual files/row/cover stay unchanged.
+     * Register the real journal first, close native pools, and bind the exact source under one gate.
+     * Pending suppresses reads/competing commands across restart; final removal is separate. */
+    internal fun beginSavedDelete(key:String,explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
+        unclaimedElsewhere:(String)->Boolean,checkpoint:()->Unit={}):PartitionSavedDeleteRecord {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved Delete intent requires a worker"}
+        if(!explicitConsent) throw IOException("Saved Delete requires explicit consent")
+        val made=resources();val permit=barrier.exclusive();var quarantined=false
+        val treeOwnership=MigrationIoOwnership()
+        fun live() {permit.check();located();checkpoint();permit.check();located()}
+        try {
+            live()
+            if(made.legacy.claimsOriginalName(key,permit)) throw IOException("Delete source aliases legacy audio")
+            val before=made.session.savedDeleteSource(key,permit,unclaimedElsewhere)
+            artwork.cancelForConfirmedRemoval(key,permit)
+            val cover=art.savedDeleteCover(key,permit)
+            val saved=before.first;val completed=before.second
+            val tree=PartitionMoveTree.capture(made.catalog.directory(saved.ticket.allocation),requireNotNull(saved.uid),treeOwnership,::live)
+            live()
+            if(made.legacy.claimsOriginalName(key,permit) || made.session.savedDeleteSource(key,permit,unclaimedElsewhere)!=before || art.savedDeleteCover(key,permit)!=cover)
+                throw IOException("Saved Delete source changed during snapshot")
+            val binding=PartitionSavedDeleteBinding(volume,this.key(directory).toString(),saved.ticket,requireNotNull(saved.uid),
+                completed.retirementIdentity(),completed.length,tree,cover)
+            val record=made.deletes.begin(binding,true)
+            // Durable commit cannot be relabelled by late cancellation.
+            permit.check();located();return record
+        } catch(failure:Throwable) {
+            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain || failure is SavedCoverCloseUncertain || made.deletes.ownershipUncertain) {
+                phase=Phase.Uncertain;permit.quarantine(arrayOf(this,made.deletes,treeOwnership,art,artwork,failure));quarantined=true
+            }
+            throw failure
+        } finally {if(!quarantined) permit.close()}
+    }
     internal fun copyCompletedOriginalTo(destination:OwnedPartitionShelf,key:String,newKey:String,
         explicitConsent:Boolean,checkpoint:()->Unit={}):PartitionOriginalCopy {
         if(destination===this || destination.storageBarrier!==barrier)
@@ -368,7 +403,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         checkpoint:()->Unit={},boundary:(PartitionOriginalMoveStage)->Unit={}):PartitionOriginalMoveResult {
         if(!explicitConsent) return PartitionOriginalMoveResult(PartitionOriginalMoveStage.Waiting,OfflineStore.SavedRemoval.NotOwned)
         val newSource=try {recoveryRead {
-            if(it.moves.holdsName(key) || it.retirements.holdsName(key)) throw IOException("Move needs explicit intent recovery")
+            if(it.moves.holdsName(key) || it.retirements.holdsName(key) || it.deletes.holdsName(key)) throw IOException("Move needs explicit intent recovery")
             it.saves.find(key)!=null
         }} catch(_:IOException) {return PartitionOriginalMoveResult(PartitionOriginalMoveStage.Waiting,OfflineStore.SavedRemoval.Unavailable)}
         return if(newSource) moveCompletedNewSaveTo(destination,key,newKey,true,art,artwork,unclaimedElsewhere,checkpoint,boundary)
@@ -530,6 +565,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     }
     fun retirementRecoveryPage(after:String?=null):List<LegacyRetirementRecord> = recoveryRead {it.retirements.page(after)}
     fun migrationRecoveryPage(after:String?=null):List<MigrationRecord> = recoveryRead { it.migrations.page(after) }
+    fun deleteRecoveryPage(after:String?=null):List<PartitionSavedDeleteRecord> = recoveryRead {it.deletes.page(after)}
     fun moveRecoveryPage(after:String?=null):List<PartitionSavedMoveRecord> = recoveryRead {it.moves.page(after)}
     fun saveRecoveryPage(after:String?=null):List<PartitionSaveRecord> = recoveryRead { it.saves.page(after) }
     private fun <T> recoveryRead(read:(Resources)->T):T {
