@@ -86,6 +86,53 @@ class PartitionStorageSessionTest {
         try { fixtures.asReversed().forEach { it.session.close(); it.legacy.release(); it.saves.close(); it.migrations.close(); it.catalog.close() } }
         finally { database.close() }
     }
+    private fun <T> worker(read:()->T):T {
+        val executor=java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {return executor.submit<T> {read()}.get(30,TimeUnit.SECONDS)}
+        finally {executor.shutdownNow(); check(executor.awaitTermination(10,TimeUnit.SECONDS))}
+    }
+    private fun played(f:Fixture,key:String)=f.session.copyPlayed(spec(key),byteArrayOf(1),
+        "http://127.0.0.1:7814/1",DataSource.Factory {ByteArrayDataSource(payload)}) {8192L}
+    @Test fun interleavedManualDeletionRecensusesBeforeResizeCanOverEvict() {
+        val f=fixture(); val keys=(0..2).map {playedKey("saved/overlap-$it")}
+        worker {keys.forEach {played(f,it)}}
+        var deleted=false
+        val result=worker {f.session.resizePlayed(8,{true}) {
+            if(!deleted && f.barrier.quiescent) {
+                deleted=true
+                assertEquals(OfflineStore.SavedRemoval.Sent,f.session.removePlayed(keys.last()) {true})
+            }
+        }}
+        assertTrue(deleted); assertTrue(result.complete); assertEquals(0L,result.removed)
+        assertEquals(8L,result.remainingBytes)
+        worker {assertArrayEquals(payload,read(f,keys[0])); assertArrayEquals(payload,read(f,keys[1]))}
+    }
+    @Test fun resizeRebuildsStaleDerivedRowsAndRefusesSessionCloseBetweenOperations() {
+        val f=fixture(); val keys=(0..1).map {playedKey("saved/rebuild-$it")}
+        worker {
+            keys.forEach {played(f,it)}
+            DiskPlayedSpanOrder(f.catalog.playedOrderFile).use {old ->
+                old.initialized(); old.add(androidx.media3.datasource.cache.CacheSpan("played:foreign",0,0,0,null))
+            }
+        }
+        var refused=false
+        val result=worker {f.session.resizePlayed(4,{true}) {
+            if(f.barrier.quiescent) {
+                assertThrows(IOException::class.java) {f.session.close()}; refused=true
+            }
+        }}
+        assertTrue(refused); assertTrue(result.complete); assertEquals(1L,result.removed)
+        assertEquals(4L,result.remainingBytes); assertEquals(4L,worker {f.session.playedBytes()})
+    }
+    @Test fun resizeRefusesDerivedSymlinkWithoutChangingForeignFileOrOwnedAudio() {
+        val f=fixture(); val key=playedKey("saved/link-protected")
+        worker {played(f,key)}
+        val foreign=folders.newFile().also {it.writeText("foreign data")}
+        java.nio.file.Files.createSymbolicLink(f.catalog.playedOrderFile.toPath(),foreign.toPath())
+        val result=worker {f.session.resizePlayed(0,{true})}
+        assertFalse(result.complete); assertEquals(0L,result.removed)
+        assertEquals("foreign data",foreign.readText()); assertArrayEquals(payload,worker {read(f,key)})
+    }
     @Test fun composedReadonlyLegacyMigrationNeverReopensFullNativeSourceAndKeepsOriginal() {
         val f=fixture(); val original=f.seed("readonly"); val uid=f.legacy.uid; f.legacy.release()
         SQLiteDatabase.openDatabase(database.readableDatabase.path,null,SQLiteDatabase.OPEN_READONLY).use { read ->

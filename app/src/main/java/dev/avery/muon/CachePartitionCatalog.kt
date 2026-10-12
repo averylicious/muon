@@ -16,6 +16,8 @@ internal data class CachePartitionAllocation(val key:String, val directory:Strin
 internal class CachePartitionCatalog(private val root:File, create:Boolean=true, private val newDirectory:()->String={ UUID.randomUUID().toString() }) : Closeable {
     private val schema="CREATE TABLE partitions(key BLOB PRIMARY KEY NOT NULL, directory TEXT UNIQUE NOT NULL)"
     private val resources=File(root,"resources")
+    /** Disposable ordering observations, outside native byte folders and authoritative journals. */
+    internal val playedOrderFile:File get()=File(root,"played-resize-order-v1.db")
     // Bound payload BEFORE CursorWindow projection. TEXT length alone stops at embedded NUL.
     private val boundedDirectory="CASE WHEN typeof(directory)='text' AND length(CAST(directory AS BLOB))=36 THEN directory ELSE NULL END"
     private val boundedKey="CASE WHEN typeof(key)='blob' AND length(key)<=$MIGRATION_KEY_BYTES THEN key ELSE NULL END"

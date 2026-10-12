@@ -92,6 +92,23 @@ internal class DiskPlayedSpanOrder(private val file: File) : PlayedSpanOrder, Cl
             }
         } catch (_: Exception) { failed = true; null }
     }
+    /** One bounded resource-age observation for the partition maintenance actor. The caller
+     * inserted one synthetic position-zero row per exact key, after measuring its actual newest
+     * span access. This derived table grants no ownership/deletion authority and is rebuilt first.
+     * Unlike legacy oldest(), failure must be explicit rather than an empty-order observation.
+     */
+    internal fun oldestObservation():Pair<String,Long>? {
+        if(!complete || failed) throw java.io.IOException("Played resize order is incomplete")
+        val db=db() ?: throw java.io.IOException("Played resize order unavailable")
+        return db.rawQuery("SELECT CASE WHEN typeof(key)='blob' AND length(key)<=$MIGRATION_KEY_BYTES THEN key ELSE NULL END,"+
+            "CASE WHEN typeof(touch)='integer' AND touch>=0 THEN touch ELSE NULL END FROM spans ORDER BY touch,key,position LIMIT 1",null).use { c ->
+            if(!c.moveToFirst()) null else {
+                if(c.getType(0)!=android.database.Cursor.FIELD_TYPE_BLOB || c.getType(1)!=android.database.Cursor.FIELD_TYPE_INTEGER)
+                    throw java.io.IOException("Played resize observation exceeds its budget")
+                savedCatalogText(c.getBlob(0)) to c.getLong(1)
+            }
+        }
+    }
     override fun forEachKey(emit: (String) -> Boolean) {
         // Absence in a partial/failed startup must never publish an incomplete display catalog.
         if (!complete || failed) throw java.io.IOException("Played span census is unavailable")
