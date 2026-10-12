@@ -456,7 +456,9 @@ class PartitionStorePreparationTest {
             DefaultDownloadIndex(f.seed).putDownload(Download(request("saved/global-version"),Download.STATE_COMPLETED,1,2,4,0,0))
             f.seed.writableDatabase.execSQL("UPDATE ExoPlayerDownloads SET data=zeroblob(8388608)")
             f.seed.writableDatabase.version=2
-            assertThrows(android.database.sqlite.SQLiteException::class.java) {worker {startup.open {OfflineStore.prepareSelectedStorage(app,it)}}}
+            val refusal=assertThrows(IOException::class.java) {worker {startup.open {OfflineStore.prepareSelectedStorage(app,it)}}}
+            assertTrue(refusal.cause is android.database.sqlite.SQLiteException)
+            assertTrue(refusal.cause!!.message!!.contains("no downgrade or table reset"))
             assertEquals(2,f.seed.readableDatabase.version)
             f.seed.readableDatabase.rawQuery("SELECT state,length(data) FROM ExoPlayerDownloads",null).use {
                 assertTrue(it.moveToFirst());assertEquals(Download.STATE_COMPLETED,it.getInt(0));assertEquals(8388608L,it.getLong(1))
