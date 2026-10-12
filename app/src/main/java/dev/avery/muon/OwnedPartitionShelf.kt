@@ -35,9 +35,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private enum class Phase { New,Preparing,Ready,Uncertain }
     @Volatile private var phase=Phase.New
     private var rootIdentity:Any?=null
-    private val journalNames=arrayOf("partition-locators-v1.db","migration-journal-v1.db","new-save-journal-v1.db","legacy-retirements-v1.db")
+    private val journalNames=arrayOf("partition-locators-v1.db","migration-journal-v1.db","new-save-journal-v1.db","legacy-retirements-v1.db","partition-moves-v1.db")
     private val identities=arrayOfNulls<Any>(journalNames.size)
-    private class Resources(val legacy:LegacyTransitionOwner,val retirements:LegacyRetirementJournal,val catalog:CachePartitionCatalog,
+    private class Resources(val legacy:LegacyTransitionOwner,val retirements:LegacyRetirementJournal,val moves:PartitionSavedMoveJournal,val catalog:CachePartitionCatalog,
         val migrations:CacheMigrationJournal,val saves:PartitionSaveJournal,val session:PartitionStorageSession,
         val manager:PartitionShelfManager,val workers:java.util.concurrent.ExecutorService,val work:PartitionMigrationWork)
     private fun exactDirectory(file:File) {
@@ -99,6 +99,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             val saves=owner.own { PartitionSaveJournal(directory,create=start==PartitionShelfStart.Fresh) }
             val retirements=owner.own {LegacyRetirementJournal(directory,start==PartitionShelfStart.Fresh)}
             retirements.open()
+            val moves=owner.own {PartitionSavedMoveJournal(directory,start==PartitionShelfStart.Fresh)}
+            moves.open()
             if(start==PartitionShelfStart.Fresh) for(i in journalNames.indices) {
                 val file=File(directory,journalNames[i]); exactJournal(file); identities[i]=key(file)
             }
@@ -107,13 +109,13 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 { if(runCatching { located(); true }.getOrDefault(false)) volume else null },budget=budget,saves=saves) }
             val index=PartitionCompletionIndex(database,indexName)
             val session=owner.own { PartitionStorageSession(catalog,saves,migrations,native,database,indexName,
-                audio,upstream,{ name -> !retirements.holdsName(name) && !audio.contains(name) && !index.holdsName(name) && unclaimed(name) },::available,barrier,retirements=retirements) }
+                audio,upstream,{ name -> !retirements.holdsName(name) && !moves.holdsName(name) && !audio.contains(name) && !index.holdsName(name) && unclaimed(name) },::available,barrier,retirements=retirements,moves=moves) }
             val manager=owner.own { PartitionShelfManager(context.applicationContext,database,indexName,session,barrier) }
             val workers=owner.own { java.util.concurrent.Executors.newSingleThreadExecutor() }
             val work=owner.own { PartitionMigrationWork(workers,{ control,name ->
                 legacy.migrate(session,control,name,{ directory.usableSpace }) { located() }
             },::available,knownRejectionBeforeSubmission=true) }
-            Resources(legacy,retirements,catalog,migrations,saves,session,manager,workers,work)
+            Resources(legacy,retirements,moves,catalog,migrations,saves,session,manager,workers,work)
         }; phase=Phase.Ready }
         catch(failure:Throwable) {
             phase=Phase.Uncertain; barrier.invalidate(); throw failure
@@ -167,6 +169,45 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         val source=resources(); val target=destination.resources()
         return source.session.publishCopiedSavedTo(target.session,copy,explicitConsent,unclaimedElsewhere,
             {name,permit -> claimsMoveName(name,permit)},checkpoint,{located(); destination.located()},timestamp)
+    }
+    /** Prepared new-source intent only. Source routing is suppressed durably but source bytes,
+     * row and own-cover are preserved. No automatic replay or cleanup follows this commit. */
+    internal fun beginCoveredSavedMove(destination:OwnedPartitionShelf,copy:PartitionSavedCopy,
+        completed:PartitionSaveCompletion,explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
+        checkpoint:()->Unit={}):PartitionSavedMoveRecord {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved Move intent requires a worker"}
+        if(!explicitConsent || destination===this || destination.storageBarrier!==barrier ||
+            !art.usesBarrier(barrier) || !artwork.usesBarrier(barrier))
+            throw IOException("Saved Move intent needs consent and actual same-gate owners")
+        val source=resources(); val target=destination.resources(); val permit=barrier.exclusive(); var quarantined=false
+        fun owned() {permit.check(); located(); destination.located(); permit.check()}
+        fun live() {owned(); checkpoint(); owned()}
+        try {
+            live()
+            val old=copy.completion.key; val fresh=copy.destination.allocation.key
+            if(copy.source.ticket.allocation.key!=old || source.moves.find(old)!=null ||
+                source.retirements.holdsName(old) || claimsMoveName(fresh,permit) || destination.claimsMoveName(old,permit))
+                throw IOException("Saved Move intent has conflicting source or destination claims")
+            val before=source.session.moveDestinationIdentity(copy.source.ticket,copy.completion,volume,key(directory).toString(),permit,::live)
+            if(before.uid!=copy.source.uid) throw IOException("Saved Move source UID differs")
+            val after=target.session.moveDestinationIdentity(copy.destination,completed,destination.volume,
+                destination.key(destination.directory).toString(),permit,::live)
+            val provisional=PartitionSavedMoveBinding(before,after,SavedMoveCoverIdentity(0,null)); provisional.validate()
+            artwork.cancelForConfirmedRemoval(old,permit); artwork.cancelForConfirmedRemoval(fresh,permit)
+            val cover=art.copyEntryConfirmed(old,fresh,permit)
+            source.session.verifyMoveDestination(before,volume,key(directory).toString(),permit,::live)
+            target.session.verifyMoveDestination(after,destination.volume,destination.key(destination.directory).toString(),permit,::live)
+            art.verifyMovedSource(old,cover,permit); art.verifyMovedTarget(fresh,cover,permit)
+            live()
+            val result=source.moves.begin(provisional.copy(cover=cover),true)
+            // Pending is durable: caller cancellation cannot relabel the committed intent.
+            owned(); return result
+        } catch(failure:Throwable) {
+            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain || failure is SavedCoverCloseUncertain || source.moves.ownershipUncertain) {
+                phase=Phase.Uncertain; permit.quarantine(arrayOf(this,destination,source.moves,art,artwork,failure)); quarantined=true
+            }
+            throw failure
+        } finally {if(!quarantined) permit.close()}
     }
     internal fun beginCopiedOriginalMove(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,
         completed:PartitionSaveCompletion,explicitConsent:Boolean):LegacyRetirementRecord {
@@ -325,6 +366,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     } catch(_:IOException) {OfflineStore.SavedRemoval.Unavailable}
     fun retirementRecoveryPage(after:String?=null):List<LegacyRetirementRecord> = recoveryRead {it.retirements.page(after)}
     fun migrationRecoveryPage(after:String?=null):List<MigrationRecord> = recoveryRead { it.migrations.page(after) }
+    fun moveRecoveryPage(after:String?=null):List<PartitionSavedMoveRecord> = recoveryRead {it.moves.page(after)}
     fun saveRecoveryPage(after:String?=null):List<PartitionSaveRecord> = recoveryRead { it.saves.page(after) }
     private fun <T> recoveryRead(read:(Resources)->T):T {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Recovery reads require a worker" }

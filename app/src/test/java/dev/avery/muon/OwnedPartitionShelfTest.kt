@@ -73,6 +73,7 @@ class OwnedPartitionShelfTest {
             (resource as java.io.Closeable).close()
         }
         onWorker {(opened.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(opened) as LegacyRetirementJournal).close()}
+        onWorker {(opened.javaClass.getDeclaredField("moves").apply {isAccessible=true}.get(opened) as PartitionSavedMoveJournal).close()}
     }
     @Test fun completeShelfStartsWithoutLegacyNativeCacheAndRoutesOriginalMigratedAndNewSavedBytes() {
         val f=Fixture(); val owner=f.owner()
@@ -1750,6 +1751,62 @@ class OwnedPartitionShelfTest {
             assertEquals(completion,index.find(back)); assertEquals(0,f.f.budget.resident)
             assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
             assertTrue(f.f.barrier.quiescent); assertTrue(onWorker {f.target.retirementRecoveryPage().isEmpty()})
+        } finally {f.close()}
+    }
+
+    @Test fun actualNewSourceMoveIntentBindsBothCopiesAndCoverAndSurvivesBothShelvesRestart() {
+        val f=LocalPublicationFixture(); val back="saved/move-intent-back"
+        val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            coverFile(art,f.key).writeBytes(byteArrayOf(1,2,3))
+            val copy=onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}
+            val completed=onWorker {f.target.publishCopiedSavedTo(f.source,copy,true,{true},20)}
+            val pending=onWorker {f.target.beginCoveredSavedMove(f.source,copy,completed,true,art,work)}
+            assertEquals(PartitionSavedMovePhase.Pending,pending.phase)
+            assertEquals(f.key,pending.binding.key); assertEquals(back,pending.binding.destination.ticket.allocation.key)
+            assertEquals(3L,pending.binding.cover.length)
+            assertEquals(pending.binding,PartitionSavedMoveBinding.decode(pending.binding.encode()))
+            assertFalse(onWorker {f.target.audio.contains(f.key)}) // Durable intent blocks source routing.
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {f.target.removeCompleted(f.key) {true}})
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertArrayEquals(byteArrayOf(1,2,3),coverFile(art,f.key).readBytes())
+            assertArrayEquals(byteArrayOf(1,2,3),coverFile(art,back).readBytes())
+            assertEquals(SavedCoverage.Full,onWorker {f.source.audio.inspect(back).coverage})
+            teardown(f.source); f.sourceClosed=true; teardown(f.target); f.targetClosed=true
+            val resumedSource=f.f.owner(PartitionShelfStart.Resume); val resumedTarget=f.target(PartitionShelfStart.Resume)
+            try {
+                onWorker {resumedSource.prepare(); resumedTarget.prepare()}
+                await(resumedSource.initializeManager()) {true}; await(resumedTarget.initializeManager()) {true}
+                assertEquals(listOf(pending),onWorker {resumedTarget.moveRecoveryPage()})
+                assertFalse(onWorker {resumedTarget.audio.contains(f.key)})
+                assertEquals(SavedCoverage.Full,onWorker {resumedSource.audio.inspect(back).coverage})
+                assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            } finally {teardown(resumedTarget); teardown(resumedSource)}
+            assertArrayEquals(payload,f.f.original.readBytes()); assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun savedMoveIntentRefusesNoConsentOrActualReaderBeforePersistingAnyIntent() {
+        val f=LocalPublicationFixture(); val back="saved/move-intent-refusal"
+        val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            val copy=onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}
+            val completed=onWorker {f.target.publishCopiedSavedTo(f.source,copy,true,{true},20)}
+            assertThrows(IOException::class.java) {onWorker {f.target.beginCoveredSavedMove(f.source,copy,completed,false,art,work)}}
+            val reader=f.target.audio.source.createDataSource()
+            try {
+                onWorker {
+                    reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(f.key).build())
+                    assertEquals(4,reader.read(ByteArray(4),0,4))
+                    assertEquals(androidx.media3.common.C.RESULT_END_OF_INPUT,reader.read(ByteArray(4),0,4))
+                }
+                assertThrows(IOException::class.java) {onWorker {f.target.beginCoveredSavedMove(f.source,copy,completed,true,art,work)}}
+                assertTrue(onWorker {f.target.moveRecoveryPage().isEmpty()})
+            } finally {onWorker {reader.close()}}
+            assertEquals(PartitionSavedMovePhase.Pending,onWorker {f.target.beginCoveredSavedMove(f.source,copy,completed,true,art,work)}.phase)
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertTrue(f.f.barrier.quiescent)
         } finally {f.close()}
     }
 

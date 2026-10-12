@@ -1,0 +1,11 @@
+# New-source durable Move intent — 2026-10-12
+
+Cumulative successor to #527 aebce745bbb88f3d137847a28391c4de9fedf69f. Sole GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No Claude/phones/independent review. Partition mode stays disabled; application stack OPEN for inherited acceptance.
+
+An app-owned partition-moves-v1 journal durably binds both actual source/destination volume/root/allocation/ticket/UID/completed-row/full metadata/audio hashes plus the actual copied own-cover receipt. The controller takes the same exclusive gate, rejects cross-shelf aliases, verifies both copies before and after cover copying, cancels queued own-cover work, then commits explicit Pending. It never deletes source audio/record/cover or starts automatic recovery. Pending/Complete tombstones suppress the source read route and reserve its name across restart.
+
+The bounded 64-KiB binding and two-row journal pages project limits before CursorWindow. Actual cursor/statement/database unknown-close/write ownership remains retained; no close/rollback over an unknown child or silent retry. Constructor has no I/O; the real shelf registers the journal before opening it and pins its exact file identity. Source preparation/publication/migration and fresh claims refuse these tombstones. The disabled preparation format now requires the additional journal on Resume; it refuses older prepared roots without creating/repairing files. No production partition users have been activated by this stack.
+
+Real-shelf JVM tests cover cover-bound Pending and source-route suppression after both shelves restart, active EOF reader and no-consent refusal. Journal tests cover actual durable Pending/Complete, exact token/consent/no reuse, malformed binding and unknown actual cursor/database close. Local diff check passes; Actions first Android compile/results on PR. No physical-card/Android durability/performance claim.
+
+Remaining: actual target-aware new-source cleanup, exact interrupted recovery/composed app dispatch, complete supported original disposition, persisted production Fresh/Resume opt-in/recovery controls and final lifecycle coverage. This intent alone does not clear activation or inherited UAT. Do not force preferences; notify user when a production-capable candidate needs POCO.

@@ -29,7 +29,8 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     private val native:PartitionNativeOwner,private val database:DatabaseProvider,private val indexName:String,
     legacy:SavedAudio,upstream:DataSource.Factory,unclaimed:(String)->Boolean,
     private val available:()->Boolean,private val barrier:SavedStorageBarrier,
-    commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,private val retirements:LegacyRetirementJournal?=null):Closeable {
+    commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,private val retirements:LegacyRetirementJournal?=null,
+    private val moves:PartitionSavedMoveJournal?=null):Closeable {
     internal fun usesBarrier(candidate:SavedStorageBarrier):Boolean = candidate===barrier
     @Volatile private var stopped=false
     @Volatile private var closing=false
@@ -43,7 +44,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     private val published=PartitionPublishedAudio(native,capacity=2)
     private val completionIndex=PartitionCompletionIndex(database,indexName)
     private val completed=PartitionCompletedAudio(native,completionIndex::find,capacity=2,allowPlayed=true)
-    private val mixed=MixedSavedAudio(native,legacy,published,completed) {name -> retirements?.holdsName(name)==true}
+    private val mixed=MixedSavedAudio(native,legacy,published,completed) {name -> (retirements?.holdsName(name)==true || moves?.holdsName(name)==true)}
     private val playedCopies=PartitionPlayedCopy(catalog,saves,migrations,native,barrier,
         { !stopped && !closing && !uncertain && available() },unclaimed)
     val audio:SavedAudio=BarrierSavedAudio(object:SavedAudio {
@@ -190,7 +191,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                     requireOpen(); checkpoint()
                     if(native.savedReadRoute(key)!=route || saves.find(key)!=closed ||
                         catalog.find(key)!=closed.ticket.allocation || migrations.find(key)!=null ||
-                        retirements?.holdsName(key)==true || completionIndex.find(key)!=completion || completionIndex.holdsOtherName(key) || claimsName(newKey))
+                        (retirements?.holdsName(key)==true || moves?.holdsName(key)==true) || completionIndex.find(key)!=completion || completionIndex.holdsOtherName(key) || claimsName(newKey))
                         throw IOException("Saved copy source claims changed")
                 }
                 checked(); val actual=native.openClosedSaveRead(key); cache=actual
@@ -260,7 +261,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                 if(key==newKey || route !is PartitionReadRoute.NewSave || route.record!=copy.source ||
                     copy.source.phase!=PartitionSavePhase.Closed || saves.find(key)!=copy.source ||
                     catalog.find(key)!=copy.source.ticket.allocation || migrations.find(key)!=null ||
-                    retirements?.holdsName(key)==true || completionIndex.find(key)!=copy.completion ||
+                    (retirements?.holdsName(key)==true || moves?.holdsName(key)==true) || completionIndex.find(key)!=copy.completion ||
                     completionIndex.holdsOtherName(key) || otherClaims(newKey,permit) || !unclaimedElsewhere(newKey))
                     throw IOException("Saved publication source or fresh destination claims changed")
             }
@@ -335,7 +336,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             fun claims() {
                 live()
                 if(closed.ticket!=ticket || closed.phase!=PartitionSavePhase.Closed || saves.find(key)!=closed ||
-                    catalog.find(key)!=ticket.allocation || migrations.find(key)!=null || retirements?.holdsName(key)==true ||
+                    catalog.find(key)!=ticket.allocation || migrations.find(key)!=null || (retirements?.holdsName(key)==true || moves?.holdsName(key)==true) ||
                     completionIndex.holdsName(key) || !unclaimedElsewhere(key))
                     throw IOException("Local publication has conflicting destination claims")
             }
@@ -398,7 +399,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             fun checked() {
                 live()
                 if(closed.ticket!=ticket || closed.phase!=PartitionSavePhase.Closed || saves.find(key)!=closed ||
-                    catalog.find(key)!=ticket.allocation || migrations.find(key)!=null || retirements?.holdsName(key)==true ||
+                    catalog.find(key)!=ticket.allocation || migrations.find(key)!=null || (retirements?.holdsName(key)==true || moves?.holdsName(key)==true) ||
                     completionIndex.find(key)!=expected || completionIndex.holdsOtherName(key))
                     throw IOException("Move destination identity changed")
             }
@@ -448,7 +449,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     internal fun originalCopyCompletion(key:String,permit:SavedStorageBarrier.Lease):PartitionSaveCompletion {
         if(!permit.belongsTo(barrier) || permit.exclusive) throw IOException("Original copy requires the same shared gate")
         requireOpen(); permit.check()
-        if(retirements?.holdsName(key)==true || saves.find(key)!=null || completionIndex.holdsOtherOriginalName(key))
+        if((retirements?.holdsName(key)==true || moves?.holdsName(key)==true) || saves.find(key)!=null || completionIndex.holdsOtherOriginalName(key))
             throw IOException("Original copy has conflicting retirement/save/index claims")
         val route=migrations.find(key)
         if(route!=null && route.phase!=MigrationPhase.Ready || route==null && catalog.find(key)!=null)
@@ -646,11 +647,11 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             val expected=native.savedReadRoute(key)
             val complete=completionIndex.find(key)
             if(expected !is PartitionReadRoute.NewSave || expected.record.phase!=PartitionSavePhase.Closed ||
-                complete==null || completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key))
+                complete==null || moves?.holdsName(key)==true || retirements?.holdsName(key)==true || completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key))
                 return OfflineStore.SavedRemoval.NotOwned
             writers.trimIdle(); published.trimIdle(); completed.trimIdle()
             requireOpen(); permit.check()
-            if(native.savedReadRoute(key)!=expected || completionIndex.find(key)!=complete ||
+            if(moves?.holdsName(key)==true || retirements?.holdsName(key)==true || native.savedReadRoute(key)!=expected || completionIndex.find(key)!=complete ||
                 completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key)) return OfflineStore.SavedRemoval.NotOwned
             cache=native.openClosedSaveRead(key)
             if(cache.uid!=expected.record.uid || native.savedReadRoute(key)!=expected)
@@ -658,7 +659,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             mutated=true; cache.removeResource(key)
             permit.check(); cache.release(); cache=null
             requireOpen(); permit.check()
-            if(native.savedReadRoute(key)!=expected || completionIndex.find(key)!=complete ||
+            if(moves?.holdsName(key)==true || retirements?.holdsName(key)==true || native.savedReadRoute(key)!=expected || completionIndex.find(key)!=complete ||
                 completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key))
                 throw IOException("Completed record changed after byte removal")
             // Published DefaultDownloadIndex.removeDownload deletes by ID without materializing a
@@ -782,14 +783,14 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
      * Pending/uncertain/empty journal claims still reserve their names, not merely playable copies.
      */
     fun claimsName(name:String):Boolean=operation {
-        retirements?.holdsName(name)==true || catalog.find(name)!=null || saves.find(name)!=null || migrations.find(name)!=null ||
+        (retirements?.holdsName(name)==true || moves?.holdsName(name)==true) || catalog.find(name)!=null || saves.find(name)!=null || migrations.find(name)!=null ||
             completionIndex.holdsName(name) || mixed.contains(name)
     }
     /** Borrow the caller's actual exclusive lease; do not acquire a nested shared lease while
      * another shelf is publishing/retiring a Move. Legacy raw-index names are checked by its owner. */
     internal fun claimsPartitionNameUnderExclusive(name:String,permit:SavedStorageBarrier.Lease):Boolean {
         originalPermit(permit)
-        val claimed=retirements?.holdsName(name)==true || catalog.find(name)!=null || saves.find(name)!=null ||
+        val claimed=(retirements?.holdsName(name)==true || moves?.holdsName(name)==true) || catalog.find(name)!=null || saves.find(name)!=null ||
             migrations.find(name)!=null || completionIndex.holdsName(name)
         originalPermit(permit); return claimed
     }
@@ -826,7 +827,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     fun migrate(control:CacheMigrationControl,source:Cache,key:String,availableBytes:()->Long,
         checkpoint:()->Unit):MigrationRecord {
         operation {
-            if(retirements?.holdsName(key)==true) throw IOException("Migration cannot replace retired original intent")
+            if((retirements?.holdsName(key)==true || moves?.holdsName(key)==true)) throw IOException("Migration cannot replace retired original intent")
         }
         val publication=CacheMigrationPublication(catalog,migrations,native.migrationTarget(key))
         val adapter=BarrierCacheMigration(barrier) {
@@ -835,7 +836,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         return try { adapter.run(control,source,key,publication,availableBytes) {
             requireOpen()
             if(saves.find(key)!=null) throw IOException("Migration cannot replace a new-save claim")
-            if(retirements?.holdsName(key)==true) throw IOException("Migration cannot replace retired original intent")
+            if((retirements?.holdsName(key)==true || moves?.holdsName(key)==true)) throw IOException("Migration cannot replace retired original intent")
             checkpoint()
         } }
         catch(failure:Throwable) {
@@ -848,7 +849,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     fun migrateLegacy(control:CacheMigrationControl,directory:File,uid:Long,key:String,index:SQLiteDatabase,
         availableBytes:()->Long,checkpoint:()->Unit):MigrationRecord {
         operation {
-            if(retirements?.holdsName(key)==true) throw IOException("Migration cannot replace retired original intent")
+            if((retirements?.holdsName(key)==true || moves?.holdsName(key)==true)) throw IOException("Migration cannot replace retired original intent")
         }
         val publication=CacheMigrationPublication(catalog,migrations,native.migrationTarget(key))
         val adapter=BarrierCacheMigration(barrier) {
@@ -858,7 +859,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             adapter.runProjected(control,key,publication,availableBytes,{
                 requireOpen()
                 if(saves.find(key)!=null) throw IOException("Migration cannot replace a new-save claim")
-                if(retirements?.holdsName(key)==true) throw IOException("Migration cannot replace retired original intent")
+                if((retirements?.holdsName(key)==true || moves?.holdsName(key)==true)) throw IOException("Migration cannot replace retired original intent")
                 checkpoint()
             }) { checked -> LegacyResourceProjection.read(directory,uid,key,index,checked) }
         } catch(failure:Throwable) {
