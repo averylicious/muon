@@ -1599,4 +1599,31 @@ class OwnedPartitionShelfTest {
         }
     }
 
+    @Test fun cancellationAfterActualDestinationPublicationReturnsCommittedRecordBeforeNextCheckpoint() {
+        val f=LocalPublicationFixture()
+        val targetIndex=PartitionCompletionIndex(f.f.provider,"publication_target")
+        try {
+            val copy=f.prepare()
+            val completion=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10,checkpoint={
+                if(targetIndex.find(f.key)!=null) throw java.io.InterruptedIOException("Late publication cancellation")
+            })}
+            assertEquals(completion,targetIndex.find(f.key))
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun composedCancellationTriggeredByActualPublishedRowReportsPublishedAndPreservesOriginal() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier); val targetIndex=PartitionCompletionIndex(f.f.provider,"publication_target")
+        try {
+            val result=onWorker {f.source.moveCompletedOriginalTo(f.target,"81",f.key,true,art,work,{true},checkpoint={
+                if(targetIndex.find(f.key)!=null) throw java.io.InterruptedIOException("Cancel when row becomes visible")
+            })}
+            assertEquals(PartitionOriginalMoveResult(PartitionOriginalMoveStage.Published,OfflineStore.SavedRemoval.Failed,4),result)
+            assertNotNull(targetIndex.find(f.key)); assertArrayEquals(payload,f.f.original.readBytes())
+            assertNotNull(f.index.getDownload("81")); assertTrue(onWorker {f.source.retirementRecoveryPage().isEmpty()})
+            assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+
 }

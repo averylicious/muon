@@ -170,7 +170,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     internal fun publishLocalSaved(ticket:PartitionSaveTicket,request:DownloadRequest,length:Long,
         metadata:androidx.media3.datasource.cache.DefaultContentMetadata,source:DataSource.Factory,
         permit:SavedStorageBarrier.Lease,checkpoint:()->Unit,unclaimedElsewhere:(String)->Boolean,
-        timestamp:Long):PartitionSaveCompletion {
+        timestamp:Long,ownerCheckpoint:()->Unit={}):PartitionSaveCompletion {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Local publication requires a worker"}
         originalPermit(permit)
         val key=partitionSaveRequestKey(request)
@@ -221,10 +221,12 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             // The supported index row is published only after both actual comparison readers and
             // the native owner have closed. No full library load or manager task is needed.
             mutated=true; index.putDownload(record)
-            live()
+            // The row is committed. Finish actual owner/index confirmation without invoking
+            // caller cancellation, then let the composed operation record Published first.
+            originalPermit(permit); ownerCheckpoint(); originalPermit(permit)
             if(completionIndex.find(key)!=expected || completionIndex.holdsOtherName(key) || !unclaimedElsewhere(key))
                 throw IOException("Local completed row publication is unconfirmed")
-            live(); return expected
+            originalPermit(permit); ownerCheckpoint(); originalPermit(permit); return expected
         } catch(failure:Throwable) {
             if(mutated || releasing || comparison.active!=0 || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain)
                 unknown(failure)

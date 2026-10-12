@@ -147,7 +147,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             throw IOException("Local publication requires another shelf on the actual gate")
         val source=resources(); val target=destination.resources()
         return source.legacy.publishCopiedOriginalTo(source.session,target.session,copy,explicitConsent,
-            unclaimedElsewhere,{located(); destination.located(); checkpoint()},timestamp,{name,permit -> claimsMoveName(name,permit)})
+            unclaimedElsewhere,{located(); destination.located(); checkpoint()},timestamp,{name,permit -> claimsMoveName(name,permit)},
+            {located(); destination.located()})
     }
     internal fun beginCopiedOriginalMove(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,
         completed:PartitionSaveCompletion,explicitConsent:Boolean):LegacyRetirementRecord {

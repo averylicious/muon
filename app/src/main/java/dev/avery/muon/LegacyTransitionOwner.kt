@@ -194,7 +194,8 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
      */
     @Synchronized fun publishCopiedOriginalTo(session:PartitionStorageSession,destination:PartitionStorageSession,
         copy:PartitionOriginalCopy,explicitConsent:Boolean,unclaimedElsewhere:(String)->Boolean,
-        checked:()->Unit,timestamp:Long,otherClaims:((String,SavedStorageBarrier.Lease)->Boolean)?=null):PartitionSaveCompletion {
+        checked:()->Unit,timestamp:Long,otherClaims:((String,SavedStorageBarrier.Lease)->Boolean)?=null,
+        ownerCheckpoint:()->Unit={}):PartitionSaveCompletion {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original publication requires a worker"}
         if(!explicitConsent || session===destination || !session.usesBarrier(barrier) || !destination.usesBarrier(barrier))
             throw IOException("Original publication needs consent, another shelf and the same gate")
@@ -225,11 +226,13 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
                 }
             }
             val published=destination.publishLocalSaved(copy.destination,request,copy.source.length,metadata,source,
-                permit,::live,{name -> otherClaims?.invoke(name,permit)!=true && unclaimedElsewhere(name)},timestamp)
-            live()
+                permit,::live,{name -> otherClaims?.invoke(name,permit)!=true && unclaimedElsewhere(name)},timestamp,ownerCheckpoint)
+            // Preserve actual root/volume/gate checks after commit, excluding user cancellation
+            // until the caller has received and recorded the published destination.
+            permit.check(); checkpoint(); ownerCheckpoint(); checkpoint()
             if(session.originalCompletion(copy.source.key,permit,{true})!=copy.source)
                 throw IOException("Original record changed after destination publication; source retained")
-            live(); return published
+            permit.check(); checkpoint(); ownerCheckpoint(); checkpoint(); return published
         } catch(failure:Throwable) {
             if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || !directoryIo.quiescent) {
                 phase=Phase.Uncertain; permit.quarantine(arrayOf(this,destination,failure)); quarantined=true
