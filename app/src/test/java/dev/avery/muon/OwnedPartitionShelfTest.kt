@@ -2063,7 +2063,11 @@ class OwnedPartitionShelfTest {
             // production barrier or retry the uncertain wrapper. No native/cache owner was opened.
             child?.close();actual?.close()
             (resources.javaClass.getDeclaredField("workers").apply {isAccessible=true}.get(resources) as java.util.concurrent.ExecutorService).shutdown()
-            for(name in listOf("manager","legacy","saves","migrations","catalog"))
+            // Manager was never initialized and native pools never opened. Close the test's known
+            // idle actual read-only connection directly; gated wrappers must stay quarantined.
+            val legacy=resources.javaClass.getDeclaredField("legacy").apply {isAccessible=true}.get(resources)
+            (LegacyTransitionOwner::class.java.getDeclaredField("index").apply {isAccessible=true}.get(legacy) as android.database.sqlite.SQLiteDatabase?)?.close()
+            for(name in listOf("saves","migrations","catalog"))
                 (resources.javaClass.getDeclaredField(name).apply {isAccessible=true}.get(resources) as java.io.Closeable).close()
             onWorker {(resources.javaClass.getDeclaredField("retirements").apply {isAccessible=true}.get(resources) as LegacyRetirementJournal).close()}
             f.provider.close()
