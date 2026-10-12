@@ -632,7 +632,9 @@ class OwnedPartitionShelfTest {
         try {
             onWorker {owner.prepare()}; val manager=owner.initializeManager(); await(manager) { true }
             val count=PARTITION_LOCATOR_WINDOW+3
-            onWorker {
+            // This is a bounded SQLite/filesystem batch, not a latency assertion. Keep a finite
+            // allowance for loaded hosted runners; the default remains short for single operations.
+            onWorker(timeoutSeconds=60) {
                 for(i in 0 until count) {
                     val key=playedKey("saved/clear-$i")
                     owner.copyPlayed(DataSpec.Builder().setUri("http://127.0.0.1:7814/$i").setKey(key).build(),
