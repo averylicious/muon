@@ -9,6 +9,10 @@ import java.io.IOException
  * Future explicit opt-in must commit this exact choice before a full process restart, never toggle
  * an existing owner. StorageStartup retains the outcome even if preferences subsequently change.
  */
+/** Keep false until composed production/lifecycle and acceptance gates are cleared. No preference
+ * override may activate this build; tests exercise explicit selector admission separately. */
+internal const val PARTITION_OPT_IN_AVAILABLE=false
+
 internal enum class StorageBackendSelection {
     Legacy, PartitionV1;
 

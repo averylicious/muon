@@ -336,4 +336,32 @@ class PartitionStorePreparationTest {
         }
     }
 
+    @Test fun disabledSelectedStartupRefusesPartitionBeforeAnyProviderOrLegacyNativeFallback() {
+        val f=Fixture();val prefs=app.getSharedPreferences("storage",android.content.Context.MODE_PRIVATE)
+        prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()
+        val settings=PartitionStartupSettings(prefs);val choice=settings.request(f.plan(),true)
+        val startup=StorageStartup<OfflineStore.PreparedStorage>();val before=app.databaseList().toSet()
+        try {
+            assertFalse(PARTITION_OPT_IN_AVAILABLE)
+            assertThrows(IOException::class.java) {worker {startup.open {OfflineStore.prepareSelectedStorage(app,it)}}}
+            assertEquals(0,startup.retained);assertEquals(before,app.databaseList().toSet());assertEquals(choice,settings.read())
+            assertFalse(f.phoneRoot.exists());assertFalse(f.cardRoot.exists())
+            assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy));assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
+            f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
+        } finally {cleanup(startup);f.seed.close();prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()}
+    }
+    @Test fun explicitlyEnabledSelectorOwnsActualPartitionRootsAndDoesNotConstructLegacyNativeCache() {
+        val f=Fixture();val prefs=app.getSharedPreferences("storage",android.content.Context.MODE_PRIVATE)
+        prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()
+        val settings=PartitionStartupSettings(prefs);settings.request(f.plan(),true)
+        val startup=StorageStartup<OfflineStore.PreparedStorage>()
+        try {
+            val ready=worker {startup.open {OfflineStore.prepareSelectedStorage(app,it,partitionEnabled=true,resolve={f.plan()})}}
+            assertNull(ready.phone.cache);assertNull(ready.card!!.cache);assertNotNull(ready.phone.partition)
+            assertEquals(PartitionStartupPhase.Ready,settings.read().phase);assertEquals(0,PartitionNativeBudget.process.resident)
+            assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy));assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
+            f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
+        } finally {cleanup(startup);f.seed.close();prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()}
+    }
+
 }

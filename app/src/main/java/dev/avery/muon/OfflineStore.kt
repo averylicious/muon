@@ -179,7 +179,7 @@ internal object OfflineStore {
     private val initialization = StorageInitialization(
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()+kotlinx.coroutines.Dispatchers.Main.immediate),
         kotlinx.coroutines.Dispatchers.Main.immediate,kotlinx.coroutines.Dispatchers.IO,
-        prepare={ preparation.open { prepareLegacy(requireNotNull(startupContext),it) } },
+        prepare={ preparation.open { prepareSelectedStorage(requireNotNull(startupContext),it) } },
         bind={ ready:PreparedStorage -> startup.open { bindStorage(ready,it) }.also { store=it } })
     @Volatile private var startupContext:Context?=null
     val availability:kotlinx.coroutines.flow.StateFlow<StorageAvailability> get()=initialization.availability
@@ -202,6 +202,19 @@ internal object OfflineStore {
         val claims:PlayedClaims,val played:PlayedSongEvictor,val phone:PreparedShelf,val card:PreparedShelf?,
         val cardFolder:File?,val art:DownloadArt,val artwork:DownloadArtworkWork,val sizes:DownloadByteTotals,
         val marks:DownloadMarkLedger,val missingPartitionCardVolume:String?=null)
+
+    /** Freeze selected backend before allocating providers/native caches. A selected partition
+     * never falls through to legacy, including unsupported builds or malformed startup receipts. */
+    internal fun prepareSelectedStorage(context:Context,owner:StorageStartup<PreparedStorage>.Opening,
+        partitionEnabled:Boolean=PARTITION_OPT_IN_AVAILABLE,
+        resolve:((PartitionStartupChoice)->PartitionStorePlan)?=null):PreparedStorage {
+        check(Looper.myLooper()!=Looper.getMainLooper()) {"Storage selection requires a worker"}
+        return StorageBackendSelection.read(context.getSharedPreferences("storage",Context.MODE_PRIVATE)).open(
+            legacy={prepareLegacy(context,owner)},partition={
+                if(!partitionEnabled) throw IOException("Partition startup remains disabled in this build; no legacy fallback")
+                if(resolve==null) preparePlatformPartition(context,owner) else prepareChosenPartition(context,owner,resolve)
+            })
+    }
 
     internal fun prepareLegacy(context:Context,owner:StorageStartup<PreparedStorage>.Opening):PreparedStorage {
         check(Looper.myLooper()!=Looper.getMainLooper()) { "Native storage preparation requires a worker" }
@@ -1451,6 +1464,22 @@ internal object OfflineStore {
     internal fun beginSavedMigration(context:Context,ref:SavedRef,explicitConsent:Boolean):Boolean {
         if(!ref.migrationLocator()) return false
         return beginPartitionMigration(context,ref.shelf==SavedShelf.Card,ref.key,explicitConsent)
+    }
+
+    private val partitionSetupReview=PartitionSetupResumeOwner()
+    internal val partitionSetupReviewPhase:PartitionSetupReviewPhase get()=partitionSetupReview.phase
+    /** Preferences only on the serial worker. Current failed native owners are never reopened,
+     * released or replaced; explicitly reviewed Resume takes effect after full process restart. */
+    internal fun beginPartitionSetupResume(context:Context,explicitConsent:Boolean):Boolean {
+        check(Looper.myLooper()==Looper.getMainLooper()) {"Setup review admission requires main"}
+        if(!explicitConsent || current()!=null || availability.value!=StorageAvailability.Failed ||
+            partitionSetupReview.phase!=PartitionSetupReviewPhase.New || !moveExclusion.tryAcquire()) return false
+        val prefs=context.applicationContext.getSharedPreferences("storage",Context.MODE_PRIVATE)
+        try {mover.execute {
+            try {partitionSetupReview.request(true) {PartitionStartupSettings(prefs)}} catch(_:Exception) {}
+            finally {Handler(Looper.getMainLooper()).post {moveExclusion.release();DownloadMarks.revision++}}
+        }} catch(_:java.util.concurrent.RejectedExecutionException) {moveExclusion.release();return false}
+        return true
     }
 
     /** Prepared opt-in command, not yet exposed by default UI/selector. A healthy legacy store

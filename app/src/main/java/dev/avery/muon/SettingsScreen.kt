@@ -111,6 +111,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
 private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val context = LocalContext.current
     val availability by OfflineStore.availability.collectAsState()
+    if(PartitionSetupControls(OfflineStore.current(),availability)) return
     if(availability!=StorageAvailability.Ready || OfflineStore.current()==null) {
         SettingsGroup { SettingsRow(shape=rowShape(0,1),headline="Saved storage",
             supporting=if(availability==StorageAvailability.Failed)
