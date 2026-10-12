@@ -293,9 +293,9 @@ class OwnedPartitionShelfTest {
             assertEquals(0,f.budget.resident)
         } finally { f.provider.close() }
     }
-    private fun <T> onWorker(read:()->T):T {
+    private fun <T> onWorker(timeoutSeconds:Long=10,read:()->T):T {
         val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
-        try { return try { worker.submit<T> { read() }.get(10,TimeUnit.SECONDS) }
+        try { return try { worker.submit<T> { read() }.get(timeoutSeconds,TimeUnit.SECONDS) }
             catch(failure:java.util.concurrent.ExecutionException) { throw requireNotNull(failure.cause) } }
         finally { worker.shutdownNow(); check(worker.awaitTermination(10,TimeUnit.SECONDS)) }
     }
