@@ -148,22 +148,23 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
      * Register the real journal first, close native pools, and bind the exact source under one gate.
      * Pending suppresses reads/competing commands across restart; final removal is separate. */
     internal fun beginSavedDelete(key:String,explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
-        unclaimedElsewhere:(String)->Boolean,checkpoint:()->Unit={}):PartitionSavedDeleteRecord {
+        unclaimedElsewhere:(String)->Boolean,checkpoint:()->Unit={},other:OwnedPartitionShelf?=null):PartitionSavedDeleteRecord {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved Delete intent requires a worker"}
-        if(!explicitConsent) throw IOException("Saved Delete requires explicit consent")
+        if(!explicitConsent || other===this || other!=null && other.storageBarrier!==barrier) throw IOException("Saved Delete requires consent and exact same-gate owners")
         val made=resources();val permit=barrier.exclusive();var quarantined=false
         val treeOwnership=MigrationIoOwnership()
         fun live() {permit.check();located();checkpoint();permit.check();located()}
+        fun unclaimed(name:String)=other?.claimsMoveName(name,permit)!=true && unclaimedElsewhere(name)
         try {
             live()
             if(made.legacy.claimsOriginalName(key,permit)) throw IOException("Delete source aliases legacy audio")
-            val before=made.session.savedDeleteSource(key,permit,unclaimedElsewhere)
+            val before=made.session.savedDeleteSource(key,permit,::unclaimed)
             artwork.cancelForConfirmedRemoval(key,permit)
             val cover=art.savedDeleteCover(key,permit)
             val saved=before.first;val completed=before.second
             val tree=PartitionMoveTree.capture(made.catalog.directory(saved.ticket.allocation),requireNotNull(saved.uid),treeOwnership,::live)
             live()
-            if(made.legacy.claimsOriginalName(key,permit) || made.session.savedDeleteSource(key,permit,unclaimedElsewhere)!=before || art.savedDeleteCover(key,permit)!=cover)
+            if(made.legacy.claimsOriginalName(key,permit) || made.session.savedDeleteSource(key,permit,::unclaimed)!=before || art.savedDeleteCover(key,permit)!=cover)
                 throw IOException("Saved Delete source changed during snapshot")
             val binding=PartitionSavedDeleteBinding(volume,this.key(directory).toString(),saved.ticket,requireNotNull(saved.uid),
                 completed.retirementIdentity(),completed.length,tree,cover)
@@ -183,9 +184,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
      * Known partial deletion stays Pending for renewed recovery; unknown I/O retains real owners. */
     internal fun completeSavedDelete(expected:PartitionSavedDeleteRecord,explicitConsent:Boolean,
         art:DownloadArt,artwork:DownloadArtworkWork,unclaimedElsewhere:(String)->Boolean,
-        checkpoint:()->Unit={}):OfflineStore.SavedRemoval {
+        checkpoint:()->Unit={},other:OwnedPartitionShelf?=null):OfflineStore.SavedRemoval {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved Delete finish requires a worker"}
-        if(!explicitConsent) return OfflineStore.SavedRemoval.NotOwned
+        if(!explicitConsent || other===this || other!=null && other.storageBarrier!==barrier) return OfflineStore.SavedRemoval.NotOwned
         if(expected.phase!=PartitionSavedDeletePhase.Pending) return OfflineStore.SavedRemoval.Waiting
         val made=resources();val permit=try {barrier.exclusive()} catch(_:IOException) {return OfflineStore.SavedRemoval.Busy}
         val cleanup=PartitionMoveTreeRemoval();var quarantined=false;var coverMutation=false
@@ -195,10 +196,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 throw IOException("Saved Delete source root or volume changed")
             permit.check()
         }
+        fun unclaimed(name:String)=other?.claimsMoveName(name,permit)!=true && unclaimedElsewhere(name)
         fun current() {
             owned();checkpoint();owned()
             if(made.legacy.claimsOriginalName(expected.binding.key,permit)) throw IOException("Saved Delete source aliases legacy audio")
-            made.session.verifyPendingSavedDelete(expected,permit,unclaimedElsewhere)
+            made.session.verifyPendingSavedDelete(expected,permit,::unclaimed)
             artwork.cancelForConfirmedRemoval(expected.binding.key,permit)
             art.verifyMovedSource(expected.binding.key,expected.binding.cover,permit)
             owned()
@@ -208,11 +210,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             if(made.deletes.find(expected.binding.key)!=expected) return OfflineStore.SavedRemoval.Waiting
             current();retainedSavedDeleteCleanup=cleanup
             cleanup.runMoved(expected.binding.tree,made.catalog.directory(expected.binding.ticket.allocation),::current,::current)
-            current();made.session.eraseDeletedSavedRecord(expected,permit,unclaimedElsewhere)
+            current();made.session.eraseDeletedSavedRecord(expected,permit,::unclaimed)
             current();coverMutation=true
             art.removeSavedDeleteCoverConfirmed(expected.binding.key,expected.binding.cover,permit)
             coverMutation=false
-            current();made.session.verifyDeletedSavedRecordAbsent(expected,permit,unclaimedElsewhere)
+            current();made.session.verifyDeletedSavedRecordAbsent(expected,permit,::unclaimed)
             art.verifyEntryAbsent(expected.binding.key,permit)
             val root=made.catalog.directory(expected.binding.ticket.allocation)
             expected.binding.tree.requireAbsent(root)
@@ -226,6 +228,46 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             } else retainedSavedDeleteCleanup=null
             return OfflineStore.SavedRemoval.Failed
         } finally {if(!quarantined) permit.close()}
+    }
+    /** Fresh ordinary Delete selection only. Existing Pending needs the explicitly shown token
+     * recovery path; an unrelated new click cannot silently adopt/replace an old intent. */
+    internal fun removeSavedCompleted(key:String,explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
+        unclaimedElsewhere:(String)->Boolean,other:OwnedPartitionShelf?=null):OfflineStore.SavedRemoval {
+        if(!explicitConsent) return OfflineStore.SavedRemoval.NotOwned
+        return try {
+            val selected=recoveryRead {it.saves.find(key) to it.deletes.find(key)}
+            if(selected.first==null) OfflineStore.SavedRemoval.NotOwned
+            else if(selected.second!=null) OfflineStore.SavedRemoval.Waiting
+            else {
+                val pending=beginSavedDelete(key,true,art,artwork,unclaimedElsewhere,other=other)
+                completeSavedDelete(pending,true,art,artwork,unclaimedElsewhere,other=other)
+            }
+        } catch(_:IOException) {OfflineStore.SavedRemoval.Unavailable}
+    }
+    /** Renewed exact-key/token Delete recovery supports both new and completed-original sources.
+     * A legacy Move or unbound files-only intent cannot authorize original terminal-row removal. */
+    internal fun recoverCompletedDelete(key:String,token:String,explicitConsent:Boolean,art:DownloadArt,
+        artwork:DownloadArtworkWork,unclaimedElsewhere:(String)->Boolean,other:OwnedPartitionShelf?=null,
+        checkpoint:()->Unit={}):OfflineStore.SavedRemoval {
+        if(!explicitConsent || other===this || other!=null && other.storageBarrier!==barrier) return OfflineStore.SavedRemoval.NotOwned
+        return try {
+            val selected=recoveryRead {it.deletes.find(key) to it.retirements.find(key)}
+            val saved=selected.first;val original=selected.second
+            if(saved!=null && original!=null) throw IOException("Delete has conflicting journals")
+            when {
+                saved!=null && saved.token==token && saved.phase==PartitionSavedDeletePhase.Pending ->
+                    completeSavedDelete(saved,true,art,artwork,unclaimedElsewhere,checkpoint,other)
+                original!=null && original.token==token && original.phase==LegacyRetirementPhase.Pending &&
+                    original.manifest.moveDestination==null && original.manifest.completedDownloadIdentity!=null ->
+                    removeOriginalCompleted(key,true,{name ->unclaimedElsewhere(name)}, {name,permit ->
+                        if(other?.claimsMoveName(name,permit)==true) throw IOException("Original Delete acquired another shelf claim")
+                        artwork.cancelForConfirmedRemoval(name,permit)
+                        val cover=art.savedDeleteCover(name,permit)
+                        art.removeSavedDeleteCoverConfirmed(name,cover,permit)
+                    },original,other,checkpoint)
+                else -> OfflineStore.SavedRemoval.Waiting
+            }
+        } catch(_:IOException) {OfflineStore.SavedRemoval.Unavailable}
     }
     internal fun copyCompletedOriginalTo(destination:OwnedPartitionShelf,key:String,newKey:String,
         explicitConsent:Boolean,checkpoint:()->Unit={}):PartitionOriginalCopy {
@@ -590,10 +632,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     }
     internal fun removeOriginalCompleted(key:String,explicitConsent:Boolean,
         unclaimedElsewhere:(String)->Boolean,disposeCover:(String,SavedStorageBarrier.Lease)->Unit,
-        recovery:LegacyRetirementRecord?=null):OfflineStore.SavedRemoval = try {
+        recovery:LegacyRetirementRecord?=null,other:OwnedPartitionShelf?=null,checkpoint:()->Unit={}):OfflineStore.SavedRemoval = try {
+        if(other===this || other!=null && other.storageBarrier!==barrier) throw IOException("Original Delete needs same-gate owners")
         val made=resources()
         made.legacy.deleteCompletedOriginal(made.session,made.retirements,key,explicitConsent,recovery,
-            unclaimedElsewhere,disposeCover,{located()})
+            unclaimedElsewhere,disposeCover,{located();checkpoint();located()}, {name,permit ->other?.claimsMoveName(name,permit)==true})
     } catch(_:IOException) {OfflineStore.SavedRemoval.Unavailable}
     /** Each journal projects at most two bounded bindings, immediately reduced to scalars.
      * Cursor advances over Delete intents too; they are not offered as Move recovery actions.

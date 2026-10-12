@@ -637,7 +637,9 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
      */
     fun removeCompleted(key:String,unclaimedElsewhere:(String)->Boolean):OfflineStore.SavedRemoval {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Completed removal requires a worker" }
-        if(!key.startsWith(NEW_SAVE_PREFIX) || key.length.toLong()*2>MIGRATION_KEY_BYTES)
+        // An actual shelf owns a Delete journal and must use its durable controller, never this
+        // older standalone helper. Keep the helper only for unwired single-session preparation.
+        if(deletes!=null || !key.startsWith(NEW_SAVE_PREFIX) || key.length.toLong()*2>MIGRATION_KEY_BYTES)
             return OfflineStore.SavedRemoval.NotOwned
         if(stopped || closing || uncertain) return OfflineStore.SavedRemoval.Unavailable
         val permit=try { barrier.exclusive() } catch(_:IOException) { return OfflineStore.SavedRemoval.Busy }

@@ -925,12 +925,14 @@ internal object OfflineStore {
                 val otherIndex=if(ref.shelf==SavedShelf.Card) "" else "card"
                 !PartitionCompletionIndex(store.database,otherIndex).holdsNameIfPresent(key)
             }
-            var outcome=partition.removeCompleted(ref.key,unclaimedElsewhere)
+            val other=(if(ref.shelf==SavedShelf.Card) store.phone else store.card)?.partition
+            var outcome=partition.removeSavedCompleted(ref.key,true,store.art,store.artwork,unclaimedElsewhere,other)
             if(outcome==SavedRemoval.NotOwned) outcome=partition.removeOriginalCompleted(ref.key,true,unclaimedElsewhere,
                 {key,permit ->
                     store.artwork.cancelForConfirmedRemoval(key,permit)
-                    store.art.removeEntryConfirmed(key,permit)
-                })
+                    val cover=store.art.savedDeleteCover(key,permit)
+                    store.art.removeSavedDeleteCoverConfirmed(key,cover,permit)
+                },other=other)
             if(outcome==SavedRemoval.Sent) Handler(Looper.getMainLooper()).post {
                 if(current()===store) shelf.partitionRemoved(ref.requestId)
             }
@@ -1414,6 +1416,41 @@ internal object OfflineStore {
             moveOwnership.finish(batch);moveExclusion.release();DownloadMarks.moving=null;DownloadMarks.revision++;throw failure
         }
         return true // Submission only; scalar callbacks/journal determine completion.
+    }
+
+    /** Exact renewed-consent Delete recovery, using the existing serial worker/exclusion. No
+     * destination is required, but another prepared shelf's claims are checked under the same gate. */
+    internal fun recoverDelete(context:Context,sourceCard:Boolean,key:String,token:String,explicitConsent:Boolean):Boolean {
+        check(Looper.myLooper()==Looper.getMainLooper()) {"Delete recovery admission requires main"}
+        if(!explicitConsent || key.length.toLong()*2>MIGRATION_KEY_BYTES || token.length!=36) return false
+        val store=commandStore(context) ?: return false
+        val from=(if(sourceCard) store.card else store.phone) ?: return false
+        val source=from.partition ?: return false
+        val other=(if(sourceCard) store.phone else store.card)?.partition
+        if(!from.locationAvailable() || store.moves.hasPending || store.removalDelivery.busy ||
+            !quiet(from.manager) || !moveExclusion.tryAcquire()) return false
+        val main=Handler(Looper.getMainLooper());val batch=moveOwnership.begin();DownloadMarks.moving=0 to 1
+        try {mover.execute {
+            try {
+                fun checked() {
+                    if(!from.locationAvailable() || !moveOwnership.permits(batch,key))
+                        throw java.io.InterruptedIOException("Delete recovery cancelled or storage unavailable")
+                }
+                checked()
+                val otherIndex=if(sourceCard) "" else "card"
+                val result=source.recoverCompletedDelete(key,token,true,store.art,store.artwork,{name ->
+                    !PartitionCompletionIndex(store.database,otherIndex).holdsNameIfPresent(name)
+                },other,::checked)
+                if(result==SavedRemoval.Sent) main.post {if(current()===store) from.partitionRemoved(key)}
+                else notice(context,"Delete recovery did not complete. Check storage and review the selected recovery entry.")
+            } catch(_:Exception) {notice(context,"Delete recovery stopped. Check storage before trying again.")}
+            finally {main.post {try {moveExclusion.release()} finally {
+                moveOwnership.finish(batch);DownloadMarks.moving=null;DownloadMarks.revision++
+            }}}
+        }} catch(failure:RuntimeException) {
+            moveOwnership.finish(batch);moveExclusion.release();DownloadMarks.moving=null;DownloadMarks.revision++;throw failure
+        }
+        return true // Submission only, never a successful-deletion receipt.
     }
 
     /** One admitted move, on the mover: copies first, then one main-thread step that releases and hands over. */

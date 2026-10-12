@@ -351,14 +351,17 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
      */
     @Synchronized fun deleteCompletedOriginal(session:PartitionStorageSession,journal:LegacyRetirementJournal,
         key:String,explicitConsent:Boolean,recovery:LegacyRetirementRecord?,unclaimedElsewhere:(String)->Boolean,
-        disposeCover:(String,SavedStorageBarrier.Lease)->Unit,checked:()->Unit):OfflineStore.SavedRemoval {
+        disposeCover:(String,SavedStorageBarrier.Lease)->Unit,checked:()->Unit,
+        otherClaim:(String,SavedStorageBarrier.Lease)->Boolean={_,_->false}):OfflineStore.SavedRemoval {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Original Delete requires a worker"}
         if(!explicitConsent || !session.usesBarrier(barrier)) return OfflineStore.SavedRemoval.NotOwned
         checkpoint()
         val permit=try {barrier.exclusive()} catch(_:IOException) {return OfflineStore.SavedRemoval.Busy}
         var quarantined=false; var finalMutation=false
         try {
-            fun live() {permit.check(); checkpoint(); checked(); checkpoint()}
+            fun live() {permit.check(); checkpoint(); checked();
+                if(otherClaim(key,permit)) throw IOException("Original Delete acquired another shelf claim")
+                checkpoint()}
             live()
             val existing=journal.find(key)
             val pending=if(existing==null) {

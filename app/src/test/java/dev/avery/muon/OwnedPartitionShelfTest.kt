@@ -532,13 +532,15 @@ class OwnedPartitionShelfTest {
             val phone=Shelf.partitioned(first,MuonDownloadService::class.java); var removed:String?=null
             phone.partitionRemoved={id -> assertSame(Looper.getMainLooper(),Looper.myLooper()); removed=id}
             val app=RuntimeEnvironment.getApplication()
-            val store=OfflineStore.Store(phone,DownloadArt(folders.newFolder()),PlayedSongEvictor(8192L) {},
-                app.getSharedPreferences("completed-removal-fixture",0),f.provider,{}, {},storageBarrier=f.barrier)
+            val art=DownloadArt(folders.newFolder(),barrier=f.barrier);val artwork=coverWork(art,f.barrier)
+            val store=OfflineStore.Store(phone,art,PlayedSongEvictor(8192L) {},
+                app.getSharedPreferences("completed-removal-fixture",0),f.provider,{}, {},artwork=artwork,storageBarrier=f.barrier)
             field.set(OfflineStore,store)
             val ref=requireNotNull(SavedRef.download(SavedShelf.Phone,request.id,request.id))
             assertEquals(OfflineStore.SavedRemoval.Sent,onWorker { OfflineStore.removeSavedNow(app,ref) })
             shadowOf(Looper.getMainLooper()).idle(); assertEquals(request.id,removed)
             assertNull(manager.downloadIndex.getDownload(request.id))
+            assertEquals(PartitionSavedDeletePhase.Complete,onWorker {first.deleteRecoveryPage().single().phase})
             assertFalse(onWorker { first.audio.contains(request.id) })
             assertThrows(IOException::class.java) {onWorker { first.audio.inspect(request.id) }}
             assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
@@ -2245,6 +2247,62 @@ class OwnedPartitionShelfTest {
             index.putDownload(Download(alias,Download.STATE_FAILED,1,2,0,Download.STOP_REASON_NONE,Download.FAILURE_REASON_UNKNOWN))
             assertEquals(OfflineStore.SavedRemoval.Failed,n.finish());assertTrue(n.allocation.exists());assertNotNull(n.row())
             index.removeDownload("delete-alias");assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+        } finally {n.close()}
+    }
+    @Test fun freshDeleteDispatchNeverAdoptsExistingPendingAndRecoveryRequiresExactToken() {
+        val n=SavedDeleteFixture();val f=n.f
+        try {
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {f.target.removeSavedCompleted(f.key,true,n.art,n.work,{true})})
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {f.target.recoverCompletedDelete(f.key,n.pending.token,false,n.art,n.work,{true})})
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {f.target.recoverCompletedDelete(f.key,"00000000-0000-0000-0000-000000000001",true,n.art,n.work,{true})})
+            assertTrue(n.allocation.exists());assertNotNull(n.row())
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {f.target.recoverCompletedDelete(f.key,n.pending.token,true,n.art,n.work,{true})})
+            assertFalse(n.allocation.exists());assertNull(n.row())
+        } finally {n.close()}
+    }
+    @Test fun originalDeleteRecoveryUsesBoundPendingAndNeverTreatsMoveOrFilesOnlyIntentAsDelete() {
+        val f=Fixture("42");val index=seedOriginal(f);val owner=f.owner();val art=DownloadArt(folders.newFolder(),barrier=f.barrier);val work=coverWork(art,f.barrier)
+        try {
+            onWorker {owner.prepare()};val pending=boundOriginalIntent(f,owner)
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {owner.recoverCompletedDelete("42","00000000-0000-0000-0000-000000000001",true,art,work,{true})})
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {owner.recoverCompletedDelete("42",pending.token,true,art,work,{true})})
+            assertNull(index.getDownload("42"));assertFalse(f.original.exists())
+        } finally {teardown(owner);f.provider.close()}
+        val g=Fixture("43");val next=g.owner();val otherArt=DownloadArt(folders.newFolder(),barrier=g.barrier);val otherWork=coverWork(otherArt,g.barrier)
+        try {
+            seedOriginal(g);onWorker {next.prepare()};val unbound=onWorker {next.beginOriginalRetirement("43",true)}
+            assertEquals(OfflineStore.SavedRemoval.Waiting,onWorker {next.recoverCompletedDelete("43",unbound.token,true,otherArt,otherWork,{true})})
+            assertTrue(g.original.exists())
+        } finally {teardown(next);g.provider.close()}
+    }
+    @Test fun publicDeleteRecoveryUsesExistingWorkerAndPostsOnlyConfirmedRemovalOnMain() {
+        val n=SavedDeleteFixture();val f=n.f;val app=RuntimeEnvironment.getApplication()
+        val field=OfflineStore::class.java.getDeclaredField("store").apply {isAccessible=true};val previous=field.get(OfflineStore)
+        val mover=OfflineStore::class.java.getDeclaredField("mover").apply {isAccessible=true}.get(OfflineStore) as java.util.concurrent.ExecutorService
+        val phone=Shelf.partitioned(f.source,MuonDownloadService::class.java);val card=Shelf.partitioned(f.target,MuonCardDownloadService::class.java)
+        val removed=ArrayList<String>();card.partitionRemoved={assertSame(Looper.getMainLooper(),Looper.myLooper());removed+=it}
+        val store=OfflineStore.Store(phone,n.art,PlayedSongEvictor(8192L) {},app.getSharedPreferences("partition-delete-recovery",0),f.f.provider,
+            {},{},artwork=n.work,storageBarrier=f.f.barrier);store.card=card
+        try {
+            field.set(OfflineStore,store)
+            assertFalse(OfflineStore.recoverDelete(app,true,f.key,n.pending.token,false));assertNotNull(n.row())
+            assertTrue(OfflineStore.recoverDelete(app,true,f.key,n.pending.token,true));assertNotNull(DownloadMarks.moving)
+            mover.submit {}.get(10,TimeUnit.SECONDS);shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(listOf(f.key),removed);assertNull(n.row());assertNull(DownloadMarks.moving);assertTrue(f.f.barrier.quiescent)
+            assertEquals(PartitionSavedDeletePhase.Complete,onWorker {f.target.deleteRecoveryPage().single().phase})
+        } finally {
+            mover.submit {}.get(10,TimeUnit.SECONDS);shadowOf(Looper.getMainLooper()).idle()
+            field.set(OfflineStore,previous);DownloadMarks.moving=null;n.close()
+        }
+    }
+    @Test fun deleteFinishRefusesActualOtherShelfReservedAllocationBeforeSourceMutation() {
+        val n=SavedDeleteFixture();val f=n.f
+        val request=DownloadRequest.Builder(f.key,Uri.parse("http://127.0.0.1:7814/other-owner")).setCustomCacheKey(f.key).build()
+        try {
+            f.source.prepareSave(request)
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {f.target.completeSavedDelete(n.pending,true,n.art,n.work,{true},other=f.source)})
+            assertTrue(n.allocation.exists());assertNotNull(n.row());assertTrue(f.f.barrier.quiescent)
+            onWorker {f.source.abandonPrepared(request)}
         } finally {n.close()}
     }
 }
