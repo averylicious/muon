@@ -8,7 +8,8 @@ import androidx.media3.datasource.TransferListener
 import java.io.IOException
 
 /**
- * Plays each request from the shelf [route] names, once per open (#112, #213): a live song streams
+ * With [live] supplied, non-saved requests stream without consulting or starting saved storage.
+ * Otherwise plays each request from the shelf [route] names, once per open (#112, #213): a live song streams
  * through the phone's shelf, and a saved copy (a download on the phone or the SD card, or a played
  * copy) is read from its own shelf with no upstream at all, so a missing or partial byte fails rather
  * than reaching Tauon. A card found unavailable is not read (#179 S1). Only the card found when the

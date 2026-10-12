@@ -4,6 +4,7 @@ import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
@@ -35,22 +36,31 @@ class StorageInitializationTest {
             assertEquals(StorageAvailability.Ready,owner.availability.value)
         } finally { scope.cancel() }
     }
-    @Test fun cancellingFirstScreenBeforePreparationRunsDoesNotCancelProcessAttempt()=runTest {
+    @Test fun cancellingFirstScreenWhileNativePreparationRunsLeavesOneLiveProcessAttempt()=runTest {
         val main=StandardTestDispatcher(testScheduler)
-        val io=StandardTestDispatcher(testScheduler)
+        val executor=java.util.concurrent.Executors.newSingleThreadExecutor()
+        val io=executor.asCoroutineDispatcher()
         val scope=CoroutineScope(SupervisorJob()+main)
-        var prepared=0; var bound=0
-        val owner=StorageInitialization(scope,main,io,{ prepared++; Any() },{ value:Any -> bound++; value })
+        val entered=java.util.concurrent.CountDownLatch(1)
+        val release=java.util.concurrent.CountDownLatch(1)
+        var prepared=0; var bound=0; var uiTurns=0
+        val owner=StorageInitialization(scope,main,io,{
+            prepared++; entered.countDown()
+            check(release.await(5,java.util.concurrent.TimeUnit.SECONDS))
+            Any()
+        },{ value:Any -> bound++; value })
         try {
-            val first=launch { owner.await() }
-            // Schedule cancellation on the preparation dispatcher, after ownership was installed,
-            // before the first IO dispatch can execute. Cancellation belongs only to this waiter.
-            launch(main) { first.cancel() }
-            runCurrent(); first.join()
-            owner.await()
+            val first=launch { owner.await() }; runCurrent()
+            assertTrue(entered.await(5,java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(StorageAvailability.Preparing,owner.availability.value)
+            launch { uiTurns++ }; runCurrent(); assertEquals(1,uiTurns)
+            first.cancelAndJoin()
+            val second=async { owner.await() }; runCurrent()
+            assertEquals(1,prepared); assertEquals(0,bound)
+            release.countDown(); second.await()
             assertEquals(1,prepared); assertEquals(1,bound)
             assertEquals(StorageAvailability.Ready,owner.availability.value)
-        } finally { scope.cancel() }
+        } finally { release.countDown(); scope.cancel(); io.close() }
     }
     @Test fun preparationFailureIsStickyAndNeverBindsOrRetries()=runTest {
         val dispatcher=StandardTestDispatcher(testScheduler)

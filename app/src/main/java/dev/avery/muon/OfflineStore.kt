@@ -111,7 +111,8 @@ internal fun cardFolder(context: Context): File? = context.getExternalFilesDirs(
 /**
  * The downloaded songs and the machinery that keeps them (#112): a Media3 [DownloadManager] over a
  * [SimpleCache] in the app's own storage, and another on the SD card when one is in, shared by the UI
- * and the playback service in this process. Created on the main thread, where the managers report.
+ * and the playback service in this process. Native owners prepare on a worker; managers bind on
+ * main, where their callbacks report. The selected backend stays fixed for the process.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal object OfflineStore {
@@ -183,7 +184,7 @@ internal object OfflineStore {
     fun get(context:Context):Store=store ?: throw initialization.unavailable()
 
     private class PreparedShelf(val cache:SimpleCache,val evictor:androidx.media3.datasource.cache.CacheEvictor,
-        val folder:File,val index:String,val service:Class<out DownloadService>,val present:()->Boolean)
+        val index:String,val service:Class<out DownloadService>,val present:()->Boolean)
     private class PreparedLegacy(val context:Context,val prefs:android.content.SharedPreferences,
         val barrier:SavedStorageBarrier,val database:StandaloneDatabaseProvider,val limit:Long,
         val claims:PlayedClaims,val played:PlayedSongEvictor,val phone:PreparedShelf,val card:PreparedShelf?,
@@ -207,7 +208,7 @@ internal object OfflineStore {
                 service:Class<out DownloadService>,present:()->Boolean={true}):PreparedShelf {
                 val cache=owner.own { SimpleCache(folder,evictor,database) }
                 cache.checkInitialization() // Includes the real cache initializer; never wait on main.
-                return PreparedShelf(cache,evictor,folder,index,service,present)
+                return PreparedShelf(cache,evictor,index,service,present)
             }
             val phone=native(File(context.filesDir,"downloads"),played,"",MuonDownloadService::class.java)
             val folder=cardFolder(context)
