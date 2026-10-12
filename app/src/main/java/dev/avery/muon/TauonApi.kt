@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit
 object Transport {
     val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(5, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
+    // Whole-response bound for finite metadata and covers. Audio/download streams use client above.
+    internal val metadataClient = client.newBuilder().callTimeout(30, TimeUnit.SECONDS).build()
 }
 data class TauonPlaylist(val id: String, val name: String, val count: Int)
 data class TauonTrack(
@@ -20,7 +22,7 @@ data class TauonTrack(
 )
 class TauonApi(val endpoint: ServerEndpoint) {
     private suspend fun json(path: String): JSONObject = withContext(Dispatchers.IO) {
-        Transport.client.newCall(Request.Builder().url(endpoint.url(path)).build()).execute().use { response ->
+        val bytes = Transport.metadataClient.newCall(Request.Builder().url(endpoint.url(path)).build()).readCancellable { response ->
             if (!response.isSuccessful) throw IOException("Tauon returned HTTP ${response.code}")
             val body = response.body ?: throw IOException("Empty Tauon response")
             val output = java.io.ByteArrayOutputStream()
@@ -32,34 +34,36 @@ class TauonApi(val endpoint: ServerEndpoint) {
                 if (output.size() + count > 16 * 1024 * 1024) throw IOException("Playlist response exceeds 16 MiB")
                 output.write(buffer, 0, count)
             }
-            val bytes = output.toByteArray()
-            JSONObject(bytes.toString(Charsets.UTF_8))
+            output.toByteArray()
         }
+        parseTauonJson(bytes.toString(Charsets.UTF_8))
     }
     suspend fun connect() {
         require(json("/api1/version").getInt("version") == 1) { "Unsupported Tauon API version" }
     }
-    suspend fun playlists(): List<TauonPlaylist> {
+    suspend fun playlists(): List<TauonPlaylist> = withContext(Dispatchers.IO) {
         val a = json("/api1/playlists").getJSONArray("playlists")
+        requireLibraryPlaylistCount(a.length())
         val ids = HashSet<String>()
-        return List(a.length()) { i -> a.getJSONObject(i).let {
+        List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getString("id")
             require(id.matches(Regex("[0-9]+"))) { "Invalid playlist identifier" }
             require(ids.add(id)) { "Tauon returned duplicate playlist identifiers. Refresh its playlists and retry." }
             TauonPlaylist(id, it.getString("name"), it.getInt("count"))
         } }
     }
-    suspend fun tracks(playlistId: String): List<TauonTrack> {
+    suspend fun tracks(playlistId: String): List<TauonTrack> = withContext(Dispatchers.IO) {
         require(playlistId.matches(Regex("[0-9]+")))
         val a = json("/api1/tracklist/$playlistId").getJSONArray("tracks")
-        return List(a.length()) { i -> a.getJSONObject(i).let {
+        requireLibraryEntryCount(a.length())
+        List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getLong("id"); require(id >= 0)
             val artist = it.optString("artist")
             TauonTrack(id, trackDisplayTitle(it.opt("title") as? String, it.opt("path") as? String), artist,
                 it.optString("album"), it.optLong("duration"),
                 it.optBoolean("can_download", false), it.optBoolean("has_lyrics"),
                 albumArtist = albumArtistTag(it.opt("album_artist"), artist),
-                trackNumber = trackNumberTag(it.opt("track_number")))
+                trackNumber = trackNumberTag(it.opt("track_number"))).also(::requireTrackMetadataBudget)
         } }
     }
     suspend fun lyrics(trackId: Long): String {
