@@ -13,6 +13,8 @@ import java.io.Closeable
 import java.io.IOException
 import java.io.File
 
+internal data class PartitionSavedCopy(val source:PartitionSaveRecord,val completion:PartitionSaveCompletion,val destination:PartitionSaveTicket)
+
 internal data class OwnedPlayedRemoval(val outcome:OfflineStore.SavedRemoval,val bytes:Long=0,val change:Long?=null)
 internal data class OwnedPlayedClear(val removed:Long,val removedBytes:Long,val remainingBytes:Long?,val complete:Boolean)
 
@@ -161,6 +163,73 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             throw failure
         }
         }} finally {localCopyAdmission.set(false)}
+    }
+    private var retainedSavedCopy:Any?=null
+    /** Local copy preparation for an actual NEW completed partition save, preserving the source.
+     * One shared gate pins both shelves; fixed scalar identity escapes only after both actual
+     * copy readers and native owners close. No completion publication or deletion authority. */
+    internal fun copyCompletedSavedTo(destination:PartitionStorageSession,key:String,newKey:String,
+        explicitConsent:Boolean,checkpoint:()->Unit):PartitionSavedCopy {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved copy requires a worker"}
+        if(!explicitConsent || destination===this || !destination.usesBarrier(barrier) || key==newKey ||
+            !key.startsWith(NEW_SAVE_PREFIX)) throw IOException("Saved copy needs consent, distinct names and the same gate")
+        return operation {
+            var cache:Cache?=null; var releasing=false
+            fun unknown(failure:Throwable):Nothing {
+                val handles=arrayOf(this,destination,cache,failure); retainedSavedCopy=handles; uncertain=true
+                throw PartitionOwnershipUncertain(handles,failure)
+            }
+            try {
+                requireOpen(); checkpoint(); writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+                val route=native.savedReadRoute(key)
+                if(route !is PartitionReadRoute.NewSave || route.record.phase!=PartitionSavePhase.Closed)
+                    throw IOException("Saved copy source is not the exact Closed new allocation")
+                val closed=route.record
+                val completion=completionIndex.find(key) ?: throw IOException("Saved copy source is not completed")
+                fun checked() {
+                    requireOpen(); checkpoint()
+                    if(native.savedReadRoute(key)!=route || saves.find(key)!=closed ||
+                        catalog.find(key)!=closed.ticket.allocation || migrations.find(key)!=null ||
+                        retirements?.holdsName(key)==true || completionIndex.find(key)!=completion || completionIndex.holdsOtherName(key) || claimsName(newKey))
+                        throw IOException("Saved copy source claims changed")
+                }
+                checked(); val actual=native.openClosedSaveRead(key); cache=actual
+                val initial=savedAudioState(actual,key)
+                val metadata=PartitionResourceCache.measured(initial.metadata,PartitionResourceLimits())
+                fun full() {
+                    checked(); val state=savedAudioState(actual,key)
+                    if(actual.uid!=closed.uid || state.coverage!=SavedCoverage.Full || state.bytes!=completion.length || state.metadata!=metadata)
+                        throw IOException("Saved copy source bytes or metadata changed")
+                }
+                full()
+                val local=LegacySavedAudio(actual).source
+                val source=DataSource.Factory {
+                    val child=local.createDataSource()
+                    object:DataSource by child {
+                        override fun open(spec:DataSpec):Long {
+                            full(); if(spec.key!=newKey) throw IOException("Saved copy remapping key changed")
+                            return child.open(spec.buildUpon().setKey(key).build()).also {full()}
+                        }
+                        override fun read(bytes:ByteArray,offset:Int,length:Int):Int {
+                            checked(); return child.read(bytes,offset,length).also {checked()}
+                        }
+                    }
+                }
+                val spec=DataSpec.Builder().setUri("muon-saved:local-copy").setKey(newKey).setLength(completion.length).build()
+                val ticket=destination.copyLocalSaved(spec,metadata,source,::checked)
+                full(); releasing=true; actual.release(); cache=null; releasing=false
+                checked(); PartitionSavedCopy(closed,completion,ticket)
+            } catch(failure:Throwable) {
+                // A target with an unknown actual comparison reader can still depend on this
+                // source cache: retain it too; never release underneath that unknown reader.
+                if(releasing || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) unknown(failure)
+                cache?.let {actual ->
+                    try {actual.release(); cache=null}
+                    catch(close:Throwable) {if(close!==failure) close.addSuppressed(failure); unknown(close)}
+                }
+                throw failure
+            }
+        }
     }
     private var retainedLocalPublication:Any?=null
     /** Publish a byte-verified, exact clean local destination, never via a destructive downloader

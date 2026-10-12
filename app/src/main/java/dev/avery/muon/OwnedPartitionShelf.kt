@@ -150,6 +150,15 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             unclaimedElsewhere,{located(); destination.located(); checkpoint()},timestamp,{name,permit -> claimsMoveName(name,permit)},
             {located(); destination.located()})
     }
+    internal fun copyCompletedSavedTo(destination:OwnedPartitionShelf,key:String,newKey:String,
+        explicitConsent:Boolean,checkpoint:()->Unit={}):PartitionSavedCopy {
+        if(destination===this || destination.storageBarrier!==barrier)
+            throw IOException("Saved copy requires another shelf on the actual gate")
+        val source=resources(); val target=destination.resources()
+        return source.session.copyCompletedSavedTo(target.session,key,newKey,explicitConsent) {
+            located(); destination.located(); checkpoint()
+        }
+    }
     internal fun beginCopiedOriginalMove(destination:OwnedPartitionShelf,copy:PartitionOriginalCopy,
         completed:PartitionSaveCompletion,explicitConsent:Boolean):LegacyRetirementRecord {
         if(destination===this || destination.storageBarrier!==barrier)

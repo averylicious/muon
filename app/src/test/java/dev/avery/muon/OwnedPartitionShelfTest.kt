@@ -1626,4 +1626,66 @@ class OwnedPartitionShelfTest {
         } finally {f.close()}
     }
 
+    @Test fun actualNewPartitionSaveCanCopyBackLocallyWithFullMetadataAndNoSourceRetirement() {
+        val f=LocalPublicationFixture(); val back="saved/local-copy-back"
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            val copy=onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}
+            assertEquals(f.key,copy.completion.key); assertEquals(back,copy.destination.allocation.key)
+            assertEquals(PartitionSavePhase.Closed,copy.source.phase)
+            assertEquals(0,f.f.budget.resident)
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertNull(f.index.getDownload(back))
+            assertEquals(SavedCoverage.Missing,onWorker {f.source.audio.inspect(back).coverage}) // Closed alone is unpublished.
+            val closed=onWorker {f.source.saveRecoveryPage().single {it.ticket==copy.destination}}
+            assertEquals(PartitionSavePhase.Closed,closed.phase)
+            assertTrue(onWorker {f.source.retirementRecoveryPage().isEmpty()})
+            assertArrayEquals(payload,f.f.original.readBytes()); assertNotNull(f.index.getDownload("81"))
+            assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun savedLocalCopyRefusesNoConsentExistingDestinationAliasAndActiveSourceReader() {
+        val f=LocalPublicationFixture(); val back="saved/local-copy-refusal"
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            assertThrows(IOException::class.java) {onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,false)}}
+            val alias=DownloadRequest.Builder("alias",Uri.parse("http://127.0.0.1:7814/alias")).setCustomCacheKey(back).build()
+            f.index.putDownload(Download(alias,Download.STATE_FAILED,1,2,0,Download.STOP_REASON_NONE,Download.FAILURE_REASON_UNKNOWN))
+            assertThrows(IOException::class.java) {onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}}
+            assertTrue(onWorker {f.source.saveRecoveryPage().isEmpty()})
+            f.index.removeDownload("alias")
+            val reader=f.target.audio.source.createDataSource()
+            try {
+                onWorker {
+                    reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(f.key).build())
+                    assertEquals(4,reader.read(ByteArray(4),0,4))
+                    assertEquals(androidx.media3.common.C.RESULT_END_OF_INPUT,reader.read(ByteArray(4),0,4))
+                }
+                assertThrows(IOException::class.java) {onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}}
+                assertTrue(onWorker {f.source.saveRecoveryPage().isEmpty()})
+            } finally {onWorker {reader.close()}}
+            val copy=onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}
+            assertEquals(back,copy.destination.allocation.key); assertEquals(0,f.f.budget.resident)
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key)); assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+    @Test fun savedLocalCopyCancellationPreservesPublishedSourceAndReleasesKnownNativeOwners() {
+        val f=LocalPublicationFixture(); val back="saved/local-copy-cancel"; var sawOpen=false
+        try {
+            val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+            assertThrows(java.io.InterruptedIOException::class.java) {onWorker {
+                f.target.copyCompletedSavedTo(f.source,f.key,back,true) {
+                    if(f.source.saveRecoveryPage().any {it.ticket.allocation.key==back && it.phase==PartitionSavePhase.Open}) {
+                        sawOpen=true; throw java.io.InterruptedIOException("Cancel actual saved-copy read")
+                    }
+                }
+            }}
+            assertTrue(sawOpen); assertEquals(0,f.f.budget.resident); assertTrue(f.f.barrier.quiescent)
+            assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+            assertTrue(onWorker {f.target.audio.contains(f.key)})
+            assertNull(f.index.getDownload(back)); assertTrue(onWorker {f.target.retirementRecoveryPage().isEmpty()})
+            assertArrayEquals(payload,f.f.original.readBytes())
+        } finally {f.close()}
+    }
+
 }
