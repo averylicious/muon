@@ -18,16 +18,15 @@ private const val DOWNLOAD_NOTIFICATION = 2
  * new saves use fresh entries instead of resuming unverified retained bytes.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-class MuonDownloadService : DownloadService(DOWNLOAD_NOTIFICATION, DownloadService.DEFAULT_FOREGROUND_NOTIFICATION_UPDATE_INTERVAL,
-    DOWNLOAD_CHANNEL, R.string.downloads_channel, 0) {
+class MuonDownloadService : InitializedDownloadService(DOWNLOAD_NOTIFICATION) {
     private val notifications by lazy { DownloadNotificationHelper(this, DOWNLOAD_CHANNEL) }
 
     override fun getDownloadManager(): DownloadManager = OfflineStore.get(this).phone.managerForService()
 
     // #230: a command that could change downloads is refused while a move is in flight, before Media3 sees it.
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
+    override fun handleReadyCommand(intent: Intent?, flags: Int, startId: Int): Int =
         OfflineStore.deliverCommand(this, intent, OfflineStore.get(this).phone) { admitted ->
-            super.onStartCommand(admitted, flags, startId)
+            startAdmitted(admitted, flags, startId)
         }
 
     override fun getScheduler(): Scheduler? = null
@@ -46,8 +45,7 @@ private const val CARD_NOTIFICATION = 3
  * That fallback is still resumed when the service is created, and Media3's own restarts still run.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadService.DEFAULT_FOREGROUND_NOTIFICATION_UPDATE_INTERVAL,
-    DOWNLOAD_CHANNEL, R.string.downloads_channel, 0) {
+class MuonCardDownloadService : InitializedDownloadService(CARD_NOTIFICATION) {
     private val notifications by lazy { DownloadNotificationHelper(this, DOWNLOAD_CHANNEL) }
 
     /** The manager this instance's commands reach, copied once Media3 has attached it. */
@@ -58,25 +56,24 @@ class MuonCardDownloadService : DownloadService(CARD_NOTIFICATION, DownloadServi
     override fun getDownloadManager(): DownloadManager =
         OfflineStore.get(this).let { (it.card ?: it.phone).managerForService() }.also { helperManager = it }
 
-    override fun onCreate() {
-        super.onCreate()
+    override fun onStorageAttached() {
         // Per instance: a live instance keeps its helper even if a later instance is given a new one.
         bound = helperManager
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun handleReadyCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         // A command this binding may carry out still passes the move's admission (#230), as the phone's does.
         if (intent == null || action == null || action !in CHANGING_ACTIONS || isCardManager(bound))
             return OfflineStore.deliverCommand(this, intent, OfflineStore.current()?.card) { admitted ->
-                super.onStartCommand(admitted, flags, startId)
+                startAdmitted(admitted, flags, startId)
             }
         // A refused owned move must not leave a pending receipt blocking every later retry.
         OfflineStore.refusedMoveCommand(intent)
         OfflineStore.refusedSaveCommand(intent)
         OfflineStore.refusedRemovalCommand(intent, OfflineStore.current()?.card)
         // A copy that changes nothing, with the same extras, so a foreground start still shows its notification.
-        return super.onStartCommand(Intent(intent).setAction(DownloadService.ACTION_INIT), flags, startId)
+        return startAdmitted(Intent(intent).setAction(DownloadService.ACTION_INIT), flags, startId)
     }
 
     private fun isCardManager(manager: DownloadManager?): Boolean {

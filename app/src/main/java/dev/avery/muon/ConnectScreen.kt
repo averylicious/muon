@@ -30,10 +30,15 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     val allowed = LocalNetworkState.granted && localNetworkGranted(context)
     val scan = combineDiscovery(nsd, probe, allowed)
     // Downloads open without a server (#112): offered whenever any are on the phone.
-    LaunchedEffect(Unit) { OfflineStore.get(context) }
+    val storage by OfflineStore.availability.collectAsState()
+    LaunchedEffect(Unit) {
+        try { OfflineStore.await(context) }
+        catch(cancelled:kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch(_:Exception) { /* Failed state is shown below; live server connection stays usable. */ }
+    }
     // Every playable saved copy counts, played copies and ones from an unknown server included (#213).
     var downloaded by remember { mutableStateOf(0L) }
-    LaunchedEffect(DownloadMarks.revision, PlayedCacheState.used) {
+    LaunchedEffect(storage, DownloadMarks.revision, PlayedCacheState.used) {
         downloaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { OfflineStore.savedCompleteCount(context) }.getOrDefault(0L)
         }
@@ -70,6 +75,10 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     // medium titles — then the address card, what was found on this network, and what is on this phone.
     Column(Modifier.fillMaxSize().background(colors.surfaceContainer).verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+        if(storage!=StorageAvailability.Ready) Text(
+            if(storage==StorageAvailability.Failed) "Saved copies couldn't open. Your files were kept. Fully restart Muon before trying again."
+            else "Opening saved copies…",style=MaterialTheme.typography.bodyMedium,
+            modifier=Modifier.padding(top=12.dp))
         Text("Bring your\nlibrary along.", style = MaterialTheme.typography.screenTitle, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 40.dp))
         Text("Play your Tauon library on this phone, over your own network.",

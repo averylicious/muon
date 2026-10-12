@@ -45,9 +45,12 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         savedSnapshot = page.snapshot; savedOffset = page.offset; saved = page.entries
     }
 
-    private suspend fun reloadSaved(): SavedReload = withContext(Dispatchers.IO) {
-        val job = currentCoroutineContext()
-        savedMutex.withLock { savedRepository.reload(savedOffset) { job.ensureActive() } }
+    private suspend fun reloadSaved():SavedReload {
+        OfflineStore.await(getApplication<Application>())
+        return withContext(Dispatchers.IO) {
+            val job=currentCoroutineContext()
+            savedMutex.withLock { savedRepository.reload(savedOffset) { job.ensureActive() } }
+        }
     }
 
     /** Rebuild atomically, retain the last good page on error, invalidate all cached pages on success. */
@@ -117,8 +120,6 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     fun connect() {
         if (busy) return
         savedLoad?.cancel(); cancelSavedPlayback(); savedRevision++; savedBusy = false
-        // The download store reports to the main thread, so it is made here before anything reads it.
-        OfflineStore.get(getApplication<Application>())
         loads.start {
             error = null
             try {
@@ -206,7 +207,6 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     fun listenOffline() {
         if (busy) return
         savedLoad?.cancel(); cancelSavedPlayback(); savedRevision++; savedBusy = false
-        OfflineStore.get(getApplication<Application>())
         loads.start {
             try {
                 val entries = reloadSaved()

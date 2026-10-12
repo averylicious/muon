@@ -161,59 +161,90 @@ internal object OfflineStore {
     /** The store, if something has already made it; never makes one. */
     fun current(): Store? = store
 
-    // Selected once, before any native cache/provider/service manager construction. Never retry a
-    // partial startup or exchange a manager already installed in DownloadService's static helper.
+    // Neither a screen cancellation nor a cold service restart may allocate a second native owner.
+    private val preparation = StorageStartup<PreparedLegacy>()
     private val startup = StorageStartup<Store>()
-    @Synchronized
-    fun get(context: Context): Store = store ?: startup.open { create(context.applicationContext, it) }.also { store = it }
-
-    private fun shelf(owner: StorageStartup<Store>.Opening, context: Context, folder: File, evictor: androidx.media3.datasource.cache.CacheEvictor,
-        database: StandaloneDatabaseProvider, index: String, service: Class<out DownloadService>,
-        barrier:SavedStorageBarrier, present: () -> Boolean = { true }): Shelf {
-        val cache = owner.own { SimpleCache(folder, evictor, database) }
-        // The manager loads no retained stopped rows at startup (#253, [ManagerStartupIndex]).
-        val manager = owner.own { DownloadManager(context, ManagerStartupIndex(RetainedDownloadIndex(StorageDownloadIndex(DefaultDownloadIndex(database, index),barrier,
-            onUncertain={ (evictor as? PlayedSongEvictor)?.quarantine() }),
-            File(context.cacheDir, "muon-retained-startup-${index.ifEmpty { "phone" }}.ids"))),
-            LegacyDownloadFactory(cache,OkHttpDataSource.Factory(Transport.client),barrier,
-                onUncertain={ (evictor as? PlayedSongEvictor)?.quarantine() })) }
-        manager.maxParallelDownloads = 2
-        return Shelf.ownedLegacy(cache,manager,service,barrier,present)
-    }
-
-    private fun create(context: Context, owner: StorageStartup<Store>.Opening): Store {
-        val prefs = context.getSharedPreferences("storage", Context.MODE_PRIVATE)
-        // Freeze explicit authority before opening ANY provider/cache. Partition startup is staged:
-        // unavailable integration refuses here, without silently constructing the full legacy index.
-        return StorageBackendSelection.read(prefs).open(legacy = { createLegacy(context, owner, prefs) })
-    }
-
-    private fun createLegacy(context: Context, owner: StorageStartup<Store>.Opening,
-        prefs: android.content.SharedPreferences): Store {
-        val barrier=owner.own { SavedStorageBarrier() }
-        val database = owner.own { StandaloneDatabaseProvider(context) }
-        val limit = prefs.getLong("cacheLimit", DEFAULT_CACHE_LIMIT)
-        val main = Handler(Looper.getMainLooper())
-        PlayedCacheState.limit = limit
-        // Downloads stay until removed: only played-song copies are ever evicted, oldest first, and none that
-        // a download row names, nor any until the phone's index has been read (#213).
-        val claims = PlayedClaims(context)
-        val order = owner.own { DiskPlayedSpanOrder(File(context.noBackupFilesDir, "played-span-order-v1.db")) }
-        val played = PlayedSongEvictor(limit, claims::removable, order) { used -> main.post { PlayedCacheState.used = used } }
-        val phone = shelf(owner, context, File(context.filesDir, "downloads"), played, database, "", MuonDownloadService::class.java, barrier)
-        saver.execute {
-            // If the index cannot be read, the claims stay unknown and no played copy is ever removed.
-            claims.read(phone.manager.downloadIndex)
-            if (claims.known) playedWork.resize(barrier) { played.resize(limit) }
+    private val initialization = StorageInitialization(
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()+kotlinx.coroutines.Dispatchers.Main.immediate),
+        kotlinx.coroutines.Dispatchers.Main.immediate,kotlinx.coroutines.Dispatchers.IO,
+        prepare={ preparation.open { prepareLegacy(requireNotNull(startupContext),it) } },
+        bind={ ready:PreparedLegacy -> startup.open { bindLegacy(ready,it) }.also { store=it } })
+    @Volatile private var startupContext:Context?=null
+    val availability:kotlinx.coroutines.flow.StateFlow<StorageAvailability> get()=initialization.availability
+    suspend fun await(context:Context):Store {
+        current()?.let { return it }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+            if(startupContext==null) startupContext=context.applicationContext
+            initialization.await()
         }
-        val art = DownloadArt(File(context.filesDir, "downloads-art"),barrier=barrier)
-        // Covers are fetched one at a time, beside the downloads rather than in their way.
-        val artwork = DownloadArtworkWork(owner.own { Executors.newSingleThreadExecutor() }, art::fetchEntry, art::removeEntry,
-            barrier=barrier, knownRejectionBeforeSubmission=true)
-        val sizes = DownloadByteTotals(context)
-        val marks = owner.own { DownloadMarkLedger(File(context.noBackupFilesDir, "download-marks-v1.db")) {
-            main.post { DownloadMarks.countsKnown = false }
-        } }
+    }
+    /** Never allocates on a random caller/looper or blocks main waiting for background preparation. */
+    @Suppress("UNUSED_PARAMETER")
+    fun get(context:Context):Store=store ?: throw initialization.unavailable()
+
+    private class PreparedShelf(val cache:SimpleCache,val evictor:androidx.media3.datasource.cache.CacheEvictor,
+        val folder:File,val index:String,val service:Class<out DownloadService>,val present:()->Boolean)
+    private class PreparedLegacy(val context:Context,val prefs:android.content.SharedPreferences,
+        val barrier:SavedStorageBarrier,val database:StandaloneDatabaseProvider,val limit:Long,
+        val claims:PlayedClaims,val played:PlayedSongEvictor,val phone:PreparedShelf,val card:PreparedShelf?,
+        val cardFolder:File?,val art:DownloadArt,val artwork:DownloadArtworkWork,val sizes:DownloadByteTotals,
+        val marks:DownloadMarkLedger)
+
+    private fun prepareLegacy(context:Context,owner:StorageStartup<PreparedLegacy>.Opening):PreparedLegacy {
+        check(Looper.myLooper()!=Looper.getMainLooper()) { "Native storage preparation requires a worker" }
+        val prefs=context.getSharedPreferences("storage",Context.MODE_PRIVATE)
+        // Freeze authority BEFORE any provider/cache. Staged partition choice refuses without
+        // constructing legacy owners; production partition routing/opt-in remains a separate gate.
+        return StorageBackendSelection.read(prefs).open(legacy={
+            val barrier=owner.own { SavedStorageBarrier() }
+            val database=owner.own { StandaloneDatabaseProvider(context) }
+            val limit=prefs.getLong("cacheLimit",DEFAULT_CACHE_LIMIT)
+            val main=Handler(Looper.getMainLooper())
+            val claims=owner.own { PlayedClaims(context) }
+            val order=owner.own { DiskPlayedSpanOrder(File(context.noBackupFilesDir,"played-span-order-v1.db")) }
+            val played=owner.own { PlayedSongEvictor(limit,claims::removable,order) { used -> main.post { PlayedCacheState.used=used } } }
+            fun native(folder:File,evictor:androidx.media3.datasource.cache.CacheEvictor,index:String,
+                service:Class<out DownloadService>,present:()->Boolean={true}):PreparedShelf {
+                val cache=owner.own { SimpleCache(folder,evictor,database) }
+                cache.checkInitialization() // Includes the real cache initializer; never wait on main.
+                return PreparedShelf(cache,evictor,folder,index,service,present)
+            }
+            val phone=native(File(context.filesDir,"downloads"),played,"",MuonDownloadService::class.java)
+            val folder=cardFolder(context)
+            // A partial card allocation is not 'no card': keep the failed startup and all actual
+            // owners. Retrying with only a phone manager would hide uncertainty over the provider.
+            val card=folder?.let { native(File(it,"downloads"),NoOpCacheEvictor(),"card",MuonCardDownloadService::class.java) { cardPresent(it) } }
+            val art=owner.own { DownloadArt(File(context.filesDir,"downloads-art"),barrier=barrier) }
+            val workers=owner.own { Executors.newSingleThreadExecutor() }
+            val artwork=owner.own { DownloadArtworkWork(workers,art::fetchEntry,art::removeEntry,
+                barrier=barrier,knownRejectionBeforeSubmission=true) }
+            val sizes=owner.own { DownloadByteTotals(context) }
+            val marks=owner.own { DownloadMarkLedger(File(context.noBackupFilesDir,"download-marks-v1.db")) {
+                main.post { DownloadMarks.countsKnown=false }
+            } }
+            PreparedLegacy(context,prefs,barrier,database,limit,claims,played,phone,card,folder,art,artwork,sizes,marks)
+        })
+    }
+
+    private fun bindLegacy(ready:PreparedLegacy,owner:StorageStartup<Store>.Opening):Store {
+        check(Looper.myLooper()==Looper.getMainLooper()) { "Download managers require main" }
+        owner.own { ready } // Retain the complete prepared root even if binding fails partway.
+        val context=ready.context; val prefs=ready.prefs; val barrier=ready.barrier; val database=ready.database
+        val limit=ready.limit; val claims=ready.claims; val played=ready.played; val art=ready.art
+        val artwork=ready.artwork; val sizes=ready.sizes; val marks=ready.marks; val main=Handler(Looper.getMainLooper())
+        PlayedCacheState.limit=limit
+        fun shelf(prepared:PreparedShelf):Shelf {
+            val index=prepared.index; val evictor=prepared.evictor; val cache=prepared.cache
+            val manager=owner.own { DownloadManager(context,ManagerStartupIndex(RetainedDownloadIndex(
+                StorageDownloadIndex(DefaultDownloadIndex(database,index),barrier,
+                    onUncertain={ (evictor as? PlayedSongEvictor)?.quarantine() }),
+                File(context.cacheDir,"muon-retained-startup-${index.ifEmpty { "phone" }}.ids"))),
+                LegacyDownloadFactory(cache,OkHttpDataSource.Factory(Transport.client),barrier,
+                    onUncertain={ (evictor as? PlayedSongEvictor)?.quarantine() })) }
+            manager.maxParallelDownloads=2
+            return Shelf.ownedLegacy(cache,manager,prepared.service,barrier,prepared.present)
+        }
+        val phone=shelf(ready.phone)
         fun record(download: DownloadStatus) {
             val id = download.id
             val mark = when (download.state) {
@@ -253,17 +284,12 @@ internal object OfflineStore {
             DownloadMarks.bytesKnown = sizes.known
         }
         val made = Store(phone, art, played, prefs, database, ::record, ::removed, artwork, claims, marks = marks, storageBarrier=barrier)
-        watch(context, phone, made, main)
-        cardFolder(context)?.let { folder ->
-            // The card found now; later its availability is only ever this folder's, never another card's.
-            val downloads = File(folder, "downloads")
-            runCatching {
-                // The app's own folder on the card, made by getExternalFilesDirs above. Not the cache
-                // folder, which the cache creates on its own thread a moment later.
-                shelf(owner, context, downloads, NoOpCacheEvictor(), database, "card", MuonCardDownloadService::class.java, barrier) {
-                    cardPresent(folder)
-                }
-            }.getOrNull()?.let { card -> made.card = card; made.cardFolder = folder; watch(context, card, made, main) }
+        ready.card?.let { made.card=shelf(it); made.cardFolder=ready.cardFolder }
+        watch(context,phone,made,main)
+        made.card?.let { watch(context,it,made,main) }
+        saver.execute {
+            claims.read(phone.manager.downloadIndex)
+            if(claims.known) playedWork.resize(barrier) { played.resize(limit) }
         }
         return made
     }
@@ -369,10 +395,9 @@ internal object OfflineStore {
      * The player's data source: a live song streams, and nothing streamed is written; a saved copy plays
      * from its own shelf with no network at all (#213, [routeOfflineRequest]).
      */
-    @Suppress("UNUSED_PARAMETER")
     fun playbackSource(context: Context, upstream: DataSource.Factory): DataSource.Factory =
-        DataSource.Factory { SavedReadAheadSource(OfflineDataSource(SavedStartupTiming.forContext(context)) { spec ->
-            get(context).let { routeOfflineRequest(spec, it.phone, it.card) }
+        DataSource.Factory { SavedReadAheadSource(OfflineDataSource(SavedStartupTiming.forContext(context),live=upstream) { spec ->
+            get(context).let { routeOfflineRequest(spec,it.phone,it.card) }
         }) }
 
     /**
@@ -383,7 +408,7 @@ internal object OfflineStore {
      */
     fun copyPlayed(context: Context, id: String, song: ByteArray?) {
         if (song == null || isSavedHandle(id)) return
-        val store = get(context)
+        val store = current() ?: return
         playedWork.copy(id, store.storageBarrier) { owner ->
             runCatching {
                 // Not before the phone index has been read: a fresh key must be one no row names (#213).

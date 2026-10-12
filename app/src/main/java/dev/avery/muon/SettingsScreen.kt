@@ -110,6 +110,14 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
 @Composable
 private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val context = LocalContext.current
+    val availability by OfflineStore.availability.collectAsState()
+    if(availability!=StorageAvailability.Ready || OfflineStore.current()==null) {
+        SettingsGroup { SettingsRow(shape=rowShape(0,1),headline="Saved storage",
+            supporting=if(availability==StorageAvailability.Failed)
+                "Couldn't open saved copies. Existing files were kept; fully restart Muon before retrying."
+            else "Opening saved copies…") }
+        return
+    }
     val colors = MaterialTheme.colorScheme
     val songs = DownloadMarks.done
     val used = PlayedCacheState.used

@@ -22,6 +22,7 @@ import java.io.IOException
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class OfflineDataSource(private val timing: SavedStartupTiming = SavedStartupTiming.DISABLED,
+    private val live:DataSource.Factory?=null,
     private val route: (DataSpec) -> Pair<Shelf, DataSpec>) : DataSource {
     private val listeners = ArrayList<TransferListener>()
     private var active: DataSource? = null
@@ -36,6 +37,11 @@ internal class OfflineDataSource(private val timing: SavedStartupTiming = SavedS
         val saved = if (timing.enabled) SavedRef.parse(dataSpec.uri.toString()) else null
         val card = saved?.shelf == SavedShelf.Card
         val routeToken = if (saved != null) timing.begin(if (card) SavedStartupTiming.Phase.ROUTE_CARD else SavedStartupTiming.Phase.ROUTE_PHONE) else null
+        if(dataSpec.uri.scheme!=SAVED_SCHEME && live!=null) {
+            val source=live.createDataSource().also { source -> listeners.forEach(source::addTransferListener) }
+            active=source; shelf=null; lost=false
+            return source.open(dataSpec)
+        }
         val selected = try { route(dataSpec).also { timing.end(routeToken) } }
         catch (failure: Exception) { timing.end(routeToken, SavedStartupTiming.Outcome.FAILED); throw failure }
         val (shelf, spec) = selected
@@ -60,7 +66,7 @@ internal class OfflineDataSource(private val timing: SavedStartupTiming = SavedS
         val token = firstRead?.let(timing::begin)
         firstRead = null // At most one read timing per open, including failures; no per-buffer log.
         try {
-            if (lost || !checkNotNull(shelf).available()) {
+            if (lost || shelf?.available()==false) {
                 lost = true
                 throw IOException("Storage became unavailable while reading")
             }

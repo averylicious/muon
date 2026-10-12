@@ -78,7 +78,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val library = rememberLibrarySettings()
         val context = LocalContext.current
         // Downloads are read in at launch, so rows can mark them, and any left unfinished carry on.
-        LaunchedEffect(Unit) { OfflineStore.get(context); OfflineStore.resume(context) }
+        LaunchedEffect(Unit) {
+            try { OfflineStore.await(context); OfflineStore.resume(context) }
+            catch(cancelled:kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch(_:Exception) { /* StorageGroup/ConnectScreen expose the process-sticky failure. */ }
+        }
         val scope = rememberCoroutineScope()
         val snackbar = remember { SnackbarHostState() }
         // Which playlist is open is about this sitting, not a preference. It is saved with the
