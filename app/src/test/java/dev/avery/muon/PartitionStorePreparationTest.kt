@@ -215,7 +215,7 @@ class PartitionStorePreparationTest {
                 check(System.nanoTime()<end) { "Common partition bootstrap/usage did not settle" }; Thread.sleep(5)
             }
             assertFalse(store.bootstrapFailed); assertTrue(store.storageBarrier.quiescent)
-            assertSame(store.phone.manager,requireNotNull(ready.phone.partition).managerForService())
+            assertSame(store.phone.manager,requireNotNull(ready.phone.partition).initializeManager())
             assertSame(store.card!!.manager,requireNotNull(ready.card!!.partition).initializeManager())
             assertSame(store,bound.open { error("Must not bind another manager") })
             val wrongLooper=StorageStartup<OfflineStore.Store>()
@@ -224,16 +224,6 @@ class PartitionStorePreparationTest {
             f.originals.forEach { assertArrayEquals(bytes,it.readBytes()) }
             assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy)); assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
         } finally {
-            // The service assertion above attaches a helper-lifetime manager. This fixture has no
-            // actual DownloadService helper; prove it is idle, then clear only its test-owned flag
-            // so normal cleanup can retire it. There is no production detach/reset API.
-            val opened=StorageStartup::class.java.getDeclaredField("opened").apply { isAccessible=true }.get(startup) as? OfflineStore.PreparedStorage
-            opened?.phone?.partition?.let { root ->
-                resources(root)?.let { made ->
-                    val manager=made.javaClass.getDeclaredField("manager").apply { isAccessible=true }.get(made)
-                    PartitionShelfManager::class.java.getDeclaredField("attached").apply { isAccessible=true }.setBoolean(manager,false)
-                }
-            }
             cleanup(startup); f.seed.close(); PlayedCacheState.used=previousUsed; PlayedCacheState.limit=previousLimit
         }
     }
