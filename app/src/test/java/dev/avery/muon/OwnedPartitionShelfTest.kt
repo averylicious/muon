@@ -1636,7 +1636,8 @@ class OwnedPartitionShelfTest {
             assertEquals(0,f.f.budget.resident)
             assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
             assertNull(f.index.getDownload(back))
-            assertEquals(SavedCoverage.Missing,onWorker {f.source.audio.inspect(back).coverage}) // Closed alone is unpublished.
+            assertFalse(onWorker {f.source.audio.contains(back)}) // Closed alone is unpublished.
+            assertThrows(IOException::class.java) {onWorker {f.source.audio.inspect(back)}}
             val closed=onWorker {f.source.saveRecoveryPage().single {it.ticket==copy.destination}}
             assertEquals(PartitionSavePhase.Closed,closed.phase)
             assertTrue(onWorker {f.source.retirementRecoveryPage().isEmpty()})
