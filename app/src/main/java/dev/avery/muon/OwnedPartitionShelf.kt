@@ -123,8 +123,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     fun managerForService():DownloadManager=resources().manager.managerForService()
     fun containsId(id:String,completedOnly:Boolean=false)=resources().session.containsId(id,completedOnly)
     fun copyPlayed(spec:androidx.media3.datasource.DataSpec,song:ByteArray,origin:String,upstream:DataSource.Factory,
-        writerCreated:(PlayedCopyWriter)->Unit={},limit:()->Long)=
-        resources().session.copyPlayed(spec,song,origin,upstream,writerCreated,limit)
+        writerCreated:(PlayedCopyWriter)->Unit={},checkpoint:()->Unit={},limit:()->Long)=
+        resources().session.copyPlayed(spec,song,origin,upstream,writerCreated,checkpoint,limit)
+    fun playedBytes(checkpoint:()->Unit={}):Long=resources().session.playedBytes(checkpoint)
     fun removePlayed(key:String,removable:(String)->Boolean):OfflineStore.SavedRemoval =
         try { resources().session.removePlayed(key,removable) }
         catch(_:IOException) { OfflineStore.SavedRemoval.Unavailable }
@@ -155,19 +156,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 after=page.last().ticket.allocation.key
             }
         } catch(_:Exception) { successful=false }
-        val remaining=try {
-            var bytes=0L
-            val audio=resources().session.audio
-            audio.forEachKey { key ->
-                if(key.startsWith(PLAYED_PREFIX)) {
-                    val value=audio.inspect(key).bytes
-                    if(value<0) throw IOException("Invalid remaining played bytes")
-                    bytes=Math.addExact(bytes,value)
-                }
-                true
-            }
-            bytes
-        } catch(_:Exception) { null }
+        val remaining=try { playedBytes() } catch(_:Exception) { null }
         return OwnedPlayedClear(removed,removedBytes,remaining,successful && remaining==0L)
     }
     fun prepareSave(request:DownloadRequest)=resources().manager.prepare(request)

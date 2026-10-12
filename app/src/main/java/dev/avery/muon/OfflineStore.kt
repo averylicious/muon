@@ -439,9 +439,12 @@ internal object OfflineStore {
                 })
                 store.phone.partition?.let { partition ->
                     partition.copyPlayed(DataSpec.Builder().setUri(Uri.parse(url)).setKey(key).build(),song,id,upstream,
-                        writerCreated={ copy -> writer.set(copy); if(owner.isCancelled) copy.cancel() }) {
+                        writerCreated={ copy -> writer.set(copy); if(owner.isCancelled) copy.cancel() },
+                        checkpoint={ if(owner.isCancelled) throw java.io.InterruptedIOException("Played copy cancelled") }) {
                         store.prefs.getLong("cacheLimit",DEFAULT_CACHE_LIMIT)
                     }
+                    val used=partition.playedBytes { if(owner.isCancelled) throw java.io.InterruptedIOException("Played copy cancelled") }
+                    Handler(Looper.getMainLooper()).post { PlayedCacheState.used=used }
                     return@runCatching
                 }
                 store.cache.applyContentMetadataMutations(key, ContentMetadataMutations()
@@ -492,6 +495,15 @@ internal object OfflineStore {
         val store = commandStore(context) ?: return
         store.prefs.edit().putLong("cacheLimit", limit).apply()
         PlayedCacheState.limit = limit
+        store.phone.partition?.let { partition ->
+            playedWork.resize {
+                val used=runCatching { partition.playedBytes() }.getOrNull()
+                Handler(Looper.getMainLooper()).post { used?.let { PlayedCacheState.used=it } }
+                if(used==null || used>limit) notice(context,
+                    "The cache limit was saved. Existing played copies were kept; clear eligible copies to reduce usage.")
+            }
+            return
+        }
         playedWork.resize(store.storageBarrier) { store.played.resize(limit) }
     }
 

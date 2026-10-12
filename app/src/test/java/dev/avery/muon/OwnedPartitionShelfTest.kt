@@ -538,4 +538,89 @@ class OwnedPartitionShelfTest {
         } finally { teardown(owner); f.provider.close() }
     }
 
+    @Test fun aggregatePlayedBudgetIncludesProtectedLegacyBytesAndSurvivesOwnerRestart() {
+        val f=Fixture(playedKey("legacy")); val first=f.owner(); var firstClosed=false; var resumed:OwnedPartitionShelf?=null
+        val key=playedKey("saved/aggregate-first"); val denied=playedKey("saved/aggregate-denied")
+        fun spec(name:String)=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(name).build()
+        try {
+            first.prepare(); val manager=first.initializeManager(); await(manager) { true }
+            onWorker {
+                first.copyPlayed(spec(key),byteArrayOf(1),"http://127.0.0.1:7814/1",
+                    DataSource.Factory { ByteArrayDataSource(payload) }) { 8L }
+                assertEquals(8L,first.playedBytes())
+                assertThrows(PlayedCopyTooLarge::class.java) { first.copyPlayed(spec(denied),byteArrayOf(1),
+                    "http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) }) { 8L } }
+                assertTrue(first.saveRecoveryPage().none { it.ticket.allocation.key==denied })
+            }
+            teardown(first); firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume); resumed=next; next.prepare()
+            onWorker {
+                assertEquals(8L,next.playedBytes())
+                assertThrows(PlayedCopyTooLarge::class.java) { next.copyPlayed(spec(denied),byteArrayOf(1),
+                    "http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) }) { 4L } }
+                assertEquals(SavedCoverage.Full,next.audio.inspect(f.oldKey).coverage)
+                assertEquals(SavedCoverage.Full,next.audio.inspect(key).coverage)
+                assertTrue(next.saveRecoveryPage().none { it.ticket.allocation.key==denied })
+            }
+            assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+        } finally { resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close() }
+    }
+    @Test fun failedHeadroomCopyCleansOnlyItsFreshBytesAndReleasesItsAdmission() {
+        val f=Fixture(); val owner=f.owner()
+        val first=playedKey("saved/headroom-first"); val tooLarge=playedKey("saved/headroom-large"); val last=playedKey("saved/headroom-last")
+        fun spec(key:String)=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
+        try {
+            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {
+                owner.copyPlayed(spec(first),byteArrayOf(1),"http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) }) { 6L }
+                assertThrows(PlayedCopyTooLarge::class.java) { owner.copyPlayed(spec(tooLarge),byteArrayOf(1),
+                    "http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) }) { 6L } }
+                assertEquals(4L,owner.playedBytes()); assertEquals(SavedCoverage.Full,owner.audio.inspect(first).coverage)
+                assertEquals(SavedCoverage.Missing,owner.audio.inspect(tooLarge).coverage)
+                owner.copyPlayed(spec(last),byteArrayOf(1),"http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) }) { 8L }
+                assertEquals(8L,owner.playedBytes())
+            }
+            assertArrayEquals(payload,f.original.readBytes()); assertTrue(f.barrier.quiescent)
+        } finally { teardown(owner); f.provider.close() }
+    }
+    @Test fun concurrentPlayedCopiesCannotBothReserveTheSameAggregateHeadroom() {
+        val f=Fixture(); val owner=f.owner(); val entered=java.util.concurrent.CountDownLatch(1); val release=java.util.concurrent.CountDownLatch(1)
+        val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
+        val first=playedKey("saved/concurrent-first"); val second=playedKey("saved/concurrent-second")
+        fun spec(key:String)=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
+        try {
+            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            val raw=ByteArrayDataSource(payload)
+            val blocked=DataSource.Factory { object:DataSource by raw {
+                override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                    entered.countDown(); check(release.await(10,TimeUnit.SECONDS)); return raw.read(buffer,offset,length)
+                }
+            } }
+            val task=worker.submit { owner.copyPlayed(spec(first),byteArrayOf(1),"http://127.0.0.1:7814/1",blocked) { 4L } }
+            assertTrue(entered.await(10,TimeUnit.SECONDS))
+            assertThrows(IOException::class.java) { onWorker { owner.copyPlayed(spec(second),byteArrayOf(1),
+                "http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) }) { 4L } } }
+            assertTrue(onWorker { owner.saveRecoveryPage() }.none { it.ticket.allocation.key==second })
+            release.countDown(); task.get(10,TimeUnit.SECONDS)
+            assertEquals(4L,onWorker { owner.playedBytes() }); assertArrayEquals(payload,f.original.readBytes())
+        } finally { release.countDown(); worker.shutdownNow(); assertTrue(worker.awaitTermination(10,TimeUnit.SECONDS)); teardown(owner); f.provider.close() }
+    }
+    @Test fun cancelledPlayedCensusRefusesBeforeReservationAndAllowsALaterHealthyCopy() {
+        val f=Fixture(); val owner=f.owner(); val key=playedKey("saved/cancelled-census")
+        val spec=DataSpec.Builder().setUri("http://127.0.0.1:7814/file").setKey(key).build()
+        try {
+            owner.prepare(); val manager=owner.initializeManager(); await(manager) { true }
+            onWorker {
+                assertThrows(java.io.InterruptedIOException::class.java) {
+                    owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) },
+                        checkpoint={ throw java.io.InterruptedIOException("Cancelled test census") }) { 4L }
+                }
+                assertTrue(owner.saveRecoveryPage().isEmpty()); assertEquals(0,f.budget.resident)
+                owner.copyPlayed(spec,byteArrayOf(1),"http://127.0.0.1:7814/1",DataSource.Factory { ByteArrayDataSource(payload) }) { 4L }
+                assertEquals(4L,owner.playedBytes())
+            }
+            assertTrue(f.barrier.quiescent); assertArrayEquals(payload,f.original.readBytes())
+        } finally { teardown(owner); f.provider.close() }
+    }
+
 }

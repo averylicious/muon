@@ -69,15 +69,45 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             throw failure
         } finally { if(!quarantined) permit.close() }
     }
-    /** Actual owned played writer: a separate lifecycle from completed manager downloads. */
-    fun copyPlayed(spec:DataSpec,song:ByteArray,origin:String,upstream:DataSource.Factory,
-        writerCreated:(PlayedCopyWriter)->Unit={},limit:()->Long):PartitionSaveTicket {
-        requireOpen()
-        return try { playedCopies.copy(spec,song,origin,upstream,writerCreated,limit) }
-        catch(failure:Throwable) {
-            if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) uncertain=true
-            throw failure
+    /** Actual mixed played bytes, streamed without a whole key/state collection. This is an
+     * observation, never deletion authority. Unknown/overflow refuses admission, not a zero tally.
+     */
+    fun playedBytes(checkpoint:()->Unit={}):Long=operation {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Played census requires a worker" }
+        var used=0L
+        audio.forEachKey { key ->
+            checkpoint()
+            if(key.startsWith(PLAYED_PREFIX)) {
+                val bytes=audio.inspect(key).bytes
+                if(bytes<0) throw IOException("Invalid played-copy byte count")
+                used=Math.addExact(used,bytes)
+            }
+            true
         }
+        checkpoint(); used
+    }
+    private val playedAdmission=java.util.concurrent.atomic.AtomicBoolean(false)
+    /** One aggregate admission through actual copy/source/native closure. Other played writers
+     * cannot reuse the same headroom. Shared admission pins routes against migration/deletion;
+     * explicit manager saves cannot use played keys. Legacy/protected bytes also consume budget.
+     * Decline optional caching when full; never delete originals to make room. LRU eviction is a
+     * separate policy. A copy's final block may transiently exceed headroom before known cleanup.
+     */
+    fun copyPlayed(spec:DataSpec,song:ByteArray,origin:String,upstream:DataSource.Factory,
+        writerCreated:(PlayedCopyWriter)->Unit={},checkpoint:()->Unit={},limit:()->Long):PartitionSaveTicket {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) { "Played copy requires a worker" }
+        if(!playedAdmission.compareAndSet(false,true)) throw IOException("Played-copy admission is busy")
+        try { return operation {
+            val existing=playedBytes(checkpoint)
+            if(limit().coerceAtLeast(0)<=existing) throw PlayedCopyTooLarge()
+            // Observational opens may occupy idle native slots; retire only actual known-idle
+            // pools before the writer. Active readers are not evicted to manufacture headroom.
+            writers.trimIdle(); published.trimIdle(); completed.trimIdle()
+            checkpoint()
+            playedCopies.copy(spec,song,origin,upstream,writerCreated) {
+                (limit().coerceAtLeast(0)-existing).coerceAtLeast(0)
+            }
+        } } finally { playedAdmission.set(false) }
     }
     /** Explicit deletion of a NEW owned played copy only. Original legacy/Ready migration
      * resources and every manager claim are protected. Exclusive admission proves there is no
