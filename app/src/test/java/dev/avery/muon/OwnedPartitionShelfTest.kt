@@ -1462,4 +1462,32 @@ class OwnedPartitionShelfTest {
         } finally {f.close()}
     }
 
+    @Test fun cancellationCallbackCannotRelabelDurablyRecordedCoveredIntent() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work,checkpoint={
+                if(f.source.retirementRecoveryPage().isNotEmpty()) throw java.io.InterruptedIOException("Late cancellation")
+            })}
+            assertEquals(intent,onWorker {f.source.retirementRecoveryPage().single()})
+            assertTrue(f.f.original.exists()); assertEquals(LegacyRetirementPhase.Pending,intent.phase)
+        } finally {f.close()}
+    }
+    @Test fun cancellationCallbackCannotRelabelDurablyCompletedMoveAsPendingFailure() {
+        val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+        val work=coverWork(art,f.f.barrier)
+        try {
+            val copy=f.prepare(); val completed=onWorker {f.source.publishCopiedOriginalTo(f.target,copy,true,{true},10)}
+            val intent=onWorker {f.source.beginCoveredOriginalMove(f.target,copy,completed,true,art,work)}
+            val result=onWorker {f.source.completeCoveredOriginalMove(f.target,intent,true,art,work,{true},checkpoint={
+                if(f.source.retirementRecoveryPage().single().phase==LegacyRetirementPhase.Complete)
+                    throw java.io.InterruptedIOException("Late cancellation")
+            })}
+            assertEquals(OfflineStore.SavedRemoval.Sent,result)
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {f.source.retirementRecoveryPage().single().phase})
+            assertFalse(f.f.original.exists()); assertNull(f.index.getDownload("81")); assertTrue(f.f.barrier.quiescent)
+        } finally {f.close()}
+    }
+
 }

@@ -258,7 +258,9 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
                 throw IOException("Original completed record changed before durable Move intent")
             val record=if(recovery==null) journal.begin(manifest,true)
                 else journal.bindMoveCover(recovery,requireNotNull(cover))
-            live(); return record
+            // The durable commit is past its cancellation boundary. Do not run an external
+            // cancellation callback now and misreport a recorded Pending as mere publication.
+            permit.check(); checkpoint(); return record
         } catch(failure:Throwable) {
             if(failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain || failure is SavedCoverCloseUncertain || journal.ownershipUncertain || !directoryIo.quiescent) {
                 phase=Phase.Uncertain; permit.quarantine(arrayOf(this,journal,digest,observeDestination,failure)); quarantined=true
@@ -395,7 +397,9 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             target(); disposeCover(expected.manifest.key,permit); target()
             session.verifyOriginalRecordAbsent(expected,permit,unclaimedElsewhere)
             if(journal.find(expected.manifest.key)!=expected) throw IOException("Move intent changed before completion")
-            journal.complete(expected); live(); retirement=null
+            journal.complete(expected)
+            // Complete is durable; caller cancellation cannot relabel a completed Move Pending.
+            permit.check(); checkpoint(); retirement=null
             return OfflineStore.SavedRemoval.Sent
         } catch(failure:Throwable) {
             if(finalMutation || failure is MigrationIoUncertain || failure is PartitionOwnershipUncertain ||
