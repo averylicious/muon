@@ -457,6 +457,60 @@ class OwnedPartitionShelfTest {
             assertArrayEquals(payload,f.original.readBytes())
         } finally {teardown(owner); f.provider.close()}
     }
+    @Test fun actualStoreBulkDeleteUsesOwnedMutationAndKeepsLegacyRecords() {
+        val f=Fixture(); val owner=f.owner(); val app=RuntimeEnvironment.getApplication()
+        val field=OfflineStore::class.java.getDeclaredField("store").apply {isAccessible=true}; val previous=field.get(OfflineStore)
+        try {
+            val old=DownloadRequest.Builder("old",Uri.parse("http://127.0.0.1:7814/old")).setCustomCacheKey("old").build()
+            DefaultDownloadIndex(f.provider,"owned_partition").putDownload(Download(old,Download.STATE_COMPLETED,1,2,4,0,0))
+            owner.prepare(); val manager=owner.initializeManager()
+            manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads(); await(manager) {true}
+            val ids=(0..1).map {"saved/bulk-$it"}
+            for(id in ids) {
+                val request=DownloadRequest.Builder(id,Uri.parse("http://127.0.0.1:7814/$id")).setCustomCacheKey(id).build()
+                val command=owner.prepareSave(request); assertTrue(owner.deliver(command,request) {it.addDownload(request)})
+                await(manager) {manager.downloadIndex.getDownload(id)?.state==Download.STATE_COMPLETED}
+            }
+            val phone=Shelf.partitioned(owner,MuonDownloadService::class.java); val removed=ArrayList<String>()
+            phone.partitionRemoved={id -> assertSame(Looper.getMainLooper(),Looper.myLooper()); removed+=id}
+            val store=OfflineStore.Store(phone,DownloadArt(folders.newFolder()),PlayedSongEvictor(8192L) {},
+                app.getSharedPreferences("bulk-removal-fixture",0),f.provider,{}, {},storageBarrier=f.barrier)
+            field.set(OfflineStore,store)
+            assertEquals(OfflineStore.RemoveAllPlan(0,1,removed=2),onWorker {OfflineStore.removeAllNow(app)})
+            shadowOf(Looper.getMainLooper()).idle(); assertEquals(ids.toSet(),removed.toSet())
+            assertFalse(store.removalDelivery.busy); assertTrue(manager.isIdle)
+            for(id in ids) {assertNull(manager.downloadIndex.getDownload(id)); assertFalse(onWorker {owner.audio.contains(id)})}
+            assertNotNull(manager.downloadIndex.getDownload("old")); assertArrayEquals(payload,f.original.readBytes())
+            assertEquals(OfflineStore.RemoveAllPlan(0,1),onWorker {OfflineStore.removeAllNow(app)})
+        } finally {field.set(OfflineStore,previous); teardown(owner); f.provider.close()}
+    }
+    @Test fun actualStoreBulkDeleteRefusesEofReaderThenSucceedsAfterClose() {
+        val f=Fixture(); val owner=f.owner(); val app=RuntimeEnvironment.getApplication()
+        val field=OfflineStore::class.java.getDeclaredField("store").apply {isAccessible=true}; val previous=field.get(OfflineStore)
+        val id="saved/bulk-reader"
+        try {
+            owner.prepare(); val manager=owner.initializeManager()
+            manager.setRequirements(Requirements(0)); manager.minRetryCount=0; manager.resumeDownloads(); await(manager) {true}
+            val request=DownloadRequest.Builder(id,Uri.parse("http://127.0.0.1:7814/file")).setCustomCacheKey(id).build()
+            val command=owner.prepareSave(request); assertTrue(owner.deliver(command,request) {it.addDownload(request)})
+            await(manager) {manager.downloadIndex.getDownload(id)?.state==Download.STATE_COMPLETED}
+            val phone=Shelf.partitioned(owner,MuonDownloadService::class.java)
+            val store=OfflineStore.Store(phone,DownloadArt(folders.newFolder()),PlayedSongEvictor(8192L) {},
+                app.getSharedPreferences("bulk-reader-fixture",0),f.provider,{}, {},storageBarrier=f.barrier)
+            field.set(OfflineStore,store)
+            val reader=owner.audio.source.createDataSource()
+            try {
+                onWorker {
+                    reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(id).build())
+                    assertEquals(4,reader.read(ByteArray(4),0,4)); assertEquals(-1,reader.read(ByteArray(1),0,1))
+                }
+                assertEquals(OfflineStore.RemoveAllPlan(0,0,later=1,busy=true),onWorker {OfflineStore.removeAllNow(app)})
+                assertNotNull(manager.downloadIndex.getDownload(id)); assertFalse(store.removalDelivery.busy)
+            } finally {onWorker {reader.close()}}
+            assertEquals(OfflineStore.RemoveAllPlan(0,0,removed=1),onWorker {OfflineStore.removeAllNow(app)})
+            assertNull(manager.downloadIndex.getDownload(id)); assertArrayEquals(payload,f.original.readBytes())
+        } finally {field.set(OfflineStore,previous); teardown(owner); f.provider.close()}
+    }
     @Test fun actualStoreCompletedDeletePublishesScalarRemovalAndCannotReappearAfterRestart() {
         val f=Fixture(); val first=f.owner(); var closed=false; var resumed:OwnedPartitionShelf?=null
         val field=OfflineStore::class.java.getDeclaredField("store").apply { isAccessible=true }; val previous=field.get(OfflineStore)

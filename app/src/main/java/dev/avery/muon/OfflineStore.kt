@@ -1536,12 +1536,13 @@ internal object OfflineStore {
         }
         saver.execute {
             val plan = removeAllNow(context)
-            if (plan.busy) notice(context, "Saved copies are still being removed, so nothing more was. " +
-                "Try again when that finishes.")
+            if (plan.busy) notice(context, "Saved storage is busy, so some copies could not be removed. Try again later.")
             if (store.shelves.any { !it.available() })
                 notice(context, "The SD card isn't available, so its saved copies weren't removed.")
             if (plan.kept > 0) notice(context, "${plan.kept} saved ${if (plan.kept == 1) "copy was" else "copies were"} kept: " +
-                "Muon can't tell their bytes belong to them alone.")
+                "Muon can't safely remove them in their current state.")
+            if(plan.removed>0) notice(context,"${plan.removed} saved ${if(plan.removed==1) "copy was" else "copies were"} removed.")
+            if(plan.unconfirmed>0) notice(context,"Muon couldn't confirm a saved-copy removal. Restart Muon before retrying; remaining copies were not sent for removal.")
             if (plan.later > 0 && plan.sent == 0) notice(context, "${plan.later} saved " +
                 "${if (plan.later == 1) "copy wasn't" else "copies weren't"} removed and " +
                 "${if (plan.later == 1) "is" else "are"} unchanged. Try again later.")
@@ -1551,9 +1552,12 @@ internal object OfflineStore {
     /**
      * What [removeAllNow] did. [sent]: checked removals handed to one acknowledged delivery batch, not yet
      * removed; [kept]: rows not the sole owner of their bytes; [later]: sole owners beyond the batch's bounds,
-     * unchanged and left for another Remove all; [busy]: another removal batch was pending, nothing sent.
+     * unchanged and left for another Remove all; [busy]: storage/another removal was busy. [removed]:
+     * partition copies whose actual bytes and row were already removed; [unconfirmed]: attempted partition
+     * removals with unknown outcome. An unknown mutation is never reported as unchanged.
      */
-    internal data class RemoveAllPlan(val sent: Int, val kept: Int, val later: Int = 0, val busy: Boolean = false)
+    internal data class RemoveAllPlan(val sent: Int, val kept: Int, val later: Int = 0, val busy: Boolean = false,
+        val removed:Int=0,val unconfirmed:Int=0)
 
     /**
      * [removeAll]'s commands, on the calling thread: every row on each available shelf that a census finds
@@ -1588,13 +1592,34 @@ internal object OfflineStore {
             later += localLater
             for (target in local.targets) if (!selection.take(target.shelf, target.id)) later++
         }
-        if (selection.targets.isEmpty()) return RemoveAllPlan(0, kept, later)
+        // The complete census/selection is closed before actual partition exclusion. A manager
+        // Remove task must NEVER see a partition target: even a refusing downloader can lose its
+        // index row. Reuse exact single-copy admission, including other-shelf aliases and callbacks.
+        val legacy=ArrayList<RemovalTarget>()
+        var removed=0; var unconfirmed=0; var busy=false; var stopped=false
+        for(target in selection.targets) {
+            if(stopped) {later++; continue}
+            if(target.shelf.partition==null) {legacy+=target; continue}
+            val name=if(target.shelf===store.phone) SavedShelf.Phone else SavedShelf.Card
+            val ref=SavedRef.download(name,target.id,target.id)
+            val outcome=if(ref==null) SavedRemoval.NotOwned else removeSavedNow(context,ref)
+            when(outcome) {
+                SavedRemoval.Sent -> removed++
+                SavedRemoval.NotOwned -> kept++
+                SavedRemoval.Busy,SavedRemoval.Waiting -> {later++; busy=true}
+                SavedRemoval.Unavailable -> later++
+                SavedRemoval.Failed -> {unconfirmed++; stopped=true}
+            }
+        }
+        if(stopped) {later+=legacy.size; return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed)}
+        if(legacy.isEmpty()) return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed)
         val app = context.applicationContext
-        val count = selection.targets.size
-        val begun = store.removalDelivery.begin(selection.targets, sendRemoval(context)) { result ->
+        val count = legacy.size
+        val begun = store.removalDelivery.begin(legacy, sendRemoval(context)) { result ->
             removalDeliveryMessage(result, single = false, later = later)?.let { notice(app, it) }
         }
-        return if (begun) RemoveAllPlan(count, kept, later) else RemoveAllPlan(0, kept, later + count, busy = true)
+        return if (begun) RemoveAllPlan(count,kept,later,busy,removed,unconfirmed)
+            else RemoveAllPlan(0,kept,later+count,true,removed,unconfirmed)
     }
 }
 
