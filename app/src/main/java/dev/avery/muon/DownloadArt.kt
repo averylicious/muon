@@ -1,56 +1,106 @@
 package dev.avery.muon
 
 import java.io.File
+import java.io.FileOutputStream
+import java.io.FileInputStream
+import java.io.InputStream
+import java.io.IOException
+import okio.source
+import okio.buffer
+import java.io.OutputStream
+import okhttp3.Call
 import java.security.MessageDigest
 import okhttp3.Request
 
 /**
- * The cover of each downloaded song, kept beside the download (#112) so the offline library shows
- * pictures. The artwork cache cannot be relied on for this: it is trimmed to a size and an age, and
- * Disconnect clears it, while downloads survive both. Removed with the download.
+ * The covers of saved copies, kept beside them (#112) so they show without Tauon. The artwork cache
+ * cannot be relied on for this: it is trimmed to a size and an age, and Disconnect clears it.
+ *
+ * Each new save owns its cover (#213), named from that entry's own request ID, fetched once when the
+ * save is asked for and removed with it. Older downloads kept one cover per track number, shared by
+ * every copy of that number and possibly fetched after the number had moved to another song; those
+ * files are left as they are, neither shown for a saved copy, served for a live song, adopted by a new
+ * save nor deleted.
  */
-internal class DownloadArt(private val dir: File) {
-    private fun file(id: String): File {
-        val digest = MessageDigest.getInstance("SHA-256").digest(id.toByteArray())
-        return File(dir, digest.joinToString("") { "%02x".format(it) })
+internal class DownloadArt(private val dir: File,
+    private val calls:Call.Factory?=null,
+    private val outputs:(File)->OutputStream={FileOutputStream(it)},
+    private val barrier:SavedStorageBarrier?=null,
+    private val inputs:(File)->InputStream={FileInputStream(it)}) {
+    @Volatile private var retained:SavedCoverIo?=null
+    private fun retain(owner:SavedCoverIo)=synchronized(this) {
+        if(retained==null) retained=owner
+        barrier?.invalidate()
+    }
+    private fun entryFile(requestId: String): File {
+        val digest = MessageDigest.getInstance("SHA-256").digest("muon-saved-entry\u0000$requestId".toByteArray())
+        return File(dir, "entry-" + digest.joinToString("") { "%02x".format(it) })
     }
 
-    fun has(id: String): Boolean = file(id).isFile
+    /** Whether the entry with this request ID has its own cover. */
+    fun hasEntry(requestId: String): Boolean = retained==null && entryFile(requestId).isFile
 
-    /** The kept cover for the song an artwork address names, if that song was downloaded. */
-    fun forArtwork(url: String): ByteArray? {
-        val id = downloadIdForArtwork(url) ?: return null
-        return runCatching { file(id).takeIf { it.isFile }?.readBytes() }.getOrNull()
+    /** The entry's own cover, if it has one and is within the cover size cap; never an older per-track cover. */
+    fun forEntry(requestId: String): ByteArray? {
+        if(retained!=null) return null
+        val permit=try { barrier?.shared() } catch(_:IOException) { return null }
+        val io=SavedCoverIo(); var unknown=false
+        try {
+            try {
+                permit?.check()
+                val file=entryFile(requestId)
+                if(!file.isFile || file.length() !in 1..COVER_BYTES) return null
+                val input=inputs(file).also { io.input=it }
+                val source=input.source().buffer().also { io.source=it }
+                if(source.request(COVER_BYTES+1)) return null
+                val bytes=source.readByteArray(source.buffer.size)
+                permit?.check()
+                return bytes.takeIf { it.isNotEmpty() }
+            } finally { io.finish() }
+        } catch(failure:SavedCoverCloseUncertain) {
+            unknown=true; permit?.quarantine(failure.owner); retain(failure.owner); return null
+        } catch(_:Exception) { return null }
+        finally { if(!unknown) permit?.close() }
     }
 
-    /** Fetches and keeps [id]'s cover. Blocking; call it off the main thread. */
-    fun fetch(id: String) {
-        if (has(id)) return
-        val number = id.substringAfterLast('/')
-        val origin = id.substringBeforeLast('/')
-        val url = runCatching { ServerEndpoint.parse(origin).url("/api1/pic/medium/$number") }.getOrNull() ?: return
-        runCatching {
-            Transport.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                val source = response.body?.source()
-                if (!response.isSuccessful || source == null || source.request(4 * 1024 * 1024 + 1L)) return
-                val bytes = source.readByteArray()
-                if (bytes.isEmpty()) return
+    /**
+     * Fetches and keeps the entry's own cover from [url]. Blocking; call it off the main thread. Uses the
+     * finite metadata client, whose whole-call deadline also bounds a slow-drip response, and the cap.
+     */
+    fun fetchEntry(requestId: String, url: String) {
+        retained?.let { throw SavedCoverCloseUncertain(it,null) }
+        if (hasEntry(requestId)) return
+        try {
+            val io=SavedCoverIo()
+            val target=entryFile(requestId)
+            val temp=File(dir,target.name+".part")
+            var failure:Throwable?=null
+            try {
+                io.response=(calls ?: Transport.metadataClient).newCall(Request.Builder().url(url).build()).execute()
+                val response=requireNotNull(io.response)
+                val source=response.body?.source()?.also { io.source=it }
+                if(!response.isSuccessful || source==null || source.request(COVER_BYTES+1)) return
+                val bytes=source.readByteArray(source.buffer.size)
+                if(bytes.isEmpty()) return
                 dir.mkdirs()
-                val temp = File(dir, file(id).name + ".part")
-                temp.writeBytes(bytes)
-                temp.renameTo(file(id))
-            }
-        }
+                val output=outputs(temp).also { io.output=it }
+                output.write(bytes); output.flush()
+            } catch(error:Throwable) { failure=error; throw error }
+            finally { try { io.finish() } catch(unknown:SavedCoverCloseUncertain) {
+                if(failure!=null && failure!==unknown && failure!==unknown.cause) unknown.addSuppressed(failure)
+                throw unknown
+            } }
+            // Publication is after BOTH observable closes, never after a quiet response close.
+            temp.renameTo(target)
+        } catch(unknown:SavedCoverCloseUncertain) { retain(unknown.owner); throw unknown }
+        catch(_:Exception) { /* Optional cover failure; known-closed audio/index remain unaffected. */ }
     }
 
-    fun remove(id: String) { file(id).delete() }
+    /** Removes the entry's own cover; any other file, including an older per-track cover, stays. */
+    fun removeEntry(requestId: String) {
+        if(retained!=null) throw IOException("Saved-cover ownership uncertain; removal refused")
+        entryFile(requestId).delete()
+    }
 
-    fun clear() { dir.listFiles()?.forEach { it.delete() } }
-}
-
-/** The download an artwork address belongs to: "origin/id" for a song's small or medium picture. */
-internal fun downloadIdForArtwork(url: String): String? {
-    val match = Regex("(https?://[^/]+)/api1/pic/(small|medium)/([0-9]+)").matchEntire(url) ?: return null
-    val origin = runCatching { ServerEndpoint.parse(match.groupValues[1]).origin }.getOrNull() ?: return null
-    return downloadId(origin, match.groupValues[3].toLong())
+    private companion object { const val COVER_BYTES = 4L * 1024 * 1024 }
 }

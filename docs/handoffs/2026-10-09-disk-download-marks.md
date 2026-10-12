@@ -1,0 +1,9 @@
+# #253 bounded download badges and count — 2026-10-09
+
+Continuation of #426 on the unmerged main audit stack, GPT-6 / Codex desktop implementation/author self-check (exact variant/effort not exposed). Allocated Claude exhausted/idle; no phone or experimental work.
+
+Production per-ID marks move from the lifetime Compose map into a derived private exact-UTF-16 SQLite ledger. Main state transitions update one ID and one completed-count scalar; original records/audio never change. Saved-page hydration reads each displayed badge off main, so at most the existing bounded loaded pages retain badges. Cross-shelf completion precedence remains in OfflineStore.record/removed. Settings no longer enumerates the library to count completed copies; a ledger failure reports totals unavailable, hides unconfirmed bar/count and keeps Saved copies accessible. Connect refreshes on status revision, including a state change without a size change.
+
+Native differential fixtures cover 1200 exact-ID replacement/removal/count operations, restart reset and failure preservation. CI first real compile/test/lint; final receipts on PR/checkpoint. Requested SQLite page cache is not a total heap guarantee. Main callbacks now include derived SQLite IO; page-badge refresh and latency need UAT. A worker read failure can remove that page's badge without altering the original saved record; a subsequent state event publishes unknown count. No whole-library status collection or deletion fallback.
+
+User approved preparing opt-in native-cache migration: old copies must stay readable; remove an old copy only after replacement byte verification, with temporary space required. Native SimpleCache indexes/span/metadata retention, safe native naming/extent enumeration and #401 startup measurements remain engineering/device follow-ups respectively. No app merge, Stable publication or device QA; leave this stack OPEN.
