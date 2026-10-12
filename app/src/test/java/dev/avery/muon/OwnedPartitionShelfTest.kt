@@ -1042,10 +1042,9 @@ class OwnedPartitionShelfTest {
         } finally {teardown(foreign); teardown(target); teardown(source); f.provider.close()}
     }
 
-    private inner class LocalPublicationFixture {
+    private inner class LocalPublicationFixture(val key:String="saved/published-local-copy") {
         val f=Fixture(oldKey="81"); val source=f.owner(); val targetLegacy=folders.newFolder()
         val targetRoot=File(folders.newFolder(),"publication-target")
-        val key="saved/published-local-copy"
         val request=DownloadRequest.Builder("81",Uri.parse("http://127.0.0.1:7814/original"))
             .setCustomCacheKey("81").setData(byteArrayOf(7,8,9)).build()
         val index=DefaultDownloadIndex(f.provider,"owned_partition")
@@ -1933,7 +1932,7 @@ class OwnedPartitionShelfTest {
     }
     @Test fun composedNewMoveCancellationPreservesSourceOrExactPendingAtEachCommittedBoundary() {
         for(stop in listOf(PartitionOriginalMoveStage.Copied,PartitionOriginalMoveStage.Published,PartitionOriginalMoveStage.Pending)) {
-            val f=LocalPublicationFixture(); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
+            val f=LocalPublicationFixture("saved/cancel-source-"+stop.name); val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier)
             val work=coverWork(art,f.f.barrier); val back="saved/cancel-new-"+stop.name
             try {
                 val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
