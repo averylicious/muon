@@ -432,4 +432,37 @@ class LegacyResourceProjectionTest {
         assertArrayEquals(payload,f.original.readBytes())
     }
 
+    private fun retainedIdentity(key:String):PartitionRetainedOriginal {
+        val request=androidx.media3.exoplayer.offline.DownloadRequest.Builder(key,android.net.Uri.parse("http://127.0.0.1:7814/42"))
+            .setCustomCacheKey(key).build()
+        return requireNotNull(PartitionRetainedOriginal.from(androidx.media3.exoplayer.offline.Download(request,
+            androidx.media3.exoplayer.offline.Download.STATE_STOPPED,1,2,-1,RETAINED_STOP_REASON,0)))
+    }
+    @Test fun absentManifestRefusesReappearedNativeClaimAndMalformedPresentMetadataInsteadOfInventingAbsence() {
+        val f=Fixture();val index=f.db();val expected=retainedIdentity("never-cached")
+        val manifest=worker {LegacyRetirementManifest.captureRetained(f.root,f.uid,expected,index,{})}
+        assertEquals(-1L,manifest.contentId);assertTrue(manifest.spans.isEmpty())
+        assertEquals(manifest,LegacyRetirementManifest.decode(manifest.encode()))
+        database.writableDatabase.execSQL("INSERT INTO ${f.table}(id,key,metadata) VALUES(999,?,x'00000000')",arrayOf(expected.key))
+        assertThrows(IOException::class.java) {worker {manifest.verifyRemaining(f.root,index,true,{})}}
+        database.writableDatabase.execSQL("UPDATE ${f.table} SET metadata=zeroblob(8388608) WHERE key='selected'")
+        assertThrows(IOException::class.java) {worker {LegacyRetirementManifest.captureRetained(f.root,f.uid,retainedIdentity("selected"),index,{})}}
+        assertThrows(IOException::class.java) {manifest.copy(retainedDownloadIdentity=null).encode()}
+        assertArrayEquals(payload,f.original.readBytes())
+    }
+    @Test fun absentManifestRetainsActualUnknownCursorCloseAndNeverTreatsItAsAnEmptyResource() {
+        val f=Fixture();val index=f.db();var retained:android.database.Cursor?=null
+        val ownership=MigrationIoOwnership(closeHandle={handle ->
+            if(handle is android.database.Cursor) {retained=handle;throw IOException("Unknown absence query close")}
+            handle.close()
+        })
+        try {
+            assertThrows(MigrationIoUncertain::class.java) {worker {
+                LegacyRetirementManifest.captureRetained(f.root,f.uid,retainedIdentity("never-cached"),index,{},ownership)
+            }}
+            assertFalse(ownership.quiescent);assertNotNull(retained);assertFalse(requireNotNull(retained).isClosed)
+            assertTrue(index.isOpen);assertArrayEquals(payload,f.original.readBytes())
+        } finally {retained?.close()}
+    }
+
 }

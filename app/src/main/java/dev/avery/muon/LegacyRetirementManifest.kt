@@ -30,12 +30,15 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
     val completedDownloadIdentity:String?=null,val moveDestination:PartitionMoveDestination?=null,val moveCover:SavedMoveCoverIdentity?=null,
     val retainedDownloadIdentity:String?=null) {
     private fun validate() {
-        if(key.length.toLong()*2>MIGRATION_KEY_BYTES || uid<0 || contentId !in 0L..Int.MAX_VALUE.toLong() ||
+        if(key.length.toLong()*2>MIGRATION_KEY_BYTES || uid<0 || contentId !in -1L..Int.MAX_VALUE.toLong() ||
             spans.size>MIGRATION_RANGES) throw IOException("Legacy retirement identity exceeds its budget")
         listOf(rootIdentity,databaseIdentity,markerIdentity).forEach(::requireIdentity)
         requireDigest(metadataDigest); completedDownloadIdentity?.let(::requireDigest); retainedDownloadIdentity?.let(::requireDigest)
         if(completedDownloadIdentity!=null && retainedDownloadIdentity!=null)
             throw IOException("Original cannot bind both completed and retained identities")
+        if(contentId==-1L && (retainedDownloadIdentity==null || completedDownloadIdentity!=null ||
+            moveDestination!=null || spans.isNotEmpty() || metadataDigest!=ABSENT_METADATA_DIGEST))
+            throw IOException("Absent original needs a distinct bound retained identity and no spans")
         moveDestination?.let {destination ->
             destination.validate()
             if(completedDownloadIdentity==null || destination.ticket.allocation.key==key)
@@ -81,7 +84,11 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
         LegacyResourceProjection.validate(root,uid,index,checkpoint,ownership)()
         if(identity(root)!=rootIdentity || identity(File(index.path))!=databaseIdentity ||
             identity(File(root,java.lang.Long.toHexString(uid)+".uid"))!=markerIdentity ||
-            row(index,uid,key,ownership)!=(contentId to metadataDigest)) throw IOException("Legacy retirement source changed")
+            (if(contentId<0) rowIfPresent(index,uid,key,ownership)!=null else row(index,uid,key,ownership)!=(contentId to metadataDigest)))
+            throw IOException("Legacy retirement source changed")
+        if(contentId<0) {
+            LegacyRetirementAbsence.verify(root,uid,key,index,checkpoint,ownership); checkpoint();return
+        }
         indexed(index,ownership)
         for(span in spans) {
             checkpoint(); val file=File(root,span.path)
@@ -167,6 +174,7 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
         return buffer.toByteArray()
     }
     companion object {
+        private val ABSENT_METADATA_DIGEST=hash("muon-no-native-original-v1".toByteArray(Charsets.US_ASCII))
         private fun requireIdentity(value:String) {
             if(value.isEmpty() || value.length>256) throw IOException("Legacy retirement file identity unsupported")
         }
@@ -195,14 +203,17 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
             if(!attributes.isRegularFile || attributes.size()!=length || identity(file)!=expected)
                 throw IOException("Legacy retirement span identity differs")
         }
-        private fun row(index:SQLiteDatabase,uid:Long,key:String,ownership:MigrationIoOwnership):Pair<Long,String> {
+        private fun row(index:SQLiteDatabase,uid:Long,key:String,ownership:MigrationIoOwnership):Pair<Long,String> =
+            rowIfPresent(index,uid,key,ownership) ?: throw IOException("Legacy retirement resource is missing")
+        private fun rowIfPresent(index:SQLiteDatabase,uid:Long,key:String,ownership:MigrationIoOwnership):Pair<Long,String>? {
             if(!index.isReadOnly || key.length.toLong()*2>MIGRATION_KEY_BYTES || uid<0)
                 throw IOException("Legacy retirement requires a bounded read-only index")
             val table="ExoPlayerCacheIndex"+java.lang.Long.toHexString(uid)
             return ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(id)='integer' THEN id ELSE NULL END,"+
                 "CASE WHEN typeof(metadata)='blob' AND length(metadata)<=$LEGACY_PROJECTION_METADATA_BYTES THEN metadata ELSE NULL END "+
                 "FROM $table WHERE typeof(key)='text' AND key=? LIMIT 2",arrayOf(key))}) { c ->
-                if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0) !in 0L..Int.MAX_VALUE.toLong() ||
+                if(!c.moveToFirst()) return@useOwned null
+                if(c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0) !in 0L..Int.MAX_VALUE.toLong() ||
                     c.getType(1)!=Cursor.FIELD_TYPE_BLOB) throw IOException("Legacy retirement record changed or exceeds budget")
                 val result=c.getLong(0) to hash(c.getBlob(1))
                 if(c.moveToNext()) throw IOException("Legacy retirement key is not unique")
@@ -244,6 +255,19 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
             val made=LegacyRetirementManifest(key,uid,rootId,dbId,markerId,row.first,row.second,spans)
             made.verifyRemaining(root,index,false,checkpoint,ownership)
             return made
+        }
+        /** Explicit absence is only available for a stable retained row, never for completed Move.
+         * A failed/malformed index read is not caught and cannot become the empty case. */
+        internal fun captureRetained(root:File,uid:Long,expected:PartitionRetainedOriginal,index:SQLiteDatabase,
+            checkpoint:()->Unit,ownership:MigrationIoOwnership=MigrationIoOwnership()):LegacyRetirementManifest {
+            check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Retained retirement observation requires a worker"}
+            requireRoot(root);LegacyResourceProjection.validate(root,uid,index,checkpoint,ownership)()
+            if(rowIfPresent(index,uid,expected.key,ownership)!=null)
+                return capture(root,uid,expected.key,index,checkpoint,ownership).withRetainedDownload(expected)
+            val made=LegacyRetirementManifest(expected.key,uid,identity(root),identity(File(index.path)),
+                identity(File(root,java.lang.Long.toHexString(uid)+".uid")),-1,ABSENT_METADATA_DIGEST,emptyList(),
+                retainedDownloadIdentity=expected.identity)
+            made.verifyRemaining(root,index,false,checkpoint,ownership);return made
         }
         fun decode(bytes:ByteArray):LegacyRetirementManifest {
             if(bytes.size>LEGACY_RETIREMENT_MANIFEST_BYTES) throw IOException("Retirement manifest exceeds budget")

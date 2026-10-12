@@ -366,8 +366,10 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             val existing=journal.find(key)
             val pending=if(existing==null) {
                 if(recovery!=null) return OfflineStore.SavedRemoval.NotOwned
-                val manifest=LegacyRetirementManifest.capture(directory,requireNotNull(uid),key,requireNotNull(index),::live)
-                val bound=session.bindOriginalDelete(manifest,permit,unclaimedElsewhere)
+                val bound=session.bindOriginalDelete(key,permit,unclaimedElsewhere) {retained ->
+                    if(retained==null) LegacyRetirementManifest.capture(directory,requireNotNull(uid),key,requireNotNull(index),::live)
+                    else LegacyRetirementManifest.captureRetained(directory,requireNotNull(uid),retained,requireNotNull(index),::live)
+                }
                 live(); journal.begin(bound,true)
             } else {
                 if(recovery!=existing || existing.phase!=LegacyRetirementPhase.Pending)

@@ -801,13 +801,15 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             throw IOException("Original removal is not an exact retained record")
         originalPermit(permit); return current
     }
-    internal fun bindOriginalDelete(manifest:LegacyRetirementManifest,permit:SavedStorageBarrier.Lease,
-        unclaimedElsewhere:(String)->Boolean):LegacyRetirementManifest {
-        val key=manifest.key; originalClaims(key,permit,unclaimedElsewhere)
+    internal fun bindOriginalDelete(key:String,permit:SavedStorageBarrier.Lease,
+        unclaimedElsewhere:(String)->Boolean,capture:(PartitionRetainedOriginal?)->LegacyRetirementManifest):LegacyRetirementManifest {
+        originalClaims(key,permit,unclaimedElsewhere)
         val completed=completionIndex.findOriginal(key)
+        val retained=if(completed==null) completionIndex.findRetainedOriginal(key)
+            ?: throw IOException("Original Delete needs a completed or stable retained record") else null
+        val manifest=capture(retained)
         val bound=if(completed!=null) manifest.withCompletedDownload(completed)
-        else manifest.withRetainedDownload(completionIndex.findRetainedOriginal(key)
-            ?: throw IOException("Original Delete needs a completed or stable retained record"))
+            else manifest.withRetainedDownload(requireNotNull(retained))
         originalPermit(permit); return bound
     }
     internal fun verifyOriginalCompletion(record:LegacyRetirementRecord,permit:SavedStorageBarrier.Lease,

@@ -2342,22 +2342,22 @@ class OwnedPartitionShelfTest {
             assertTrue(g.original.exists())
         } finally {teardown(next);g.provider.close()}
     }
-    private fun seedRetainedOriginal(f:Fixture,state:Int=Download.STATE_STOPPED):DefaultDownloadIndex {
-        val request=DownloadRequest.Builder(f.oldKey,Uri.parse("http://127.0.0.1:7814/api1/fileopus/42"))
-            .setCustomCacheKey(f.oldKey).setData(byteArrayOf(7)).build()
+    private fun seedRetainedOriginal(f:Fixture,state:Int=Download.STATE_STOPPED,key:String=f.oldKey):DefaultDownloadIndex {
+        val request=DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/api1/fileopus/42"))
+            .setCustomCacheKey(key).setData(byteArrayOf(7)).build()
         return DefaultDownloadIndex(f.provider,"owned_partition").also {
             it.putDownload(Download(request,state,1,2,-1,if(state==Download.STATE_STOPPED) RETAINED_STOP_REASON else 0,
                 if(state==Download.STATE_FAILED) Download.FAILURE_REASON_UNKNOWN else 0,
                 androidx.media3.exoplayer.offline.DownloadProgress().apply {bytesDownloaded=2;percentDownloaded=-1f}))
         }
     }
-    private fun boundRetainedIntent(f:Fixture,owner:OwnedPartitionShelf):LegacyRetirementRecord {
+    private fun boundRetainedIntent(f:Fixture,owner:OwnedPartitionShelf,key:String=f.oldKey):LegacyRetirementRecord {
         val permit=f.barrier.exclusive()
         try {return onWorker {
             val db=SQLiteDatabase.openDatabase(f.databaseFile.path,null,SQLiteDatabase.OPEN_READONLY)
             val uid=f.legacy.listFiles()!!.single {it.name.endsWith(".uid")}.name.removeSuffix(".uid").toLong(16)
-            val identity=requireNotNull(PartitionCompletionIndex(f.provider,"owned_partition").findRetainedOriginal(f.oldKey))
-            val manifest=try {LegacyRetirementManifest.capture(f.legacy,uid,f.oldKey,db,{}).withRetainedDownload(identity)} finally {db.close()}
+            val identity=requireNotNull(PartitionCompletionIndex(f.provider,"owned_partition").findRetainedOriginal(key))
+            val manifest=try {LegacyRetirementManifest.captureRetained(f.legacy,uid,identity,db,{})} finally {db.close()}
             fixtureRetirements(owner).begin(manifest,true)
         }} finally {permit.close()}
     }
@@ -2420,6 +2420,51 @@ class OwnedPartitionShelfTest {
             assertNull(index.getDownload(f.oldKey));assertFalse(f.original.exists())
             assertEquals(LegacyRetirementPhase.Complete,onWorker {next.retirementRecoveryPage().single().phase})
         } finally {resumed?.let(::teardown);if(!firstClosed) teardown(first);f.provider.close()}
+    }
+
+    @Test fun failedBeforeCacheDeletePreservesEveryOtherAudioAndDoesNotHydrateTheirMetadata() {
+        val f=Fixture("unrelated");val key="failed-before-cache";val index=seedRetainedOriginal(f,Download.STATE_FAILED,key);val owner=f.owner()
+        try {
+            onWorker {owner.prepare()}
+            val uid=f.legacy.listFiles()!!.single {it.name.endsWith(".uid")}.name.removeSuffix(".uid")
+            f.provider.writableDatabase.execSQL("UPDATE ExoPlayerCacheIndex$uid SET metadata=zeroblob(8388608) WHERE key=?",arrayOf(f.oldKey))
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {owner.removeOriginalCompleted(key,true,{true},{_,_ ->assertNull(index.getDownload(key))})})
+            val complete=onWorker {owner.retirementRecoveryPage().single()}
+            assertEquals(-1L,complete.manifest.contentId);assertTrue(complete.manifest.spans.isEmpty())
+            assertNotNull(complete.manifest.retainedDownloadIdentity);assertNull(complete.manifest.completedDownloadIdentity)
+            assertEquals(LegacyRetirementPhase.Complete,complete.phase);assertNull(index.getDownload(key))
+            assertArrayEquals(payload,f.original.readBytes());assertEquals(0,f.budget.resident);assertTrue(f.barrier.quiescent)
+            f.provider.readableDatabase.rawQuery("SELECT length(metadata) FROM ExoPlayerCacheIndex$uid WHERE key=?",arrayOf(f.oldKey)).use {
+                assertTrue(it.moveToFirst());assertEquals(8388608L,it.getLong(0))
+            }
+        } finally {teardown(owner);f.provider.close()}
+    }
+    @Test fun zeroCacheRetainedDeleteRecoversOnlyExactBoundPendingAfterRestart() {
+        val f=Fixture("unrelated");val key="stopped-before-cache";val index=seedRetainedOriginal(f,key=key)
+        val first=f.owner();var firstClosed=false;var resumed:OwnedPartitionShelf?=null
+        val art=DownloadArt(folders.newFolder(),barrier=f.barrier);val work=coverWork(art,f.barrier)
+        try {
+            onWorker {first.prepare()};val pending=boundRetainedIntent(f,first,key)
+            assertEquals(-1L,pending.manifest.contentId);assertEquals(pending.manifest,LegacyRetirementManifest.decode(pending.manifest.encode()))
+            assertEquals(LegacyRetirementFileResult(0,0),onWorker {first.retireOriginalFiles(pending,true)})
+            val permit=f.barrier.exclusive();try {index.removeDownload(key)} finally {permit.close()}
+            teardown(first);firstClosed=true
+            val next=f.owner(PartitionShelfStart.Resume);resumed=next;onWorker {next.prepare()}
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,onWorker {next.recoverCompletedDelete(key,pending.token,false,art,work,{true})})
+            assertEquals(OfflineStore.SavedRemoval.Sent,onWorker {next.recoverCompletedDelete(key,pending.token,true,art,work,{true})})
+            assertEquals(LegacyRetirementPhase.Complete,onWorker {next.retirementRecoveryPage().single().phase})
+            assertNull(index.getDownload(key));assertArrayEquals(payload,f.original.readBytes());assertEquals(0,f.budget.resident)
+        } finally {resumed?.let(::teardown);if(!firstClosed) teardown(first);f.provider.close()}
+    }
+    @Test fun noCacheDeleteRefusesUnaccountedActualSpanBeforeIntentAndPreservesSavedRecord() {
+        val f=Fixture("unrelated");val key="failed-no-native-entry";val index=seedRetainedOriginal(f,Download.STATE_FAILED,key);val owner=f.owner()
+        val orphan=File(f.original.parentFile,"999.0.1.v3.exo");orphan.writeBytes(byteArrayOf(7))
+        try {
+            onWorker {owner.prepare()}
+            assertEquals(OfflineStore.SavedRemoval.Failed,onWorker {owner.removeOriginalCompleted(key,true,{true},{_,_ ->fail("Unaccounted span is not absence")})})
+            assertTrue(onWorker {owner.retirementRecoveryPage()}.isEmpty());assertNotNull(index.getDownload(key))
+            assertArrayEquals(payload,f.original.readBytes());assertArrayEquals(byteArrayOf(7),orphan.readBytes());assertTrue(f.barrier.quiescent)
+        } finally {teardown(owner);f.provider.close()}
     }
 
 }
