@@ -1,0 +1,9 @@
+# Partition completed-save bulk deletion — 2026-10-12
+
+Main audit, cumulative successor to #507 at 5f680ecdf9fb0b6ca0f0486e498941db2466acbd. Main included: 2a275286f28db78083567465a521b7ea46f32640. GPT-6 / Codex desktop implementation and source self-check; exact variant/effort not reported. Claude and phones unused. Partition mode remains disabled. User requires full legacy Delete/Move before activation; this does not clear that requirement.
+
+Remove all retains its bounded, complete and closed ownership census before selecting targets. Partition targets use the exact single-save removal path after the census closes: actual exclusive admission, current completed/Closed UID, other-shelf aliases, byte removal and actual native release before terminal-row deletion. No partition target reaches Media3's Remove command or the asynchronous legacy service delivery batch. Scalar main-loop callbacks remain the same as single Delete.
+
+Results distinguish actually removed partition copies from legacy commands merely acknowledged for delivery, known retained/deferred copies and unknown attempted deletion. An unknown mutation stops later targets; those not attempted remain unchanged. Active/EOF readers preserve both bytes and index. Unsupported legacy/Ready/unfinished records are kept and reported; general legacy/Ready removal and Move remain engineering.
+
+Local git diff --check passed. Actions is the first Android compile; latest-head CI, downloaded reports and APK identity/signing verification remain to be recorded on the PR. Added real native SQLite/manager tests cover multiple completed saves, protected original/legacy rows, idempotent repeat, scalar callbacks, no removal-delivery batch, active EOF refusal and later successful deletion. Inherited bounds/service tests remain relevant. Manual QA is pending user testing; no phone/visual/performance evidence is claimed. Keep the application PR open. No Stable tag/release or partition activation.
