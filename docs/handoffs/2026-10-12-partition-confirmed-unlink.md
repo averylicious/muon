@@ -1,0 +1,9 @@
+# Confirmed partition unlink — 2026-10-12
+
+Cumulative successor to #528 4b64145bec1220215d40885a0debfb0074c65a6b. GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No Claude/phone/independent review. Partition mode stays disabled; application stack OPEN for inherited acceptance.
+
+Pinned Media3 datasource sources (/tmp downloaded source JAR is optional local evidence, not a prerequisite) show CachedContent.removeSpan calls File.delete and ignores false; SimpleCache.removeResource then sees no in-memory span. An empty cache observation is insufficient to remove a saved record safely. The new bounded helper captures actual native span files/identities, rechecks each before native removeSpan, confirms physical absence, clears full metadata only after all selected audio files are absent, syncs actual parent directories, and confirms absence again. Unknown actual channel close is retained by MigrationIoOwnership; callers retain actual native/index participants and do not report removal success or erase the saved row.
+
+New-save Delete, played-copy removal and migrated-original duplicate cleanup use this confirmation. Move duplicate cleanup rechecks the actual verified destination at every helper checkpoint, not only around the entire native call. No private native SQL writes. Real native JVM tests deterministically force File.delete=false while Media3 actually removes its span, verify healthy two-file removal, and cancel after one real unlink. Local diff check passes; Actions is first Android compile/latest-head evidence on PR. Android directory-sync/durability remains eventual device acceptance.
+
+Remaining new-source Move needs exact source-file recovery and target-aware cleanup; no source cleanup is enabled by intent preparation alone. Production routing/opt-in/recovery and complete lifecycle/original disposition remain engineering. Do not force preferences or claim Stable/UAT complete.
