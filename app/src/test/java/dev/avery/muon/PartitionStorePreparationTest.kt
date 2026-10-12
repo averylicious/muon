@@ -321,6 +321,7 @@ class PartitionStorePreparationTest {
                 } finally {audio.close()}
                 for(key in listOf(hidden,"saved/new-while-card-absent"))
                     assertThrows(IOException::class.java) {phone.prepareSave(request(key))}
+                assertFalse(phone.freshMigrationAvailable("old-phone"))
                 assertThrows(IOException::class.java) {phone.migrate(CacheMigrationControl(30000),"old-phone",{Long.MAX_VALUE},{})}
                 assertThrows(IOException::class.java) {phone.beginOriginalRetirement("old-phone",true)}
                 assertEquals(OfflineStore.SavedRemoval.Unavailable,phone.removeCompleted("old-phone") {true})
@@ -362,6 +363,63 @@ class PartitionStorePreparationTest {
             assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy));assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
             f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
         } finally {cleanup(startup);f.seed.close();prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()}
+    }
+
+    @Test fun firstReadOnlyReviewComposesWithActualSelectedStartupBindingAndReadyRestart() {
+        val f=Fixture();val prefs=app.getSharedPreferences("storage",android.content.Context.MODE_PRIVATE)
+        assertTrue(prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit())
+        val reviewGate=StorageStartupAdmission();assertTrue(reviewGate.review())
+        val review=PartitionStartupReviewOwner(reviewGate)
+        val first=StorageStartup<OfflineStore.PreparedStorage>();var firstClosed=false
+        val next=StorageStartup<OfflineStore.PreparedStorage>();var nextStarted=false
+        val previousUsed=PlayedCacheState.used;val previousLimit=PlayedCacheState.limit
+        try {
+            val chosen=worker {review.request(f.plan(),File(f.seed.readableDatabase.path),true) {PartitionStartupSettings(prefs)}}
+            assertEquals(PartitionOptInPhase.RestartRequired,review.phase)
+            assertFalse(f.phoneRoot.exists());assertFalse(f.cardRoot.exists())
+            assertThrows(IOException::class.java) {reviewGate.normal()}
+            // Fresh process owners only; no reset or reuse of the review admission/startup.
+            val normal=StorageStartupAdmission();normal.normal();assertFalse(normal.review())
+            val ready=worker {first.open {OfflineStore.prepareSelectedStorage(app,it,partitionEnabled=true,resolve={choice ->
+                assertEquals(chosen,choice);f.plan()
+            })}}
+            val bound=StorageStartup<OfflineStore.Store>();val store=bound.open {OfflineStore.bindStorage(ready,it)}
+            await(store.phone.manager,store.card!!.manager)
+            val end=System.nanoTime()+TimeUnit.SECONDS.toNanos(10)
+            while(store.bootstrapPending!=0 || !store.playedClaims.known) {
+                shadowOf(Looper.getMainLooper()).idle();check(System.nanoTime()<end);Thread.sleep(5)
+            }
+            assertFalse(store.bootstrapFailed);assertEquals(PartitionStartupPhase.Ready,PartitionStartupSettings(prefs).read().phase)
+            assertTrue(store.storageBarrier.quiescent);assertNull(ready.phone.cache);assertNull(ready.card!!.cache)
+            worker {
+                val phone=requireNotNull(store.phone.partition)
+                assertTrue(phone.freshMigrationAvailable("old-phone"))
+                val optimized=phone.migrate(CacheMigrationControl(30000),"old-phone",{Long.MAX_VALUE},{})
+                assertEquals(MigrationPhase.Ready,optimized.phase)
+            }
+            cleanup(first);firstClosed=true
+            nextStarted=true
+            val fresh=f.plan();val resume=fresh.copy(phone=fresh.phone.copy(start=PartitionShelfStart.Resume),card=fresh.card!!.copy(start=PartitionShelfStart.Resume))
+            val restored=worker {next.open {OfflineStore.prepareSelectedStorage(app,it,partitionEnabled=true,resolve={choice ->
+                assertEquals(PartitionStartupPhase.Ready,choice.phase);resume
+            })}}
+            worker {
+                val phone=requireNotNull(restored.phone.partition)
+                assertEquals(MigrationPhase.Ready,phone.migrationRecoveryPage().single().phase)
+                assertFalse(phone.freshMigrationAvailable("old-phone"))
+                val reader=phone.audio.source.createDataSource()
+                try {
+                    assertEquals(4L,reader.open(DataSpec.Builder().setUri("muon-saved:restart").setKey("old-phone").build()))
+                    val read=ByteArray(4);assertEquals(4,reader.read(read,0,4));assertArrayEquals(bytes,read)
+                } finally {reader.close()}
+            }
+            f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
+            assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy));assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
+        } finally {
+            if(nextStarted) cleanup(next);if(!firstClosed) cleanup(first);f.seed.close()
+            PlayedCacheState.used=previousUsed;PlayedCacheState.limit=previousLimit
+            assertTrue(prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit())
+        }
     }
 
 }

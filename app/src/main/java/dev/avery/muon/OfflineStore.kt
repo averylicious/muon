@@ -1544,6 +1544,7 @@ internal object OfflineStore {
             timeoutMillis !in 1L..24L*60*60*1000 || expected!=null &&
             (expected.ticket.allocation.key!=key || expected.phase==MigrationPhase.Ready)) return false
         val store=commandStore(context) ?: return false
+        if(store.missingPartitionCardVolume!=null) return false
         val shelf=(if(sourceCard) store.card else store.phone) ?: return false
         val source=shelf.partition ?: return false
         if(source.storageBarrier!==store.storageBarrier || !shelf.locationAvailable() || store.migrationAttempt!=null ||
