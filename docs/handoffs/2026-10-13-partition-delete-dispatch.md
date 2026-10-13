@@ -1,0 +1,11 @@
+# Durable saved Delete application/recovery dispatch — 2026-10-13
+
+Cumulative successor to #538 8e59428e7e7f3779dd12f8ec999b9506c1012552; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check, exact variant/effort not reported. No Claude/phones/independent review.
+
+App single/bulk saved Delete now uses fresh actual-source durable intent and tree/row/own-cover completion. Existing Pending is not silently adopted by an ordinary click. The old standalone immediate-native helper refuses when a real Delete journal exists. Original fallback now confirms/syncs own-cover removal too. Another prepared partition shelf's real catalog/save/migration/legacy claims are checked under the same actual exclusive gate before every source mutation, alongside the raw other-index census. No nested shared lease, whole-library hydration or additional worker is introduced.
+
+Exact-key/token renewed Delete recovery supports new sources and bound completed-original Delete (not Move or unbound files-only intents). App recovery uses the existing serial mover/exclusion, checks cancellation/current storage during mutation, and posts scalar successful removal on main; true means submitted only. Progress clears/revision refreshes on completion/failure. Recovery controls remain to be exposed for Delete; production partition selection remains disabled.
+
+Four new composed tests cover existing-Pending refusal/exact-token recovery, bound-original versus unbound files-only recovery, actual public worker/main callback ordering, and actual other-shelf reserved allocation refusal before mutation. The prior app completed-Delete fixture now supplies real cover/work gates and checks durable Complete; no production guard was weakened. Local diff passed; Actions first Android compile. Record actual latest-head reports/APK on PR; manual/device/durability acceptance pending.
+
+Next: bounded Delete recovery controls and summaries; production persisted opt-in/startup/migration controls, supported nonterminal-original disposition, final lifecycle and inherited UAT. Full supported legacy-original Delete/Move remains required before activation. All cumulative app PRs OPEN; no Stable release/tag or device requirement at this boundary.
