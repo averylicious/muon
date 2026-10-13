@@ -1,0 +1,7 @@
+# Local publication cancellation boundary — 2026-10-12
+
+Cumulative successor to #524 04cc2a7198627f37e61d20fcf5f444dcc417cfd9 (its .1026 still under CI when this follow-up began). Sole GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No Claude, phones or independent review. Partition mode remains disabled; application stack remains OPEN for inherited acceptance.
+
+Once the actual destination completed row commits, cancellation cannot relabel it Copied or quarantine a healthy owner solely for that late cancellation. Actual session/root/volume/index/alias confirmation still runs after commit; user cancellation waits until the composed operation receives the receipt and records Published. Unknown actual I/O or failed ownership still stops admission and is not converted to success. Original row/audio remain intact until separate covered Pending and target-aware completion.
+
+Real-shelf JVM tests request cancellation only when the actual destination index first shows the new row. Direct publication must return its confirmed receipt; composed Move reports Published/Failed, keeps both completed copies and creates no source-retirement intent. No simulated receipt, nested lease or automatic retry. Actions is the first Android compile; record exact-head result on PR. Local diff check passed; manual physical-card/durability QA pending. Full original/new-source disposition, production routing/opt-in/recovery and lifecycle coverage remain required before activation.
