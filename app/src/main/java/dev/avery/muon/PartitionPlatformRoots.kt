@@ -1,0 +1,96 @@
+package dev.avery.muon
+
+import android.content.Context
+import android.os.Environment
+import android.os.storage.StorageManager
+import java.io.File
+import java.io.IOException
+
+/** Trusted Android app directories only, not persisted/editable paths. Resolve off main before any
+ * provider/root allocation. UUID observations are re-read at use; a saved path or old mount-state
+ * snapshot never grants access to a replacement card. Strict missing-card refusal is not the final
+ * phone-only recovery policy, and this prepared resolver does not activate partition storage. */
+internal class PartitionPlatformRoots(
+    private val files:()->File,
+    private val external:()->Array<File?>,
+    private val phoneVolume:(File)->String,
+    private val cardVolume:(File)->String?) {
+    private fun worker() {
+        check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Storage root resolution requires a worker"}
+    }
+    private fun identity(value:String):String {
+        if(value.isBlank() || value.length>512 || value.any {it.isISOControl()})
+            throw IOException("Storage volume identity is unsupported")
+        return value
+    }
+    private fun folder(file:File):File=file.canonicalFile.also {
+        if(!it.isAbsolute || !it.isDirectory) throw IOException("Application storage folder unavailable")
+    }
+    private fun child(base:File,name:String):File=File(base,name).also {
+        if(it!=it.canonicalFile) throw IOException("Selected saved-storage path has an alias")
+    }
+    private fun currentPhone(base:File):String?=try {
+        if(folder(files())!=base) null else identity(phoneVolume(base))
+    } catch(_:Exception) {null}
+    private fun currentCard(base:File):String?=try {
+        if(!base.isDirectory || base!=base.canonicalFile) null else cardVolume(base)?.let(::identity)
+    } catch(_:Exception) {null}
+    private fun phone(start:PartitionShelfStart):PartitionRootPlan {
+        val base=folder(files());val volume=currentPhone(base) ?: throw IOException("Private storage identity unavailable")
+        return PartitionRootPlan(child(base,PARTITION_DIRECTORY),child(base,"downloads"),volume,{currentPhone(base)},start)
+    }
+    private fun cards():List<Pair<File,String>> {
+        val dirs=external()
+        if(dirs.size>8) throw IOException("Too many platform storage folders")
+        val result=ArrayList<Pair<File,String>>(2)
+        for(i in 1 until dirs.size) {
+            val candidate=dirs[i] ?: continue
+            val base=folder(candidate)
+            val volume=currentCard(base) ?: continue
+            if(result.any {it.first==base || it.second==volume})
+                throw IOException("Ambiguous removable storage identity")
+            result+=base to volume
+        }
+        return result
+    }
+    private fun card(selected:Pair<File,String>,start:PartitionShelfStart):PartitionRootPlan {
+        val (base,volume)=selected
+        return PartitionRootPlan(child(base,PARTITION_DIRECTORY),child(base,"downloads"),volume,{currentCard(base)},start)
+    }
+    /** Use only the already-open legacy shelf selected by Android, never a newly inserted/unowned
+     * card. Caller still must refuse opt-in while old card records/claims cannot be inspected. */
+    fun fresh(currentLegacyCardFolder:File?):PartitionStorePlan {
+        worker();val phone=phone(PartitionShelfStart.Fresh);val available=cards()
+        val selected=if(currentLegacyCardFolder==null) {
+            if(available.isNotEmpty()) throw IOException("Removable storage changed; restart before reviewing opt-in")
+            null
+        } else {
+            val expected=folder(currentLegacyCardFolder)
+            available.singleOrNull {it.first==expected} ?: throw IOException("The current saved-copy card is unavailable or changed")
+        }
+        return PartitionStorePlan(phone,selected?.let {card(it,PartitionShelfStart.Fresh)}).also {it.validate()}
+    }
+    /** No Fresh/Resume inference from directory existence, UUID substitution or legacy fallback. */
+    fun resume(choice:PartitionStartupChoice):PartitionStorePlan {
+        worker();val phone=phone(choice.start)
+        if(phone.volume!=choice.phoneVolume) throw IOException("Selected private storage identity changed")
+        val selected=choice.cardVolume?.let {expected ->
+            cards().singleOrNull {it.second==expected} ?: throw IOException("The selected SD card is unavailable; its identity was kept")
+        }
+        return PartitionStorePlan(phone,selected?.let {card(it,choice.start)}).also {it.validate()}
+    }
+    companion object {
+        internal const val PARTITION_DIRECTORY="downloads-partition-v1"
+        fun from(context:Context):PartitionPlatformRoots {
+            val app=context.applicationContext
+            val manager=app.getSystemService(StorageManager::class.java) ?: throw IOException("Android storage service unavailable")
+            return PartitionPlatformRoots({app.filesDir},{app.getExternalFilesDirs(null)},
+                {"private:${manager.getUuidForPath(it)}"},
+                {directory ->
+                    val volume=manager.getStorageVolume(directory)
+                    if(volume==null || !volume.isRemovable || volume.isEmulated || volume.state!=Environment.MEDIA_MOUNTED) null
+                    else volume.uuid?.let {"removable:$it"}
+                })
+        }
+    }
+}
