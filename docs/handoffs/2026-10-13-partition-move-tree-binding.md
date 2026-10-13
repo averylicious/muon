@@ -1,0 +1,9 @@
+# Durable new-source Move tree binding — 2026-10-13
+
+Cumulative successor to #530 7de69c661f5a734395c0e03911ddccda21d8cb50. GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No Claude, phones or independent review. Partition mode stays disabled; application stack OPEN for inherited acceptance.
+
+The actual same-gate new-source Move intent now captures the closed dedicated allocation after the last source native/metadata/audio observation and own-cover copy. No source native reopen occurs after the snapshot, avoiding native last-touch/index mutations invalidating its file hashes. Version-two binding persists the bounded snapshot with the source/destination/cover identities; source UID marker must match. Old version-one bindings still decode but provide no file cleanup authority. Journal projection caps payload at 256 KiB before CursorWindow, with two-row pages. Unknown real file/directory close retains the tracker and quarantines actual shelves/gate.
+
+Actual shelf/restart test asserts the source native budget is empty at snapshot return, tree and cover survive durable restart, and generic Delete/routing remain blocked. Real SQLite journal test round-trips v2 tree across restart, validates source UID and keeps v1 readable. Local diff check only; Actions is the first Android compile. Record exact latest-head run/artifact on PR.
+
+Next engineering: target-aware exact Pending finish, raw source completion/alias checks without native reopen, confirmed source tree removal, terminal source record and cover removal, durable Complete; then composed new-source app Move. Production opt-in/startup/recovery controls, complete original disposition and final lifecycle/UAT remain. Full Delete/Move before activation stays required. No Stable release/tag or forced preference.
