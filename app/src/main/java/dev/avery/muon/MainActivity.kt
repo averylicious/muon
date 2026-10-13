@@ -17,8 +17,13 @@ class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
     private var future: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     private var controllerError by mutableStateOf<String?>(null)
+    private var storageReviewRequested = false
+    private var storageReviewClaimed = false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        storageReviewRequested = PARTITION_OPT_IN_AVAILABLE && (intent.action == REVIEW_SAVED_STORAGE_ACTION || OfflineStore.isStartupReviewSelected)
+        storageReviewClaimed = storageReviewRequested && OfflineStore.claimStartupReview()
+        installSavedStorageReviewShortcut(this)
         volumeControlStream = AudioManager.STREAM_MUSIC
         setContent {
             val darkTheme = isSystemInDarkTheme()
@@ -28,11 +33,13 @@ class MainActivity : ComponentActivity() {
                     else SystemBarStyle.light(transparent, transparent)
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
-            MuonApp(controller, controllerError, darkTheme = darkTheme)
+            if (storageReviewRequested) PartitionStartupReviewScreen(storageReviewClaimed, darkTheme)
+            else MuonApp(controller, controllerError, darkTheme = darkTheme)
         }
     }
     override fun onStart() {
         super.onStart()
+        if (storageReviewRequested) return // No service, model, network or native storage initialization.
         val f = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         future = f
         f.addListener({
