@@ -117,4 +117,4 @@ fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builde
         .setArtworkUri(android.net.Uri.parse(endpoint.url("/api1/pic/medium/$id")))
         // The song's own record, so the service can keep a played copy the offline library can list.
         .setExtras(android.os.Bundle().apply { putByteArray(SONG_EXTRA, encodeSong(this@mediaItem)) }).build())
-    .build()
+    .build().let(::queueOccurrence)
