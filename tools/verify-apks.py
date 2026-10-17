@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 import diagnostic_mode
+from apk_manifest import verify_manifest
 
 
 def expectations(env=os.environ):
@@ -16,11 +17,14 @@ def expectations(env=os.environ):
     diagnostic = diagnostic_mode.from_env(env)
     if env.get(diagnostic_mode.GRADLE) != ('true' if diagnostic else 'false'):
         raise ValueError(f'{diagnostic_mode.GRADLE} does not match the selected build mode')
+    timings = diagnostic_mode.timing_from_env(env)
+    if env.get(diagnostic_mode.TIMING_GRADLE, 'false') != ('true' if timings else 'false'):
+        raise ValueError(f'{diagnostic_mode.TIMING_GRADLE} does not match the selected build mode')
     canary = '-canary.' + env['MUON_VERSION_CODE']
     return [
         ('debug', 'dev.avery.muon.diagnostic' if diagnostic else 'dev.avery.muon',
          'Muon diag' if diagnostic else 'Muon β',
-         canary + '-diagnostic' if diagnostic else canary, diagnostic),
+         canary + '-diagnostic' if diagnostic else canary + '-timings' if timings else canary, diagnostic),
         ('release', 'dev.avery.muon.release', 'Muon', '', False),
     ]
 
@@ -49,7 +53,11 @@ def main(build_tools, env=os.environ):
         badging = subprocess.check_output([str(build_tools / 'aapt'), 'dump', 'badging', str(apk)], encoding='utf-8')
         check_badging(variant, badging, package, label, env['MUON_VERSION_CODE'],
                       env['MUON_VERSION_NAME'] + suffix, debuggable)
-        print(f'{variant}: package, version, label, signing certificate and '
+        # Preserve the acceptance branch's compiled export gate in both build modes.
+        analyzer = Path(env['ANDROID_HOME']) / 'cmdline-tools/latest/bin/apkanalyzer'
+        manifest = subprocess.check_output([str(analyzer), 'manifest', 'print', str(apk)], encoding='utf-8')
+        verify_manifest(manifest, package)
+        print(f'{variant}: package, version, label, signing certificate, exported components and '
               f'{"debuggable (diagnostic)" if debuggable else "non-debuggable"} flag verified')
 
 

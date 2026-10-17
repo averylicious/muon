@@ -1,0 +1,9 @@
+# Partition interrupted-Move controls — 2026-10-13
+
+Cumulative successor to #534 d34aa8b30bf1189d3ba45463b56ec842293428d8, including main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation and source self-check; exact variant/effort not reported. No Claude, device commands or independent review.
+
+Actual prepared partition stores now expose Settings recovery panels for phone/card Move. Each journal projects at most two bounded bindings and immediately reduces them to scalar key/token/size summaries. Completed tombstones are excluded; malformed phases still decode/refuse. The merged two-entry page uses the exact UTF-16 key order and advances over Delete intents without offering them as Move. Explicit confirmation calls the existing exact-token serial recovery worker; admission is only submission, and actual finish callbacks/revision refresh determine completion. Worker progress disables repeat actions and clears on every normal/failure completion.
+
+Partition selection remains disabled: these controls do not manufacture a store or force preferences. Production persisted opt-in/startup/recovery, interruption-safe Delete, supported nonterminal original disposition, final lifecycle and inherited application UAT remain engineering/acceptance work. Do not call this activation-ready or merge the cumulative app stack before acceptance. Existing completed-original Delete/Move support is mandatory before activation, not an optional protected-only fallback.
+
+Local diff and branch-policy checks passed. Actions supplies the first Android compile; latest-head reports/APK verification must be recorded on the PR. Four new tests cover actual journal Pending paging/completed exclusion and actual composed shelf scalar summaries/Delete cursor advancement. No Compose UI tests or visual/device claims. Manual QA pending an enabled production candidate; do not force partition preferences.
