@@ -149,3 +149,5 @@ coordinates, filenames, sizes and hashes, plus checked same-repository SHA512 co
 The fetched jars/POMs and local host paths are excluded. This captures runtime framework artifacts
 outside Gradle's selected graph. Cold fetch and matching server checksums do **not** authenticate
 the publisher, prove all native/executable dependencies, or harden ordinary build cache reuse.
+
+Diagnostic Move target verification also emits at most32fixed numeric phase observations per process (admission/open/metadata/audio/after/close/final, total and success only). This is DEBUG-only: ordinary/Stable and non-debuggable timing-only builds construct no Move observer or clock/log calls. It contains no keys, paths, song/server/error text; nested root/projection totals overlap these phase costs. It is measurement, not a benchmark or permission to keep native targets open across source deletion.
