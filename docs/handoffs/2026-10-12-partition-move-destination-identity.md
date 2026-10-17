@@ -1,0 +1,11 @@
+# Destination-bound Move intent — 2026-10-12
+
+Cumulative successor to #519 at 72c816ec59c6c2ec5b59ca1e55b5be7d4749d968; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No Claude/device. Partition remains disabled; full Delete/Move required before activation.
+
+A bounded Move destination identity binds actual volume/root, fresh allocation/ticket, native UID, exact completed-row digest, length, full-field metadata digest and audio SHA256. Actual destination observation reopens the exact clean completed partition under the same exclusive gate and returns its digest only after actual reader/native close. One-attempt digest ownership retains actual source/factory on unknown construction/close; callers retain native/provider/source owners and invalidate admission.
+
+The source owner can persist explicit destination-bound Pending Move intent only after its current completed record/full audio matches the actual destination bytes and metadata. The original manifest/file identities are reverified before durable intent. Manifest payload v3 adds the bounded destination identity; v1 unbound and v2 completed-delete payloads remain readable. No original file/row/cover is removed by this preparation.
+
+Generic Delete and files-only recovery explicitly refuse Move-bound intent so a restart cannot bypass destination verification. The final target-aware finisher is still required, along with own-cover transfer/verification and recovery controls. Intent suppresses source playback through the existing tombstone; the destination is already a readable completed copy. This is not a user-visible Move switch.
+
+Tests cover descriptor bounds/codec, full-field stable digest/oversize refusal, actual digest-reader closure/unknown retention, durable actual destination binding and restart refusal of generic cleanup, and changed destination bytes before intent. Local diff check passed; Actions first Android compile, exact-head result pending. No phone/performance claims. PR remains open for inherited acceptance. Continue target-aware original retirement and full recovery before production opt-in; do not activate the backend or publish Stable.
