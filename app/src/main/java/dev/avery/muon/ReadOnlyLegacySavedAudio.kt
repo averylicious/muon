@@ -91,9 +91,9 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
         override fun open(spec:DataSpec):Long {
             check(child==null && uncertainty==null) { "Legacy reader already active or uncertain" }
             val name=spec.key ?: throw IOException("Saved legacy read requires exact key")
-            val projection=try { projection(name,io()).cache }
+            val projection=try { projection(name,io()) }
                 catch(failure:MigrationIoUncertain) { uncertainty=failure; throw failure }
-            val opened=savedCacheReader(projection,files); child=opened
+            val opened=LegacyResourceProjection.audioReader(projection,files); child=opened
             for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)
             checkpoint(); return opened.open(spec).also { checkpoint() }
         }

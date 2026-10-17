@@ -71,6 +71,41 @@ class ReadOnlyLegacySavedAudioTest {
         reader.close(); assertTrue(f.barrier.quiescent)
         assertFalse(SimpleCache.isCacheFolderLocked(f.root)); f.originals.forEach { assertArrayEquals(payload,it.readBytes()) }
     }
+    @Test fun privateEngineMetadataCannotBypassFreshSpanGuardBeforePhysicalFileOpen() {
+        val f=Fixture();var opens=0;var closes=0
+        val view=LegacyResourceProjection.readAudio(f.root,f.uid,"key/0",f.read,{
+            if(!f.available) throw IOException("Fixture owner unavailable")
+        })
+        val raw=FileDataSource()
+        val engine=LegacyResourceProjection.audioReader(view,DataSource.Factory {object:DataSource by raw {
+            override fun open(spec:DataSpec):Long {opens++;return raw.open(spec)}
+            override fun close() {closes++;raw.close()}
+        }})
+        f.available=false
+        try {
+            assertThrows(IOException::class.java) {view.cache.getContentMetadata("key/0")} // Public API stays guarded.
+            assertThrows(IOException::class.java) {engine.open(spec())}
+            assertEquals(0,opens)
+        } finally {engine.close()}
+        assertEquals(0,closes);assertArrayEquals(payload,f.originals.single().readBytes())
+        assertFalse(SimpleCache.isCacheFolderLocked(f.root))
+    }
+    @Test fun ownerLossAtActualPhysicalOpenStillFailsAndKeepsLeaseUntilKnownClose() {
+        val f=Fixture();var opens=0;var closes=0;val raw=FileDataSource()
+        val reader=f.audio(DataSource.Factory {object:DataSource by raw {
+            override fun open(spec:DataSpec):Long {
+                opens++;return raw.open(spec).also {f.available=false}
+            }
+            override fun close() {closes++;raw.close()}
+        }}).source.createDataSource()
+        try {
+            assertThrows(IOException::class.java) {reader.open(spec())}
+            assertEquals(1,opens);assertEquals(0,closes);assertEquals(1,f.barrier.active)
+            assertThrows(IOException::class.java) {f.barrier.exclusive()}
+        } finally {reader.close()}
+        assertEquals(1,closes);assertTrue(f.barrier.quiescent)
+        assertArrayEquals(payload,f.originals.single().readBytes())
+    }
     @Test fun inventoryPagesScalarKeysWithoutMaterializingMetadataAndCallbackKeepsSharedPermit() {
         val f=Fixture(70); database.writableDatabase.execSQL("UPDATE ${f.table} SET metadata=zeroblob(8388608) WHERE key='key/0'")
         var count=0; f.audio().forEachKey { count++; assertThrows(IOException::class.java) { f.barrier.exclusive() }; true }

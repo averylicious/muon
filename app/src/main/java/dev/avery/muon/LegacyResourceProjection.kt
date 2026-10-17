@@ -5,6 +5,7 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.database.VersionTable
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheSpan
 import androidx.media3.datasource.cache.ContentMetadata
@@ -163,6 +164,14 @@ internal object LegacyResourceProjection {
         // The returned cache retains the real guard only, never this diagnostic observation.
         live(); return LegacyAudioProjection(ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,actualLive),limited)
     }
+    /** Engine-only view for the actual ReadOnlyLegacy reader, which retains its barrier and
+     * pre/post open/read checkpoints. Pinned CacheDataSource reads scalar metadata twice BEFORE
+     * guarded span selection; metadata itself is not permission to open a file. Never expose the
+     * engine Cache to another caller or use it as migration/deletion authority. */
+    fun audioReader(projection:LegacyAudioProjection,files:DataSource.Factory?=null):DataSource =
+        (projection.cache as? ProjectedCache ?: throw IOException("Audio reader needs an actual legacy projection"))
+            .audioReader(files)
+
     /** Inspect only this implementation's immutable observation. Its owner must still hold the
      * read lease; a fresh final checkpoint precedes publication. Future Cache/file reads keep
      * their own live guards, and exact migration projection is not inspected eagerly. */
@@ -283,6 +292,12 @@ internal object LegacyResourceProjection {
         private val spans:List<CacheSpan>,private val bytes:Long,private val checkpoint:()->Unit):Cache {
         private fun check(name:String=key) { checkpoint(); if(name!=key) throw IOException("Projection cannot access another resource") }
         private fun denied():Nothing=throw IOException("Read-only legacy projection cannot mutate or release its borrowed source")
+        fun audioReader(files:DataSource.Factory?):DataSource = savedCacheReader(object:Cache by this {
+            override fun getContentMetadata(key:String):ContentMetadata {
+                if(key!=this@ProjectedCache.key) throw IOException("Projection cannot access another resource")
+                return metadata
+            }
+        },files)
         override fun getUid():Long { check(); return nativeUid }
         override fun release():Unit=denied()
         override fun addListener(key:String,listener:Cache.Listener):NavigableSet<CacheSpan> =denied()
