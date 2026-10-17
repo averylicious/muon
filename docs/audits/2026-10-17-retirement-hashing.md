@@ -1,0 +1,9 @@
+# Bounded original-retirement hashing
+
+The Android17 POCO diagnostic trace places original Delete inside full ownership checks called for every 8KiB digest read. Each check includes actual shelf root/journal identities and cross-shelf claims; one 1.38MB original therefore requests about169 digest reads per pass, with repeated verification passes. #564 reduces redundant filesystem work within each check. This follow-up uses the same fixed64KiB read size as existing migration copy/comparison: about22 reads for that original per pass. This is an operation-count explanation, not a measured wall-clock speedup.
+
+Only the digest buffer changes, from8KiB to64KiB (an additional56KiB transient memory for one synchronous reader). Every byte, final EOF probe, before-read owner/cancellation callback, full digest comparison, exact-span check, before-unlink validation, durable Pending identity, terminal-row removal and unknown-close quarantine remains. No skipped tail, memoized owner/claim state, automatic replay, journal mutation or partial verification is introduced. Cancellation remains checked between bounded reads; this does not promise a wall-clock deadline for a stalled filesystem call.
+
+Actual-file regressions cover multiple blocks and a short tail, a fresh callback before each read/EOF, changed final-byte refusal before any unlink, and cancellation after the first block with the actual reader closed and originals/journal retained. Existing unknown-close and interrupted-unlink tests remain.
+
+Actions is the first Android compile. Exact-head results and diagnostic device comparison belong on the PR. Do not call #401 fixed or complete original/new-copy mutation acceptance from this change alone. GPT-6 / Codex desktop implementation/source self-check, exact variant/effort not reported; no independent review or Claude. Cumulative main-target application PR stays open; Stable/benchmark partition activation remains disabled.
