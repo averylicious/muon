@@ -1,0 +1,13 @@
+# Exact legacy-original file retirement — 2026-10-12
+
+Cumulative successor to #511 at 858ccf9a1d0d641518040dad15a8a2457c7e2229; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. Solo, no Claude or phone. Full legacy Delete/Move remains required and partition mode remains disabled.
+
+Actual legacy-owner cleanup requires renewed explicit consent, the same session/gate, an exact durable Pending manifest/token, and exclusive admission. It validates the supported read-only native schema, exact root/database/UID marker, original metadata digest, bounded selected file census and streaming file hashes before unlink. Each remaining file is identity/byte checked immediately before unlink; missing recorded files are allowed only for this exact Pending recovery. Only selected files are removed. No native cache/index write or SimpleCache construction occurs.
+
+The real files-attempt owner is registered before run. Unknown unlink retains its exact target; unknown reader/cursor close retains actual handles/database through MigrationIoOwnership. Typed uncertainty retains the source owner and invalidates the app-wide gate, with no in-process close/unlink retry/reset. Known interruption between files may leave Pending work; later explicit recovery rechecks remaining files and original source identity. SQLite cursor tracking now covers legacy projection/schema/manifest queries, including typed propagation when a directory-use close exception was suppressed by another failure.
+
+Successful files-stage return proves only this manifest's files absent. The journal deliberately stays Pending: a Ready migrated duplicate, terminal download row and artwork still need exact disposition before a user-visible Delete can succeed. Missing files or ledger completion alone are not that proof. No app control/backend activation is exposed.
+
+Local git diff --check passed. Actions is first Android compile; record final head/report/APK receipts on PR. New real native-file/SQLite tests cover selected-only unlink, exact Pending restart recovery after partial unlink, changed-byte refusal, unknown actual reader/cursor close, no same-attempt retry, and actual shelf consent/stale-token/restart behavior. No device or performance claims. Inherited UAT pending; application PR remains open.
+
+Next: coordinated Ready-copy cleanup, alias-safe terminal download-index/artwork handling, complete Delete and full Move, persisted production opt-in/recovery controls, final composed lifecycle/failure checks, optional played make-room and saved-card startup evidence.
