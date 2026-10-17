@@ -148,6 +148,121 @@ class SavedPagingTest {
         assertEquals(later.from, paging.reload(0) {}.origin)
     }
 
+    private fun scratchEmpty() {
+        val file=File(context.noBackupFilesDir,"saved-playback-projection-v1.db")
+        android.database.sqlite.SQLiteDatabase.openDatabase(file.path,null,android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use {db ->
+            db.rawQuery("SELECT COUNT(*) FROM refs",null).use {c ->assertTrue(c.moveToFirst());assertEquals(0,c.getInt(0))}
+        }
+    }
+    @Test fun multiPagePlaybackProjectsOnceAndKeepsExactSortedOrderAndSelectedPosition():Unit=io {
+        entries=(0..236).map(::entry).reversed();var passes=0;var visits=0
+        val once=SavedPaging(context) {include,check,emit ->
+            passes++;for(e in entries) {check();if(include(e.ref)) {visits++;emit(e)}}
+        }
+        val snapshot=once.reload(0) {}.page.snapshot;passes=0;visits=0
+        val selected=entries[119]
+        val result=once.playback(snapshot,selected.ref,false) {} as SavedPlaybackResult.Ready
+        val ordered=sortSaved(entries)
+        assertEquals(1,passes);assertEquals(entries.size,visits)
+        assertEquals(ordered.map {it.ref.handle},result.plan.items.map {it.mediaId})
+        assertEquals(ordered.indexOf(selected),result.plan.startIndex);scratchEmpty()
+    }
+    @Test fun missingAndDuplicateRowsRefuseAndRollbackSeenStateBeforeRetry():Unit=io {
+        val original=(0..59).map(::entry);entries=original
+        val snapshot=paging.reload(0) {}.page.snapshot;val selected=original.last().ref
+        entries=original.drop(1)
+        assertThrows(SavedCatalogStale::class.java) {paging.playback(snapshot,selected,false) {}}
+        scratchEmpty();entries=original+original.first()
+        assertThrows(SavedCatalogStale::class.java) {paging.playback(snapshot,selected,false) {}}
+        scratchEmpty();entries=original
+        assertEquals(60,(paging.playback(snapshot,selected,false) {} as SavedPlaybackResult.Ready).plan.items.size)
+        scratchEmpty()
+    }
+    @Test fun cancelledNativeProjectionRollsBackItsScratchAndCanPrepareAgain():Unit=io {
+        entries=(0..79).map(::entry);val snapshot=paging.reload(0) {}.page.snapshot
+        var projecting=false;var checks=0
+        val once=SavedPaging(context) {include,check,emit ->
+            projecting=true
+            try {for(e in entries) {check();if(include(e.ref)) emit(e)}} finally {projecting=false}
+        }
+        assertThrows(CancellationException::class.java) {once.playback(snapshot,entries.last().ref,false) {
+            if(projecting && ++checks==10) throw CancellationException("Cancel native queue projection")
+        }}
+        scratchEmpty()
+        assertEquals(80,(once.playback(snapshot,entries.last().ref,false) {} as SavedPlaybackResult.Ready).plan.items.size)
+        scratchEmpty()
+    }
+    @Test fun budgetRefusalWithSuppressedCloseFailureNeverOffersASingleCopyAsSuccess():Unit=io {
+        entries=(0..2050).map(::entry);val snapshot=paging.reload(0) {}.page.snapshot;var passes=0
+        val broken=SavedPaging(context) {include,check,emit ->
+            passes++
+            java.io.Closeable {throw IOException("Controlled projection close failure")}.use {
+                for(e in entries) {check();if(include(e.ref)) emit(e)}
+            }
+        }
+        assertThrows(IOException::class.java) {broken.playback(snapshot,entries.last().ref,false) {}}
+        assertEquals(1,passes);scratchEmpty()
+    }
+    @Test fun manyIncompleteRowsDoNotConsumeThePlayableQueueBudget():Unit=io {
+        val complete=entry(3000)
+        entries=(0..2050).map {entry(it).copy(coverage=SavedCoverage.Partial)}+complete
+        val snapshot=paging.reload(0) {}.page.snapshot
+        val result=paging.playback(snapshot,complete.ref,false) {} as SavedPlaybackResult.Ready
+        assertEquals(listOf(complete.ref.handle),result.plan.items.map {it.mediaId})
+        assertEquals(0,result.plan.startIndex);scratchEmpty()
+    }
+    @Test fun catalogGenerationChangedDuringProjectionRefusesBeforePublishingAnyPlan():Unit=io {
+        entries=(0..59).map(::entry);val old=paging.reload(0) {}.page.snapshot;var changed=false
+        val once=SavedPaging(context) {include,check,emit ->
+            for(e in entries) {
+                check();if(!include(e.ref)) continue;emit(e)
+                if(!changed) {changed=true;SavedCatalog.open(context).use {it.rebuild(entries)}}
+            }
+        }
+        assertThrows(SavedCatalogStale::class.java) {once.playback(old,entries.last().ref,false) {}}
+        scratchEmpty();val fresh=SavedCatalog.open(context).use {it.snapshot()}
+        assertEquals(60,(once.playback(fresh,entries.last().ref,false) {} as SavedPlaybackResult.Ready).plan.items.size)
+        scratchEmpty()
+    }
+
+    @Test fun concurrentReloadDoesNotInvertCatalogAndNativeOwnerLockOrder() {
+        entries=(0..59).map(::entry)
+        val old=io {paging.reload(0) {}.page.snapshot}
+        val owner=java.util.concurrent.locks.ReentrantLock()
+        val entered=java.util.concurrent.CountDownLatch(1)
+        val catalogHeld=java.util.concurrent.CountDownLatch(1)
+        val pool=Executors.newFixedThreadPool(2)
+        val once=SavedPaging(context) {include,check,emit ->
+            owner.lockInterruptibly()
+            try {
+                entered.countDown();assertTrue(catalogHeld.await(10,TimeUnit.SECONDS))
+                for(e in entries) {check();if(include(e.ref)) emit(e)}
+            } finally {owner.unlock()}
+        }
+        try {
+            val playing=pool.submit<String> {
+                try {
+                    val result=once.playback(old,entries.last().ref,false) {} as SavedPlaybackResult.Ready
+                    assertEquals(60,result.plan.items.size);"ready"
+                } catch(_:SavedCatalogStale) {"stale"}
+            }
+            assertTrue(entered.await(10,TimeUnit.SECONDS))
+            val reload=pool.submit<SavedCatalogSnapshot> {
+                SavedCatalog.open(context).use {catalog ->catalog.rebuildFrom({emit ->
+                    catalogHeld.countDown();owner.lockInterruptibly()
+                    try {entries.forEach(emit)} finally {owner.unlock()}
+                })}
+            }
+            assertTrue(reload.get(15,TimeUnit.SECONDS).generation>old.generation)
+            // WAL readers may publish before the concurrent generation commits; rollback-journal
+            // readers may wait and then refuse it. Both must finish without a lock-order cycle.
+            assertTrue(playing.get(15,TimeUnit.SECONDS) in setOf("ready","stale"))
+            io {scratchEmpty()}
+        } finally {
+            catalogHeld.countDown();pool.shutdownNow();assertTrue(pool.awaitTermination(15,TimeUnit.SECONDS))
+        }
+    }
+
     private fun entry(id: Int) = SavedEntry(requireNotNull(SavedRef.download(SavedShelf.Phone,
         "saved/$id", "saved/$id")), TauonTrack(id.toLong(), "Song ${id.toString().padStart(5, '0')}",
         "Artist", "Album", 1000, true, false), "http://192.168.1.2:7814", Download.STATE_COMPLETED,
