@@ -394,6 +394,8 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         if(expected.key!=key) throw IOException("Move destination completion belongs to another key")
         var cache:Cache?=null; var releasing=false
         val digest=SavedAudioDigest()
+        val timing=if(BuildConfig.DEBUG) MoveVerificationTiming.begin(true) else null
+        var successful=false
         fun live() {originalPermit(permit); checkpoint()}
         fun unknown(failure:Throwable):Nothing {
             val handles=arrayOf(this,cache,digest,ticket,failure)
@@ -410,26 +412,32 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                     completionIndex.find(key)!=expected || completionIndex.holdsOtherName(key))
                     throw IOException("Move destination identity changed")
             }
-            checked(); val actual=native.openClosedSaveRead(key); cache=actual
+            checked(); timing?.phase(MoveVerificationTiming.Phase.OPEN)
+            val actual=native.openClosedSaveRead(key); cache=actual
+            timing?.phase(MoveVerificationTiming.Phase.METADATA)
             val state=savedAudioState(actual,key)
             val metadata=PartitionResourceCache.measured(state.metadata,PartitionResourceLimits())
             if(actual.uid!=closed.uid || state.coverage!=SavedCoverage.Full || state.bytes!=expected.length)
                 throw IOException("Move destination lacks exact full native bytes")
             val metadataHash=partitionMoveMetadataDigest(metadata)
+            timing?.phase(MoveVerificationTiming.Phase.AUDIO)
             val audioHash=digest.readVerified(DataSpec.Builder().setUri("muon-saved:move-identity").setKey(key)
                 .setLength(expected.length).build(),LegacySavedAudio(actual).source,::live,::checked)
+            timing?.phase(MoveVerificationTiming.Phase.AFTER)
             checked()
             if(savedAudioState(actual,key).metadata!=metadata) throw IOException("Move destination metadata changed during digest")
             val observed=PartitionMoveDestination(volume,rootIdentity,ticket,actual.uid,expected.retirementIdentity(),
                 expected.length,metadataHash,audioHash).also {it.validate()}
+            timing?.phase(MoveVerificationTiming.Phase.CLOSE)
             releasing=true; actual.release(); cache=null; releasing=false
-            checked(); return observed
+            timing?.phase(MoveVerificationTiming.Phase.FINAL)
+            checked();successful=true;return observed
         } catch(failure:Throwable) {
             if(releasing || failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) unknown(failure)
             cache?.let {actual -> try {actual.release(); cache=null}
                 catch(close:Throwable) {if(close!==failure) close.addSuppressed(failure); unknown(close)} }
             throw failure
-        }
+        } finally {timing?.finish(successful)}
     }
     /** Reobserve an exact persisted Move binding through this actual destination owner. Receipt
      * equality alone is insufficient: current completion, native UID, bytes and metadata are read
