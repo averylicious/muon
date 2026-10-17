@@ -265,7 +265,15 @@ internal class PartitionMoveTreeRemoval(private val ownership:MigrationIoOwnersh
     @Synchronized internal fun runMoved(tree:PartitionMoveTree,root:File,checkpoint:()->Unit,verifyDestination:()->Unit) {
         if(phase!=Phase.New) throw IOException("Move tree attempt already used or uncertain")
         phase=Phase.Active
-        fun checked() {verifyDestination(); tree.verify(root,true,ownership,checkpoint); checkpoint()}
+        fun checked() {
+            // The full binding/target check brackets the entire source hash and precedes EVERY
+            // unlink. Physical reads retain fresh lease/volume/root/journal/cancellation checks;
+            // they must not repeat all saved-row/cover queries for each 64KiB hash block.
+            verifyDestination()
+            tree.verify(root,true,ownership,checkpoint)
+            verifyDestination()
+            checkpoint()
+        }
         fun sync(directory:File) {
             tree.parent(root)
             ownership.useOwned({FileChannel.open(directory.toPath(),StandardOpenOption.READ)}) {it.force(true)}

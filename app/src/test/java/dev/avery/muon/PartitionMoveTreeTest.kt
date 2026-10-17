@@ -62,6 +62,59 @@ class PartitionMoveTreeTest {
         removal.runMoved(tree,root,{}, {destinationChecks++})
         assertFalse(root.exists());assertTrue(unlinks>tree.files.size);assertTrue(ownership.quiescent)
     }
+    @Test fun fullMutationGuardBracketsRealMultiBlockHashInsteadOfRepeatingPerBlock() {
+        val root=source();val first=File(root,"bytes/0/0.0.1.v3.exo")
+        first.writeBytes(ByteArray(3*64*1024+17) {it.toByte()})
+        val tree=capture(root);var reads=0;var guards=0;var live=0;var unlinks=0
+        val ownership=MigrationIoOwnership(inputs={file ->object:java.io.RandomAccessFile(file,"r") {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                if(file==first) reads++
+                return super.read(buffer,offset,length)
+            }
+        }})
+        PartitionMoveTreeRemoval(ownership,unlink={file ->
+            if(unlinks++==0) {
+                assertEquals(2,guards) // Full guard before AND after the actual multi-block hash.
+                assertTrue(reads>=4);assertTrue(live>reads);assertTrue(ownership.quiescent)
+            }
+            Files.delete(file.toPath())
+        }).runMoved(tree,root,{live++},{guards++})
+        assertFalse(root.exists());assertTrue(ownership.quiescent)
+    }
+    @Test fun destinationChangingDuringActualSourceReadRefusesBeforeAnyUnlink() {
+        val root=source();val tree=capture(root);val first=File(root,"bytes/0/0.0.1.v3.exo")
+        var valid=true;var changed=false;var unlinks=0;var guards=0
+        val ownership=MigrationIoOwnership(inputs={file ->object:java.io.RandomAccessFile(file,"r") {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                val n=super.read(buffer,offset,length)
+                if(file==first && n>0) {valid=false;changed=true}
+                return n
+            }
+        }})
+        assertThrows(IOException::class.java) {
+            PartitionMoveTreeRemoval(ownership,unlink={unlinks++;Files.delete(it.toPath())})
+                .runMoved(tree,root,{}, {guards++;if(!valid) throw IOException("Destination changed during source hash")})
+        }
+        assertTrue(changed);assertEquals(2,guards);assertEquals(0,unlinks);assertTrue(ownership.quiescent)
+        assertTrue(tree.files.all {File(root,it.path).isFile});assertArrayEquals(byteArrayOf(1,2),first.readBytes())
+    }
+    @Test fun freshReadCheckpointStillCancelsBetweenRealHashBlocksWithoutUnlink() {
+        val root=source();val first=File(root,"bytes/0/0.0.1.v3.exo")
+        first.writeBytes(ByteArray(3*64*1024+17) {it.toByte()})
+        val tree=capture(root);var reads=0;var unlinks=0
+        val ownership=MigrationIoOwnership(inputs={file ->object:java.io.RandomAccessFile(file,"r") {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                if(file==first) reads++
+                return super.read(buffer,offset,length)
+            }
+        }})
+        assertThrows(InterruptedIOException::class.java) {
+            PartitionMoveTreeRemoval(ownership,unlink={unlinks++;Files.delete(it.toPath())})
+                .runMoved(tree,root,{if(reads>0) throw InterruptedIOException("Storage/cancellation changed after actual read")},{})
+        }
+        assertEquals(1,reads);assertEquals(0,unlinks);assertTrue(ownership.quiescent)
+        assertTrue(tree.files.all {File(root,it.path).isFile});assertEquals(3*64*1024+17,first.length().toInt())
+    }
     @Test fun interruptedAfterActualFirstUnlinkResumesFromPersistedIdentity() {
         val root=source(); val tree=persisted(capture(root)); val first=File(root,"bytes/0/0.0.1.v3.exo")
         assertThrows(InterruptedIOException::class.java) {PartitionMoveTreeRemoval().run(tree,root) {

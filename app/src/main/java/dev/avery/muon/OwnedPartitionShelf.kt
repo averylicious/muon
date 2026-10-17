@@ -205,9 +205,10 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 throw IOException("Saved Delete source root or volume changed")
             permit.check()
         }
+        fun live() {owned();checkpoint();owned()}
         fun unclaimed(name:String)=other?.claimsMoveName(name,permit)!=true && unclaimedElsewhere(name)
         fun current() {
-            owned();checkpoint();owned()
+            live()
             if(made.legacy.claimsOriginalName(expected.binding.key,permit)) throw IOException("Saved Delete source aliases legacy audio")
             made.session.verifyPendingSavedDelete(expected,permit,::unclaimed)
             artwork.cancelForConfirmedRemoval(expected.binding.key,permit)
@@ -218,7 +219,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             owned()
             if(made.deletes.find(expected.binding.key)!=expected) return OfflineStore.SavedRemoval.Waiting
             current();retainedSavedDeleteCleanup=cleanup
-            cleanup.runMoved(expected.binding.tree,made.catalog.directory(expected.binding.ticket.allocation),::current,::current)
+            cleanup.runMoved(expected.binding.tree,made.catalog.directory(expected.binding.ticket.allocation),::live,::current)
             current();made.session.eraseDeletedSavedRecord(expected,permit,::unclaimed)
             current();coverMutation=true
             art.removeSavedDeleteCoverConfirmed(expected.binding.key,expected.binding.cover,permit)
@@ -403,7 +404,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             verifiedTarget()
             val root=source.catalog.directory(expected.binding.source.ticket.allocation)
             retainedSavedMoveCleanup=cleanup
-            cleanup.runMoved(tree,root,::current,::verifiedTarget)
+            cleanup.runMoved(tree,root,::live,::verifiedTarget)
             verifiedTarget(); source.session.eraseMovedSavedRecord(expected,permit,::unclaimed)
             verifiedTarget(); coverMutation=true
             art.removeMovedSourceConfirmed(expected.binding.key,expected.binding.destination.ticket.allocation.key,
