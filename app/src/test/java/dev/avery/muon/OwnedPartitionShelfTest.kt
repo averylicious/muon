@@ -1973,6 +1973,37 @@ class OwnedPartitionShelfTest {
             assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
         } finally {n.close()}
     }
+    @Test fun moveVerificationKeepsNativeAccessTimesButRealPlaybackStillTouchesThem() {
+        val n=NewSourceMoveFixture();val f=n.f
+        val binding=n.pending.binding.destination
+        val resource=File(f.f.root,"resources/"+binding.ticket.allocation.directory)
+        val file=File(resource,"index/native-v1.db")
+        val table=androidx.media3.database.DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+java.lang.Long.toHexString(binding.uid)
+        fun times():List<Long> = SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READONLY).use {db ->
+            db.rawQuery("SELECT last_touch_timestamp FROM $table ORDER BY name",null).use {c ->
+                val result=ArrayList<Long>();while(c.moveToNext()) result+=c.getLong(0);result
+            }
+        }
+        try {
+            assertEquals(0,f.f.budget.resident)
+            SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READWRITE).use {db ->
+                db.execSQL("UPDATE $table SET last_touch_timestamp=1")
+            }
+            val before=times();assertTrue(before.isNotEmpty());assertTrue(before.all {it==1L})
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+            assertEquals(before,times());assertEquals(0,f.f.budget.resident)
+            assertEquals(PartitionSavedMovePhase.Complete,onWorker {f.target.moveRecoveryPage().single().phase})
+            onWorker {
+                val reader=f.source.audio.source.createDataSource()
+                try {
+                    assertEquals(4L,reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(n.back).build()))
+                    val bytes=ByteArray(4);assertEquals(4,reader.read(bytes,0,4));assertArrayEquals(payload,bytes)
+                } finally {reader.close()}
+            }
+            assertNotEquals(before,times()) // Playback keeps the existing native LRU touch behavior.
+            assertTrue(f.f.barrier.quiescent)
+        } finally {n.close();assertEquals(0,f.f.budget.resident)}
+    }
     @Test fun actualNewSourceMoveFinishesTreeRowAndOwnCoverAndSurvivesRestart() {
         val n=NewSourceMoveFixture(); val f=n.f
         try {

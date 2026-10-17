@@ -154,6 +154,12 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         val row=closedSaveRoute(key) ?: throw IOException("Save has no clean owned route")
         return open(row.ticket.allocation,requireNotNull(row.uid),false)
     }
+    /** Verification is not listening. Keep the exact Closed route and all native admission/
+     * lifecycle checks, but do not write last-access timestamps for target hash reads. */
+    @Synchronized fun openClosedSaveVerification(key:String):Cache {
+        val row=closedSaveRoute(key) ?: throw IOException("Save has no clean owned route")
+        return open(row.ticket.allocation,requireNotNull(row.uid),false,touchSpans=false)
+    }
     /** Return a distinct adapter per migration attempt. It cannot adopt an interrupted old target. */
     fun migrationTarget(key:String):(File)->Cache {
         if(key.length.toLong()*2>limits.keyBytes) throw IOException("Partition key exceeds its budget")
@@ -178,7 +184,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         } }
     }
     /** Must be called under this owner's creation mutex; actual native lock also refuses duplicates. */
-    private fun open(allocation:CachePartitionAllocation,expectedUid:Long?,fresh:Boolean,forbiddenUid:Long?=null,save:SaveLifecycle?=null):Cache {
+    private fun open(allocation:CachePartitionAllocation,expectedUid:Long?,fresh:Boolean,forbiddenUid:Long?=null,save:SaveLifecycle?=null,touchSpans:Boolean=true):Cache {
         if(allocation.key.length.toLong()*2>limits.keyBytes) throw IOException("Partition key exceeds its budget")
         available()
         val root=catalog.directory(allocation)
@@ -225,7 +231,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
             val native=SimpleCache(bytes,object:androidx.media3.datasource.cache.CacheEvictor by NoOpCacheEvictor() {
                 // Supported native timestamps supply bounded resource-level LRU observations.
                 // No resident span collection or eviction callback is installed by this owner.
-                override fun requiresCacheSpanTouches()=true
+                override fun requiresCacheSpanTouches()=touchSpans
             },provider).also { h.native=it; it.checkInitialization() }
             available()
             if(native.uid<0 || native.uid==forbiddenUid || (!fresh && native.uid!=expectedUid)) throw IOException("Partition native UID changed")
