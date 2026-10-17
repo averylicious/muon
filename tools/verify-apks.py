@@ -17,11 +17,14 @@ def expectations(env=os.environ):
     diagnostic = diagnostic_mode.from_env(env)
     if env.get(diagnostic_mode.GRADLE) != ('true' if diagnostic else 'false'):
         raise ValueError(f'{diagnostic_mode.GRADLE} does not match the selected build mode')
+    timings = diagnostic_mode.timing_from_env(env)
+    if env.get(diagnostic_mode.TIMING_GRADLE, 'false') != ('true' if timings else 'false'):
+        raise ValueError(f'{diagnostic_mode.TIMING_GRADLE} does not match the selected build mode')
     canary = '-canary.' + env['MUON_VERSION_CODE']
     return [
         ('debug', 'dev.avery.muon.diagnostic' if diagnostic else 'dev.avery.muon',
          'Muon diag' if diagnostic else 'Muon β',
-         canary + '-diagnostic' if diagnostic else canary, diagnostic),
+         canary + '-diagnostic' if diagnostic else canary + '-timings' if timings else canary, diagnostic),
         ('release', 'dev.avery.muon.release', 'Muon', '', False),
     ]
 

@@ -28,8 +28,7 @@ class LegacyTransitionOwnerTest {
     @get:Rule val folders=TemporaryFolder()
     private val payload=byteArrayOf(2,4,6,8)
     private val spec get()=DataSpec.Builder().setUri("muon-saved:owner-test").setKey("saved/0").build()
-    private inner class Fixture(count:Int=1) {
-        val root=folders.newFolder()
+    private inner class Fixture(count:Int=1,val root:File=folders.newFolder()) {
         val provider=StandaloneDatabaseProvider(RuntimeEnvironment.getApplication())
         val databaseFile:File
         val uid:Long
@@ -51,6 +50,39 @@ class LegacyTransitionOwnerTest {
         }
         fun owner(close:(SQLiteDatabase)->Unit={ it.close() })=LegacyTransitionOwner(root,databaseFile,barrier,{present},closeDatabase=close)
         fun unchanged() { assertFalse(SimpleCache.isCacheFolderLocked(root)); originals.forEach { assertArrayEquals(payload,it.readBytes()) } }
+    }
+    @Test fun platformLegacyVolumeCannotAuthorizeChangedUuidMissingRootOrParentAlias() {
+        val base=folders.newFolder();val root=File(base,"downloads").also {assertTrue(it.mkdir())}
+        val f=Fixture(root=root);val phone=folders.newFolder();val primary=folders.newFolder()
+        var volume:String?="removable:fixture"
+        val resolver=PartitionPlatformRoots({phone},{arrayOf(primary,base)},{"private:fixture"},{volume})
+        val pool=java.util.concurrent.Executors.newSingleThreadExecutor()
+        val plan=try {pool.submit<PartitionStorePlan> {resolver.fresh(base)}.get(10,java.util.concurrent.TimeUnit.SECONDS)}
+            finally {pool.shutdownNow();assertTrue(pool.awaitTermination(10,java.util.concurrent.TimeUnit.SECONDS))}
+        val card=requireNotNull(plan.card)
+        val owner=LegacyTransitionOwner(root,f.databaseFile,f.barrier,{card.legacyCurrentVolume()==card.volume})
+        val audio=owner.open()
+        try {
+            assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage)
+            volume=null;assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+            volume="removable:replacement";assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+            volume=card.volume
+            val held=File(base.parentFile,base.name+"-held")
+            java.nio.file.Files.move(base.toPath(),held.toPath())
+            try {
+                // Raw mounted identity is deliberately not path authority.
+                assertEquals(card.volume,card.legacyCurrentVolume())
+                assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+                java.nio.file.Files.createSymbolicLink(base.toPath(),held.toPath())
+                assertNull(card.currentVolume())
+                assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+                val reader=audio.source.createDataSource()
+                try {assertThrows(IOException::class.java) {reader.open(spec)}} finally {reader.close()}
+                java.nio.file.Files.delete(base.toPath())
+            } finally {java.nio.file.Files.move(held.toPath(),base.toPath())}
+            assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage)
+            assertTrue(f.barrier.quiescent);f.unchanged()
+        } finally {owner.close()}
     }
     @Test fun trustedDatabaseParentResolutionStillRejectsRawAliasesAndFinalFileSymlinks() {
         val f=Fixture(1)

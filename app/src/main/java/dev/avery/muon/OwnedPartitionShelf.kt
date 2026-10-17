@@ -41,7 +41,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private val unclaimed:(String)->Boolean,private val upstream:DataSource.Factory,
     private val budget:PartitionNativeBudget=PartitionNativeBudget.process,
     /** Frozen false when another selected shelf is absent; its hidden names cannot be inspected. */
-    private val mutationsAllowed:()->Boolean={true}) {
+    private val mutationsAllowed:()->Boolean={true},
+    /** Only passed to the legacy owner, whose observed() retains full path/identity checks. */
+    private val legacyCurrentVolume:()->String?=currentVolume) {
     internal val storageBarrier:SavedStorageBarrier get()=barrier
     init { require(volume.isNotEmpty()) }
     private val startup=StorageStartup<Resources>()
@@ -107,7 +109,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         phase=Phase.Preparing
         try { startup.open { owner ->
             preflight()
-            val legacy=owner.own { LegacyTransitionOwner(legacyDirectory,legacyDatabase,barrier,{currentVolume()==volume}) }
+            val legacy=owner.own { LegacyTransitionOwner(legacyDirectory,legacyDatabase,barrier,{legacyCurrentVolume()==volume}) }
             val audio=legacy.open()
             if(creating) owner.own {PartitionBootstrapOwner(directory,barrier,{currentVolume()==volume})}.publish()
             val actualRootIdentity=exactDirectory(directory)
@@ -404,7 +406,13 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             verifiedTarget()
             val root=source.catalog.directory(expected.binding.source.ticket.allocation)
             retainedSavedMoveCleanup=cleanup
-            cleanup.runMoved(tree,root,::live,::verifiedTarget)
+            // All source files still require full target byte/metadata/cover verification. Once
+            // they are gone, empty-directory unlinks keep exact Pending/gate/root checks; the
+            // full target is verified again below before row/cover/Complete work.
+            // Exact Pending authorizes only READ-ONLY source verification. Full target bytes,
+            // metadata/row/cover are checked after that read and before EVERY file unlink.
+            cleanup.runMoved(tree,root,::live,::verifiedTarget,
+                verifyEmptyDirectory=::current,verifySourceRead=::current)
             verifiedTarget(); source.session.eraseMovedSavedRecord(expected,permit,::unclaimed)
             verifiedTarget(); coverMutation=true
             art.removeMovedSourceConfirmed(expected.binding.key,expected.binding.destination.ticket.allocation.key,

@@ -66,8 +66,8 @@ class SelectionTest(unittest.TestCase):
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temp:
                 files = {key: Path(temp, key) for key in ['GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_STEP_SUMMARY']}
                 mode.main({**values, 'GITHUB_SHA': 'a' * 40, **{key: str(path) for key, path in files.items()}})
-                self.assertEqual(files['GITHUB_ENV'].read_text(), f'{mode.GRADLE}={expected}\n')
-                self.assertEqual(files['GITHUB_OUTPUT'].read_text(), f'diagnostic={expected}\n')
+                self.assertEqual(files['GITHUB_ENV'].read_text(), f'{mode.GRADLE}={expected}\n{mode.TIMING_GRADLE}=false\n')
+                self.assertEqual(files['GITHUB_OUTPUT'].read_text(), f'diagnostic={expected}\nstorage_timings=false\n')
                 summary = files['GITHUB_STEP_SUMMARY']
                 if expected == 'true':
                     text = summary.read_text()
@@ -169,7 +169,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn('[[ "$DIAGNOSTIC" == false ]] || channel=none', version)
         self.assertLess(version.index('channel=canary'), version.index('|| channel=none'))
         self.assertIn('diagnostic: ${{ steps.diagnostic.outputs.diagnostic }}', BUILD)
-        self.assertIn("    if: needs.build.outputs.diagnostic == 'false' && (needs.build.outputs.channel == 'canary'"
+        self.assertIn("    if: needs.build.outputs.diagnostic == 'false' && needs.build.outputs.storage_timings == 'false' && (needs.build.outputs.channel == 'canary'"
                       " || needs.build.outputs.channel == 'stable')\n", PUBLISH)
         self.assertIn('    permissions:\n      contents: write\n', PUBLISH)
 
@@ -184,7 +184,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn('Version: %s-canary.%s-diagnostic\\nMode: diagnostic', prepare)
         self.assertIn("printf 'Commit: %s\\nRun: %s\\nVersion: %s-canary.%s\\n'", prepare)
         self.assertIn("printf 'Commit: %s\\nRun: %s\\nVersion: %s\\n'", prepare)
-        self.assertEqual(prepare.count('Mode:'), 1)
+        self.assertEqual(prepare.count('Mode:'), 2)
 
 
 class GradleTest(unittest.TestCase):

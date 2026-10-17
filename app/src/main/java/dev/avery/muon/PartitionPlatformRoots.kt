@@ -2,7 +2,9 @@ package dev.avery.muon
 
 import android.content.Context
 import android.os.Environment
+import android.os.Build
 import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
 import java.io.File
 import java.io.IOException
 
@@ -47,6 +49,14 @@ internal class PartitionPlatformRoots(
     private fun currentCard(base:File):String?=try {
         if(timing==null) cardNow(base) else timing.measure(StorageRootTiming.Phase.CARD_ROOT) {cardNow(base)}
     } catch(_:Exception) {null}
+    /** The actual legacy owner already canonicalizes its whole downloads child at each checkpoint.
+     * Avoid canonicalizing the parent a second time; still ask Android for fresh mounted UUID
+     * on EVERY call. This observation alone never admits a path, owner, read or mutation. */
+    private fun legacyCardVolume(base:File):String?=try {
+        val observed=if(timing==null) cardVolume(base)
+            else timing.measure(StorageRootTiming.Phase.LEGACY_CARD_VOLUME) {cardVolume(base)}
+        observed?.let(::identity)
+    } catch(_:Exception) {null}
     private fun phone(start:PartitionShelfStart):PartitionRootPlan {
         val base=folder(files());val volume=currentPhone(base) ?: throw IOException("Private storage identity unavailable")
         return PartitionRootPlan(child(base,PARTITION_DIRECTORY),child(base,"downloads"),volume,{currentPhone(base)},start)
@@ -67,7 +77,7 @@ internal class PartitionPlatformRoots(
     }
     private fun card(selected:Pair<File,String>,start:PartitionShelfStart):PartitionRootPlan {
         val (base,volume)=selected
-        return PartitionRootPlan(child(base,PARTITION_DIRECTORY),child(base,"downloads"),volume,{currentCard(base)},start)
+        return PartitionRootPlan(child(base,PARTITION_DIRECTORY),child(base,"downloads"),volume,{currentCard(base)},start,{legacyCardVolume(base)})
     }
     /** Use only the already-open legacy shelf selected by Android, never a newly inserted/unowned
      * card. Caller still must refuse opt-in while old card records/claims cannot be inspected. */
@@ -94,16 +104,25 @@ internal class PartitionPlatformRoots(
     }
     companion object {
         internal const val PARTITION_DIRECTORY="downloads-partition-v1"
+        /** API30 adds a public mounted-directory accessor. Unlike getStorageVolume(File), this
+         * path comparison does not re-canonicalize every candidate root. Request a NEW volume
+         * list on each call; never keep UUID/state/path observations across checkpoints. */
+        @androidx.annotation.RequiresApi(30)
+        private fun currentVolume30(manager:StorageManager,directory:File):StorageVolume? =
+            selectPlatformVolume(directory,manager.storageVolumes) {it.directory}
+                ?: manager.getStorageVolume(directory) // Unsupported mount alias/layout: existing path.
+        private fun removableVolume(manager:StorageManager,directory:File):String? {
+            val volume=if(Build.VERSION.SDK_INT>=30) currentVolume30(manager,directory)
+                else manager.getStorageVolume(directory)
+            if(volume==null || !volume.isRemovable || volume.isEmulated || volume.state!=Environment.MEDIA_MOUNTED) return null
+            return volume.uuid?.let {"removable:$it"}
+        }
         fun from(context:Context):PartitionPlatformRoots {
             val app=context.applicationContext
             val manager=app.getSystemService(StorageManager::class.java) ?: throw IOException("Android storage service unavailable")
             return PartitionPlatformRoots({app.filesDir},{app.getExternalFilesDirs(null)},
                 {"private:${manager.getUuidForPath(it)}"},
-                {directory ->
-                    val volume=manager.getStorageVolume(directory)
-                    if(volume==null || !volume.isRemovable || volume.isEmulated || volume.state!=Environment.MEDIA_MOUNTED) null
-                    else volume.uuid?.let {"removable:$it"}
-                },timing=if(BuildConfig.DEBUG) StorageRootTiming.begin(true) else null)
+                {directory ->removableVolume(manager,directory)},timing=if(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS) StorageRootTiming.begin(true) else null)
         }
     }
 }

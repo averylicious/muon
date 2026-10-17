@@ -47,7 +47,7 @@ class PartitionPlatformRootsTest {
         val timing=requireNotNull(StorageRootTiming.begin(true,java.util.concurrent.atomic.AtomicInteger(32),{0L},{e ->
             when(e.phase) {
                 StorageRootTiming.Phase.PHONE_ROOT,StorageRootTiming.Phase.CARD_ROOT ->rootReads++
-                StorageRootTiming.Phase.PHONE_VOLUME,StorageRootTiming.Phase.CARD_VOLUME ->volumeReads++
+                StorageRootTiming.Phase.PHONE_VOLUME,StorageRootTiming.Phase.CARD_VOLUME,StorageRootTiming.Phase.LEGACY_CARD_VOLUME ->volumeReads++
             }
             throw IOException("Diagnostic sink unavailable")
         }))
@@ -112,6 +112,32 @@ class PartitionPlatformRootsTest {
         f.dirs=arrayOf(f.primary,f.card,f.other);f.otherId=f.cardId
         assertThrows(IOException::class.java) {worker {f.resolver.resume(ready)}}
         assertFalse(File(f.phone,"downloads-partition-v1").exists())
+    }
+
+    @Test fun legacyObservationRereadsVolumeAndUsesSeparateTimingWithoutGrantingRootAuthority() {
+        val f=Fixture();var calls=0
+        val events=mutableListOf<StorageRootTiming.Event>()
+        val timing=requireNotNull(StorageRootTiming.begin(true,java.util.concurrent.atomic.AtomicInteger(32),{0L},events::add))
+        val resolver=PartitionPlatformRoots({f.phone},{f.dirs},{f.phoneId},{calls++;f.cardId},timing)
+        val plan=worker {resolver.fresh(f.card)};val card=requireNotNull(plan.card)
+        val before=calls
+        repeat(3) {assertEquals(f.cardId,card.legacyCurrentVolume())}
+        assertEquals(before+3,calls)
+        assertEquals(1,events.count {it.phase==StorageRootTiming.Phase.LEGACY_CARD_VOLUME})
+        f.cardId=null;assertNull(card.legacyCurrentVolume())
+        f.cardId="removable:changed";assertEquals(f.cardId,card.legacyCurrentVolume())
+        assertThrows(IOException::class.java) {plan.validate()}
+        f.cardId="invalid\u0000";assertNull(card.legacyCurrentVolume())
+        assertFalse(card.directory.exists())
+    }
+    @Test fun customRootPlansRetainFullVolumeCallbackUnlessActualResolverSuppliesLegacyObservation() {
+        val f=Fixture();var calls=0
+        val root=PartitionRootPlan(File(f.phone,"partition"),File(f.phone,"downloads"),f.phoneId,
+            {calls++;f.phoneId},PartitionShelfStart.Fresh)
+        assertEquals(f.phoneId,root.legacyCurrentVolume());assertEquals(1,calls)
+        f.phoneId="changed";assertEquals(f.phoneId,root.legacyCurrentVolume());assertEquals(2,calls)
+        val copied=root.copy(currentVolume={"copied-callback"})
+        assertEquals("copied-callback",copied.legacyCurrentVolume());assertEquals(2,calls)
     }
 
 }
