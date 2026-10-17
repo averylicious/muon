@@ -113,4 +113,54 @@ class MoveByteComparisonTest {
         } finally { lock.close() }
         assertTrue(gate.quiescent)
     }
+    @Test fun largerBoundedRefillsCompareEveryByteIncludingPartialTailAndCloseBeforeSuccess() {
+        val bytes=ByteArray(2*256*1024+17) {(it%127).toByte()}
+        val exact=DataSpec.Builder().setUri("muon-saved:bounded-refills").setLength(bytes.size.toLong()).build()
+        val requests=mutableListOf<Int>();var closes=0
+        fun observed(data:ByteArray):DataSource.Factory {
+            val original=files(data,closed={closes++})
+            return DataSource.Factory {
+                val child=original.createDataSource()
+                object:DataSource by child {
+                    override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                        requests+=length;return child.read(buffer,offset,length)
+                    }
+                }
+            }
+        }
+        val owner=MoveByteComparison(1)
+        assertTrue(owner.compare(exact,observed(bytes),observed(bytes),{true},{}))
+        // Three reads per real file instead of nine; the final 17 bytes are still compared.
+        assertEquals(listOf(262144,262144,262144,262144,17,17),requests)
+        assertEquals(2,closes);assertEquals(0,owner.active)
+        for(index in listOf(65535,65536,262143,262144,bytes.lastIndex)) {
+            val changed=bytes.copyOf().also {it[index]=(it[index].toInt() xor 1).toByte()}
+            assertFalse(owner.compare(exact,files(bytes),files(changed),{true},{}))
+            assertEquals(0,owner.active)
+        }
+    }
+    @Test fun shortReadsAndCancellationStillCloseBothRealReadersAndDrainAdmission() {
+        val bytes=ByteArray(2*256*1024+17) {(it%127).toByte()}
+        val exact=DataSpec.Builder().setUri("muon-saved:short-refills").setLength(bytes.size.toLong()).build()
+        var closes=0;var requested=0
+        fun short():DataSource.Factory {
+            val original=files(bytes,closed={closes++})
+            return DataSource.Factory {
+                val child=original.createDataSource()
+                object:DataSource by child {
+                    override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                        requested=maxOf(requested,length)
+                        return child.read(buffer,offset,minOf(7001,length))
+                    }
+                }
+            }
+        }
+        val gate=SavedStorageBarrier();val owner=MoveByteComparison(1,gate)
+        assertTrue(owner.compare(exact,short(),short(),{true},{}))
+        assertEquals(262144,requested);assertEquals(2,closes);assertTrue(gate.quiescent)
+        var checks=0
+        assertFalse(owner.compare(exact,short(),short(),{++checks<3},{}))
+        assertEquals(4,closes);assertEquals(0,owner.active);assertTrue(gate.quiescent)
+    }
+
 }

@@ -10,6 +10,10 @@ import java.io.IOException
  * app owner to mark both shelves unavailable for destructive decisions. No cleanup retry/queue,
  * row/cover deletion, native release or recovery authority. One process Store owns this object.
  */
+// Two arrays per comparison, at most two comparisons: at most 1 MiB of comparison buffers.
+// A refill remains bounded; this does not change ordinary playback read-ahead or native admission.
+private const val MOVE_COMPARISON_BYTES=256*1024
+
 internal class MoveByteComparison(private val capacity:Int=2,private val barrier:SavedStorageBarrier?=null) {
     init { require(capacity in 1..2) }
     private class Entry(val permit:SavedStorageBarrier.Lease?) {
@@ -44,7 +48,7 @@ internal class MoveByteComparison(private val capacity:Int=2,private val barrier
             entry.target=target.createDataSource(); entry.construction=null
             if(entry.source===entry.target) throw IOException("Move readers must have independent ownership")
             entry.source!!.open(spec); entry.target!!.open(spec)
-            val expected=ByteArray(64*1024); val actual=ByteArray(expected.size)
+            val expected=ByteArray(MOVE_COMPARISON_BYTES); val actual=ByteArray(expected.size)
             var left=spec.length; matches=true
             while(left>0) {
                 entry.permit?.check()
