@@ -1,0 +1,9 @@
+# Application migration dispatch — 2026-10-13
+
+Cumulative successor to #544 6c4644d7cba6e9be761b8c77b369a26878b75e9f; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No Claude, phone or independent review.
+
+Explicit single-resource migration uses the existing serial storage worker and global Move/Delete exclusion. All shelf managers must be quiet. The application retains one control and one scalar terminal result, with no request/metadata/progress history. Acceptance time includes queue delay. Cooperative cancellation keeps exclusion until the worker acknowledges exit. Destination free space comes from the actual owned root; no caller-supplied estimate. Retry passes an exact shown non-Ready durable record; changed/missing records cannot be adopted. Durable publication alone establishes Ready, not matching byte counters. Original audio, saved record and cover remain; migration is not Delete/Move authority.
+
+Four actual SQLite/cache/application-controller tests exercise durable Ready/readability/original preservation, queued cancellation and exclusion, stale retry refusal and an EOF reader that retains its handle until actual close. Local diff/branch preflight; Actions is first Android compile. Cancellation does not interrupt a blocked native operation, and source/JVM evidence does not establish power-loss durability, device or visual behavior.
+
+Default startup and UI still do not activate partition storage. Next: bounded migration recovery summaries, progress/cancel/retry controls, platform path/volume resolution, fresh-install legacy bootstrap, absent-card policy, explicit opt-in/setup recovery and final composed lifecycle/failure coverage. Full supported legacy Delete/Move remains required before activation. All cumulative application PRs remain OPEN for inherited UAT. No phone needed for this preparation.
