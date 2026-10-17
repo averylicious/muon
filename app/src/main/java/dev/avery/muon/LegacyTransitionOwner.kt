@@ -36,11 +36,13 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
     private var retirement:LegacyRetirementFiles?=null
 
     private fun observed() {
-        if(!available() || !directory.isDirectory || directory.absoluteFile!=directory.canonicalFile ||
-            Files.isSymbolicLink(directory.toPath()) || SimpleCache.isCacheFolderLocked(directory))
+        if(!available() || directory.absoluteFile!=directory.canonicalFile || SimpleCache.isCacheFolderLocked(directory))
             throw IOException("Legacy storage is unavailable or still has a native owner")
-        val rootNow=Files.readAttributes(directory.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS).fileKey()
-            ?: throw IOException("Legacy directory identity cannot be established")
+        // Keep canonical-path and fresh volume checks. One NOFOLLOW observation supplies
+        // both type and identity, avoiding redundant follow-link type/link probes on FUSE.
+        val rootAttributes=Files.readAttributes(directory.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+        if(!rootAttributes.isDirectory) throw IOException("Legacy directory identity differs")
+        val rootNow=rootAttributes.fileKey() ?: throw IOException("Legacy directory identity cannot be established")
         if(rootIdentity==null) rootIdentity=rootNow else if(rootIdentity!=rootNow) throw IOException("Legacy root was replaced")
         uid?.let { value ->
             val marker=File(directory,java.lang.Long.toHexString(value)+".uid").toPath()
@@ -49,10 +51,10 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             val now=attributes.fileKey() ?: throw IOException("Legacy marker identity cannot be established")
             if(markerIdentity==null) markerIdentity=now else if(markerIdentity!=now) throw IOException("Legacy UID marker was replaced")
         }
-        if(!databaseFile.isFile || databaseFile.absoluteFile!=databaseFile.canonicalFile ||
-            Files.isSymbolicLink(databaseFile.toPath())) throw IOException("Legacy database identity unavailable")
-        val now=Files.readAttributes(databaseFile.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS).fileKey()
-            ?: throw IOException("Legacy database file identity cannot be established")
+        if(databaseFile.absoluteFile!=databaseFile.canonicalFile) throw IOException("Legacy database identity unavailable")
+        val databaseAttributes=Files.readAttributes(databaseFile.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+        if(!databaseAttributes.isRegularFile) throw IOException("Legacy database identity unavailable")
+        val now=databaseAttributes.fileKey() ?: throw IOException("Legacy database file identity cannot be established")
         if(identity==null) identity=now else if(identity!=now) throw IOException("Legacy database file was replaced")
     }
     private fun checkpoint() {

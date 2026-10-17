@@ -127,7 +127,7 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     // Free space where the downloads live, read once per visit; it changes slowly.
     val free = remember { runCatching { android.os.StatFs(context.filesDir.path).availableBytes }.getOrDefault(0L) }
     // Offered only while the card found when the store opened is still there; with no card at all, the
-    // row is simply not there (the user's decision). Read once per visit.
+    // row is simply not there (the user's decision). Refresh again at each storage-work boundary.
     val store = remember { OfflineStore.get(context) }
     val moving = DownloadMarks.moving
     // An exclusive operation also refuses ordinary availability. Do not remember that busy
@@ -146,7 +146,7 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     SettingsGroup {
         // Opens Saved copies (#213), where each copy is listed, played and removed on its own.
         SettingsRow(shape = rowShape(0, rows), headline = "Saved copies",
-            supporting = if (moving != null) "Moving ${moving.first} of ${moving.second}…"
+            supporting = if (moving != null) "Updating saved copies ${moving.first} of ${moving.second}…"
                 else if (DownloadMarks.summary == DownloadSummaryStatus.Loading) "Loading saved copy totals…"
                 else if (DownloadMarks.summary == DownloadSummaryStatus.Unavailable || !DownloadMarks.countsKnown) "Saved copy totals unavailable. Open to see your copies."
                 else if (songs == 0L) "None yet. Long-press a song, or use Save copies on an album, artist or playlist."
