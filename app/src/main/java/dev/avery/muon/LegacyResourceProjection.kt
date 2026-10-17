@@ -69,10 +69,20 @@ internal object LegacyResourceProjection {
 
     private fun project(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
         ownership:MigrationIoOwnership,audioOnly:Boolean,owner:LegacyTransitionOwner?=null):LegacyAudioProjection {
+        val timing=LegacyProjectionTiming.begin(audioOnly=audioOnly,owned=owner!=null)
+        var successful=false
+        try {return projectMeasured(directory,uid,key,index,checkpoint,ownership,audioOnly,owner,timing)
+            .also {successful=true}}
+        finally {timing?.finish(successful)}
+    }
+    private fun projectMeasured(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
+        ownership:MigrationIoOwnership,audioOnly:Boolean,owner:LegacyTransitionOwner?,timing:LegacyProjectionTiming?):LegacyAudioProjection {
         if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES)
             throw IOException("Legacy projection needs a bounded identity and read-only database")
-        val live=if(owner==null) validate(directory,uid,index,checkpoint,ownership)
+        val actualLive=if(owner==null) validate(directory,uid,index,checkpoint,ownership)
             else validateOwned(directory,uid,index,owner,ownership)
+        timing?.phase(LegacyProjectionTiming.Phase.METADATA)
+        val live=if(timing==null) actualLive else { {timing.check(actualLive)} }
         val hex=java.lang.Long.toHexString(uid)
         val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
@@ -101,6 +111,7 @@ internal object LegacyResourceProjection {
                 live()
             }
         } finally { if(admitted) playbackDecoder.set(false) }
+        timing?.phase(LegacyProjectionTiming.Phase.FILES)
         val spans=ArrayList<CacheSpan>(); var children=0; var marker=false
         ownership.directory(directory.toPath()).use { entries -> for(path in entries) {
             live(); if(++children>11) throw IOException("Unknown legacy directory layout")
@@ -141,6 +152,7 @@ internal object LegacyResourceProjection {
             bytes=try { Math.addExact(bytes,span.length) } catch(_:ArithmeticException) { throw IOException("Legacy byte total overflows") }
         }
         // Every indexed selected span must have been found; don't silently publish a truncated view.
+        timing?.phase(LegacyProjectionTiming.Phase.CENSUS)
         var indexed=0
         ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END FROM $files WHERE name GLOB ? LIMIT ${MIGRATION_RANGES+1}",
             arrayOf("$contentId.*"))}) { c -> while(c.moveToNext()) {
@@ -148,7 +160,8 @@ internal object LegacyResourceProjection {
                 throw IOException("Legacy resource has missing or unsupported indexed spans")
         } }
         if(indexed!=spans.size) throw IOException("Legacy selected span census differs")
-        live(); return LegacyAudioProjection(ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,live),limited)
+        // The returned cache retains the real guard only, never this diagnostic observation.
+        live(); return LegacyAudioProjection(ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,actualLive),limited)
     }
     /** Inspect only this implementation's immutable observation. Its owner must still hold the
      * read lease; a fresh final checkpoint precedes publication. Future Cache/file reads keep
