@@ -20,3 +20,10 @@ internal class PreservingMediaDatabase(context:Context):StandaloneDatabaseProvid
         throw SQLiteException("Saved media database upgrade is unsupported by this build; existing records were kept")
     }
 }
+
+/** Android may report the same private database below /data/user/0 while filesDir resolves
+ * below /data/data. Normalize only the trusted framework-provided PARENT before transferring
+ * this path to strict legacy ownership. Keep the final file unresolved so a database symlink
+ * still refuses; no arbitrary path/alias is accepted by LegacyTransitionOwner itself. */
+internal fun platformMediaDatabaseFile(file:java.io.File):java.io.File =
+    java.io.File(requireNotNull(file.absoluteFile.parentFile).canonicalFile,file.name)

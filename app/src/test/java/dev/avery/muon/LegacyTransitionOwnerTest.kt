@@ -52,6 +52,24 @@ class LegacyTransitionOwnerTest {
         fun owner(close:(SQLiteDatabase)->Unit={ it.close() })=LegacyTransitionOwner(root,databaseFile,barrier,{present},closeDatabase=close)
         fun unchanged() { assertFalse(SimpleCache.isCacheFolderLocked(root)); originals.forEach { assertArrayEquals(payload,it.readBytes()) } }
     }
+    @Test fun trustedDatabaseParentResolutionStillRejectsRawAliasesAndFinalFileSymlinks() {
+        val f=Fixture(1)
+        val parent=File(folders.newFolder(),"framework-databases")
+        java.nio.file.Files.createSymbolicLink(parent.toPath(),requireNotNull(f.databaseFile.parentFile).toPath())
+        val alias=File(parent,f.databaseFile.name)
+        val raw=LegacyTransitionOwner(f.root,alias,f.barrier,{true})
+        assertThrows(IOException::class.java) {raw.open()}
+        val resolved=platformMediaDatabaseFile(alias)
+        assertEquals(f.databaseFile.canonicalFile,resolved)
+        val owner=LegacyTransitionOwner(f.root,resolved,f.barrier,{true})
+        try {assertTrue(owner.open().contains("saved/0"))} finally {owner.close()}
+        val leaf=File(folders.newFolder(),"database-link")
+        java.nio.file.Files.createSymbolicLink(leaf.toPath(),f.databaseFile.toPath())
+        assertEquals(leaf,platformMediaDatabaseFile(leaf))
+        val linked=LegacyTransitionOwner(f.root,platformMediaDatabaseFile(leaf),f.barrier,{true})
+        assertThrows(IOException::class.java) {linked.open()}
+        assertTrue(f.barrier.quiescent);f.unchanged()
+    }
     @Test fun startupNeverOpensLegacyNativeCacheAndCloseRefusesAnActualReaderEvenAtEof() {
         val f=Fixture(70); val owner=f.owner(); val audio=owner.open()
         try {

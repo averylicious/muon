@@ -317,7 +317,7 @@ internal object OfflineStore {
         val order=owner.own { DiskPlayedSpanOrder(File(context.noBackupFilesDir,"played-span-order-v1.db")) }
         val played=owner.own { PlayedSongEvictor(limit,claims::removable,order) { used -> main.post { PlayedCacheState.used=used } } }
         val art=owner.own { DownloadArt(File(context.filesDir,"downloads-art"),barrier=barrier) }
-        val legacyDatabase=File(database.readableDatabase.path)
+        val legacyDatabase=platformMediaDatabaseFile(File(database.readableDatabase.path))
         var phoneOwner:OwnedPartitionShelf?=null; var cardOwner:OwnedPartitionShelf?=null
         var claimsReady=false
         var extraClaims:((String)->Boolean)?=null

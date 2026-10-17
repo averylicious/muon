@@ -49,7 +49,7 @@ internal class PartitionStartupReviewOwner(private val admission:StorageStartupA
         if(StorageBackendSelection.read(app.getSharedPreferences("storage",Context.MODE_PRIVATE))!=StorageBackendSelection.Legacy)
             throw IOException("Existing setup cannot be replaced by first opt-in")
         return request(PartitionPlatformRoots.from(app).fresh(cardFolder(app)),
-            app.getDatabasePath(StandaloneDatabaseProvider.DATABASE_NAME),explicitConsent) {
+            platformMediaDatabaseFile(app.getDatabasePath(StandaloneDatabaseProvider.DATABASE_NAME)),explicitConsent) {
                 PartitionStartupSettings(app.getSharedPreferences("storage",Context.MODE_PRIVATE))
             }
     }

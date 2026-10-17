@@ -152,6 +152,36 @@ class PartitionStorePreparationTest {
             f.originals.forEach { assertArrayEquals(bytes,it.readBytes()) }
         } finally { cleanup(startup); f.seed.close() }
     }
+    @Test fun actualAppPreparationResolvesFrameworkDatabaseParentAliasWithoutChangingOriginals() {
+        val f=Fixture();val startup=StorageStartup<OfflineStore.PreparedStorage>()
+        val database=app.getDatabasePath(StandaloneDatabaseProvider.DATABASE_NAME)
+        val alias=File(folders.newFolder(),"framework-databases")
+        java.nio.file.Files.createSymbolicLink(alias.toPath(),requireNotNull(database.parentFile).toPath())
+        val context=object:android.content.ContextWrapper(app) {
+            override fun getApplicationContext():android.content.Context=this
+            override fun getDatabasePath(name:String):File=File(alias,name)
+        }
+        val probe=PreservingMediaDatabase(context)
+        try {
+            assertNotEquals(File(probe.readableDatabase.path),File(probe.readableDatabase.path).canonicalFile)
+            probe.close()
+            val ready=worker {startup.open {OfflineStore.preparePartition(context,it,f.plan())}}
+            val phone=requireNotNull(ready.phone.partition);val card=requireNotNull(ready.card!!.partition)
+            await(phone.initializeManager(),card.initializeManager())
+            worker {
+                for((owner,key) in listOf(phone to "old-phone",card to "old-card")) {
+                    val reader=owner.audio.source.createDataSource()
+                    try {
+                        assertEquals(4L,reader.open(DataSpec.Builder().setUri("muon-saved:fixture").setKey(key).build()))
+                        val read=ByteArray(4);assertEquals(4,reader.read(read,0,4));assertArrayEquals(bytes,read)
+                    } finally {reader.close()}
+                }
+            }
+            assertNull(ready.phone.cache);assertNull(ready.card!!.cache)
+            assertEquals(0,PartitionNativeBudget.process.resident)
+            f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
+        } finally {cleanup(startup);probe.close();f.seed.close()}
+    }
     @Test fun anotherShelfsUnstartedJournalClaimRefusesANameBeforeNativeAllocation() {
         val f=Fixture(); val startup=StorageStartup<OfflineStore.PreparedStorage>(); val name="saved/shared-name"
         try {
