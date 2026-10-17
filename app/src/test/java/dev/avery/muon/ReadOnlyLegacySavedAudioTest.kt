@@ -125,6 +125,53 @@ class ReadOnlyLegacySavedAudioTest {
     }
     private fun length(value:Long=4L)=ContentMetadata.KEY_CONTENT_LENGTH to ByteBuffer.allocate(8).putLong(value).array()
 
+    @Test fun projectedInspectionMatchesRealNativeCoverageAcrossSparseAndUnknownLengthCopies() {
+        val root=folders.newFolder();val native=SimpleCache(root,NoOpCacheEvictor(),database)
+        native.checkInitialization();val uid=native.uid
+        val keys=listOf("missing","unknown","full","partial","hole","beyond")
+        val expected=linkedMapOf<String,SavedAudioState>()
+        fun seed(name:String,position:Long=0) {
+            val permit=requireNotNull(native.startReadWrite(name,position,payload.size.toLong()))
+            try {
+                val file=native.startFile(name,position,payload.size.toLong())
+                file.writeBytes(payload);native.commitFile(file,payload.size.toLong())
+            } finally {native.releaseHoleSpan(permit)}
+        }
+        try {
+            for(name in keys.filter {it!="missing"}) seed(name)
+            seed("hole",8)
+            for((name,length) in listOf("missing" to 4L,"full" to 4L,"partial" to 8L,"hole" to 12L,"beyond" to 2L))
+                native.applyContentMetadataMutations(name,ContentMetadataMutations.setContentLength(ContentMetadataMutations(),length))
+            for(name in keys) expected[name]=savedAudioState(native,name)
+            assertEquals(listOf(SavedCoverage.Missing,SavedCoverage.UnknownLength,SavedCoverage.Full,
+                SavedCoverage.Partial,SavedCoverage.Partial,SavedCoverage.Full),expected.values.map {it.coverage})
+            assertThrows(IOException::class.java) {LegacyResourceProjection.inspectAudio(LegacyAudioProjection(native,false))}
+        } finally {native.release()}
+        val read=SQLiteDatabase.openDatabase(database.readableDatabase.path,null,SQLiteDatabase.OPEN_READONLY).also(reads::add)
+        for(name in keys) {
+            val view=LegacyResourceProjection.readAudio(root,uid,name,read,{})
+            assertEquals(expected.getValue(name),LegacyResourceProjection.inspectAudio(view))
+        }
+        assertFalse(SimpleCache.isCacheFolderLocked(root))
+    }
+    @Test fun inspectedSnapshotStillRefusesVolumeLossAndCannotBypassActualSourceGuards() {
+        val f=Fixture();var available=true
+        val view=LegacyResourceProjection.readAudio(f.root,f.uid,"key/0",f.read,{
+            if(!available) throw IOException("Selected volume lost")
+        })
+        assertEquals(SavedCoverage.Full,LegacyResourceProjection.inspectAudio(view).coverage)
+        var actualOpens=0
+        val reader=savedCacheReader(view.cache,DataSource.Factory {
+            val raw=androidx.media3.datasource.FileDataSource()
+            object:DataSource by raw {
+                override fun open(spec:DataSpec):Long {actualOpens++;return raw.open(spec)}
+            }
+        })
+        available=false
+        assertThrows(IOException::class.java) {LegacyResourceProjection.inspectAudio(view)}
+        try {assertThrows(IOException::class.java) {reader.open(spec())}} finally {reader.close()}
+        assertEquals(0,actualOpens);assertArrayEquals(payload,f.originals.single().readBytes())
+    }
     @Test fun optionalValueBeforeLengthDoesNotHideLengthAndSmallDisplayTagsRemainAvailable() {
         val f=Fixture()
         val song=byteArrayOf(1,2,3); val origin="http://192.0.2.1:7814/api1/file/1".toByteArray()

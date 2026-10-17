@@ -145,6 +145,13 @@ internal object LegacyResourceProjection {
         if(indexed!=spans.size) throw IOException("Legacy selected span census differs")
         live(); return LegacyAudioProjection(ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,live),limited)
     }
+    /** Inspect only this implementation's immutable observation. Its owner must still hold the
+     * read lease; a fresh final checkpoint precedes publication. Future Cache/file reads keep
+     * their own live guards, and exact migration projection is not inspected eagerly. */
+    fun inspectAudio(projection:LegacyAudioProjection):SavedAudioState =
+        (projection.cache as? ProjectedCache ?: throw IOException("Audio inspection needs an actual legacy projection"))
+            .snapshot(projection.displayMetadataLimited)
+
     /** Bounded schema/identity observation. Caller still owns the actual storage barrier. */
     fun validate(directory:File,uid:Long,index:SQLiteDatabase,checkpoint:()->Unit,
         ownership:MigrationIoOwnership=MigrationIoOwnership()):()->Unit {
@@ -278,7 +285,10 @@ internal object LegacyResourceProjection {
         override fun removeSpan(span:CacheSpan):Unit=denied()
         override fun isCached(key:String,position:Long,length:Long)=getCachedLength(key,position,length)>=length
         override fun getCachedLength(key:String,position:Long,length:Long):Long {
-            check(key); require(position>=0 && length>=0)
+            check(key); return cachedLength(position,length)
+        }
+        private fun cachedLength(position:Long,length:Long):Long {
+            require(position>=0 && length>=0)
             val maximum=minOf(length,Long.MAX_VALUE-position)
             if(maximum==0L) return 0
             var end=position
@@ -293,6 +303,13 @@ internal object LegacyResourceProjection {
             val end=position+minOf(length,Long.MAX_VALUE-position); var total=0L
             for(span in spans) total+=maxOf(0L,minOf(end,span.position+span.length)-maxOf(position,span.position))
             return total
+        }
+        fun snapshot(displayLimited:Boolean):SavedAudioState {
+            val state=savedAudioState(bytes,metadata,displayLimited) {length -> cachedLength(0,length)>=length}
+            // Only bounded RAM arithmetic occurred since projection. Check the actual owner
+            // immediately before returning a scalar observation, instead of three Cache getter
+            // probes over the same immutable fields. Actual Cache getters remain guarded.
+            checkpoint(); return state
         }
         override fun applyContentMetadataMutations(key:String,mutations:ContentMetadataMutations):Unit=denied()
         override fun getContentMetadata(key:String):ContentMetadata { check(key); return metadata }

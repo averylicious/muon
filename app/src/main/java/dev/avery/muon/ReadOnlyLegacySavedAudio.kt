@@ -36,7 +36,7 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
         override val source=DataSource.Factory { Reader() }
         override fun inspect(key:String):SavedAudioState {
             val view=projection(key,io())
-            return savedAudioState(view.cache,key).copy(displayMetadataLimited=view.displayMetadataLimited)
+            return LegacyResourceProjection.inspectAudio(view)
         }
         override fun contains(key:String):Boolean {
             validateKey(key); val ownership=io(); val live=checked(ownership)

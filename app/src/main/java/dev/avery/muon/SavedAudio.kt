@@ -46,12 +46,20 @@ internal fun savedAudioState(cache: Cache, key: String): SavedAudioState {
     val bytes = cache.getCachedBytes(key, 0, Long.MAX_VALUE)
     check(bytes >= 0) { "Invalid cached byte total" }
     val metadata = cache.getContentMetadata(key)
+    return savedAudioState(bytes, metadata) { length -> cache.isCached(key, 0, length) }
+}
+
+/** Pure coverage calculation from an already observed extent/metadata snapshot. It grants no
+ * future read or removal authority; the owner still validates before publishing/using it. */
+internal fun savedAudioState(bytes: Long, metadata: ContentMetadata,
+    displayMetadataLimited: Boolean = false, full: (Long) -> Boolean): SavedAudioState {
+    check(bytes >= 0) { "Invalid cached byte total" }
     val length = ContentMetadata.getContentLength(metadata)
     val coverage = when {
         bytes == 0L -> SavedCoverage.Missing
         length == C.LENGTH_UNSET.toLong() || length <= 0 -> SavedCoverage.UnknownLength
-        cache.isCached(key, 0, length) -> SavedCoverage.Full
+        full(length) -> SavedCoverage.Full
         else -> SavedCoverage.Partial
     }
-    return SavedAudioState(coverage, bytes, metadata)
+    return SavedAudioState(coverage, bytes, metadata, displayMetadataLimited)
 }
