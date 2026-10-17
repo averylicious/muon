@@ -42,6 +42,23 @@ class PartitionPlatformRootsTest {
         f.cardId=null;assertNull(plan.card!!.currentVolume())
         assertFalse(plan.phone.directory.exists());assertFalse(plan.card!!.directory.exists())
     }
+    @Test fun diagnosticTimingRetainsLiveRootRefusalEvenWhenTheSinkFails() {
+        val f=Fixture();var rootReads=0;var volumeReads=0
+        val timing=requireNotNull(StorageRootTiming.begin(true,java.util.concurrent.atomic.AtomicInteger(32),{0L},{e ->
+            when(e.phase) {
+                StorageRootTiming.Phase.PHONE_ROOT,StorageRootTiming.Phase.CARD_ROOT ->rootReads++
+                StorageRootTiming.Phase.PHONE_VOLUME,StorageRootTiming.Phase.CARD_VOLUME ->volumeReads++
+            }
+            throw IOException("Diagnostic sink unavailable")
+        }))
+        val resolver=PartitionPlatformRoots({f.phone},{f.dirs},{f.phoneId},{f.cardId},timing)
+        val plan=worker {resolver.fresh(f.card)}
+        assertEquals(2,rootReads);assertEquals(2,volumeReads)
+        f.cardId="removable:changed";assertThrows(IOException::class.java) {plan.validate()}
+        f.cardId=null;assertNull(plan.card!!.currentVolume())
+        assertFalse(plan.phone.directory.exists());assertFalse(plan.card!!.directory.exists())
+    }
+
     @Test fun resumeUsesExactUuidAcrossPlatformOrderingAndKeepsMissingCardIdentity() {
         val f=Fixture();val selected=worker {f.resolver.fresh(f.card)};val choice=f.choice(selected)
         f.dirs=arrayOf(f.primary,f.other,f.card)
