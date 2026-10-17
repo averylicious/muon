@@ -276,12 +276,16 @@ internal object LegacyResourceProjection {
         val contentSql="CREATE TABLE $content (id INTEGER PRIMARY KEY NOT NULL,key TEXT NOT NULL,metadata BLOB NOT NULL)"
         val filesSql="CREATE TABLE $files (name TEXT PRIMARY KEY NOT NULL,length INTEGER NOT NULL,last_touch_timestamp INTEGER NOT NULL)"
         var tables=0; var objects=0
+        // Schema rows are bounded scalars, not audio/file-opening authority. Bracket this
+        // <=5-row borrowed-connection observation rather than rechecking FUSE roots per row.
+        // Only a known cursor close reaches the final guard; unknown close keeps its tracker.
+        live()
         ownership.useOwned({index.rawQuery("SELECT CASE WHEN length(CAST(type AS BLOB))<=8 THEN type ELSE NULL END,"+
             "CASE WHEN length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END,"+
             "CASE WHEN length(CAST(sql AS BLOB))<=1024 THEN sql ELSE NULL END FROM sqlite_master WHERE tbl_name IN (?,?) LIMIT 5",
             arrayOf(content,files))}) { c ->
             while(c.moveToNext()) {
-                live(); if(++objects>3) throw IOException("Unknown legacy cache objects")
+                if(++objects>3) throw IOException("Unknown legacy cache objects")
                 when {
                     c.getString(0)=="table" && c.getString(1)==content && c.getString(2)==contentSql -> tables++
                     c.getString(0)=="table" && c.getString(1)==files && c.getString(2)==filesSql -> tables++
@@ -290,6 +294,7 @@ internal object LegacyResourceProjection {
                 }
             }
         }
+        live()
         if(tables!=2) throw IOException("Legacy native tables missing")
         return live
     }

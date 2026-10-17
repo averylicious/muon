@@ -51,6 +51,28 @@ class LegacyTransitionOwnerTest {
         fun owner(close:(SQLiteDatabase)->Unit={ it.close() })=LegacyTransitionOwner(root,databaseFile,barrier,{present},closeDatabase=close)
         fun unchanged() { assertFalse(SimpleCache.isCacheFolderLocked(root)); originals.forEach { assertArrayEquals(payload,it.readBytes()) } }
     }
+    @Test fun ownedSchemaRefusesVolumeLossAtKnownCursorCloseBeforeReturningItsGuard() {
+        val f=Fixture();var borrowed:SQLiteDatabase?=null
+        val owner=LegacyTransitionOwner(f.root,f.databaseFile,f.barrier,{f.present},openDatabase={file ->
+            SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READONLY).also {borrowed=it}
+        });owner.open()
+        var schemaClosed=false
+        val io=MigrationIoOwnership(closeHandle={handle ->
+            val schema=handle is android.database.Cursor && handle.columnCount==3
+            handle.close()
+            if(schema) {schemaClosed=true;f.present=false}
+        })
+        try {
+            val permit=f.barrier.shared()
+            try {
+                assertThrows(IOException::class.java) {
+                    LegacyResourceProjection.validateOwned(f.root,f.uid,requireNotNull(borrowed),owner,io)
+                }
+                assertTrue(schemaClosed);assertTrue(io.quiescent);assertTrue(requireNotNull(borrowed).isOpen)
+            } finally {permit.close()}
+            assertTrue(f.barrier.quiescent);f.unchanged()
+        } finally {f.present=true;owner.close()}
+    }
     @Test fun platformLegacyVolumeCannotAuthorizeChangedUuidMissingRootOrParentAlias() {
         val base=folders.newFolder();val root=File(base,"downloads").also {assertTrue(it.mkdir())}
         val f=Fixture(root=root);val phone=folders.newFolder();val primary=folders.newFolder()
