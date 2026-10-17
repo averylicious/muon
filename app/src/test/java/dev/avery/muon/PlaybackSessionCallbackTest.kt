@@ -252,7 +252,7 @@ class PlaybackSessionCallbackTest {
     @Test fun diagnosticAdmissionTimesTheRealWorkerAndItsCancelledOrRefusedResult() {
         var now = 0L
         val events = ArrayList<SavedStartupTiming.Event>()
-        val timing = SavedStartupTiming(true, { ++now }, events::add)
+        val timing = SavedStartupTiming(true, { ++now }, emit=events::add)
         val own = controller(uid = Process.myUid())
         val accepted = PlaybackSessionCallback({ true }, java.util.concurrent.Executor { it.run() }, timing)
         assertEquals(1, accepted.onAddMediaItems(session, own, mutableListOf(saved())).get().size)
@@ -267,6 +267,24 @@ class PlaybackSessionCallbackTest {
         assertEquals(SavedStartupTiming.Outcome.CANCELLED, events.last().outcome)
         assertEquals(3, events.size)
         assertTrue(events.all { it.phase == SavedStartupTiming.Phase.ADMISSION && it.milliseconds >= 0 })
+    }
+
+    @Test fun brokenDiagnosticClocksOrSinkCannotStrandActualSavedAdmission() {
+        val own=controller(uid=Process.myUid())
+        for(failure in listOf("begin","end","sink")) {
+            var clocks=0;var reads=0
+            val timing=SavedStartupTiming(true,clock={
+                clocks++
+                if(failure=="begin" || failure=="end" && clocks%2==0) throw IllegalStateException("Diagnostic clock unavailable")
+                clocks.toLong()
+            },emit={if(failure=="sink") throw IllegalStateException("Diagnostic sink unavailable")})
+            val accepted=PlaybackSessionCallback({reads++;true},java.util.concurrent.Executor {it.run()},timing)
+            repeat(2) {
+                val result=accepted.onAddMediaItems(session,own,mutableListOf(saved())).get(1,TimeUnit.SECONDS)
+                assertEquals(1,result.size)
+            }
+            assertEquals(2,reads) // A diagnostic failure must not leave admissionPending held.
+        }
     }
 
 }

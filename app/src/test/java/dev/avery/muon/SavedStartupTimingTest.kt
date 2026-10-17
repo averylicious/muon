@@ -30,19 +30,25 @@ class SavedStartupTimingTest {
     @get:Rule val folders = TemporaryFolder()
     private val app get() = RuntimeEnvironment.getApplication()
     @Test fun disabledBuildNeverUsesClockSinkOrRetainsAnOperation() {
-        val timing = SavedStartupTiming(false, { error("Disabled clock") }, { error("Disabled sink") })
+        val timing = SavedStartupTiming(false, { error("Disabled clock") }, emit={ error("Disabled sink") })
         repeat(100) { assertNull(timing.begin(SavedStartupTiming.Phase.PREPARATION)); timing.end(null) }
         val flags = app.applicationInfo.flags
         try {
             app.applicationInfo.flags = flags and ApplicationInfo.FLAG_DEBUGGABLE.inv()
-            assertSame(SavedStartupTiming.DISABLED, SavedStartupTiming.forContext(app))
+            assertSame(SavedStartupTiming.DISABLED, SavedStartupTiming.forContext(app,timingBuild=false))
+            assertEquals(BuildConfig.STORAGE_TIMINGS,SavedStartupTiming.forContext(app).enabled)
+            val budget=java.util.concurrent.atomic.AtomicInteger(1)
+            val first=SavedStartupTiming.forContext(app,timingBuild=true,allowance=budget)
+            val second=SavedStartupTiming.forContext(app,timingBuild=true,allowance=budget)
+            assertTrue(first.enabled);assertNotNull(first.begin(SavedStartupTiming.Phase.PREPARATION))
+            assertNull(second.begin(SavedStartupTiming.Phase.ADMISSION))
             app.applicationInfo.flags = flags or ApplicationInfo.FLAG_DEBUGGABLE
             assertTrue(SavedStartupTiming.forContext(app).enabled)
         } finally { app.applicationInfo.flags = flags }
     }
     @Test fun oneConstantEventPerOperationAndSinkFailureCannotChangePlayback() {
         var now = 10L; val events = ArrayList<SavedStartupTiming.Event>()
-        val timing = SavedStartupTiming(true, { now }, events::add)
+        val timing = SavedStartupTiming(true, { now }, emit=events::add)
         val token = timing.begin(SavedStartupTiming.Phase.ADMISSION)
         now = 31; timing.end(token, SavedStartupTiming.Outcome.REFUSED)
         timing.end(token); assertEquals(1, events.size)
@@ -69,7 +75,7 @@ class SavedStartupTimingTest {
         var available = true
         val shelf = Shelf(cache, manager, MuonDownloadService::class.java) { available }
         val events = ArrayList<SavedStartupTiming.Event>(); var now = 0L
-        val timing = SavedStartupTiming(true, { ++now }, events::add)
+        val timing = SavedStartupTiming(true, { ++now }, emit=events::add)
         val ref = requireNotNull(SavedRef.download(SavedShelf.Phone, key, key))
         val source = OfflineDataSource(timing) { routeOfflineRequest(it, shelf, null) }
         try {
@@ -89,4 +95,18 @@ class SavedStartupTimingTest {
             assertNotNull(index.getDownload(key)); assertTrue(cache.isCached(key, 0, bytes.size.toLong()))
         } finally { source.close(); manager.release(); cache.release(); db.close() }
     }
+    @Test fun sharedAttemptBudgetStopsNewClockAndSinkWorkWithoutRetainingHistory() {
+        val budget=java.util.concurrent.atomic.AtomicInteger(2);var clocks=0
+        val events=ArrayList<SavedStartupTiming.Event>()
+        fun observer()=SavedStartupTiming(true,{clocks++;clocks.toLong()},budget,events::add)
+        val first=observer();val second=observer()
+        val a=first.begin(SavedStartupTiming.Phase.PREPARATION)
+        val b=second.begin(SavedStartupTiming.Phase.ADMISSION)
+        assertNotNull(a);assertNotNull(b)
+        repeat(1000) {assertNull(first.begin(SavedStartupTiming.Phase.READY))}
+        assertEquals(2,clocks)
+        first.end(a);second.end(b);first.end(a);second.end(b)
+        assertEquals(4,clocks);assertEquals(2,events.size);assertEquals(0,budget.get())
+    }
+
 }
