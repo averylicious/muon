@@ -61,6 +61,14 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
         if(phase!=Phase.Opening && phase!=Phase.Open) throw IOException("Legacy transition owner is closed or uncertain")
         observed()
     }
+    /** A projection may reuse this actual owner's stronger root observation, never an arbitrary
+     * caller's availability promise. Bind the exact borrowed connection, selected UID and path;
+     * the caller still holds its read barrier and must retain unknown cursor/file ownership. */
+    internal fun checkProjection(root:File,expectedUid:Long,database:SQLiteDatabase) {
+        if(phase!=Phase.Open || root!=directory || expectedUid!=uid || database!==index)
+            throw IOException("Legacy projection does not belong to this live owner")
+        checkpoint()
+    }
     private fun discoverUid():Long {
         var found:Long?=null; var count=0
         directoryIo.directory(directory.toPath()).use { entries -> for(path in entries) {
@@ -93,7 +101,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             index=openDatabase(databaseFile)
             if(!requireNotNull(index).isReadOnly) throw IOException("Legacy connection must be read-only")
             LegacyResourceProjection.validate(directory,found,requireNotNull(index),::checkpoint,directoryIo)()
-            audio=ReadOnlyLegacySavedAudio(directory,found,requireNotNull(index),barrier,::checkpoint)
+            audio=ReadOnlyLegacySavedAudio(directory,found,requireNotNull(index),barrier,::checkpoint,owner=this)
             phase=Phase.Open
             return requireNotNull(audio)
         } catch(failure:Throwable) {

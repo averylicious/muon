@@ -100,6 +100,62 @@ class LegacyTransitionOwnerTest {
         liveDatabaseReplacementRefuses {path,_ ->java.nio.file.Files.createDirectory(path.toPath())}
     }
 
+    @Test fun ownedProjectionRequiresTheActualLiveRootUidAndBorrowedConnection() {
+        val f=Fixture();var borrowed:SQLiteDatabase?=null
+        val owner=LegacyTransitionOwner(f.root,f.databaseFile,f.barrier,{f.present},openDatabase={file ->
+            SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READONLY).also {borrowed=it}
+        })
+        val audio=owner.open()
+        val other=SQLiteDatabase.openDatabase(f.databaseFile.path,null,SQLiteDatabase.OPEN_READONLY)
+        try {
+            f.barrier.shared().use {
+                val actual=requireNotNull(borrowed)
+                assertEquals(SavedCoverage.Full,savedAudioState(
+                    LegacyResourceProjection.readOwnedAudio(f.root,f.uid,"saved/0",actual,owner).cache,"saved/0").coverage)
+                assertThrows(IOException::class.java) {LegacyResourceProjection.readOwnedAudio(folders.newFolder(),f.uid,"saved/0",actual,owner)}
+                assertThrows(IOException::class.java) {LegacyResourceProjection.readOwnedAudio(f.root,f.uid xor 1L,"saved/0",actual,owner)}
+                assertThrows(IOException::class.java) {LegacyResourceProjection.readOwnedAudio(f.root,f.uid,"saved/0",other,owner)}
+                f.present=false
+                assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+                f.present=true
+            }
+            owner.close()
+            assertThrows(IOException::class.java) {LegacyResourceProjection.readOwnedAudio(f.root,f.uid,"saved/0",requireNotNull(borrowed),owner)}
+            assertTrue(f.barrier.quiescent);f.unchanged()
+        } finally {other.close();owner.close()}
+    }
+    @Test fun ownedAudioProjectionStillRejectsUnexpectedLiveNativeSchema() {
+        val f=Fixture();val owner=f.owner();val audio=owner.open()
+        val writer=SQLiteDatabase.openDatabase(f.databaseFile.path,null,SQLiteDatabase.OPEN_READWRITE)
+        try {
+            val table="ExoPlayerCacheIndex"+java.lang.Long.toHexString(f.uid)
+            writer.execSQL("CREATE INDEX unexpected_projection_index ON $table(key)")
+            assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+            val reader=audio.source.createDataSource()
+            try {assertThrows(IOException::class.java) {reader.open(spec)}} finally {reader.close()}
+            assertTrue(f.barrier.quiescent);f.unchanged()
+            writer.execSQL("DROP INDEX unexpected_projection_index")
+            assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage)
+        } finally {writer.close();owner.close()}
+    }
+    @Test fun ownedProjectionRefusesALiveRootLinkEvenWhenItTargetsThePinnedInode() {
+        val f=Fixture();val owner=f.owner();val audio=owner.open()
+        val held=File(folders.newFolder(),"original-root")
+        try {
+            java.nio.file.Files.move(f.root.toPath(),held.toPath())
+            try {
+                java.nio.file.Files.createSymbolicLink(f.root.toPath(),held.toPath())
+                assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+                val reader=audio.source.createDataSource()
+                try {assertThrows(IOException::class.java) {reader.open(spec)}} finally {reader.close()}
+                assertTrue(f.barrier.quiescent)
+            } finally {
+                java.nio.file.Files.delete(f.root.toPath())
+                java.nio.file.Files.move(held.toPath(),f.root.toPath())
+            }
+            assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage);f.unchanged()
+        } finally {owner.close()}
+    }
     @Test fun startupNeverOpensLegacyNativeCacheAndCloseRefusesAnActualReaderEvenAtEof() {
         val f=Fixture(70); val owner=f.owner(); val audio=owner.open()
         try {

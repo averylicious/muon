@@ -20,16 +20,20 @@ import java.io.IOException
 internal class ReadOnlyLegacySavedAudio(private val directory:File,private val uid:Long,
     private val index:SQLiteDatabase,barrier:SavedStorageBarrier,private val checkpoint:()->Unit,
     private val files:DataSource.Factory?=null,
-    private val io:()->MigrationIoOwnership={MigrationIoOwnership()}):SavedAudio {
+    private val io:()->MigrationIoOwnership={MigrationIoOwnership()},
+    private val owner:LegacyTransitionOwner?=null):SavedAudio {
     private val table=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+java.lang.Long.toHexString(uid)
     private fun checked(ownership:MigrationIoOwnership)=LegacyResourceProjection.validate(directory,uid,index,checkpoint,ownership)
+    private fun projection(key:String,ownership:MigrationIoOwnership):LegacyAudioProjection =
+        if(owner==null) LegacyResourceProjection.readAudio(directory,uid,key,index,checkpoint,ownership)
+        else LegacyResourceProjection.readOwnedAudio(directory,uid,key,index,owner,ownership)
     private fun validateKey(value:String) {
         if(value.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Legacy key exceeds read budget")
     }
     private val bounded=BarrierSavedAudio(object:SavedAudio {
         override val source=DataSource.Factory { Reader() }
         override fun inspect(key:String):SavedAudioState {
-            val view=LegacyResourceProjection.readAudio(directory,uid,key,index,checkpoint,io())
+            val view=projection(key,io())
             return savedAudioState(view.cache,key).copy(displayMetadataLimited=view.displayMetadataLimited)
         }
         override fun contains(key:String):Boolean {
@@ -85,7 +89,7 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
         override fun open(spec:DataSpec):Long {
             check(child==null && uncertainty==null) { "Legacy reader already active or uncertain" }
             val name=spec.key ?: throw IOException("Saved legacy read requires exact key")
-            val projection=try { LegacyResourceProjection.readAudio(directory,uid,name,index,checkpoint,io()).cache }
+            val projection=try { projection(name,io()).cache }
                 catch(failure:MigrationIoUncertain) { uncertainty=failure; throw failure }
             val opened=savedCacheReader(projection,files); child=opened
             for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)

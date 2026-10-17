@@ -54,11 +54,28 @@ internal object LegacyResourceProjection {
             throw failure
         }
 
+    /** Audio-only route for the actual live owner. Its fresh observation binds the exact root,
+     * marker and database inodes as well as volume/native exclusion; do not repeat weaker root
+     * probes afterward. Schema, metadata, span checks and checkpoint boundaries are unchanged.
+     * Generic read/readAudio and destructive migration/retirement still use full validation. */
+    fun readOwnedAudio(directory:File,uid:Long,key:String,index:SQLiteDatabase,owner:LegacyTransitionOwner,
+        ownership:MigrationIoOwnership=MigrationIoOwnership()):LegacyAudioProjection =
+        try {
+            // Refuse a stale owner before touching its possibly closed borrowed connection.
+            owner.checkProjection(directory,uid,index)
+            project(directory,uid,key,index,{owner.checkProjection(directory,uid,index)},ownership,true,owner)
+        }
+        catch(failure:Throwable) {
+            if(!ownership.quiescent) throw MigrationIoUncertain(ownership,failure)
+            throw failure
+        }
+
     private fun project(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
-        ownership:MigrationIoOwnership,audioOnly:Boolean):LegacyAudioProjection {
+        ownership:MigrationIoOwnership,audioOnly:Boolean,owner:LegacyTransitionOwner?=null):LegacyAudioProjection {
         if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES || !index.isReadOnly)
             throw IOException("Legacy projection needs a bounded identity and read-only database")
-        val live=validate(directory,uid,index,checkpoint,ownership)
+        val live=if(owner==null) validate(directory,uid,index,checkpoint,ownership)
+            else validateSchema(uid,index,ownership) {owner.checkProjection(directory,uid,index)}
         val hex=java.lang.Long.toHexString(uid)
         val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
@@ -145,6 +162,13 @@ internal object LegacyResourceProjection {
             if(!Files.isRegularFile(marker.toPath(),LinkOption.NOFOLLOW_LINKS) || marker.length()!=0L)
                 throw IOException("Legacy cache identity unavailable")
         }
+        return validateSchema(uid,index,ownership,::live)
+    }
+    /** Root observation is supplied only by validate() above or the actual owner-bound entry. */
+    private fun validateSchema(uid:Long,index:SQLiteDatabase,ownership:MigrationIoOwnership,
+        live:()->Unit):()->Unit {
+        if(uid<0 || !index.isReadOnly) throw IOException("Legacy source needs read-only identity")
+        val hex=java.lang.Long.toHexString(uid)
         live()
         val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
@@ -173,7 +197,7 @@ internal object LegacyResourceProjection {
             }
         }
         if(tables!=2) throw IOException("Legacy native tables missing")
-        return ::live
+        return live
     }
     /** Unknown optional values may be omitted from this ephemeral audio view. Exact migration
      * continues through decode/read and refuses over-budget input instead of silently trimming it.
