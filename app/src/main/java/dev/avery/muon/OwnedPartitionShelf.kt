@@ -75,9 +75,12 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         if(!attributes.isRegularFile) throw IOException("Partition shelf journal is missing or changed")
         return attributes.fileKey() ?: throw IOException("Partition shelf file identity cannot be observed")
     }
-    private fun located() {
+    private fun rootLocated() {
         if(currentVolume()!=volume) throw IOException("Partition shelf volume unavailable or changed")
         if(exactDirectory(directory)!=rootIdentity) throw IOException("Partition shelf root replaced")
+    }
+    private fun located() {
+        rootLocated()
         for(i in journalNames.indices) {
             if(exactJournal(File(directory,journalNames[i]))!=identities[i])
                 throw IOException("Partition shelf journal replaced")
@@ -387,13 +390,23 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         fun live() {owned(); checkpoint(); owned()}
         fun unclaimed(name:String)=!destination.claimsMoveName(name,permit) &&
             !source.legacy.claimsOriginalName(name,permit) && unclaimedElsewhere(name)
+        /** Only inside a complete destination digest. Check fresh roots before the caller's
+         * cancellation callback, then FULL journals/lease/binding roots again before returning
+         * to physical I/O. A second full sweep before that callback duplicates work. Cache/span
+         * guards remain unchanged; do not assume CacheDataSource rechecks them per read block.
+         * verifiedTarget/current still bracket the entire digest and every source-file unlink. */
+        fun digestLive() {
+            permit.check(); rootLocated(); destination.rootLocated()
+            checkpoint()
+            owned()
+        }
         fun current() {live(); source.session.verifyPendingSavedMove(expected,permit,::unclaimed); live()}
         fun verifiedTarget() {
             current()
             val fresh=expected.binding.destination.ticket.allocation.key
             if(claimsMoveName(fresh,permit)) throw IOException("Move destination acquired a source-shelf alias")
             target.session.verifyMoveDestination(expected.binding.destination,destination.volume,
-                destination.key(destination.directory).toString(),permit,::live)
+                destination.key(destination.directory).toString(),permit,::digestLive)
             artwork.cancelForConfirmedRemoval(expected.binding.key,permit)
             artwork.cancelForConfirmedRemoval(fresh,permit)
             art.verifyMovedTarget(fresh,expected.binding.cover,permit)
