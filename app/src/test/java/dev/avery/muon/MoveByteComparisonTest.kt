@@ -1,0 +1,166 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+package dev.avery.muon
+
+import android.net.Uri
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.FileDataSource
+import java.io.IOException
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk=[34],manifest=Config.NONE)
+class MoveByteComparisonTest {
+    @get:Rule val folder=TemporaryFolder()
+    private val payload=ByteArray(100_000) { (it%127).toByte() }
+    private fun spec()=DataSpec.Builder().setUri("muon-saved:compare").setLength(payload.size.toLong()).build()
+    private fun files(bytes:ByteArray,unknown:Boolean=false,actual:MutableList<DataSource> = mutableListOf(),closed:()->Unit={}):DataSource.Factory {
+        val file=folder.newFile().apply { writeBytes(bytes) }
+        return DataSource.Factory {
+            val child=FileDataSource.Factory().createDataSource().also(actual::add)
+            object:DataSource by child {
+                override fun open(spec:DataSpec)=child.open(spec.buildUpon().setUri(Uri.fromFile(file)).build())
+                override fun close() { closed(); if(unknown) throw IOException("Injected real-file unknown close"); child.close() }
+            }
+        }
+    }
+    @Test fun actualEqualAndDifferentFilesCloseBeforeSuccessAndDrainKnownSlots() {
+        val owner=MoveByteComparison(); var closes=0
+        assertTrue(owner.compare(spec(),files(payload,closed={closes++}),files(payload,closed={closes++}),{true},{fail("Known close flagged uncertain")}))
+        assertEquals(2,closes); assertEquals(0,owner.active)
+        assertFalse(owner.compare(spec(),files(payload),files(payload.copyOf().also { it[99]=(-1).toByte() }),{true},{}))
+        assertEquals(0,owner.active)
+    }
+    @Test fun truncatedFileOrLostAvailabilityDoesNotMatchAndStillClosesBoth() {
+        val owner=MoveByteComparison(); var closes=0
+        assertFalse(owner.compare(spec(),files(payload,closed={closes++}),files(payload.copyOf(3),closed={closes++}),{true},{}))
+        assertEquals(2,closes); assertEquals(0,owner.active)
+        var checks=0
+        assertFalse(owner.compare(spec(),files(payload),files(payload),{++checks<3},{})); assertEquals(0,owner.active)
+    }
+    @Test fun targetFactoryFailureClosesKnownSourceButRetainsUnreturnedOwnership() {
+        val owner=MoveByteComparison(); var closes=0
+        assertThrows(IOException::class.java) {
+            owner.compare(spec(),files(payload,closed={closes++}),DataSource.Factory { throw IOException("Creation refused") },{true},{})
+        }
+        assertEquals(1,closes); assertEquals(1,owner.active)
+    }
+    @Test fun bothUnknownRealFileClosesRetainOneSlotAndBlockRetryWithoutReclosingEither() {
+        val owner=MoveByteComparison(); val actual=mutableListOf<DataSource>(); var closes=0; var notices=0
+        try {
+            val failure=assertThrows(IOException::class.java) {
+                owner.compare(spec(),files(payload,true,actual,{closes++}),files(payload,true,actual,{closes++}),{true},{notices++})
+            }
+            assertEquals(1,failure.suppressed.size); assertEquals(2,closes); assertEquals(1,notices); assertEquals(1,owner.active)
+            var created=0
+            assertThrows(IOException::class.java) {
+                owner.compare(spec(),DataSource.Factory { created++; throw AssertionError("Unknown reader replaced") },files(payload),{true},{})
+            }
+            assertEquals(0,created); assertEquals(2,closes)
+        } finally { actual.forEach { it.close() } } // Disposable actual handles only, never wrapper retry.
+    }
+    @Test fun fullBudgetRefusesNestedComparisonBeforeAnyNewReaderCreation() {
+        val owner=MoveByteComparison(1); var nested=false
+        assertTrue(owner.compare(spec(),files(payload),files(payload),{
+            if(!nested) {
+                nested=true; var created=0
+                val factory=DataSource.Factory { created++; throw AssertionError("Budget bypass") }
+                assertThrows(IOException::class.java) { owner.compare(spec(),factory,factory,{true},{}) }
+                assertEquals(0,created)
+            }
+            true
+        },{})); assertEquals(0,owner.active)
+    }
+
+    @Test fun bothActualFileClosesKeepGlobalPermitUntilVerificationFinishes() {
+        val gate=SavedStorageBarrier(); val owner=MoveByteComparison(barrier=gate); var closed=0
+        val checkClose={
+            closed++; assertEquals(1,gate.active)
+            assertThrows(IOException::class.java) { gate.exclusive() }; Unit
+        }
+        assertTrue(owner.compare(spec(),files(payload,closed=checkClose),files(payload,closed=checkClose),{true},{}))
+        assertEquals(2,closed); assertTrue(gate.quiescent); assertEquals(0,owner.active)
+    }
+    @Test fun cancellationClosesBothKnownReadersAndReturnsGlobalPermit() {
+        val gate=SavedStorageBarrier(); val owner=MoveByteComparison(barrier=gate); var checks=0; var closes=0
+        assertFalse(owner.compare(spec(),files(payload,closed={closes++}),files(payload,closed={closes++}),{++checks<3},{}))
+        assertEquals(2,closes); assertTrue(gate.quiescent); assertEquals(0,owner.active)
+    }
+    @Test fun actualUnknownCloseRetainsGlobalPermitAndExactFilesWithoutRetry() {
+        val gate=SavedStorageBarrier(); val owner=MoveByteComparison(barrier=gate)
+        val actual=mutableListOf<DataSource>(); var notices=0
+        try {
+            assertThrows(IOException::class.java) {
+                owner.compare(spec(),files(payload,true,actual),files(payload),{true},{notices++})
+            }
+            assertEquals(1,owner.active); assertEquals(1,gate.active); assertEquals(1,notices)
+            assertThrows(IOException::class.java) { gate.exclusive() }
+            assertThrows(IOException::class.java) { gate.shared() }
+        } finally { actual.forEach { it.close() } }
+    }
+    @Test fun exclusiveAdmissionRefusesVerificationBeforeEitherFactoryAllocates() {
+        val gate=SavedStorageBarrier(); val owner=MoveByteComparison(barrier=gate); val lock=gate.exclusive()
+        var created=0; val factory=DataSource.Factory { created++; throw AssertionError("Allocation before admission") }
+        try {
+            assertThrows(IOException::class.java) { owner.compare(spec(),factory,factory,{true},{}) }
+            assertEquals(0,created); assertEquals(0,owner.active)
+        } finally { lock.close() }
+        assertTrue(gate.quiescent)
+    }
+    @Test fun largerBoundedRefillsCompareEveryByteIncludingPartialTailAndCloseBeforeSuccess() {
+        val bytes=ByteArray(2*256*1024+17) {(it%127).toByte()}
+        val exact=DataSpec.Builder().setUri("muon-saved:bounded-refills").setLength(bytes.size.toLong()).build()
+        val requests=mutableListOf<Int>();var closes=0
+        fun observed(data:ByteArray):DataSource.Factory {
+            val original=files(data,closed={closes++})
+            return DataSource.Factory {
+                val child=original.createDataSource()
+                object:DataSource by child {
+                    override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                        requests+=length;return child.read(buffer,offset,length)
+                    }
+                }
+            }
+        }
+        val owner=MoveByteComparison(1)
+        assertTrue(owner.compare(exact,observed(bytes),observed(bytes),{true},{}))
+        // Three reads per real file instead of nine; the final 17 bytes are still compared.
+        assertEquals(listOf(262144,262144,262144,262144,17,17),requests)
+        assertEquals(2,closes);assertEquals(0,owner.active)
+        for(index in listOf(65535,65536,262143,262144,bytes.lastIndex)) {
+            val changed=bytes.copyOf().also {it[index]=(it[index].toInt() xor 1).toByte()}
+            assertFalse(owner.compare(exact,files(bytes),files(changed),{true},{}))
+            assertEquals(0,owner.active)
+        }
+    }
+    @Test fun shortReadsAndCancellationStillCloseBothRealReadersAndDrainAdmission() {
+        val bytes=ByteArray(2*256*1024+17) {(it%127).toByte()}
+        val exact=DataSpec.Builder().setUri("muon-saved:short-refills").setLength(bytes.size.toLong()).build()
+        var closes=0;var requested=0
+        fun short():DataSource.Factory {
+            val original=files(bytes,closed={closes++})
+            return DataSource.Factory {
+                val child=original.createDataSource()
+                object:DataSource by child {
+                    override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                        requested=maxOf(requested,length)
+                        return child.read(buffer,offset,minOf(7001,length))
+                    }
+                }
+            }
+        }
+        val gate=SavedStorageBarrier();val owner=MoveByteComparison(1,gate)
+        assertTrue(owner.compare(exact,short(),short(),{true},{}))
+        assertEquals(262144,requested);assertEquals(2,closes);assertTrue(gate.quiescent)
+        var checks=0
+        assertFalse(owner.compare(exact,short(),short(),{++checks<3},{}))
+        assertEquals(4,closes);assertEquals(0,owner.active);assertTrue(gate.quiescent)
+    }
+
+}

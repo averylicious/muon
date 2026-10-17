@@ -5,13 +5,13 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import java.net.Inet4Address
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.Request
-import org.json.JSONObject
 
 /**
  * The addresses worth asking on this phone's own network: the other hosts of the /24 around its
@@ -72,15 +72,16 @@ internal object LanProbe {
     }
 
     /** Tauon at [host], if its remote API answers there as version 1. */
-    private fun answer(host: String): DiscoveredServer? = runCatching {
+    internal suspend fun answer(host: String): DiscoveredServer? = try {
         val endpoint = ServerEndpoint.parse(host)
-        client.newCall(Request.Builder().url(endpoint.url("/api1/version")).build()).execute().use { response ->
+        client.newCall(Request.Builder().url(endpoint.url("/api1/version")).build()).readCancellable { response ->
             val source = response.body?.source()
-            if (!response.isSuccessful || source == null || source.request(4097)) return@use null
-            if (JSONObject(source.readUtf8()).optInt("version") != 1) return@use null
+            if (!response.isSuccessful || source == null || source.request(4097)) return@readCancellable null
+            if (parseTauonJson(source.readUtf8()).optInt("version") != 1) return@readCancellable null
             DiscoveredServer("Tauon", endpoint.origin)
         }
-    }.getOrNull()
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { null }
 }
 
 /**
@@ -89,7 +90,9 @@ internal object LanProbe {
  * result stands, as it may reach a server the probe could not. Discovery's names are kept for servers
  * both found.
  */
-internal fun combineDiscovery(nsd: DiscoverySnapshot, probe: List<DiscoveredServer>?): DiscoverySnapshot {
+internal fun combineDiscovery(nsd: DiscoverySnapshot, probe: List<DiscoveredServer>?, allowed: Boolean = true): DiscoverySnapshot {
+    // No running probe and no usable discoveries while local-network permission is missing.
+    if (!allowed) return DiscoverySnapshot(DiscoveryStatus.IDLE)
     val servers = (nsd.servers + probe.orEmpty()).distinctBy { it.origin }
     return when {
         probe == null -> DiscoverySnapshot(DiscoveryStatus.SEARCHING, servers, nsd.unresolvedCount)
