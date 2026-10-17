@@ -48,6 +48,59 @@ class PartitionContentMetadataTest {
         return try { PartitionResourceCache.open(raw,key,persistent=store) }
             catch(failure:Throwable) { try { store.close() } finally { raw.release() }; throw failure }
     }
+    private fun inventory(root:File)=root.walkTopDown().filter {it.isFile}.associate {file ->
+        file.relativeTo(root).path to java.security.MessageDigest.getInstance("SHA-256").digest(file.readBytes()).toList()
+    }
+    @Test fun explicitReadOnlyReadsExactChunkedValuesAndRefusesWritesWithoutChangingFiles() {
+        val root=directory();val key="saved/\u0000\ud800";val name="future/\u0000\udfff"
+        val bytes=ByteArray(3*64*1024+7) {it.toByte()};val expected=metadata(name to bytes,"" to byteArrayOf(0,4,9))
+        PartitionContentMetadata(root,7,key,create=true).use {it.write(expected)}
+        val before=inventory(root)
+        PartitionContentMetadata(root,7,key,readOnly=true).use {store ->
+            assertEquals(expected,store.read())
+            assertThrows(IOException::class.java) {store.write(metadata("replacement" to byteArrayOf(9)))}
+            val returned=store.read();returned.entrySet().first {it.key==name}.value[0]=99
+            assertArrayEquals(bytes,store.read().get(name,null as ByteArray?))
+        }
+        assertEquals(before,inventory(root))
+        PartitionContentMetadata(root,7,key).use {assertEquals(expected,it.read())}
+    }
+    @Test fun readOnlyCreationMissingOwnerAndUnknownSchemaRefuseWithoutFilesystemMutation() {
+        val missing=directory()
+        assertThrows(IOException::class.java) {PartitionContentMetadata(missing,9,"key",create=true,readOnly=true)}
+        assertFalse(missing.exists())
+        assertThrows(IOException::class.java) {PartitionContentMetadata(missing,9,"key",readOnly=true)}
+        assertFalse(missing.exists())
+        val root=directory();PartitionContentMetadata(root,9,"key",create=true).use {it.write(metadata("kept" to byteArrayOf(1)))}
+        val before=inventory(root)
+        assertThrows(IOException::class.java) {PartitionContentMetadata(root,10,"key",readOnly=true)}
+        assertThrows(IOException::class.java) {PartitionContentMetadata(root,9,"other",readOnly=true)}
+        assertEquals(before,inventory(root))
+        sql(root) {it.execSQL("CREATE TABLE foreign_data(value BLOB)")}
+        val foreign=inventory(root)
+        assertThrows(IOException::class.java) {PartitionContentMetadata(root,9,"key",readOnly=true)}
+        assertEquals(foreign,inventory(root))
+    }
+    @Test fun readOnlyCorruptChunksAreRefusedWithoutRepairOrReplacement() {
+        for(statement in listOf("UPDATE chunks SET ordinal=2","UPDATE chunks SET value=zeroblob(65537)")) {
+            val root=directory();PartitionContentMetadata(root,1,"key",create=true).close();sql(root) {it.execSQL(statement)}
+            val before=inventory(root)
+            PartitionContentMetadata(root,1,"key",readOnly=true).use {store ->
+                assertThrows(IOException::class.java) {store.read()}
+            }
+            assertEquals(before,inventory(root))
+        }
+    }
+    @Test fun readOnlyReadRechecksActualOwnerInsteadOfKeepingOldAuthority() {
+        val root=directory();PartitionContentMetadata(root,6,"key",create=true).use {it.write(metadata("kept" to byteArrayOf(5)))}
+        PartitionContentMetadata(root,6,"key",readOnly=true).use {store ->
+            assertArrayEquals(byteArrayOf(5),store.read().get("kept",null as ByteArray?))
+            sql(root) {it.execSQL("UPDATE owner SET key=?",arrayOf(savedCatalogSortKey("other")))}
+            val changed=inventory(root)
+            assertThrows(IOException::class.java) {store.read()}
+            assertEquals(changed,inventory(root))
+        }
+    }
     @Test fun largeUnknownFieldsAndExactUtf16NamesSurviveChunkedSQLiteReopen() {
         val root=directory(); val key="saved/\u0000\ud800"; val name="future/\u0000\udfff"
         val bytes=ByteArray(3*1024*1024+7) { (it%251).toByte() }

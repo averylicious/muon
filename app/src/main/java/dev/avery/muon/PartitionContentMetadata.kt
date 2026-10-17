@@ -19,14 +19,17 @@ private const val METADATA_MAX_CHUNKS=(METADATA_PAYLOAD_BYTES+METADATA_CHUNK_BYT
 /** Exact bounded metadata for ONE known private partition, outside SimpleCache's scanned byte folder.
  * Own SQLite schema, never Media3's schema. UID/key mismatch or unreadable/corrupt payload refuses;
  * absent metadata is not invented after failure. Transactions preserve the previous complete payload.
- * Returned metadata is a fresh bounded projection, never a lifetime map of the library. */
+ * Returned metadata is a fresh bounded projection, never a lifetime map of the library.
+ * Explicit readOnly uses a native read-only connection and the same owner/schema/transaction/chunk
+ * checks; creation and writes refuse before mutation. Writers keep the default writable mode. */
 internal class PartitionContentMetadata(root:File,private val uid:Long,private val key:String,create:Boolean=false,
-    private val afterChunk:()->Unit={}) : Closeable {
+    private val afterChunk:()->Unit={},private val readOnly:Boolean=false) : Closeable {
     private val ownerSchema="CREATE TABLE owner(singleton INTEGER PRIMARY KEY CHECK(singleton=1), uid INTEGER NOT NULL, key BLOB NOT NULL)"
     private val chunkSchema="CREATE TABLE chunks(ordinal INTEGER PRIMARY KEY NOT NULL, value BLOB NOT NULL)"
     private val database:SQLiteDatabase
     init {
         if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Partition metadata identity unavailable")
+        if(readOnly && create) throw IOException("Read-only metadata cannot create a store")
         val file=File(root,"content-v1.db")
         if(create) {
             // A new allocation is explicit. Never recreate a vanished store as empty on reopen.
@@ -34,9 +37,11 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
             database=SQLiteDatabase.openOrCreateDatabase(file,null)
         } else {
             if(!root.isDirectory || !file.isFile) throw IOException("Partition metadata store missing")
-            database=SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READWRITE)
+            database=SQLiteDatabase.openDatabase(file.path,null,
+                if(readOnly) SQLiteDatabase.OPEN_READONLY else SQLiteDatabase.OPEN_READWRITE)
         }
         try {
+            if(readOnly && !database.isReadOnly) throw IOException("Metadata verification needs a read-only connection")
             database.execSQL("PRAGMA cache_size=-256"); database.execSQL("PRAGMA synchronous=FULL")
             database.beginTransaction()
             try {
@@ -105,6 +110,7 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
         } finally { database.endTransaction() }
     }
     @Synchronized fun write(metadata:DefaultContentMetadata) {
+        if(readOnly) throw IOException("Read-only metadata cannot be changed")
         // DefaultContentMetadata exposes entry values and can wrap a caller-owned map. Take one
         // bounded snapshot before the first SQL mutation, not two traversals of mutable input.
         val fields=LinkedHashMap<String,ByteArray>()
