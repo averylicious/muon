@@ -3,6 +3,7 @@ package dev.avery.muon
 
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
+import android.os.Build
 import androidx.media3.datasource.cache.DefaultContentMetadata
 import java.io.Closeable
 import java.io.DataInputStream
@@ -20,8 +21,9 @@ private const val METADATA_MAX_CHUNKS=(METADATA_PAYLOAD_BYTES+METADATA_CHUNK_BYT
  * Own SQLite schema, never Media3's schema. UID/key mismatch or unreadable/corrupt payload refuses;
  * absent metadata is not invented after failure. Transactions preserve the previous complete payload.
  * Returned metadata is a fresh bounded projection, never a lifetime map of the library.
- * Explicit readOnly uses a native read-only connection and the same owner/schema/transaction/chunk
- * checks; creation and writes refuse before mutation. Writers keep the default writable mode. */
+ * Explicit readOnly requires API35's read-only transaction API and keeps the same owner/schema/
+ * chunk checks; unsupported requests, creation and writes refuse before mutation. Writers and
+ * older-platform callers retain the default writable transaction path. */
 internal class PartitionContentMetadata(root:File,private val uid:Long,private val key:String,create:Boolean=false,
     private val afterChunk:()->Unit={},private val readOnly:Boolean=false) : Closeable {
     private val ownerSchema="CREATE TABLE owner(singleton INTEGER PRIMARY KEY CHECK(singleton=1), uid INTEGER NOT NULL, key BLOB NOT NULL)"
@@ -29,6 +31,7 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
     private val database:SQLiteDatabase
     init {
         if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES) throw IOException("Partition metadata identity unavailable")
+        if(readOnly && Build.VERSION.SDK_INT<35) throw IOException("Transactional read-only metadata needs a newer platform")
         if(readOnly && create) throw IOException("Read-only metadata cannot create a store")
         val file=File(root,"content-v1.db")
         if(create) {
@@ -43,7 +46,7 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
         try {
             if(readOnly && !database.isReadOnly) throw IOException("Metadata verification needs a read-only connection")
             database.execSQL("PRAGMA cache_size=-256"); database.execSQL("PRAGMA synchronous=FULL")
-            database.beginTransaction()
+            beginRead()
             try {
                 val schemas=database.rawQuery("SELECT name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name!='android_metadata' ORDER BY name",null).use { rows ->
                     val result=ArrayList<Pair<String,String>>(2)
@@ -77,8 +80,14 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
                 savedCatalogText(it.getBlob(2))!=key || it.moveToNext()) throw IOException("Partition metadata ownership changed")
         }
     }
+    private fun beginRead() {
+        // BEGIN EXCLUSIVE is not valid on a read-only connection on older Android. Do not use
+        // raw BEGIN/SAVEPOINT SQL that bypasses SQLiteSession's connection/transaction ownership.
+        if(readOnly && Build.VERSION.SDK_INT>=35) database.beginTransactionReadOnly()
+        else database.beginTransaction()
+    }
     @Synchronized fun read():DefaultContentMetadata {
-        database.beginTransaction()
+        beginRead()
         try {
             checkOwner(uid,key)
             // Inspect bounded scalar lengths before projecting any payload into a CursorWindow.

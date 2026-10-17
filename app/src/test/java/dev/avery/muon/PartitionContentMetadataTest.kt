@@ -51,7 +51,18 @@ class PartitionContentMetadataTest {
     private fun inventory(root:File)=root.walkTopDown().filter {it.isFile}.associate {file ->
         file.relativeTo(root).path to java.security.MessageDigest.getInstance("SHA-256").digest(file.readBytes()).toList()
     }
-    @Test fun explicitReadOnlyReadsExactChunkedValuesAndRefusesWritesWithoutChangingFiles() {
+    @Test fun olderPlatformRejectsExplicitReadOnlyBeforeOpeningOrCreatingMetadata() {
+        val missing=directory()
+        assertThrows(IOException::class.java) {PartitionContentMetadata(missing,7,"key",readOnly=true)}
+        assertFalse(missing.exists())
+        val root=directory();val expected=metadata("kept" to byteArrayOf(3,7))
+        PartitionContentMetadata(root,7,"key",create=true).use {it.write(expected)}
+        val before=inventory(root)
+        assertThrows(IOException::class.java) {PartitionContentMetadata(root,7,"key",readOnly=true)}
+        assertEquals(before,inventory(root))
+        PartitionContentMetadata(root,7,"key").use {assertEquals(expected,it.read())}
+    }
+    @Test @Config(sdk=[35]) fun explicitReadOnlyReadsExactChunkedValuesAndRefusesWritesWithoutChangingFiles() {
         val root=directory();val key="saved/\u0000\ud800";val name="future/\u0000\udfff"
         val bytes=ByteArray(3*64*1024+7) {it.toByte()};val expected=metadata(name to bytes,"" to byteArrayOf(0,4,9))
         PartitionContentMetadata(root,7,key,create=true).use {it.write(expected)}
@@ -65,7 +76,7 @@ class PartitionContentMetadataTest {
         assertEquals(before,inventory(root))
         PartitionContentMetadata(root,7,key).use {assertEquals(expected,it.read())}
     }
-    @Test fun readOnlyCreationMissingOwnerAndUnknownSchemaRefuseWithoutFilesystemMutation() {
+    @Test @Config(sdk=[35]) fun readOnlyCreationMissingOwnerAndUnknownSchemaRefuseWithoutFilesystemMutation() {
         val missing=directory()
         assertThrows(IOException::class.java) {PartitionContentMetadata(missing,9,"key",create=true,readOnly=true)}
         assertFalse(missing.exists())
@@ -81,7 +92,7 @@ class PartitionContentMetadataTest {
         assertThrows(IOException::class.java) {PartitionContentMetadata(root,9,"key",readOnly=true)}
         assertEquals(foreign,inventory(root))
     }
-    @Test fun readOnlyCorruptChunksAreRefusedWithoutRepairOrReplacement() {
+    @Test @Config(sdk=[35]) fun readOnlyCorruptChunksAreRefusedWithoutRepairOrReplacement() {
         for(statement in listOf("UPDATE chunks SET ordinal=2","UPDATE chunks SET value=zeroblob(65537)")) {
             val root=directory();PartitionContentMetadata(root,1,"key",create=true).close();sql(root) {it.execSQL(statement)}
             val before=inventory(root)
@@ -91,7 +102,7 @@ class PartitionContentMetadataTest {
             assertEquals(before,inventory(root))
         }
     }
-    @Test fun readOnlyReadRechecksActualOwnerInsteadOfKeepingOldAuthority() {
+    @Test @Config(sdk=[35]) fun readOnlyReadRechecksActualOwnerInsteadOfKeepingOldAuthority() {
         val root=directory();PartitionContentMetadata(root,6,"key",create=true).use {it.write(metadata("kept" to byteArrayOf(5)))}
         PartitionContentMetadata(root,6,"key",readOnly=true).use {store ->
             assertArrayEquals(byteArrayOf(5),store.read().get("kept",null as ByteArray?))
