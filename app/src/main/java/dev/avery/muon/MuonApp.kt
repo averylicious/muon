@@ -151,7 +151,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // the main thread, and hoisted here so results survive a trip to another tab.
         // Reset immediately when the library changes; never offer old server track IDs while
         // the replacement library's search is still debouncing.
-        val search by key(all) {
+        val search by key(snapshot) {
             produceState(SearchResults(), query) {
                 if (query.isBlank()) { value = SearchResults(); return@produceState }
                 value = value.copy(searching = true)
