@@ -409,7 +409,10 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             // All source files still require full target byte/metadata/cover verification. Once
             // they are gone, empty-directory unlinks keep exact Pending/gate/root checks; the
             // full target is verified again below before row/cover/Complete work.
-            cleanup.runMoved(tree,root,::live,::verifiedTarget,::current)
+            // Exact Pending authorizes only READ-ONLY source verification. Full target bytes,
+            // metadata/row/cover are checked after that read and before EVERY file unlink.
+            cleanup.runMoved(tree,root,::live,::verifiedTarget,
+                verifyEmptyDirectory=::current,verifySourceRead=::current)
             verifiedTarget(); source.session.eraseMovedSavedRecord(expected,permit,::unclaimed)
             verifiedTarget(); coverMutation=true
             art.removeMovedSourceConfirmed(expected.binding.key,expected.binding.destination.ticket.allocation.key,

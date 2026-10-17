@@ -290,21 +290,25 @@ internal class PartitionMoveTreeRemoval(private val ownership:MigrationIoOwnersh
         runMoved(tree,root,verifyDestination,verifyDestination)
     @Synchronized internal fun runMoved(tree:PartitionMoveTree,root:File,checkpoint:()->Unit,verifyDestination:()->Unit) =
         runMoved(tree,root,checkpoint,verifyDestination,verifyDestination)
-    /** Only the directory stage may use a cheaper exact Pending/storage guard. No file is removed
-     * there: the real unlink refuses nonempty directories. All file guards and the full final
-     * destination check remain, as do the caller's full checks before record/cover retirement. */
+    /** Existing callers keep full target guards before and after source verification. */
     @Synchronized internal fun runMoved(tree:PartitionMoveTree,root:File,checkpoint:()->Unit,
-        verifyDestination:()->Unit,verifyEmptyDirectory:()->Unit) {
+        verifyDestination:()->Unit,verifyEmptyDirectory:()->Unit) =
+        runMoved(tree,root,checkpoint,verifyDestination,verifyEmptyDirectory,verifyDestination)
+    /** A caller with exact Pending/source-read admission may avoid hashing the target merely to
+     * READ its own closed source tree. The FULL target guard still follows source verification
+     * and immediately precedes every file unlink; final target/row/cover checks remain. */
+    @Synchronized internal fun runMoved(tree:PartitionMoveTree,root:File,checkpoint:()->Unit,
+        verifyDestination:()->Unit,verifyEmptyDirectory:()->Unit,verifySourceRead:()->Unit) {
         if(phase!=Phase.New) throw IOException("Move tree attempt already used or uncertain")
         phase=Phase.Active
-        fun checked(guard:()->Unit) {
-            // Full destination guards bracket source hashes before every FILE unlink. Empty
-            // directory removal cannot delete bytes and may keep the cheaper exact Pending guard.
-            // Physical reads retain fresh lease/volume/root/journal/cancellation checks.
-            guard()
+        fun checked(before:()->Unit,after:()->Unit) {
+            // Reading the exact source is non-mutating. Every FILE unlink still waits for a
+            // fresh FULL target check after all source reads/known closes. Physical source
+            // reads retain the caller's lease/volume/root/journal/cancellation checkpoint.
+            before()
             tree.verify(root,true,ownership,checkpoint)
             checkpoint()
-            guard()
+            after()
         }
         fun sync(directory:File) {
             tree.parent(root)
@@ -325,11 +329,11 @@ internal class PartitionMoveTreeRemoval(private val ownership:MigrationIoOwnersh
             tree.parent(root)
             // All databases are already closed. Remove spans first, marker last; no native reopen.
             for(entry in tree.files.sortedBy {if(it.path.endsWith(".v3.exo")) 0 else if(it.path.endsWith(".uid")) 2 else 1}) {
-                checked(verifyDestination); val file=File(root,entry.path)
+                checked(verifySourceRead,verifyDestination); val file=File(root,entry.path)
                 if(tree.filePresentForRemoval(root,entry)) remove(file)
             }
             for(entry in tree.directories.sortedByDescending {it.path.length}) {
-                checked(verifyEmptyDirectory); val file=if(entry.path.isEmpty()) root else File(root,entry.path)
+                checked(verifyEmptyDirectory,verifyEmptyDirectory); val file=if(entry.path.isEmpty()) root else File(root,entry.path)
                 if(tree.directoryPresentForRemoval(root,entry)) remove(file)
             }
             verifyDestination(); tree.parent(root)

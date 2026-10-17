@@ -55,6 +55,50 @@ class PartitionMoveTreeTest {
         assertEquals(2*tree.files.size+1,full) // Full checks on every file, plus final destination proof.
         assertEquals(2*tree.directories.size,empty);assertFalse(root.exists())
     }
+    @Test fun exactSourceReadAdmissionStillRequiresFullTargetImmediatelyBeforeEveryFileUnlink() {
+        val root=source();val tree=persisted(capture(root));var full=0;var reads=0;var removed=0;var empty=0
+        PartitionMoveTreeRemoval(unlink={file ->
+            if(file.isFile) {assertEquals(removed+1,full);assertEquals(removed+1,reads);removed++}
+            else {assertEquals(tree.files.size,removed);assertTrue(file.listFiles()!!.isEmpty())}
+            Files.delete(file.toPath())
+        }).runMoved(tree,root,{}, {full++}, {empty++}, {reads++})
+        assertEquals(tree.files.size,removed);assertEquals(tree.files.size,reads)
+        assertEquals(tree.files.size+1,full);assertEquals(2*tree.directories.size,empty)
+        assertFalse(root.exists())
+    }
+    @Test fun changedTargetDuringReadonlySourceVerificationPreservesEverySourceByteAndKnownHandles() {
+        val root=source();val tree=capture(root);val target=folders.newFile().also {it.writeBytes(byteArrayOf(9,8))}
+        val original=tree.files.associate {it.path to File(root,it.path).readBytes()}
+        val ownership=MigrationIoOwnership();var reading=false;var changed=false;var unlinks=0
+        assertThrows(IOException::class.java) {
+            PartitionMoveTreeRemoval(ownership,unlink={unlinks++;Files.delete(it.toPath())}).runMoved(tree,root,{
+                if(reading && !changed) {changed=true;target.writeBytes(byteArrayOf(6,6))}
+            },{
+                if(!target.readBytes().contentEquals(byteArrayOf(9,8))) throw IOException("Actual target changed")
+            },{}, {reading=true})
+        }
+        assertTrue(changed);assertEquals(0,unlinks);assertTrue(ownership.quiescent)
+        for((path,bytes) in original) assertArrayEquals(bytes,File(root,path).readBytes())
+        target.writeBytes(byteArrayOf(9,8))
+        PartitionMoveTreeRemoval().runMoved(tree,root,{}, {
+            assertArrayEquals(byteArrayOf(9,8),target.readBytes())
+        },{}, {})
+        assertFalse(root.exists())
+    }
+    @Test fun lateSourceReplacementAfterSingleFinalTargetGuardIsStillPreserved() {
+        val root=source();val tree=capture(root);val first=File(root,tree.files.first {it.path.endsWith(".v3.exo")}.path)
+        val modified=Files.getLastModifiedTime(first.toPath());val replacement=folders.newFile().also {it.writeBytes(byteArrayOf(9,9))}
+        var checked=0;var unlinks=0
+        assertThrows(IOException::class.java) {
+            PartitionMoveTreeRemoval(unlink={unlinks++;Files.delete(it.toPath())}).runMoved(tree,root,{}, {
+                if(++checked==1) {
+                    Files.delete(first.toPath());Files.move(replacement.toPath(),first.toPath());Files.setLastModifiedTime(first.toPath(),modified)
+                }
+            },{}, {})
+        }
+        assertEquals(0,unlinks);assertArrayEquals(byteArrayOf(9,9),first.readBytes())
+        assertTrue(tree.files.all {File(root,it.path).isFile})
+    }
     @Test fun sameLengthAndTimestampFileReplacementInLastTargetGuardRefusesBeforeUnlink() {
         val root=source();val tree=capture(root);val first=File(root,tree.files.first {it.path.endsWith(".v3.exo")}.path)
         val modified=Files.getLastModifiedTime(first.toPath());val replacement=folders.newFile().also {it.writeBytes(byteArrayOf(9,9))}
