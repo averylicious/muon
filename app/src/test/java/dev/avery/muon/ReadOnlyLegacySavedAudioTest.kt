@@ -90,18 +90,17 @@ class ReadOnlyLegacySavedAudioTest {
         assertEquals(0,closes);assertArrayEquals(payload,f.originals.single().readBytes())
         assertFalse(SimpleCache.isCacheFolderLocked(f.root))
     }
-    @Test fun ownerLossAtActualPhysicalOpenStillFailsAndKeepsLeaseUntilKnownClose() {
+    @Test fun ownerLossAtActualPhysicalOpenFailsAndClosesBeforeReleasingLease() {
         val f=Fixture();var opens=0;var closes=0;val raw=FileDataSource()
         val reader=f.audio(DataSource.Factory {object:DataSource by raw {
             override fun open(spec:DataSpec):Long {
                 opens++;return raw.open(spec).also {f.available=false}
             }
-            override fun close() {closes++;raw.close()}
+            override fun close() {assertEquals(1,f.barrier.active);closes++;raw.close()}
         }}).source.createDataSource()
         try {
             assertThrows(IOException::class.java) {reader.open(spec())}
-            assertEquals(1,opens);assertEquals(0,closes);assertEquals(1,f.barrier.active)
-            assertThrows(IOException::class.java) {f.barrier.exclusive()}
+            assertEquals(1,opens);assertEquals(1,closes);assertTrue(f.barrier.quiescent)
         } finally {reader.close()}
         assertEquals(1,closes);assertTrue(f.barrier.quiescent)
         assertArrayEquals(payload,f.originals.single().readBytes())
