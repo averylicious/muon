@@ -329,6 +329,71 @@ class LegacyResourceProjectionTest {
             assertFalse(second.exists()); assertEquals(pending,journal.find("selected"))
         }} finally {worker {journal.close()}}
     }
+    private fun largeRetirementFixture():Triple<Fixture,SQLiteDatabase,ByteArray> {
+        val f=Fixture()
+        val bytes=ByteArray(2*64*1024+37) {(it*31).toByte()}
+        // Replace only this test's initial four-byte fixture through the real cache API,
+        // before the closed-source observer or its identity manifest exists.
+        val native=cache(f.root)
+        try {
+            native.removeResource("selected")
+            val hole=requireNotNull(native.startReadWrite("selected",0,bytes.size.toLong()))
+            try {val file=native.startFile("selected",0,bytes.size.toLong());file.writeBytes(bytes);native.commitFile(file,bytes.size.toLong())}
+            finally {native.releaseHoleSpan(hole)}
+        } finally {native.release()}
+        return Triple(f,f.db(),bytes)
+    }
+    @Test fun retirementDigestChecksEveryBoundedBlockAndDetectsChangedTailBeforeUnlink() {
+        val (f,index,bytes)=largeRetirementFixture()
+        val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})}
+        val file=File(f.root,manifest.spans.single().path)
+        var reads=0;var checksAtRead=0;var checks=0;var largest=0
+        val ownership=MigrationIoOwnership(inputs={actual ->object:java.io.RandomAccessFile(actual,"r") {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                assertTrue("Every read needs a fresh ownership checkpoint",checks>checksAtRead)
+                checksAtRead=checks;reads++;largest=maxOf(largest,length)
+                assertTrue(length in 1..64*1024)
+                return super.read(buffer,offset,length)
+            }
+            override fun read():Int {
+                assertTrue("EOF probe also needs a fresh checkpoint",checks>checksAtRead)
+                checksAtRead=checks;return super.read()
+            }
+        }})
+        manifest.verifyRemaining(f.root,index,false,{checks++},ownership)
+        assertTrue(ownership.quiescent);assertEquals(3,reads);assertEquals(64*1024,largest)
+        java.io.RandomAccessFile(file,"rw").use {it.seek(bytes.lastIndex.toLong());it.write(bytes.last().toInt() xor 1)}
+        val journal=LegacyRetirementJournal(folders.newFolder(),true)
+        try {worker {
+            journal.open();val pending=journal.begin(manifest,true);var unlinks=0
+            assertThrows(IOException::class.java) {LegacyRetirementFiles(unlink={unlinks++}).run(pending,f.root,index,{})}
+            assertEquals(0,unlinks);assertTrue(file.exists());assertEquals(pending,journal.find("selected"))
+        }} finally {worker {journal.close()}}
+    }
+    @Test fun retirementCancellationBetweenBlocksClosesTheActualReaderWithoutUnlinking() {
+        val (f,index,bytes)=largeRetirementFixture()
+        val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",index,{})}
+        val file=File(f.root,manifest.spans.single().path)
+        var reads=0;var closes=0;var unlinks=0
+        val ownership=MigrationIoOwnership(inputs={actual ->object:java.io.RandomAccessFile(actual,"r") {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                reads++;return super.read(buffer,offset,length)
+            }
+            override fun close() {closes++;super.close()}
+        }})
+        val journal=LegacyRetirementJournal(folders.newFolder(),true)
+        try {worker {
+            journal.open();val pending=journal.begin(manifest,true)
+            val attempt=LegacyRetirementFiles(unlink={unlinks++},ownership=ownership)
+            assertThrows(java.io.InterruptedIOException::class.java) {
+                attempt.run(pending,f.root,index,{if(reads==1) throw java.io.InterruptedIOException("Cancelled between digest blocks")})
+            }
+            assertEquals(1,reads);assertEquals(1,closes);assertEquals(0,unlinks)
+            assertFalse(attempt.uncertain);assertTrue(ownership.quiescent)
+            assertEquals(pending,journal.find("selected"));assertArrayEquals(bytes,file.readBytes())
+        }} finally {worker {journal.close()}}
+    }
+
     @Test fun changedOriginalBytesRefuseCleanupBeforeAnyUnlink() {
         val f=Fixture(3); val index=f.db(); val journal=LegacyRetirementJournal(folders.newFolder(),true)
         try {worker {

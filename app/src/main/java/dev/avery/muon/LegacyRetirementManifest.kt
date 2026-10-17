@@ -222,7 +222,10 @@ internal data class LegacyRetirementManifest private constructor(val key:String,
         }
         private fun hash(bytes:ByteArray)=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {"%02x".format(it)}
         private fun digest(file:File,length:Long,ownership:MigrationIoOwnership,checkpoint:()->Unit):String {
-            val hash=MessageDigest.getInstance("SHA-256"); val buffer=ByteArray(8192)
+            // One bounded 64KiB block, matching migration copy/verification. Check the actual
+            // owner before EVERY read, including the final EOF probe. Tiny 8KiB reads repeat
+            // full cross-shelf filesystem/schema checks eight times as often on removable FUSE.
+            val hash=MessageDigest.getInstance("SHA-256"); val buffer=ByteArray(64*1024)
             val input=ownership.input(file)
             try {
                 var read=0L
