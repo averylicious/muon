@@ -225,6 +225,40 @@ class SavedPagingTest {
         scratchEmpty()
     }
 
+    @Test fun concurrentReloadDoesNotInvertCatalogAndNativeOwnerLockOrder() {
+        entries=(0..59).map(::entry)
+        val old=io {paging.reload(0) {}.page.snapshot}
+        val owner=java.util.concurrent.locks.ReentrantLock()
+        val entered=java.util.concurrent.CountDownLatch(1)
+        val catalogHeld=java.util.concurrent.CountDownLatch(1)
+        val pool=Executors.newFixedThreadPool(2)
+        val once=SavedPaging(context) {include,check,emit ->
+            owner.lockInterruptibly()
+            try {
+                entered.countDown();assertTrue(catalogHeld.await(10,TimeUnit.SECONDS))
+                for(e in entries) {check();if(include(e.ref)) emit(e)}
+            } finally {owner.unlock()}
+        }
+        try {
+            val playing=pool.submit<String> {
+                try {once.playback(old,entries.last().ref,false) {};"ready"}
+                catch(_:SavedCatalogStale) {"stale"}
+            }
+            assertTrue(entered.await(10,TimeUnit.SECONDS))
+            val reload=pool.submit<SavedCatalogSnapshot> {
+                SavedCatalog.open(context).use {catalog ->catalog.rebuildFrom({emit ->
+                    catalogHeld.countDown();owner.lockInterruptibly()
+                    try {entries.forEach(emit)} finally {owner.unlock()}
+                })}
+            }
+            assertTrue(reload.get(15,TimeUnit.SECONDS).generation>old.generation)
+            assertEquals("stale",playing.get(15,TimeUnit.SECONDS))
+            io {scratchEmpty()}
+        } finally {
+            catalogHeld.countDown();pool.shutdownNow();assertTrue(pool.awaitTermination(15,TimeUnit.SECONDS))
+        }
+    }
+
     private fun entry(id: Int) = SavedEntry(requireNotNull(SavedRef.download(SavedShelf.Phone,
         "saved/$id", "saved/$id")), TauonTrack(id.toLong(), "Song ${id.toString().padStart(5, '0')}",
         "Artist", "Album", 1000, true, false), "http://192.168.1.2:7814", Download.STATE_COMPLETED,
