@@ -241,8 +241,10 @@ class SavedPagingTest {
         }
         try {
             val playing=pool.submit<String> {
-                try {once.playback(old,entries.last().ref,false) {};"ready"}
-                catch(_:SavedCatalogStale) {"stale"}
+                try {
+                    val result=once.playback(old,entries.last().ref,false) {} as SavedPlaybackResult.Ready
+                    assertEquals(60,result.plan.items.size);"ready"
+                } catch(_:SavedCatalogStale) {"stale"}
             }
             assertTrue(entered.await(10,TimeUnit.SECONDS))
             val reload=pool.submit<SavedCatalogSnapshot> {
@@ -252,7 +254,9 @@ class SavedPagingTest {
                 })}
             }
             assertTrue(reload.get(15,TimeUnit.SECONDS).generation>old.generation)
-            assertEquals("stale",playing.get(15,TimeUnit.SECONDS))
+            // WAL readers may publish before the concurrent generation commits; rollback-journal
+            // readers may wait and then refuse it. Both must finish without a lock-order cycle.
+            assertTrue(playing.get(15,TimeUnit.SECONDS) in setOf("ready","stale"))
             io {scratchEmpty()}
         } finally {
             catalogHeld.countDown();pool.shutdownNow();assertTrue(pool.awaitTermination(15,TimeUnit.SECONDS))

@@ -103,7 +103,7 @@ internal class SavedPaging(private val context: Context,
             SavedPlaybackResult.Ready(preparation.build(selected) ?: throw SavedCatalogStale())
         } catch (limit: SavedQueueLimit) {
             // A suppressed close failure must not be mislabeled as a harmless budget refusal.
-            if(limit.suppressed.isNotEmpty()) throw IOException("Saved playback verification did not close safely",limit)
+            if(limit.suppressed.isNotEmpty()) throw IOException("Saved playback could not be prepared safely",limit)
             // Explicit offer must refer to a current playable copy, not a stale clicked row.
             var entry: SavedEntry? = null
             project({ it == selected }, checkpoint) { if (entry != null) throw SavedCatalogStale(); entry = it }
