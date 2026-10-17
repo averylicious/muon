@@ -121,11 +121,18 @@ class PartitionStorageSessionTest {
     @Test fun savedCopyCompletionQueriesAreBoundedByOpensRatherThanReadBlocks() {
         val gate=SavedStorageBarrier();val source=fixture(nativeCapacity=2,barrier=gate);val target=fixture(nativeCapacity=2,barrier=gate)
         fun observe(key:String,bytes:ByteArray):Pair<Int,Int> {
-            completedLocal(source,key,bytes);var live=0
+            completedLocal(source,key,bytes);var live=0;var protected=false
             source.providerReads=0;source.countProviderReads=true
-            val copy=try {worker {source.session.copyCompletedSavedTo(target.session,key,key+"-copy",true) {live++}}}
+            val copy=try {worker {source.session.copyCompletedSavedTo(target.session,key,key+"-copy",true) {
+                live++
+                if(!protected && destinationHasBytes(target,key+"-copy")) {
+                    protected=true
+                    assertThrows(IOException::class.java) {gate.exclusive()}
+                    assertEquals(OfflineStore.SavedRemoval.Busy,source.session.removeCompleted(key) {true})
+                }
+            }}}
                 finally {source.countProviderReads=false}
-            assertEquals(key,copy.completion.key);assertEquals(bytes.size.toLong(),copy.completion.length)
+            assertTrue(protected);assertEquals(key,copy.completion.key);assertEquals(bytes.size.toLong(),copy.completion.length)
             assertNull(target.index.getDownload(key+"-copy")) // Closed preparation is not publication.
             assertEquals(0,source.budget.resident);assertEquals(0,target.budget.resident);assertTrue(gate.quiescent)
             return source.providerReads to live
