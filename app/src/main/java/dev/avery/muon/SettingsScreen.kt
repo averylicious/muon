@@ -129,14 +129,16 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     // Offered only while the card found when the store opened is still there; with no card at all, the
     // row is simply not there (the user's decision). Read once per visit.
     val store = remember { OfflineStore.get(context) }
-    val card = remember { store.cardFolder?.takeIf { OfflineStore.cardAvailable(context) } }
+    val moving = DownloadMarks.moving
+    // An exclusive operation also refuses ordinary availability. Do not remember that busy
+    // observation forever or describe it as physical card loss; recheck when work drains.
+    val card = remember(store, moving != null) { store.cardFolder?.takeIf { OfflineStore.cardAvailable(context) } }
     var onCard by remember { mutableStateOf(OfflineStore.storeOnCard(context)) }
     // That card gone, or the card chosen with none found: unavailable, not empty (#179 S1). The row
     // stays so the choice can be turned off, and nothing is offered to move.
     val cardUnavailable = card == null && (store.card != null || onCard)
     // Where to move, and how many: offered when the switch leaves downloads on the other side.
     var offerMove by remember { mutableStateOf<Pair<Boolean, Int>?>(null) }
-    val moving = DownloadMarks.moving
     val rows = if (card != null || cardUnavailable) 5 else 4
     // Free space where new downloads go: the card's when they go there (#16 QA).
     val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
@@ -179,17 +181,20 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
             val cardFree = remember(card) { runCatching { android.os.StatFs(card.path).availableBytes }.getOrDefault(0L) }
             SettingsRow(shape = rowShape(4, rows), headline = "Store on SD card",
                 supporting = "$cardName · ${formatBytes(cardFree)} free",
-                trailing = { Switch(checked = onCard, onCheckedChange = null) },
-                modifier = Modifier.toggleable(value = onCard, role = Role.Switch) {
+                enabled = moving == null,
+                trailing = { Switch(checked = onCard, onCheckedChange = null, enabled = moving == null) },
+                modifier = Modifier.toggleable(value = onCard, enabled = moving == null, role = Role.Switch) {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
                     val left = OfflineStore.downloadsOn(context, card = !it)
                     if (left != null && left > 0 && moving == null) offerMove = it to left
                 })
         } else if (cardUnavailable) {
             SettingsRow(shape = rowShape(4, rows), headline = "Store on SD card",
-                supporting = "SD card not available · its downloads aren't shown or changed",
-                trailing = { Switch(checked = onCard, onCheckedChange = null) },
-                modifier = Modifier.toggleable(value = onCard, role = Role.Switch) {
+                supporting = if (moving != null) "Saved storage work in progress. Card status will be checked when it finishes."
+                    else "SD card not available · its downloads aren't shown or changed",
+                enabled = moving == null,
+                trailing = { Switch(checked = onCard, onCheckedChange = null, enabled = moving == null) },
+                modifier = Modifier.toggleable(value = onCard, enabled = moving == null, role = Role.Switch) {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
                 })
         }
@@ -207,7 +212,10 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
             confirmButton = { TextButton(onClick = { offerMove = null; OfflineStore.move(context, toCard) }) { Text("Move") } },
             dismissButton = { TextButton(onClick = { offerMove = null }) { Text("Not now") } })
     }
-    if (card != null) Text("New downloads go to the card. While it's out, its downloads aren't shown or used.",
+    if (moving != null && (card != null || cardUnavailable)) Text("Wait for saved storage work to finish before changing where new copies are saved.",
+        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp))
+    else if (card != null) Text("New downloads go to the card. While it's out, its downloads aren't shown or used.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
     else if (cardUnavailable) Text(if (onCard) "Downloads to the card can't start right now and aren't saved for later. " +
