@@ -1,0 +1,9 @@
+# New-save journal lifetime — 2026-10-13
+
+Cumulative successor to #551 with its corrected worker-affinity fixtures; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation and source self-check; exact variant/effort not reported. No Claude, phones or independent review.
+
+Actual shelf startup registers the new-save journal before open. Real schema/find/page cursors and reservation/replacement/lifecycle statements are retained until confirmed closure. Unknown statement, cursor, transaction completion or database close keeps the exact owner/connection and stops later mutation, cleanup and retry. An unconfirmed transaction is not rolled back over uncertain SQL handles. Existing schema and trailing-lambda token generators remain compatible; no automatic repair or native fallback. The journal's persisted Uncertain save phase remains distinct from process-level uncertain ownership.
+
+Six actual SQLite/startup tests exercise registration/schema failure, INSERT/replacement failure, all lifecycle statements, lookup/page cursors, actual commit followed by lost acknowledgement and database-close refusal. An actual shelf/manager-command test injects reservation failure, checks shared source quarantine and preservation of original audio, and establishes that no native writer was allocated. Cleanup of injected unknown transactions stays on their owning thread; this is fixture-only knowledge, not a production reset.
+
+Local diff/branch checks; Actions is the first Android compile. No real-device, performance, visual or physical power-loss evidence. Application PRs remain OPEN for inherited acceptance testing. Partition mode is disabled. Remaining production engineering includes absent-card phone availability without dropping hidden card claims, admission/bootstrap and explicit opt-in/setup-recovery controls, plus final composed lifecycle coverage. No phone needed for this preparation.
