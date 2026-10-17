@@ -271,7 +271,10 @@ internal class PartitionMoveTreeRemoval(private val ownership:MigrationIoOwnersh
             } catch(failure:Throwable) {phase=Phase.Uncertain; throw PartitionOwnershipUncertain(this,failure)}
         }
         try {
-            checked()
+            // Bound the manifest and parent before sorting. The first loop entry already checks
+            // the full remaining tree and destination before any unlink; an extra initial
+            // checked() would repeat the same full byte hashes without an intervening mutation.
+            tree.parent(root)
             // All databases are already closed. Remove spans first, marker last; no native reopen.
             for(entry in tree.files.sortedBy {if(it.path.endsWith(".v3.exo")) 0 else if(it.path.endsWith(".uid")) 2 else 1}) {
                 checked(); val file=File(root,entry.path)

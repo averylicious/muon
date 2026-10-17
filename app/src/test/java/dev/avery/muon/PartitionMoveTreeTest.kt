@@ -41,6 +41,27 @@ class PartitionMoveTreeTest {
         PartitionMoveTreeRemoval().run(tree,root) {checked++}
         assertFalse(root.exists()); assertTrue(root.parentFile.isDirectory); assertTrue(checked>tree.files.size)
     }
+    @Test fun firstUnlinkHasOneFullAudioPassAndNoLiveReaderRatherThanDuplicatedPreflight() {
+        val root=source();val tree=persisted(capture(root))
+        val spans=tree.files.filter {it.path.endsWith(".v3.exo")}.map {File(root,it.path)}.toSet()
+        val reads=mutableMapOf<File,Int>();var unlinks=0;var destinationChecks=0
+        val ownership=MigrationIoOwnership(inputs={file ->
+            java.io.RandomAccessFile(file,"r").also {
+                if(file in spans) reads[file]=(reads[file] ?: 0)+1
+            }
+        })
+        val removal=PartitionMoveTreeRemoval(ownership,unlink={file ->
+            assertTrue("All real file/directory readers must close before unlink",ownership.quiescent)
+            if(unlinks==0) {
+                assertTrue(file in spans);assertEquals(spans,reads.keys)
+                assertTrue("Every audio span is hashed once before the first unlink",reads.values.all {it==1})
+                assertTrue("Destination must be checked before source mutation",destinationChecks>0)
+            }
+            Files.delete(file.toPath());unlinks++
+        })
+        removal.runMoved(tree,root,{}, {destinationChecks++})
+        assertFalse(root.exists());assertTrue(unlinks>tree.files.size);assertTrue(ownership.quiescent)
+    }
     @Test fun interruptedAfterActualFirstUnlinkResumesFromPersistedIdentity() {
         val root=source(); val tree=persisted(capture(root)); val first=File(root,"bytes/0/0.0.1.v3.exo")
         assertThrows(InterruptedIOException::class.java) {PartitionMoveTreeRemoval().run(tree,root) {
