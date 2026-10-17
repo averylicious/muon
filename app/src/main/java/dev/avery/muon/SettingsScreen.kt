@@ -215,7 +215,8 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     if (moving != null && (card != null || cardUnavailable)) Text("Wait for saved storage work to finish before changing where new copies are saved.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
-    else if (card != null) Text("New downloads go to the card. While it's out, its downloads aren't shown or used.",
+    else if (card != null) Text(if (onCard) "New downloads go to the card. While it's out, its downloads aren't shown or used."
+        else "New downloads go to the phone. Songs already on the card stay there unless you move them.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
     else if (cardUnavailable) Text(if (onCard) "Downloads to the card can't start right now and aren't saved for later. " +
