@@ -390,14 +390,15 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         fun live() {owned(); checkpoint(); owned()}
         fun unclaimed(name:String)=!destination.claimsMoveName(name,permit) &&
             !source.legacy.claimsOriginalName(name,permit) && unclaimedElsewhere(name)
-        /** Only inside a complete destination digest: actual native reads retain their own full
-         * guard. Full outer journal/claim checks bracket the digest in verifiedTarget/current,
-         * and still precede EVERY source-file unlink. Avoid repeating those outer sweeps for
-         * every digest block; keep fresh same-lease/both-volume/both-root/cancellation checks. */
+        /** Only inside a complete destination digest. Check fresh roots before the caller's
+         * cancellation callback, then FULL journals/lease/binding roots again before returning
+         * to physical I/O. A second full sweep before that callback duplicates work. Cache/span
+         * guards remain unchanged; do not assume CacheDataSource rechecks them per read block.
+         * verifiedTarget/current still bracket the entire digest and every source-file unlink. */
         fun digestLive() {
             permit.check(); rootLocated(); destination.rootLocated()
             checkpoint()
-            permit.check(); rootLocated(); destination.rootLocated()
+            owned()
         }
         fun current() {live(); source.session.verifyPendingSavedMove(expected,permit,::unclaimed); live()}
         fun verifiedTarget() {
