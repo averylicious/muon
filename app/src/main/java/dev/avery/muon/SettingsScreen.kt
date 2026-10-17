@@ -63,6 +63,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             // A failed refresh keeps the previous library on screen; this says why it is stale.
             model.error?.let { ErrorCard(it, "Retry", quiet = model.offline, modifier = Modifier) { model.connect() } }
             if (debuggable) DiagnosticBuildBanner()
+            else if (BuildConfig.STORAGE_TIMINGS) StorageTimingBuildBanner()
 
             GroupLabel("Connection")
             SettingsGroup {
@@ -273,6 +274,19 @@ private fun Legend(color: Color, label: String, outlined: Boolean = false) {
             .then(if (outlined) Modifier.border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(5.dp)) else Modifier))
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+@Composable
+private fun StorageTimingBuildBanner() {
+    val colors=MaterialTheme.colorScheme
+    Surface(color=colors.errorContainer,contentColor=colors.onErrorContainer,shape=RoundedCornerShape(20.dp),
+        modifier=Modifier.fillMaxWidth().semantics(mergeDescendants=true) {}) {
+        Column(Modifier.padding(horizontal=20.dp,vertical=14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+            Text("Storage timing test build",style=MaterialTheme.typography.titleMedium)
+            Text("Temporary, non-debuggable build for storage timing tests. Extra timing logs contain only " +
+                "counters and durations. Use ordinary Canary or Stable for normal listening.",style=MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 

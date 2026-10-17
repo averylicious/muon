@@ -45,7 +45,7 @@ internal class LegacyProjectionTiming private constructor(private val audioOnly:
     }
     companion object {
         private val remaining=AtomicInteger(32)
-        fun begin(enabled:Boolean=BuildConfig.DEBUG,audioOnly:Boolean=true,owned:Boolean=false,
+        fun begin(enabled:Boolean=BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS,audioOnly:Boolean=true,owned:Boolean=false,
             allowance:AtomicInteger=remaining,clock:()->Long=SystemClock::elapsedRealtime,
             emit:(Event)->Unit={e ->android.util.Log.d("MuonLegacyTiming",
                 "audio=${e.audioOnly} owned=${e.owned} successful=${e.successful} totalMs=${e.totalMs} "+

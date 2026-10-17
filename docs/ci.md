@@ -75,6 +75,14 @@ It installs **beside** Canary and Stable; it does not update them or share their
 
 Performance is **not representative** with debugging enabled (#125). Do not use it to judge speed, smoothness or battery. Return to the normal Canary or Stable app for listening; neither needs reinstalling or downgrading. The diagnostic app can remain installed for the next test or be removed separately after test evidence is saved. Never uninstall ordinary Canary or Stable to leave diagnostic mode.
 
+## Temporary non-debuggable storage timings
+
+For the preserved Canary legacy fixture, manually dispatch **Android APKs** on an isolated non-main branch with `storage_timings=true` and `diagnostic_debug=false`. This keeps the ordinary Canary package, signing identity and data, and remains **non-debuggable**. It adds a `-timings` version suffix, an explicit **Storage timing test build** Settings notice and a mode line in `BUILD.txt`. Installing it does not opt in, migrate, import or delete data. Return with a newer ordinary build; never uninstall or bypass version-code/signing protection.
+
+The mode is off by default and rejected on main/tags or non-manual events. Selection happens before SDK/signing and is independently checked against the raw input before APK upload. Both the channel and publication job refuse timing builds. Release/benchmark keep timing disabled. No secrets, triggers or fork access are added. Explicit `diagnostic_debug=true` still selects the separate debugging app and its existing notice; timing does not enable debugging.
+
+Only capped root/volume and legacy-projection constant-label numbers/flags are logged: at most32events per observer family per process, no identifiers, paths, song/server/error text or retained history. Root totals overlap volume totals; do not add them. These extra clock/log calls are diagnostic observations, not an uninstrumented benchmark. The existing debug-only startup logger remains debug-only. Ordinary builds construct neither observer and make no extra clock/log calls.
+
 ## Where the originals are
 
 Local originals are kept in ignored `.local/` on this desktop, with private file permissions:

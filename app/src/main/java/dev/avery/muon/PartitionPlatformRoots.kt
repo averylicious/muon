@@ -103,7 +103,7 @@ internal class PartitionPlatformRoots(
                     val volume=manager.getStorageVolume(directory)
                     if(volume==null || !volume.isRemovable || volume.isEmulated || volume.state!=Environment.MEDIA_MOUNTED) null
                     else volume.uuid?.let {"removable:$it"}
-                },timing=if(BuildConfig.DEBUG) StorageRootTiming.begin(true) else null)
+                },timing=if(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS) StorageRootTiming.begin(true) else null)
         }
     }
 }
