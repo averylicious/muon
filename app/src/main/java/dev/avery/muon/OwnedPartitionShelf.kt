@@ -404,7 +404,10 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             verifiedTarget()
             val root=source.catalog.directory(expected.binding.source.ticket.allocation)
             retainedSavedMoveCleanup=cleanup
-            cleanup.runMoved(tree,root,::live,::verifiedTarget)
+            // All source files still require full target byte/metadata/cover verification. Once
+            // they are gone, empty-directory unlinks keep exact Pending/gate/root checks; the
+            // full target is verified again below before row/cover/Complete work.
+            cleanup.runMoved(tree,root,::live,::verifiedTarget,::current)
             verifiedTarget(); source.session.eraseMovedSavedRecord(expected,permit,::unclaimed)
             verifiedTarget(); coverMutation=true
             art.removeMovedSourceConfirmed(expected.binding.key,expected.binding.destination.ticket.allocation.key,

@@ -41,6 +41,74 @@ class PartitionMoveTreeTest {
         PartitionMoveTreeRemoval().run(tree,root) {checked++}
         assertFalse(root.exists()); assertTrue(root.parentFile.isDirectory); assertTrue(checked>tree.files.size)
     }
+    @Test fun emptyDirectoriesDoNotRehashTargetButEveryFileStillKeepsFullGuards() {
+        val root=source();val tree=persisted(capture(root));var full=0;var empty=0;var files=0;var directories=0
+        PartitionMoveTreeRemoval(unlink={file ->
+            if(file.isFile) {assertEquals(2*(files+1),full);files++}
+            else {assertEquals(tree.files.size,files);assertTrue(file.listFiles()!!.isEmpty());directories++}
+            Files.delete(file.toPath())
+        }).runMoved(tree,root,{}, {full++}, {
+            empty++;assertEquals(tree.files.size,files)
+            assertTrue(tree.files.none {File(root,it.path).exists()})
+        })
+        assertEquals(tree.files.size,files);assertEquals(tree.directories.size,directories)
+        assertEquals(2*tree.files.size+1,full) // Full checks on every file, plus final destination proof.
+        assertEquals(2*tree.directories.size,empty);assertFalse(root.exists())
+    }
+    @Test fun sameLengthAndTimestampFileReplacementInLastTargetGuardRefusesBeforeUnlink() {
+        val root=source();val tree=capture(root);val first=File(root,tree.files.first {it.path.endsWith(".v3.exo")}.path)
+        val modified=Files.getLastModifiedTime(first.toPath());val replacement=folders.newFile().also {it.writeBytes(byteArrayOf(9,9))}
+        assertNotEquals(Files.readAttributes(first.toPath(),java.nio.file.attribute.BasicFileAttributes::class.java).fileKey(),
+            Files.readAttributes(replacement.toPath(),java.nio.file.attribute.BasicFileAttributes::class.java).fileKey())
+        var guards=0;var unlinks=0
+        assertThrows(IOException::class.java) {
+            PartitionMoveTreeRemoval(unlink={unlinks++;Files.delete(it.toPath())}).runMoved(tree,root,{}, {
+                if(++guards==2) {Files.delete(first.toPath());Files.move(replacement.toPath(),first.toPath());Files.setLastModifiedTime(first.toPath(),modified)}
+            })
+        }
+        assertEquals(0,unlinks);assertArrayEquals(byteArrayOf(9,9),first.readBytes())
+        assertTrue(tree.files.all {File(root,it.path).isFile})
+    }
+    @Test fun sameTargetAncestorLinkInLastGuardCannotDeleteThroughChangedSourcePath() {
+        val root=source();val tree=capture(root);val shard=File(root,"bytes/0");val kept=File(folders.newFolder(),"kept")
+        var guards=0;var unlinks=0
+        assertThrows(IOException::class.java) {
+            PartitionMoveTreeRemoval(unlink={unlinks++;Files.delete(it.toPath())}).runMoved(tree,root,{}, {
+                if(++guards==2) {Files.move(shard.toPath(),kept.toPath());Files.createSymbolicLink(shard.toPath(),kept.toPath())}
+            })
+        }
+        assertEquals(0,unlinks);assertTrue(Files.isSymbolicLink(shard.toPath()))
+        assertArrayEquals(byteArrayOf(1,2),File(kept,"0.0.1.v3.exo").readBytes())
+        assertArrayEquals(byteArrayOf(3,4),File(kept,"0.2.1.v3.exo").readBytes())
+    }
+    @Test fun regularFileReplacingEmptyDirectoryInLastGuardIsPreserved() {
+        val root=source();val tree=capture(root);val selected=tree.directories.maxBy {it.path.length}
+        val directory=File(root,selected.path);val foreign=folders.newFile().also {it.writeText("unowned control")}
+        var empty=0;var removedDirectories=0
+        assertThrows(IOException::class.java) {
+            PartitionMoveTreeRemoval(unlink={file ->
+                if(file.isDirectory) removedDirectories++
+                Files.delete(file.toPath())
+            }).runMoved(tree,root,{}, {}, {
+                if(++empty==2) {assertTrue(directory.listFiles()!!.isEmpty());Files.delete(directory.toPath());Files.move(foreign.toPath(),directory.toPath())}
+            })
+        }
+        assertEquals(0,removedDirectories);assertTrue(directory.isFile);assertEquals("unowned control",directory.readText())
+        assertTrue(tree.files.none {File(root,it.path).exists()})
+    }
+
+    @Test fun unknownChildAddedAfterEmptyDirectoryVerificationIsNeverRecursivelyRemoved() {
+        val root=source();val tree=capture(root);val directory=File(root,tree.directories.maxBy {it.path.length}.path)
+        val foreign=File(directory,"unowned");var empty=0
+        assertThrows(PartitionOwnershipUncertain::class.java) {
+            PartitionMoveTreeRemoval().runMoved(tree,root,{}, {}, {
+                if(++empty==2) foreign.writeText("unowned control")
+            })
+        }
+        assertTrue(directory.isDirectory);assertEquals("unowned control",foreign.readText())
+        assertTrue(tree.files.none {File(root,it.path).exists()})
+    }
+
     @Test fun firstUnlinkHasOneFullAudioPassAndNoLiveReaderRatherThanDuplicatedPreflight() {
         val root=source();val tree=persisted(capture(root))
         val spans=tree.files.filter {it.path.endsWith(".v3.exo")}.map {File(root,it.path)}.toSet()
