@@ -1,0 +1,9 @@
+# Selected saved-copy migration entry — 2026-10-13
+
+Cumulative successor to #547 77b7089cef6093a52ffb47aa953b0e6132ae30d8; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No Claude/phones/independent review.
+
+A complete saved download in an actually prepared partition store can open Optimize from its own row. The dialog checks one selected source off main and refuses existing/new/migrated/disposition claims, aliases, missing/unsupported completed records and incomplete audio. This bounded observation is not persisted authority: dispatch still rechecks Fresh under exclusive ownership. Played copies and differing request/cache-key locators are refused at the application entry. Confirmation explains temporary duplicate space, preserved originals, progress/Cancel/recovery in Settings and that storage verification does not establish a match with Tauon's current song. No live-ID input, bulk migration, automatic retry or source deletion.
+
+Two actual shelf/application tests cover off-main offer and disappearance after durable publication, alias/played/no-consent refusal and preserved actual original bytes/record/cover. Local diff/branch preflight; Actions first Android/Compose compile. No Compose UI tests or device/visual/spoken/performance/power-loss evidence. A positive offer can become stale; the actual dispatcher/worker refuses changed ownership rather than using the display snapshot as authority.
+
+Partition mode remains disabled and application PRs remain OPEN for inherited UAT. Next engineering: trusted platform roots/volume identity and unavailable-card policy, native bootstrap, explicit opt-in/free-space/setup recovery and final composed failures (including earlier migration journal constructor/write lifetimes). Current prepared components do not require a phone yet.
