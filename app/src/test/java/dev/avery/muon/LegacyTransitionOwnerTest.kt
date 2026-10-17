@@ -165,6 +165,8 @@ class LegacyTransitionOwnerTest {
         val outside=folders.newFile().apply {writeText("Keep")}
         val unknown=File(f.originals.last().parentFile,"unselected-leftover")
         java.nio.file.Files.createSymbolicLink(unknown.toPath(),outside.toPath())
+        val orphan=File(f.originals.first().parentFile,f.originals.first().name.substringBefore('.')+".999.1.v3.exo")
+            .apply {writeBytes(byteArrayOf(9,9))}
         try {
             assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage)
             val reader=audio.source.createDataSource()
@@ -176,8 +178,9 @@ class LegacyTransitionOwnerTest {
             try {assertThrows(IOException::class.java) {LegacyResourceProjection.read(f.root,f.uid,"saved/0",requireNotNull(borrowed),{
                 owner.checkProjection(f.root,f.uid,requireNotNull(borrowed))
             })}} finally {permit.close()}
-            assertEquals("Keep",outside.readText());assertTrue(java.nio.file.Files.isSymbolicLink(unknown.toPath()));f.unchanged()
-        } finally {java.nio.file.Files.delete(unknown.toPath());owner.close()}
+            assertEquals("Keep",outside.readText());assertTrue(java.nio.file.Files.isSymbolicLink(unknown.toPath()))
+            assertArrayEquals(byteArrayOf(9,9),orphan.readBytes());f.unchanged()
+        } finally {java.nio.file.Files.delete(unknown.toPath());java.nio.file.Files.delete(orphan.toPath());owner.close()}
     }
     @Test fun indexedOwnerAudioRejectsDuplicateSelectedPathAndSameTargetShardLink() {
         val f=Fixture();val owner=f.owner();val audio=owner.open();val original=f.originals.single()
@@ -209,6 +212,24 @@ class LegacyTransitionOwnerTest {
             finally {original.writeBytes(payload)}
             assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage);f.unchanged()
         } finally {writer.close();owner.close()}
+    }
+    @Test fun indexedOwnerAudioRefusesRealSelectedFragmentationBeyondTheFixedBudget() {
+        val f=Fixture();val native=SimpleCache(f.root,NoOpCacheEvictor(),f.provider)
+        try {
+            native.checkInitialization()
+            for(i in 1..MIGRATION_RANGES) {
+                val hole=requireNotNull(native.startReadWrite("saved/0",i*8L,4))
+                try {
+                    val file=native.startFile("saved/0",i*8L,4);file.writeBytes(payload)
+                    native.commitFile(file,4);f.originals+=file
+                } finally {native.releaseHoleSpan(hole)}
+            }
+        } finally {native.release();f.provider.close()}
+        val owner=f.owner();val audio=owner.open()
+        try {
+            assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+            assertTrue(f.barrier.quiescent);f.unchanged()
+        } finally {owner.close()}
     }
     @Test fun ownedAudioProjectionStillRejectsUnexpectedLiveNativeSchema() {
         val f=Fixture();val owner=f.owner();val audio=owner.open()
