@@ -61,6 +61,15 @@ internal class SavedAudioDigest {
     private var source:DataSource?=null
     private var construction:DataSource.Factory?=null
     private var uncertainty:Throwable?=null
+    /** Full immutable binding checks bracket actual reading AND known close. The caller keeps
+     * its real exclusive lease; every block still checks fresh storage/cancellation. No digest
+     * escapes after a changed binding, and unknown construction/close retains this same owner. */
+    fun readVerified(spec:DataSpec,factory:DataSource.Factory,checkpoint:()->Unit,verifyBinding:()->Unit):String {
+        verifyBinding()
+        val digest=read(spec,factory,checkpoint)
+        verifyBinding()
+        return digest
+    }
     fun read(spec:DataSpec,factory:DataSource.Factory,checkpoint:()->Unit):String {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved digest requires a worker"}
         if(used || spec.position!=0L || spec.length<=0) throw IOException("Saved digest requires one exact full read")

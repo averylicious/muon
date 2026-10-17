@@ -61,6 +61,34 @@ class PartitionMoveDestinationTest {
         assertEquals(1,closes)
         assertThrows(IOException::class.java) {worker {SavedAudioDigest().read(spec,DataSource.Factory {ByteArrayDataSource(byteArrayOf(2))}) {}}}
     }
+    @Test fun verifiedDigestBindsBeforeAndAfterMultiBlockReadAndActualClose() {
+        val bytes=ByteArray(3*64*1024+17) {it.toByte()};var reads=0;var closes=0;var guards=0;var live=0
+        val raw=ByteArrayDataSource(bytes)
+        val source=DataSource.Factory {object:DataSource by raw {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {reads++;return raw.read(buffer,offset,length)}
+            override fun close() {closes++;raw.close()}
+        }}
+        val hash=worker {SavedAudioDigest().readVerified(spec.buildUpon().setLength(bytes.size.toLong()).build(),source,{live++}) {
+            if(guards++==0) {assertEquals(0,reads);assertEquals(0,closes)}
+            else {assertTrue(reads>=5);assertEquals(1,closes)}
+        }}
+        assertEquals(2,guards);assertTrue(live>=reads)
+        assertEquals(MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {"%02x".format(it)},hash)
+    }
+    @Test fun changedBindingDuringActualReadCannotPublishDigestAndKnownReaderClosesOnce() {
+        var valid=true;var closes=0;var guards=0;var reads=0
+        val raw=ByteArrayDataSource(payload)
+        val source=DataSource.Factory {object:DataSource by raw {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                val n=raw.read(buffer,offset,length);if(n>0) {reads++;valid=false};return n
+            }
+            override fun close() {closes++;raw.close()}
+        }}
+        assertThrows(IOException::class.java) {worker {SavedAudioDigest().readVerified(spec,source,{}) {
+            guards++;if(!valid) throw IOException("Binding changed during actual digest read")
+        }}}
+        assertEquals(1,reads);assertEquals(1,closes);assertEquals(2,guards)
+    }
     @Test fun savedDigestUnknownCloseRetainsActualSourceAndRefusesSecondAttempt() {
         val raw=ByteArrayDataSource(payload); var closes=0
         val actual=object:DataSource by raw {override fun close():Unit {closes++; throw IOException("Unknown digest reader close")}}

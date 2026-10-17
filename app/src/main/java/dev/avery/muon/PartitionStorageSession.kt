@@ -410,8 +410,8 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             if(actual.uid!=closed.uid || state.coverage!=SavedCoverage.Full || state.bytes!=expected.length)
                 throw IOException("Move destination lacks exact full native bytes")
             val metadataHash=partitionMoveMetadataDigest(metadata)
-            val audioHash=digest.read(DataSpec.Builder().setUri("muon-saved:move-identity").setKey(key)
-                .setLength(expected.length).build(),LegacySavedAudio(actual).source,::checked)
+            val audioHash=digest.readVerified(DataSpec.Builder().setUri("muon-saved:move-identity").setKey(key)
+                .setLength(expected.length).build(),LegacySavedAudio(actual).source,::live,::checked)
             checked()
             if(savedAudioState(actual,key).metadata!=metadata) throw IOException("Move destination metadata changed during digest")
             val observed=PartitionMoveDestination(volume,rootIdentity,ticket,actual.uid,expected.retirementIdentity(),

@@ -50,7 +50,15 @@ class PartitionStorageSessionTest {
         val index=DefaultDownloadIndex(database,name).also { it.getDownloads().close() }
         var available=true
         val native=PartitionNativeOwner(catalog,migrations,"card",{if(available) "card" else null},budget=budget,saves=saves)
-        val session=PartitionStorageSession(catalog,saves,migrations,native,database,name,LegacySavedAudio(legacy),
+        var countProviderReads=false;var providerReads=0
+        private val trackedDatabase=object:androidx.media3.database.DatabaseProvider {
+            override fun getReadableDatabase():SQLiteDatabase {
+                if(countProviderReads) providerReads++
+                return database.readableDatabase
+            }
+            override fun getWritableDatabase():SQLiteDatabase=database.writableDatabase
+        }
+        val session=PartitionStorageSession(catalog,saves,migrations,native,trackedDatabase,name,LegacySavedAudio(legacy),
             DataSource.Factory { ByteArrayDataSource(payload) },
             { key -> legacy.getCachedBytes(key,0,Long.MAX_VALUE)==0L && index.getDownload(key)==null },{available},barrier,commandCapacity)
         fun seed(key:String):File {
@@ -93,6 +101,31 @@ class PartitionStorageSessionTest {
     }
     private fun played(f:Fixture,key:String)=f.session.copyPlayed(spec(key),byteArrayOf(1),
         "http://127.0.0.1:7814/1",DataSource.Factory {ByteArrayDataSource(payload)}) {8192L}
+    @Test fun moveDestinationCompletedRowWorkIsBoundedIndependentlyOfAudioBlockCount() {
+        val f=fixture(nativeCapacity=2)
+        fun observe(key:String,bytes:ByteArray):Pair<Int,Int> = worker {
+            val source=DataSource.Factory {ByteArrayDataSource(bytes)}
+            val metadata=androidx.media3.datasource.cache.DefaultContentMetadata.EMPTY.copyWithMutationsApplied(
+                ContentMetadataMutations.setContentLength(ContentMetadataMutations(),bytes.size.toLong()))
+            val ticket=f.session.copyLocalSaved(spec(key).buildUpon().setLength(bytes.size.toLong()).build(),metadata,source,{})
+            val permit=f.barrier.exclusive()
+            try {
+                val request=DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/api1/fileopus/1")).setCustomCacheKey(key).build()
+                val completed=f.session.publishLocalSaved(ticket,request,bytes.size.toLong(),metadata,source,permit,{}, {true},10)
+                var live=0;f.providerReads=0;f.countProviderReads=true
+                val result=try {f.session.moveDestinationIdentity(ticket,completed,"card","fixture-root",permit) {live++}}
+                    finally {f.countProviderReads=false}
+                assertEquals(java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {"%02x".format(it)},result.audioDigest)
+                assertEquals(0,f.budget.resident) // Real digest reader/native owner closed before return.
+                f.providerReads to live
+            } finally {permit.close()}
+        }
+        val small=observe("saved/short-observation",byteArrayOf(1,2,3,4))
+        val large=observe("saved/multiblock-observation",ByteArray(5*64*1024+17) {it.toByte()})
+        assertTrue(small.first>0);assertEquals(small.first,large.first)
+        assertTrue("Fresh per-block storage/cancellation checks must still grow with actual reads",large.second>small.second)
+        assertTrue(f.barrier.quiescent)
+    }
     @Test fun interleavedManualDeletionRecensusesBeforeResizeCanOverEvict() {
         val f=fixture(nativeCapacity=2); val keys=(0..2).map {playedKey("saved/overlap-$it")}
         worker {keys.forEach {played(f,it)}}
