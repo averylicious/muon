@@ -410,7 +410,7 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                     completionIndex.find(key)!=expected || completionIndex.holdsOtherName(key))
                     throw IOException("Move destination identity changed")
             }
-            checked(); val actual=native.openClosedSaveRead(key); cache=actual
+            checked(); val actual=native.openClosedSaveVerification(key); cache=actual
             val state=savedAudioState(actual,key)
             val metadata=PartitionResourceCache.measured(state.metadata,PartitionResourceLimits())
             if(actual.uid!=closed.uid || state.coverage!=SavedCoverage.Full || state.bytes!=expected.length)
