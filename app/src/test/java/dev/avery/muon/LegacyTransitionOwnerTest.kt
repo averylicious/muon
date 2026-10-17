@@ -217,6 +217,8 @@ class LegacyTransitionOwnerTest {
         val f=Fixture();val native=SimpleCache(f.root,NoOpCacheEvictor(),f.provider)
         try {
             native.checkInitialization()
+            native.applyContentMetadataMutations("saved/0",ContentMetadataMutations.setContentLength(
+                ContentMetadataMutations(),MIGRATION_RANGES*8L+4))
             for(i in 1..MIGRATION_RANGES) {
                 val hole=requireNotNull(native.startReadWrite("saved/0",i*8L,4))
                 try {
