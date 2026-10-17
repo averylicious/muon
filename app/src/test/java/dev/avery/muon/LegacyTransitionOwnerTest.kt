@@ -129,6 +129,87 @@ class LegacyTransitionOwnerTest {
             assertTrue(f.barrier.quiescent);f.unchanged()
         } finally {other.close();owner.close()}
     }
+    @Test fun indexedOwnerAudioEnumeratesOnlyRootForHundredsOfRealResources() {
+        val f=Fixture(200);var borrowed:SQLiteDatabase?=null
+        val owner=LegacyTransitionOwner(f.root,f.databaseFile,f.barrier,{f.present},openDatabase={file ->
+            SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READONLY).also {borrowed=it}
+        })
+        owner.open()
+        try {
+            var directories=0
+            val io=MigrationIoOwnership(directories={path ->
+                assertEquals("No whole-cache shard walk for one indexed audio observation",f.root.toPath(),path)
+                directories++;java.nio.file.Files.newDirectoryStream(path)
+            })
+            val permit=f.barrier.shared()
+            try {
+                val read=requireNotNull(borrowed)
+                val view=LegacyResourceProjection.readOwnedAudio(f.root,f.uid,"saved/0",read,owner,io)
+                assertEquals(setOf("saved/0"),view.cache.keys);assertEquals(1,view.cache.getCachedSpans("saved/0").size)
+                assertEquals(SavedCoverage.Full,LegacyResourceProjection.inspectAudio(view).coverage)
+                assertEquals(1,directories);assertTrue(io.quiescent)
+                val table="ExoPlayerCacheFileMetadata"+java.lang.Long.toHexString(f.uid)
+                read.rawQuery("EXPLAIN QUERY PLAN SELECT name FROM $table WHERE name GLOB ? LIMIT 257",arrayOf(f.originals.first().name.substringBefore('.')+".*")).use {c ->
+                    assertTrue(c.moveToFirst());assertTrue(c.getString(3).contains("SEARCH"))
+                    assertFalse(c.getString(3).contains("SCAN"))
+                }
+            } finally {permit.close()}
+            f.unchanged();assertTrue(f.barrier.quiescent)
+        } finally {owner.close()}
+    }
+    @Test fun indexedReadonlyAudioPreservesUnselectedLeafLeftoversWhileExactMigrationStillRefuses() {
+        val f=Fixture(2);var borrowed:SQLiteDatabase?=null
+        val owner=LegacyTransitionOwner(f.root,f.databaseFile,f.barrier,{f.present},openDatabase={file ->
+            SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READONLY).also {borrowed=it}
+        });val audio=owner.open()
+        val outside=folders.newFile().apply {writeText("Keep")}
+        val unknown=File(f.originals.last().parentFile,"unselected-leftover")
+        java.nio.file.Files.createSymbolicLink(unknown.toPath(),outside.toPath())
+        try {
+            assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage)
+            val reader=audio.source.createDataSource()
+            try {
+                assertEquals(4L,reader.open(spec));val bytes=ByteArray(4)
+                assertEquals(4,reader.read(bytes,0,4));assertArrayEquals(payload,bytes)
+            } finally {reader.close()}
+            val permit=f.barrier.shared()
+            try {assertThrows(IOException::class.java) {LegacyResourceProjection.read(f.root,f.uid,"saved/0",requireNotNull(borrowed),{
+                owner.checkProjection(f.root,f.uid,requireNotNull(borrowed))
+            })}} finally {permit.close()}
+            assertEquals("Keep",outside.readText());assertTrue(java.nio.file.Files.isSymbolicLink(unknown.toPath()));f.unchanged()
+        } finally {java.nio.file.Files.delete(unknown.toPath());owner.close()}
+    }
+    @Test fun indexedOwnerAudioRejectsDuplicateSelectedPathAndSameTargetShardLink() {
+        val f=Fixture();val owner=f.owner();val audio=owner.open();val original=f.originals.single()
+        val other=(0..9).map {File(f.root,it.toString())}.first { !it.exists() }.apply {mkdir()}
+        val duplicate=File(other,original.name);java.nio.file.Files.copy(original.toPath(),duplicate.toPath())
+        try {
+            assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+            assertArrayEquals(payload,duplicate.readBytes());java.nio.file.Files.delete(duplicate.toPath())
+            val shard=original.parentFile.toPath();val held=File(folders.newFolder(),"original-shard").toPath()
+            java.nio.file.Files.move(shard,held)
+            try {
+                java.nio.file.Files.createSymbolicLink(shard,held)
+                assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+            } finally {java.nio.file.Files.delete(shard);java.nio.file.Files.move(held,shard)}
+            assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage);f.unchanged()
+        } finally {owner.close()}
+    }
+    @Test fun indexedOwnerAudioRejectsMissingAndOversizedSelectedScalarsWithoutRepair() {
+        val f=Fixture();val owner=f.owner();val audio=owner.open();val original=f.originals.single()
+        val writer=SQLiteDatabase.openDatabase(f.databaseFile.path,null,SQLiteDatabase.OPEN_READWRITE)
+        val table="ExoPlayerCacheFileMetadata"+java.lang.Long.toHexString(f.uid)
+        try {
+            writer.execSQL("UPDATE $table SET length=zeroblob(8388608) WHERE name=?",arrayOf(original.name))
+            assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+            writer.rawQuery("SELECT length(length) FROM $table WHERE name=?",arrayOf(original.name)).use {c ->assertTrue(c.moveToFirst());assertEquals(8388608,c.getInt(0))}
+            writer.execSQL("UPDATE $table SET length=4 WHERE name=?",arrayOf(original.name))
+            java.nio.file.Files.delete(original.toPath())
+            try {assertThrows(IOException::class.java) {audio.inspect("saved/0")}}
+            finally {original.writeBytes(payload)}
+            assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage);f.unchanged()
+        } finally {writer.close();owner.close()}
+    }
     @Test fun ownedAudioProjectionStillRejectsUnexpectedLiveNativeSchema() {
         val f=Fixture();val owner=f.owner();val audio=owner.open()
         val writer=SQLiteDatabase.openDatabase(f.databaseFile.path,null,SQLiteDatabase.OPEN_READWRITE)

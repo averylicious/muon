@@ -18,6 +18,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.NoSuchFileException
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.NavigableSet
 import java.util.TreeSet
@@ -113,39 +114,43 @@ internal object LegacyResourceProjection {
             }
         } finally { if(admitted) playbackDecoder.set(false) }
         timing?.phase(LegacyProjectionTiming.Phase.FILES)
-        val spans=ArrayList<CacheSpan>(); var children=0; var marker=false
-        ownership.directory(directory.toPath()).use { entries -> for(path in entries) {
-            live(); if(++children>11) throw IOException("Unknown legacy directory layout")
-            // One NOFOLLOW observation binds type and size. A link to the right inode is still
-            // a link, never permission to follow it; actual owner checkpoints remain per entry.
-            val attributes=Files.readAttributes(path,BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
-            val name=path.fileName.toString()
-            if(name=="$hex.uid" && attributes.isRegularFile && attributes.size()==0L) { marker=true; continue }
-            if(name.length!=1 || name[0] !in '0'..'9' || !attributes.isDirectory)
-                throw IOException("Unsupported legacy root entry")
-            ownership.directory(path).use { leaves -> for(leaf in leaves) {
-                live(); val filename=leaf.fileName.toString()
-                if(filename.length>128) throw IOException("Unsupported legacy span layout")
-                val spanAttributes=Files.readAttributes(leaf,BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
-                if(!spanAttributes.isRegularFile) throw IOException("Unsupported legacy span layout")
-                val fields=filename.split('.')
-                if(fields.size!=5 || fields[3]!="v3" || fields[4]!="exo") throw IOException("Unsupported legacy span format")
-                val id=fields[0].toLongOrNull(); val position=fields[1].toLongOrNull(); val stamp=fields[2].toLongOrNull()
-                if(id==null || id !in 0L..Int.MAX_VALUE.toLong() || position==null || position<0 || stamp==null || stamp<0 ||
-                    filename!="$id.$position.$stamp.v3.exo") throw IOException("Malformed legacy span identity")
-                if(id!=contentId) continue
-                if(spans.size>=MIGRATION_RANGES) throw IOException("Legacy resource fragmentation exceeds projection budget")
-                val length=spanAttributes.size()
-                if(length<=0 || length>Long.MAX_VALUE-position) throw IOException("Legacy span extent differs")
-                val touch=ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(length)='integer' THEN length ELSE NULL END,CASE WHEN typeof(last_touch_timestamp)='integer' THEN last_touch_timestamp ELSE NULL END FROM $files WHERE name=? LIMIT 2",arrayOf(filename))}) { c ->
-                    if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0)!=length ||
-                        c.getType(1)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(1)<0) throw IOException("Legacy span index differs")
-                    val value=c.getLong(1); if(c.moveToNext()) throw IOException("Legacy span index is not unique"); value
-                }
-                spans+=CacheSpan(key,position,length,touch,leaf.toFile())
+        val spans=ArrayList<CacheSpan>()
+        if(audioOnly && owner!=null) indexedAudioSpans(directory,hex,contentId,key,index,live,ownership,spans)
+        else {
+            var children=0; var marker=false
+            ownership.directory(directory.toPath()).use { entries -> for(path in entries) {
+                live(); if(++children>11) throw IOException("Unknown legacy directory layout")
+                // One NOFOLLOW observation binds type and size. A link to the right inode is still
+                // a link, never permission to follow it; actual owner checkpoints remain per entry.
+                val attributes=Files.readAttributes(path,BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+                val name=path.fileName.toString()
+                if(name=="$hex.uid" && attributes.isRegularFile && attributes.size()==0L) { marker=true; continue }
+                if(name.length!=1 || name[0] !in '0'..'9' || !attributes.isDirectory)
+                    throw IOException("Unsupported legacy root entry")
+                ownership.directory(path).use { leaves -> for(leaf in leaves) {
+                    live(); val filename=leaf.fileName.toString()
+                    if(filename.length>128) throw IOException("Unsupported legacy span layout")
+                    val spanAttributes=Files.readAttributes(leaf,BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+                    if(!spanAttributes.isRegularFile) throw IOException("Unsupported legacy span layout")
+                    val fields=filename.split('.')
+                    if(fields.size!=5 || fields[3]!="v3" || fields[4]!="exo") throw IOException("Unsupported legacy span format")
+                    val id=fields[0].toLongOrNull(); val position=fields[1].toLongOrNull(); val stamp=fields[2].toLongOrNull()
+                    if(id==null || id !in 0L..Int.MAX_VALUE.toLong() || position==null || position<0 || stamp==null || stamp<0 ||
+                        filename!="$id.$position.$stamp.v3.exo") throw IOException("Malformed legacy span identity")
+                    if(id!=contentId) continue
+                    if(spans.size>=MIGRATION_RANGES) throw IOException("Legacy resource fragmentation exceeds projection budget")
+                    val length=spanAttributes.size()
+                    if(length<=0 || length>Long.MAX_VALUE-position) throw IOException("Legacy span extent differs")
+                    val touch=ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(length)='integer' THEN length ELSE NULL END,CASE WHEN typeof(last_touch_timestamp)='integer' THEN last_touch_timestamp ELSE NULL END FROM $files WHERE name=? LIMIT 2",arrayOf(filename))}) { c ->
+                        if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0)!=length ||
+                            c.getType(1)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(1)<0) throw IOException("Legacy span index differs")
+                        val value=c.getLong(1); if(c.moveToNext()) throw IOException("Legacy span index is not unique"); value
+                    }
+                    spans+=CacheSpan(key,position,length,touch,leaf.toFile())
+                } }
             } }
-        } }
-        if(!marker) throw IOException("Legacy UID marker missing")
+            if(!marker) throw IOException("Legacy UID marker missing")
+        }
         spans.sortBy { it.position }; var end=0L; var bytes=0L
         for(span in spans) {
             if(span.position<end) throw IOException("Legacy selected spans overlap")
@@ -164,6 +169,59 @@ internal object LegacyResourceProjection {
         // The returned cache retains the real guard only, never this diagnostic observation.
         live(); return LegacyAudioProjection(ProjectedCache(uid,key,requireNotNull(metadata),spans,bytes,actualLive),limited)
     }
+    /** Actual live-owner audio only. A read-only view may ignore unselected leaf leftovers,
+     * which it never adopts/opens/removes. Exact migration still enumerates the entire old tree.
+     * Retain <=10 shard identities and <=256 selected spans; no full native key/index hydration. */
+    private fun indexedAudioSpans(directory:File,hex:String,contentId:Long,key:String,index:SQLiteDatabase,
+        live:()->Unit,ownership:MigrationIoOwnership,spans:MutableList<CacheSpan>) {
+        val shards=ArrayList<Pair<File,Any>>(10);var children=0;var marker=false
+        ownership.directory(directory.toPath()).use {entries -> for(path in entries) {
+            live();if(++children>11) throw IOException("Unknown legacy directory layout")
+            val observed=Files.readAttributes(path,BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+            val name=path.fileName.toString()
+            if(name=="$hex.uid" && observed.isRegularFile && observed.size()==0L) {marker=true;continue}
+            if(name.length!=1 || name[0] !in '0'..'9' || !observed.isDirectory)
+                throw IOException("Unsupported legacy root entry")
+            shards+=path.toFile() to (observed.fileKey() ?: throw IOException("Legacy shard identity unavailable"))
+        }}
+        if(!marker) throw IOException("Legacy UID marker missing")
+        // Exact native schema has a BINARY primary key on name. The literal numeric prefix
+        // supports SQLite's indexed GLOB range search; projection/row limits precede hydration.
+        val table=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
+        ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB))<=128 THEN name ELSE NULL END,"+
+            "CASE WHEN typeof(length)='integer' THEN length ELSE NULL END,"+
+            "CASE WHEN typeof(last_touch_timestamp)='integer' THEN last_touch_timestamp ELSE NULL END "+
+            "FROM $table WHERE name GLOB ? LIMIT ${MIGRATION_RANGES+1}",arrayOf("$contentId.*"))}) {c ->
+            while(c.moveToNext()) {
+                live()
+                if(spans.size>=MIGRATION_RANGES || c.getType(0)!=Cursor.FIELD_TYPE_STRING ||
+                    c.getType(1)!=Cursor.FIELD_TYPE_INTEGER || c.getType(2)!=Cursor.FIELD_TYPE_INTEGER)
+                    throw IOException("Legacy indexed span exceeds projection budget")
+                val name=c.getString(0);val fields=name.split('.')
+                val id=fields.getOrNull(0)?.toLongOrNull();val position=fields.getOrNull(1)?.toLongOrNull()
+                val stamp=fields.getOrNull(2)?.toLongOrNull();val length=c.getLong(1);val touch=c.getLong(2)
+                if(fields.size!=5 || fields[3]!="v3" || fields[4]!="exo" || id!=contentId ||
+                    position==null || position<0 || stamp==null || stamp<0 || name!="$id.$position.$stamp.v3.exo" ||
+                    length<=0 || length>Long.MAX_VALUE-position || touch<0)
+                    throw IOException("Malformed legacy indexed span")
+                var selected:File?=null
+                for((shard,identity) in shards) {
+                    live()
+                    val current=Files.readAttributes(shard.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+                    if(!current.isDirectory || current.fileKey()!=identity) throw IOException("Legacy shard changed")
+                    val file=File(shard,name)
+                    val actual=try {Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)}
+                        catch(_:NoSuchFileException) {continue}
+                    if(!actual.isRegularFile || actual.size()!=length || selected!=null)
+                        throw IOException("Legacy selected span is changed or ambiguous")
+                    selected=file
+                }
+                spans+=CacheSpan(key,position,length,touch,selected ?: throw IOException("Legacy indexed span is missing"))
+            }
+        }
+        live()
+    }
+
     /** Engine-only view for the actual ReadOnlyLegacy reader, which retains its barrier and
      * pre/post open/read checkpoints. Pinned CacheDataSource reads scalar metadata twice BEFORE
      * guarded span selection; metadata itself is not permission to open a file. Never expose the
