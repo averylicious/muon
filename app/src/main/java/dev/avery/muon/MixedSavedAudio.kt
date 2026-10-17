@@ -25,8 +25,12 @@ internal sealed interface PartitionReadRoute {
 internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
     private val legacy:SavedAudio,private val published:PartitionPublishedAudio,
     private val completed:PartitionCompletedAudio,
-    private val routeTiming:StorageRootTiming?=StorageRootTiming.begin(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS),
+    private val routeTiming:StorageRootTiming?=processRouteTiming,
     private val retired:(String)->Boolean={false}):SavedAudio {
+    companion object {
+        // One sequence for the phase across both shelves, never two indistinguishable counters.
+        private val processRouteTiming=StorageRootTiming.begin(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS)
+    }
     // Observe the existing complete decision, including retirement and current-volume refusal.
     // No identities enter the sink, and the shared process event cap also stops its clock work.
     private fun route(key:String):PartitionReadRoute {
