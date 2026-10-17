@@ -7,6 +7,10 @@ import androidx.media3.datasource.cache.CacheWriter
 import java.io.IOException
 import java.io.InterruptedIOException
 
+/** Fixed scratch per local copy/hash reader, never a retained cache. Full guards still run at
+ * every actual read. Ordinary opportunistic playback retains Media3's existing buffer size. */
+internal const val LOCAL_SAVED_READ_BYTES=256*1024
+
 internal class PlayedCopyTooLarge : IOException("Played song exceeds the selected cache limit")
 internal class PlayedCopyCloseUncertain(val owner:PlayedCopyWriter,cause:Throwable):IOException(
     "Played-copy source closure is uncertain; cache cleanup was refused",cause)
@@ -17,7 +21,7 @@ internal class PlayedCopyCloseUncertain(val owner:PlayedCopyWriter,cause:Throwab
  * uncertainty. No resume/fallback, second close attempt, background retry or source cleanup. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal class PlayedCopyWriter(private val source:CacheDataSource,private val spec:DataSpec,
-    private val limit:()->Long) {
+    private val localSaved:Boolean=false,private val limit:()->Long) {
     private val used=java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var cancelled=false
     fun cancel() { cancelled=true }
@@ -37,7 +41,7 @@ internal class PlayedCopyWriter(private val source:CacheDataSource,private val s
                     (length>maximum || spec.position>maximum-length))) throw PlayedCopyTooLarge()
             }
             budget()
-            val buffer=ByteArray(CacheWriter.DEFAULT_BUFFER_SIZE_BYTES)
+            val buffer=ByteArray(if(localSaved) LOCAL_SAVED_READ_BYTES else CacheWriter.DEFAULT_BUFFER_SIZE_BYTES)
             while(true) {
                 check()
                 val count=source.read(buffer,0,buffer.size)
@@ -61,7 +65,7 @@ internal fun copyPlayedWithinLimit(source:CacheDataSource,spec:DataSpec,
     onWriterCreated:(PlayedCopyWriter)->Unit={},limit:()->Long) {
     val key=requireNotNull(spec.key)
     require(key.startsWith(PLAYED_PREFIX)) { "Only played copies may be budget-limited" }
-    try { PlayedCopyWriter(source,spec,limit).also(onWriterCreated).cache() }
+    try { PlayedCopyWriter(source,spec,limit=limit).also(onWriterCreated).cache() }
     catch(failure:PlayedCopyTooLarge) {
         // Observable close succeeded; unknown close is a different typed failure and never deletes.
         source.cache.removeResource(key)

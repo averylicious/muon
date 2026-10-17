@@ -62,7 +62,7 @@ class PartitionMoveDestinationTest {
         assertThrows(IOException::class.java) {worker {SavedAudioDigest().read(spec,DataSource.Factory {ByteArrayDataSource(byteArrayOf(2))}) {}}}
     }
     @Test fun verifiedDigestBindsBeforeAndAfterMultiBlockReadAndActualClose() {
-        val bytes=ByteArray(3*64*1024+17) {it.toByte()};var reads=0;var closes=0;var guards=0;var live=0
+        val bytes=ByteArray(3*LOCAL_SAVED_READ_BYTES+17) {it.toByte()};var reads=0;var closes=0;var guards=0;var live=0
         val raw=ByteArrayDataSource(bytes)
         val source=DataSource.Factory {object:DataSource by raw {
             override fun read(buffer:ByteArray,offset:Int,length:Int):Int {reads++;return raw.read(buffer,offset,length)}
@@ -75,6 +75,22 @@ class PartitionMoveDestinationTest {
         assertEquals(2,guards);assertTrue(live>=reads)
         assertEquals(MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {"%02x".format(it)},hash)
     }
+    @Test fun digestCancellationAfterShortReadClosesBeforeAnySecondReadOrBindingResult() {
+        val bytes=ByteArray(2*LOCAL_SAVED_READ_BYTES+17);val raw=ByteArrayDataSource(bytes)
+        var reads=0;var closes=0;var guards=0
+        val source=DataSource.Factory {object:DataSource by raw {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                reads++;return raw.read(buffer,offset,minOf(length,4093))
+            }
+            override fun close() {closes++;raw.close()}
+        }}
+        assertThrows(java.io.InterruptedIOException::class.java) {worker {
+            SavedAudioDigest().readVerified(spec.buildUpon().setLength(bytes.size.toLong()).build(),source,
+                {if(reads>0) throw java.io.InterruptedIOException("Cancel after actual short read")},{guards++})
+        }}
+        assertEquals(1,reads);assertEquals(1,closes);assertEquals(1,guards)
+    }
+
     @Test fun changedBindingDuringActualReadCannotPublishDigestAndKnownReaderClosesOnce() {
         var valid=true;var closes=0;var guards=0;var reads=0
         val raw=ByteArrayDataSource(payload)

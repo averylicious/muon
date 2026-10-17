@@ -84,7 +84,7 @@ internal class PartitionPlayedCopy(private val catalog:CachePartitionCatalog,
             val source=CacheDataSource.Factory().setCache(actual).setUpstreamDataSourceFactory(upstream)
                 .createDataSourceForDownloading()
             if(expected==null) copyPlayedWithinLimit(source,spec,onWriterCreated={ made -> writer=made; writerCreated(made) },limit=limit)
-            else PlayedCopyWriter(source,spec,limit).also {made -> writer=made; writerCreated(made)}.cache()
+            else PlayedCopyWriter(source,spec,localSaved=true,limit=limit).also {made -> writer=made; writerCreated(made)}.cache()
             check()
             val state=savedAudioState(actual,key)
             if(state.coverage!=SavedCoverage.Full || state.bytes<=0)

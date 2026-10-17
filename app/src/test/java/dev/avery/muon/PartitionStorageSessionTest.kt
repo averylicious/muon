@@ -121,7 +121,7 @@ class PartitionStorageSessionTest {
             } finally {permit.close()}
         }
         val small=observe("saved/short-observation",byteArrayOf(1,2,3,4))
-        val large=observe("saved/multiblock-observation",ByteArray(5*64*1024+17) {it.toByte()})
+        val large=observe("saved/multiblock-observation",ByteArray(5*LOCAL_SAVED_READ_BYTES+17) {it.toByte()})
         assertTrue(small.first>0);assertEquals(small.first,large.first)
         assertTrue("Fresh per-block storage/cancellation checks must still grow with actual reads",large.second>small.second)
         assertTrue(f.barrier.quiescent)

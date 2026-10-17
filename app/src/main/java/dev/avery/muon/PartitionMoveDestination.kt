@@ -78,7 +78,7 @@ internal class SavedAudioDigest {
         try {
             checkpoint(); construction=factory; source=factory.createDataSource(); construction=null
             val actual=requireNotNull(source); actual.open(spec)
-            val bytes=ByteArray(64*1024); var left=spec.length
+            val bytes=ByteArray(LOCAL_SAVED_READ_BYTES); var left=spec.length
             while(left>0) {
                 checkpoint(); val count=actual.read(bytes,0,minOf(left,bytes.size.toLong()).toInt())
                 if(count<=0) throw IOException("Saved digest audio ended before its exact length")

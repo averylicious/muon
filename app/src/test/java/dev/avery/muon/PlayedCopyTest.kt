@@ -44,6 +44,41 @@ class PlayedCopyTest {
         assertArrayEquals(payload, cache.getCachedSpans(key).first().file!!.readBytes())
     }
 
+    @Test fun localSavedCopyUsesBoundedLargerReadsAndKeepsEveryByte() {
+        val bytes=ByteArray(2*LOCAL_SAVED_READ_BYTES+17) {it.toByte()}
+        val cache=open(bytes.size.toLong()*2);val saved="saved/local-read-blocks"
+        val raw=ByteArrayDataSource(bytes);val requests=mutableListOf<Int>();var closes=0
+        val upstream=object:DataSource by raw {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                requests+=length;return raw.read(buffer,offset,length)
+            }
+            override fun close() {closes++;raw.close()}
+        }
+        PlayedCopyWriter(source(cache,upstream),spec(saved),localSaved=true,limit={bytes.size.toLong()}).cache()
+        assertEquals(1,closes);assertEquals(3,requests.size)
+        assertTrue(requests.all {it in 1..LOCAL_SAVED_READ_BYTES})
+        assertEquals(LOCAL_SAVED_READ_BYTES,requests.first().toInt())
+        assertTrue(cache.isCached(saved,0,bytes.size.toLong()))
+        val actual=java.io.ByteArrayOutputStream()
+        cache.getCachedSpans(saved).forEach {actual.write(requireNotNull(it.file).readBytes())}
+        assertArrayEquals(bytes,actual.toByteArray())
+    }
+    @Test fun localSavedCopyCancellationAfterShortPhysicalReadClosesWithoutSecondRead() {
+        val bytes=ByteArray(2*LOCAL_SAVED_READ_BYTES+17)
+        val cache=open(bytes.size.toLong()*2);val raw=ByteArrayDataSource(bytes)
+        var reads=0;var closes=0;lateinit var writer:PlayedCopyWriter
+        val upstream=object:DataSource by raw {
+            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                reads++;val count=raw.read(buffer,offset,minOf(length,4093));writer.cancel();return count
+            }
+            override fun close() {closes++;raw.close()}
+        }
+        writer=PlayedCopyWriter(source(cache,upstream),spec("saved/local-read-cancel"),localSaved=true) {bytes.size.toLong()}
+        assertThrows(java.io.InterruptedIOException::class.java) {writer.cache()}
+        assertEquals(1,reads);assertEquals(1,closes)
+        assertEquals(4093L,cache.cacheSpace) // Known partial is retained; this writer does not delete it.
+    }
+
     @Test fun cancellationAtWriterInstallationPreventsOpeningTheSource() {
         val cache = open(512)
         seed(cache, "explicit-download", ByteArray(64) { 7 })
