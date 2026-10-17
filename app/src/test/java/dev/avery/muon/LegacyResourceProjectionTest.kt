@@ -60,6 +60,47 @@ class LegacyResourceProjectionTest {
         catch(failure:java.util.concurrent.ExecutionException) {throw requireNotNull(failure.cause)}
         finally {executor.shutdownNow(); check(executor.awaitTermination(10,java.util.concurrent.TimeUnit.SECONDS))}
     }
+    @Test fun schemaValidationRejectsRootLinkIntroducedAtItsKnownCursorClose() {
+        val f=Fixture();val index=f.db();val held=File(folders.newFolder(),"held-root")
+        var changed=false
+        val io=MigrationIoOwnership(closeHandle={handle ->
+            val schema=handle is android.database.Cursor && handle.columnCount==3
+            handle.close()
+            if(schema) {
+                Files.move(f.root.toPath(),held.toPath())
+                Files.createSymbolicLink(f.root.toPath(),held.toPath());changed=true
+            }
+        })
+        try {
+            assertThrows(IOException::class.java) {LegacyResourceProjection.validate(f.root,f.uid,index,{},io)}
+            assertTrue(changed);assertTrue(io.quiescent);assertTrue(index.isOpen)
+        } finally {
+            if(Files.isSymbolicLink(f.root.toPath())) Files.delete(f.root.toPath())
+            if(held.exists()) Files.move(held.toPath(),f.root.toPath())
+        }
+        assertArrayEquals(payload,f.original.readBytes())
+        val live=LegacyResourceProjection.validate(f.root,f.uid,index,{})
+        live();assertFalse(SimpleCache.isCacheFolderLocked(f.root))
+    }
+    @Test fun schemaUnknownCursorCloseRetainsActualHandleAndNeverRunsFinalRootCheck() {
+        val f=Fixture();val index=f.db();var retained:android.database.Cursor?=null;var attempts=0
+        val io=MigrationIoOwnership(closeHandle={handle ->
+            if(handle is android.database.Cursor && handle.columnCount==3) {
+                retained=handle;attempts++;throw IOException("Injected unknown schema cursor close")
+            }
+            handle.close()
+        })
+        try {
+            val failure=assertThrows(MigrationIoUncertain::class.java) {
+                LegacyResourceProjection.validate(f.root,f.uid,index,{
+                    check(attempts==0) {"No final root check after unknown close"}
+                },io)
+            }
+            assertSame(io,failure.ownership);assertEquals(1,attempts);assertFalse(io.quiescent)
+            assertNotNull(retained);assertFalse(requireNotNull(retained).isClosed);assertTrue(index.isOpen)
+            assertArrayEquals(payload,f.original.readBytes())
+        } finally {retained?.close()} // Only this injected fixture knows close never reached SQLite.
+    }
     @Test fun retirementIntentNeedsConsentAndSurvivesRestartWithoutReplacingItsTombstone() {
         val f=Fixture(); val manifest=worker {LegacyRetirementManifest.capture(f.root,f.uid,"selected",f.db(),{})}
         val root=folders.newFolder(); val first=LegacyRetirementJournal(root,true)

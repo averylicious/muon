@@ -295,7 +295,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
                 PartitionNativeAdmission.inspect(bytes,nativeUid,key,db,limits,checkpoint=::available)
                 // Release can log native persistence failure without throwing. Validate the closed
                 // index/layout AND reopen durable metadata; migration still fully rechecks bytes.
-                PartitionContentMetadata(metadata,nativeUid,key).use { PartitionResourceCache.measured(it.read(),limits) }
+                PartitionContentMetadata(metadata,nativeUid,key,readOnly=android.os.Build.VERSION.SDK_INT>=35).use { PartitionResourceCache.measured(it.read(),limits) }
                 available(); db.close()
                 h.save?.journal?.closed(requireNotNull(h.save).ticket,nativeUid)
                 h.permit.closed(); ended=true
