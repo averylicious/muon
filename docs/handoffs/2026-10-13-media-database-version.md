@@ -1,0 +1,11 @@
+# Preserve the global media database on version mismatch — 2026-10-13
+
+GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No independent review, phones, Claude or subagents. Branch codex/media-db-version-oct13 inherits #558 f863e009e650e79f85a16fa90a48ae65d1168460 and main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. Experiment untouched.
+
+Pinned StandaloneDatabaseProvider.onDowngrade calls wipeDatabase before Muon's downstream per-feature version guards. That helper enumerates and attempts to DROP every database entity, potentially losing saved download/native index records. Merely guarding DefaultDownloadIndex afterward is too late.
+
+The small PreservingMediaDatabase subclass is registered in the actual StorageStartup before use by both Legacy and Partition app preparers. It refuses onDowngrade (and any future unsupported onUpgrade) before the pinned wipe method runs. This resolves the planned version check at the existing SQLite hook, avoiding a second connection, header observer, full native-index load, copied helper implementation or new dependency. Supported creation/reopening and actual feature schema guards are retained. It does not provide broad corruption/power-loss/privileged-mutation recovery or change SQLite's default corruption handler; those are not claimed as addressed by version protection.
+
+Official published Media3 database 1.11.0 sources: https://dl.google.com/dl/android/maven2/androidx/media3/media3-database/1.11.0/media3-database-1.11.0-sources.jar, StandaloneDatabaseProvider.java constructor VERSION=1 and onDowngrade/wipeDatabase. Versions remain pinned in Gradle. Tests use the actual helper with a newer-version database and 8MiB saved payload, asserting refusal and preserved record/version via scalar read-only SQL, plus actual app-preparer refusal before native initialization and supported normal reopening. No device/runtime performance claim.
+
+Actions first Android compile/test pending. Activation remains false and cumulative PRs stay open for inherited UAT. Next: verify composed/atomic setup heads and activation readiness. POCO is needed when the production storage candidate is ready for lifecycle/card acceptance, not for this bounded source fix. No Stable publication.
