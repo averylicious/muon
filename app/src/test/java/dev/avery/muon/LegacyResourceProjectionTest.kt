@@ -262,6 +262,46 @@ class LegacyResourceProjectionTest {
         try { assertThrows(IOException::class.java) { f.project() } } finally { Files.delete(link.toPath()) }
         assertArrayEquals(payload,f.original.readBytes())
     }
+    @Test fun noFollowSpanObservationRefusesSameTargetLinkDirectoryAndWrongSize() {
+        val f=Fixture(); val original=f.original.toPath()
+        val held=File(folders.newFolder(),"original.exo").toPath()
+        Files.move(original,held)
+        try {
+            Files.createSymbolicLink(original,held)
+            try {assertThrows(IOException::class.java) {f.project()}}
+            finally {Files.delete(original)}
+            Files.createDirectory(original)
+            try {assertThrows(IOException::class.java) {f.project()}}
+            finally {Files.delete(original)}
+            Files.copy(held,original)
+            File(original.toString()).appendBytes(byteArrayOf(99))
+            assertThrows(IOException::class.java) {f.project()}
+            Files.delete(original)
+        } finally {
+            if(Files.exists(original,java.nio.file.LinkOption.NOFOLLOW_LINKS)) Files.delete(original)
+            Files.move(held,original)
+        }
+        assertEquals(4L,f.project().cacheSpace)
+        assertArrayEquals(payload,f.original.readBytes())
+        assertFalse(SimpleCache.isCacheFolderLocked(f.root))
+    }
+    @Test fun noFollowUnselectedSpanAndMarkerRefuseWithoutAdoptingOrRepairing() {
+        val f=Fixture(2); val read=f.db()
+        val files=f.root.listFiles()!!.filter {it.isDirectory}.flatMap {it.listFiles()!!.toList()}
+        val other=files.single {it!=f.original}; val held=File(folders.newFolder(),"unselected.exo").toPath()
+        Files.move(other.toPath(),held)
+        try {
+            Files.createSymbolicLink(other.toPath(),held)
+            try {assertThrows(IOException::class.java) {LegacyResourceProjection.readAudio(f.root,f.uid,"selected",read,{})}}
+            finally {Files.delete(other.toPath())}
+        } finally {Files.move(held,other.toPath())}
+        val marker=File(f.root,java.lang.Long.toHexString(f.uid)+".uid")
+        marker.writeBytes(byteArrayOf(7))
+        try {assertThrows(IOException::class.java) {f.project()}}
+        finally {marker.writeBytes(byteArrayOf())}
+        assertEquals(4L,f.project().cacheSpace)
+        assertArrayEquals(payload,f.original.readBytes()); assertArrayEquals(payload,other.readBytes())
+    }
     @Test fun unknownDirectoryCloseRetainsExclusiveGateAndRefusesBeforeTargetReservation() {
         val f=Fixture(); val gate=SavedStorageBarrier(); val raw=mutableListOf<DirectoryStream<Path>>()
         val ownership=MigrationIoOwnership(directories={ path ->

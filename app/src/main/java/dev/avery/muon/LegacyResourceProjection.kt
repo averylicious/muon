@@ -17,6 +17,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.NavigableSet
 import java.util.TreeSet
 import java.util.concurrent.atomic.AtomicBoolean
@@ -102,15 +103,19 @@ internal object LegacyResourceProjection {
         } finally { if(admitted) playbackDecoder.set(false) }
         val spans=ArrayList<CacheSpan>(); var children=0; var marker=false
         ownership.directory(directory.toPath()).use { entries -> for(path in entries) {
-            live(); if(++children>11 || Files.isSymbolicLink(path)) throw IOException("Unknown legacy directory layout")
+            live(); if(++children>11) throw IOException("Unknown legacy directory layout")
+            // One NOFOLLOW observation binds type and size. A link to the right inode is still
+            // a link, never permission to follow it; actual owner checkpoints remain per entry.
+            val attributes=Files.readAttributes(path,BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
             val name=path.fileName.toString()
-            if(name=="$hex.uid" && Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS)) { marker=true; continue }
-            if(name.length!=1 || name[0] !in '0'..'9' || !Files.isDirectory(path,LinkOption.NOFOLLOW_LINKS))
+            if(name=="$hex.uid" && attributes.isRegularFile && attributes.size()==0L) { marker=true; continue }
+            if(name.length!=1 || name[0] !in '0'..'9' || !attributes.isDirectory)
                 throw IOException("Unsupported legacy root entry")
             ownership.directory(path).use { leaves -> for(leaf in leaves) {
                 live(); val filename=leaf.fileName.toString()
-                if(filename.length>128 || !Files.isRegularFile(leaf,LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(leaf))
-                    throw IOException("Unsupported legacy span layout")
+                if(filename.length>128) throw IOException("Unsupported legacy span layout")
+                val spanAttributes=Files.readAttributes(leaf,BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+                if(!spanAttributes.isRegularFile) throw IOException("Unsupported legacy span layout")
                 val fields=filename.split('.')
                 if(fields.size!=5 || fields[3]!="v3" || fields[4]!="exo") throw IOException("Unsupported legacy span format")
                 val id=fields[0].toLongOrNull(); val position=fields[1].toLongOrNull(); val stamp=fields[2].toLongOrNull()
@@ -118,7 +123,7 @@ internal object LegacyResourceProjection {
                     filename!="$id.$position.$stamp.v3.exo") throw IOException("Malformed legacy span identity")
                 if(id!=contentId) continue
                 if(spans.size>=MIGRATION_RANGES) throw IOException("Legacy resource fragmentation exceeds projection budget")
-                val length=leaf.toFile().length()
+                val length=spanAttributes.size()
                 if(length<=0 || length>Long.MAX_VALUE-position) throw IOException("Legacy span extent differs")
                 val touch=ownership.useOwned({index.rawQuery("SELECT CASE WHEN typeof(length)='integer' THEN length ELSE NULL END,CASE WHEN typeof(last_touch_timestamp)='integer' THEN last_touch_timestamp ELSE NULL END FROM $files WHERE name=? LIMIT 2",arrayOf(filename))}) { c ->
                     if(!c.moveToFirst() || c.getType(0)!=Cursor.FIELD_TYPE_INTEGER || c.getLong(0)!=length ||
