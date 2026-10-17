@@ -271,8 +271,8 @@ internal class PartitionMoveTreeRemoval(private val ownership:MigrationIoOwnersh
             // they must not repeat all saved-row/cover queries for each 64KiB hash block.
             verifyDestination()
             tree.verify(root,true,ownership,checkpoint)
-            verifyDestination()
             checkpoint()
+            verifyDestination()
         }
         fun sync(directory:File) {
             tree.parent(root)
