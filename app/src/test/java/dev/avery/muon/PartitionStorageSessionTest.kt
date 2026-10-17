@@ -40,10 +40,11 @@ class PartitionStorageSessionTest {
     private val fixtures=mutableListOf<Fixture>()
     private val managers=mutableListOf<DownloadManager>()
     private val payload=byteArrayOf(2,4,6,8)
-    private inner class Fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,nativeCapacity:Int=1) {
+    private inner class Fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,nativeCapacity:Int=1,
+        val barrier:SavedStorageBarrier=SavedStorageBarrier()) {
         val root=folders.newFolder(); val catalog=CachePartitionCatalog(root)
         val migrations=CacheMigrationJournal(root); val saves=PartitionSaveJournal(root,create=true)
-        val budget=PartitionNativeBudget(nativeCapacity); val barrier=SavedStorageBarrier()
+        val budget=PartitionNativeBudget(nativeCapacity)
         val legacyRoot=folders.newFolder()
         val legacy=SimpleCache(legacyRoot,NoOpCacheEvictor(),database).also { it.checkInitialization() }
         val name="storage_session_"+fixtures.size
@@ -71,7 +72,8 @@ class PartitionStorageSessionTest {
         }
         fun migrate(key:String)=session.migrate(CacheMigrationControl(1000,nanoTime={0L}),legacy,key,{Long.MAX_VALUE},{})
     }
-    private fun fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,nativeCapacity:Int=1)=Fixture(commandCapacity,nativeCapacity).also(fixtures::add)
+    private fun fixture(commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,nativeCapacity:Int=1,barrier:SavedStorageBarrier=SavedStorageBarrier())=
+        Fixture(commandCapacity,nativeCapacity,barrier).also(fixtures::add)
     private fun spec(key:String)=DataSpec.Builder().setUri("muon-saved:test").setKey(key).build()
     private fun read(f:Fixture,key:String):ByteArray {
         val reader=f.session.audio.source.createDataSource()
@@ -101,6 +103,77 @@ class PartitionStorageSessionTest {
     }
     private fun played(f:Fixture,key:String)=f.session.copyPlayed(spec(key),byteArrayOf(1),
         "http://127.0.0.1:7814/1",DataSource.Factory {ByteArrayDataSource(payload)}) {8192L}
+    private fun completedLocal(f:Fixture,key:String,bytes:ByteArray) = worker {
+        val source=DataSource.Factory {ByteArrayDataSource(bytes)}
+        val metadata=androidx.media3.datasource.cache.DefaultContentMetadata.EMPTY.copyWithMutationsApplied(
+            ContentMetadataMutations.setContentLength(ContentMetadataMutations(),bytes.size.toLong()))
+        val ticket=f.session.copyLocalSaved(spec(key).buildUpon().setLength(bytes.size.toLong()).build(),metadata,source,{})
+        val permit=f.barrier.exclusive()
+        try {
+            val request=DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/api1/fileopus/1")).setCustomCacheKey(key).build()
+            f.session.publishLocalSaved(ticket,request,bytes.size.toLong(),metadata,source,permit,{}, {true},10)
+        } finally {permit.close()}
+    }
+    private fun destinationHasBytes(f:Fixture,key:String):Boolean {
+        val allocation=f.catalog.find(key) ?: return false
+        return f.catalog.directory(allocation).walkTopDown().any {it.name.endsWith(".exo") && it.length()>0}
+    }
+    @Test fun savedCopyCompletionQueriesAreBoundedByOpensRatherThanReadBlocks() {
+        val gate=SavedStorageBarrier();val source=fixture(nativeCapacity=2,barrier=gate);val target=fixture(nativeCapacity=2,barrier=gate)
+        fun observe(key:String,bytes:ByteArray):Pair<Int,Int> {
+            completedLocal(source,key,bytes);var live=0
+            source.providerReads=0;source.countProviderReads=true
+            val copy=try {worker {source.session.copyCompletedSavedTo(target.session,key,key+"-copy",true) {live++}}}
+                finally {source.countProviderReads=false}
+            assertEquals(key,copy.completion.key);assertEquals(bytes.size.toLong(),copy.completion.length)
+            assertNull(target.index.getDownload(key+"-copy")) // Closed preparation is not publication.
+            assertEquals(0,source.budget.resident);assertEquals(0,target.budget.resident);assertTrue(gate.quiescent)
+            return source.providerReads to live
+        }
+        val small=observe("saved/source-short",byteArrayOf(1,2,3,4))
+        val large=observe("saved/source-multi",ByteArray(5*LOCAL_SAVED_READ_BYTES+17) {it.toByte()})
+        assertTrue(small.first>0);assertEquals(small.first,large.first)
+        assertTrue("Actual storage/cancellation checks must grow with physical reads",large.second>small.second)
+    }
+    @Test fun completionChangingAfterActualCopiedBytesRefusesReceiptAndPreservesSource() {
+        val gate=SavedStorageBarrier();val source=fixture(nativeCapacity=2,barrier=gate);val target=fixture(nativeCapacity=2,barrier=gate)
+        val key="saved/source-mutated";val fresh="saved/copy-mutated";val bytes=ByteArray(3*LOCAL_SAVED_READ_BYTES+17) {it.toByte()}
+        completedLocal(source,key,bytes);var changed=false
+        assertThrows(IOException::class.java) {worker {
+            source.session.copyCompletedSavedTo(target.session,key,fresh,true) {
+                if(!changed && destinationHasBytes(target,fresh)) {
+                    changed=true
+                    val request=DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/api1/fileopus/1"))
+                        .setCustomCacheKey(key).setData(byteArrayOf(9)).build()
+                    val progress=androidx.media3.exoplayer.offline.DownloadProgress().apply {
+                        bytesDownloaded=bytes.size.toLong();percentDownloaded=100f
+                    }
+                    source.index.putDownload(Download(request,Download.STATE_COMPLETED,10,10,bytes.size.toLong(),0,0,progress))
+                }
+            }
+        }}
+        assertTrue(changed);assertArrayEquals(byteArrayOf(9),requireNotNull(source.index.getDownload(key)).request.data)
+        assertNull(target.index.getDownload(fresh));assertEquals(0,source.budget.resident);assertEquals(0,target.budget.resident)
+        worker {assertEquals(SavedCoverage.Full,source.session.audio.inspect(key).coverage);assertFalse(target.session.audio.contains(fresh))}
+        val allocation=requireNotNull(source.catalog.find(key));val actual=java.io.ByteArrayOutputStream()
+        source.catalog.directory(allocation).walkTopDown().filter {it.name.endsWith(".exo")}.forEach {actual.write(it.readBytes())}
+        assertArrayEquals(bytes,actual.toByteArray());assertTrue(gate.quiescent)
+    }
+    @Test fun cancellationAfterActualDestinationWriteStillClosesOwnersAndKeepsSource() {
+        val gate=SavedStorageBarrier();val source=fixture(nativeCapacity=2,barrier=gate);val target=fixture(nativeCapacity=2,barrier=gate)
+        val key="saved/source-cancelled";val fresh="saved/copy-cancelled";val bytes=ByteArray(3*LOCAL_SAVED_READ_BYTES+17)
+        val before=completedLocal(source,key,bytes);var cancelled=false
+        assertThrows(java.io.InterruptedIOException::class.java) {worker {
+            source.session.copyCompletedSavedTo(target.session,key,fresh,true) {
+                if(destinationHasBytes(target,fresh)) {cancelled=true;throw java.io.InterruptedIOException("Cancel after actual destination write")}
+            }
+        }}
+        assertTrue(cancelled);assertEquals(before,PartitionCompletionIndex(database,source.name).find(key))
+        assertNull(target.index.getDownload(fresh));assertEquals(0,source.budget.resident);assertEquals(0,target.budget.resident)
+        worker {assertEquals(SavedCoverage.Full,source.session.audio.inspect(key).coverage);assertFalse(target.session.audio.contains(fresh))}
+        assertTrue(gate.quiescent)
+    }
+
     @Test fun moveDestinationCompletedRowWorkIsBoundedIndependentlyOfAudioBlockCount() {
         val f=fixture(nativeCapacity=2)
         fun observe(key:String,bytes:ByteArray):Pair<Int,Int> = worker {

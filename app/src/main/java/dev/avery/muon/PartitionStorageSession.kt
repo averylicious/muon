@@ -188,8 +188,9 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                     throw IOException("Saved copy source is not the exact Closed new allocation")
                 val closed=route.record
                 val completion=completionIndex.find(key) ?: throw IOException("Saved copy source is not completed")
+                fun live() {requireOpen(); checkpoint()}
                 fun checked() {
-                    requireOpen(); checkpoint()
+                    live()
                     if(native.savedReadRoute(key)!=route || saves.find(key)!=closed ||
                         catalog.find(key)!=closed.ticket.allocation || migrations.find(key)!=null ||
                         holdsDisposition(key) || completionIndex.find(key)!=completion || completionIndex.holdsOtherName(key) || claimsName(newKey))
@@ -204,6 +205,11 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                         throw IOException("Saved copy source bytes or metadata changed")
                 }
                 full()
+                // The same actual shared gate pins this CLOSED source against destructive work.
+                // Full claims/metadata checks bracket each open and the completed copy with all
+                // actual children closed. Each physical read retains fresh process/storage and
+                // cancellation checks. A changed source can leave an unpublished fresh target,
+                // but cannot return a copy receipt or authorize publication/source retirement.
                 val local=LegacySavedAudio(actual).source
                 val source=DataSource.Factory {
                     val child=local.createDataSource()
@@ -213,12 +219,12 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                             return child.open(spec.buildUpon().setKey(key).build()).also {full()}
                         }
                         override fun read(bytes:ByteArray,offset:Int,length:Int):Int {
-                            checked(); return child.read(bytes,offset,length).also {checked()}
+                            live(); return child.read(bytes,offset,length).also {live()}
                         }
                     }
                 }
                 val spec=DataSpec.Builder().setUri("muon-saved:local-copy").setKey(newKey).setLength(completion.length).build()
-                val ticket=destination.copyLocalSaved(spec,metadata,source,::checked)
+                val ticket=destination.copyLocalSaved(spec,metadata,source,::live)
                 full(); releasing=true; actual.release(); cache=null; releasing=false
                 checked(); PartitionSavedCopy(closed,completion,ticket)
             } catch(failure:Throwable) {
