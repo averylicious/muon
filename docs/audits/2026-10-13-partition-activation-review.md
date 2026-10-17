@@ -1,6 +1,8 @@
 # Partition activation source self-review — 2026-10-13
 
-## Current disposition
+Final integration note: documentation #515 is merged on main a2db02b8ba0b4959f28aecf5fa89196cf92622bc and included in the combined #562 candidate. The following exact-head observations are historical proof for the reviewed activation; final combined-head CI/APK receipts and idle ownership are on PR #562 / issue #253 and [the Canary handoff](../handoffs/2026-10-13-partition-canary-optin.md).
+
+## Reviewed activation disposition
 
 Canary-only preview is now applied on OPEN #562 8677a144516c6710a7f70b10f617f274cf13d708; changed-head full CI is pending. Release/benchmark remain false. The earlier preparation at 41a5b67c1fa264586dbdd91ee959d2d01d05e473 kept all flags false and passed its own checks. Automatic approval review rejected an earlier attempted Canary-only activation because completion of full Delete/Move and activation review had not been established. The response is to finish those checks and retain a concrete, reviewable proposal; never bypass the rejection. This document is an author source self-review by GPT-6 / Codex desktop, exact variant/effort not reported, not independent review or user/device acceptance. No Claude, subagents, phones or experiments used. Main remains 5a2c47f8c21517de7801ccadfe108c9ea6206dbf.
 
