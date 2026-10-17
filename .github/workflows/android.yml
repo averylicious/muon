@@ -11,6 +11,10 @@ on:
         description: Diagnostic build (separate debuggable APK; branches other than main only, never published)
         type: boolean
         default: false
+      storage_timings:
+        description: Bounded storage timings in non-debuggable Canary (manual non-main branches only; never published)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,6 +32,7 @@ jobs:
       channel: ${{ steps.version.outputs.channel }}
       version: ${{ steps.version.outputs.version }}
       diagnostic: ${{ steps.diagnostic.outputs.diagnostic }}
+      storage_timings: ${{ steps.diagnostic.outputs.storage_timings }}
     env:
       MUON_VERSION_CODE: ${{ github.run_number }}
     steps:
@@ -56,6 +61,7 @@ jobs:
         id: diagnostic
         env:
           MUON_DIAGNOSTIC_REQUEST: ${{ inputs.diagnostic_debug }}
+          MUON_STORAGE_TIMING_REQUEST: ${{ inputs.storage_timings }}
         run: python3 tools/diagnostic_mode.py
 
       - name: Select version and publication channel
@@ -65,6 +71,7 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           DIAGNOSTIC: ${{ steps.diagnostic.outputs.diagnostic }}
+          STORAGE_TIMINGS: ${{ steps.diagnostic.outputs.storage_timings }}
         run: |
           set -euo pipefail
           version=0.1.0
@@ -78,6 +85,7 @@ jobs:
           fi
           # A diagnostic build never publishes, whatever the ref.
           [[ "$DIAGNOSTIC" == false ]] || channel=none
+          [[ "$STORAGE_TIMINGS" == false ]] || channel=none
           echo "MUON_VERSION_NAME=$version" >> "$GITHUB_ENV"
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -173,6 +181,7 @@ jobs:
         if: steps.scope.outputs.build_apks == 'true'
         env:
           MUON_DIAGNOSTIC_REQUEST: ${{ inputs.diagnostic_debug }}
+          MUON_STORAGE_TIMING_REQUEST: ${{ inputs.storage_timings }}
         run: |
           set -euo pipefail
           apksigner="$ANDROID_HOME/build-tools/37.0.0/apksigner"
@@ -186,6 +195,8 @@ jobs:
           (cd artifacts/release && sha256sum app-release.apk > SHA256SUMS)
           if [[ "$MUON_DIAGNOSTIC_DEBUG" == true ]]; then
             printf 'Commit: %s\nRun: %s\nVersion: %s-canary.%s-diagnostic\nMode: diagnostic (debuggable; temporary testing only, never published)\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" "$GITHUB_RUN_NUMBER" > artifacts/debug/BUILD.txt
+          elif [[ "$MUON_STORAGE_TIMINGS" == true ]]; then
+            printf 'Commit: %s\nRun: %s\nVersion: %s-canary.%s-timings\nMode: bounded storage timing (non-debuggable; temporary testing only, never published)\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" "$GITHUB_RUN_NUMBER" > artifacts/debug/BUILD.txt
           else
             printf 'Commit: %s\nRun: %s\nVersion: %s-canary.%s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" "$GITHUB_RUN_NUMBER" > artifacts/debug/BUILD.txt
           fi
@@ -231,7 +242,7 @@ jobs:
     name: Publish private release
     needs: build
     # The diagnostic check is separate from the channel so a diagnostic build can never publish.
-    if: needs.build.outputs.diagnostic == 'false' && (needs.build.outputs.channel == 'canary' || needs.build.outputs.channel == 'stable')
+    if: needs.build.outputs.diagnostic == 'false' && needs.build.outputs.storage_timings == 'false' && (needs.build.outputs.channel == 'canary' || needs.build.outputs.channel == 'stable')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
