@@ -1,0 +1,9 @@
+# Durable own-cover Move binding — 2026-10-12
+
+Cumulative main-track successor to #521, sole GPT-6 / Codex desktop implementation/source self-check (variant/effort not reported); no independent review, Claude or phone this cycle. Partition remains disabled. Local diff check passed; Actions is the first compile and exact-head results are pending. Do not merge application stack before inherited acceptance.
+
+Manifest payload v4 persists optional bounded own-cover receipt (including confirmed absence) beside the exact v3 destination binding. v1/v2/v3 decode remains supported. Covered Move cancels queued source/target artwork under the same exclusive gate, verifies/copies own cover and persists receipt before any source cleanup. It does not remove source row/audio/cover.
+
+An exact older pre-cover Pending can upgrade only with renewed consent and complete reobservation of ALL original audio/files/current completed row and exact destination. It retains the token/phase/audio binding; stale/repeated upgrade and missing originals refuse. The journal atomically updates only the exact current Pending payload and retains actual unknown DB/statement owners. An older intent is never interpreted as proof of absent cover.
+
+Tests cover full receipt codec/restart, genuine v3 compatibility, exact-token explicit upgrade, missing-original/repeated/no-consent refusal, differing destination cover and foreign gate refusal. JVM/source checks do not establish Android storage behavior. Generic Delete/files cleanup still refuses Move intent; next implement target-aware source retirement/recovery, with destination/cover checks before unlink and final completion. Nonterminal-original disposition, old-native metadata retention, production opt-in/recovery controls and final composed lifecycle coverage also remain. No selector/Stable release/device access implied.
