@@ -10,6 +10,8 @@ android {
     compileSdkMinor = 0
     buildToolsVersion = "37.0.0"
     defaultConfig {
+        // Stable/benchmark stay disabled until the explicit storage acceptance gate is cleared.
+        buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "false")
         applicationId = "dev.avery.muon"
         minSdk = 28
         // At 37, reaching the LAN needs ACCESS_LOCAL_NETWORK, asked for before connecting (LocalNetwork.kt).
@@ -40,6 +42,8 @@ android {
     }
     buildTypes {
         getByName("debug") {
+            // Explicit Canary preview only; installing does not opt in or change saved storage.
+            buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "true")
             // Canary is built like Stable in the one way that matters for QA: not debuggable, so
             // Compose runs at full speed and phone testing reflects real performance (#125). The
             // package, signing key and update path are unchanged. "Muon β" fits the launcher's
@@ -77,7 +81,7 @@ android {
             matchingFallbacks += listOf("release")
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     // The service lifecycle harness loads the real notification-channel resources/manifest.
     testOptions { unitTests.isIncludeAndroidResources = true }
     compileOptions {
@@ -99,6 +103,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")
+    // Deterministic cancellation/replacement ordering for the production library-load owner.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     // Real Media3 cache/index and controller callback tests on the JVM; not packaged in either APK.
     testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
@@ -107,3 +113,8 @@ dependencies {
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+
+// Keep a failing assertion's source line visible even if report-artifact upload is unavailable.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+}
