@@ -278,9 +278,12 @@ class PlaybackSessionCallbackTest {
                 if(failure=="begin" || failure=="end" && clocks%2==0) throw IllegalStateException("Diagnostic clock unavailable")
                 clocks.toLong()
             },emit={if(failure=="sink") throw IllegalStateException("Diagnostic sink unavailable")})
-            val accepted=PlaybackSessionCallback({reads++;true},java.util.concurrent.Executor {it.run()},timing)
+            val worker=HeldAdmission()
+            val accepted=PlaybackSessionCallback({reads++;true},worker,timing)
             repeat(2) {
-                val result=accepted.onAddMediaItems(session,own,mutableListOf(saved())).get(1,TimeUnit.SECONDS)
+                val future=accepted.onAddMediaItems(session,own,mutableListOf(saved()))
+                worker.next() // Run outside submission: asynchronous finally failures cannot reach its catch.
+                val result=future.get(1,TimeUnit.SECONDS)
                 assertEquals(1,result.size)
             }
             assertEquals(2,reads) // A diagnostic failure must not leave admissionPending held.
