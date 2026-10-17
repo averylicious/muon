@@ -62,6 +62,8 @@ private fun Lyrics(item: MediaItem?, back: () -> Unit) {
     LaunchedEffect(attempt) {
         failure = false; found = false
         if (item == null) { lyrics = "Choose a track to see its lyrics."; return@LaunchedEffect }
+        // A saved copy is not asked of Tauon by any track number: that number may now be another song (#213).
+        if (isSavedHandle(item.mediaId)) { lyrics = "Lyrics aren't shown for saved copies."; return@LaunchedEffect }
         lyrics = "Loading lyrics…"
         try {
             val id = item.mediaId.substringAfterLast('/').toLong()
