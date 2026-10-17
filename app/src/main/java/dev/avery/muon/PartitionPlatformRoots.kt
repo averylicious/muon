@@ -2,7 +2,9 @@ package dev.avery.muon
 
 import android.content.Context
 import android.os.Environment
+import android.os.Build
 import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
 import java.io.File
 import java.io.IOException
 
@@ -102,16 +104,25 @@ internal class PartitionPlatformRoots(
     }
     companion object {
         internal const val PARTITION_DIRECTORY="downloads-partition-v1"
+        /** API30 adds a public mounted-directory accessor. Unlike getStorageVolume(File), this
+         * path comparison does not re-canonicalize every candidate root. Request a NEW volume
+         * list on each call; never keep UUID/state/path observations across checkpoints. */
+        @androidx.annotation.RequiresApi(30)
+        private fun currentVolume30(manager:StorageManager,directory:File):StorageVolume? =
+            selectPlatformVolume(directory,manager.storageVolumes) {it.directory}
+                ?: manager.getStorageVolume(directory) // Unsupported mount alias/layout: existing path.
+        private fun removableVolume(manager:StorageManager,directory:File):String? {
+            val volume=if(Build.VERSION.SDK_INT>=30) currentVolume30(manager,directory)
+                else manager.getStorageVolume(directory)
+            if(volume==null || !volume.isRemovable || volume.isEmulated || volume.state!=Environment.MEDIA_MOUNTED) return null
+            return volume.uuid?.let {"removable:$it"}
+        }
         fun from(context:Context):PartitionPlatformRoots {
             val app=context.applicationContext
             val manager=app.getSystemService(StorageManager::class.java) ?: throw IOException("Android storage service unavailable")
             return PartitionPlatformRoots({app.filesDir},{app.getExternalFilesDirs(null)},
                 {"private:${manager.getUuidForPath(it)}"},
-                {directory ->
-                    val volume=manager.getStorageVolume(directory)
-                    if(volume==null || !volume.isRemovable || volume.isEmulated || volume.state!=Environment.MEDIA_MOUNTED) null
-                    else volume.uuid?.let {"removable:$it"}
-                },timing=if(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS) StorageRootTiming.begin(true) else null)
+                {directory ->removableVolume(manager,directory)},timing=if(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS) StorageRootTiming.begin(true) else null)
         }
     }
 }
