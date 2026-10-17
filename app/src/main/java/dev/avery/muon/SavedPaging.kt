@@ -88,21 +88,22 @@ internal class SavedPaging(private val context: Context,
             val plan = entry?.let { prepareSavedQueue(listOf(it), selected) } ?: throw SavedCatalogStale()
             return@use SavedPlaybackResult.Ready(plan)
         }
-        val ordered = sequence {
-            var offset = 0L
-            while (offset < expected.count) {
-                val page = hydrate(catalog, expected, offset, checkpoint)
-                for (entry in page.entries) { checkpoint(); yield(entry) }
-                offset += page.entries.size
-                if (page.entries.isEmpty()) throw IOException("Saved catalog page is missing; refresh your copies")
-            }
-        }
         try {
-            val plan = prepareSavedQueue(ordered.asIterable(), selected) ?: throw SavedCatalogStale()
+            val preparation=SavedQueuePreparation()
+            SavedPlaybackProjection.open(context,catalog,expected,checkpoint).use {observed ->
+                // One native index/owner pass for the entire queue. Membership/duplicate checks
+                // use the separate scratch DB, never the catalog while native owners are held.
+                project(observed::includes,checkpoint) {entry ->
+                    checkpoint();preparation.add(entry,observed.observed(entry.ref))
+                }
+                observed.requireComplete()
+            }
             checkpoint()
-            if (catalog.snapshot() != expected) throw SavedCatalogStale()
-            SavedPlaybackResult.Ready(plan)
-        } catch (_: SavedQueueLimit) {
+            if(catalog.snapshot()!=expected) throw SavedCatalogStale()
+            SavedPlaybackResult.Ready(preparation.build(selected) ?: throw SavedCatalogStale())
+        } catch (limit: SavedQueueLimit) {
+            // A suppressed close failure must not be mislabeled as a harmless budget refusal.
+            if(limit.suppressed.isNotEmpty()) throw IOException("Saved playback verification did not close safely",limit)
             // Explicit offer must refer to a current playable copy, not a stale clicked row.
             var entry: SavedEntry? = null
             project({ it == selected }, checkpoint) { if (entry != null) throw SavedCatalogStale(); entry = it }
