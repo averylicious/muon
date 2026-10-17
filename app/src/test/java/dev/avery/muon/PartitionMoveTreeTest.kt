@@ -105,6 +105,38 @@ class PartitionMoveTreeTest {
         for(i in 1..MIGRATION_RANGES) File(excessive,"bytes/0/0.$i.2.v3.exo").writeText("Keep")
         assertThrows(IOException::class.java) {capture(excessive)}
     }
+    @Test fun pendingCleanupRejectsLinkedSpanAndShardEvenWhenTheyReachOriginalInodes() {
+        val root=source();val tree=persisted(capture(root));var unlinks=0
+        fun refuse() {
+            assertThrows(IOException::class.java) {PartitionMoveTreeRemoval(unlink={unlinks++;Files.delete(it.toPath())}).run(tree,root) {}}
+            assertEquals(0,unlinks)
+        }
+        val span=File(root,"bytes/0/0.0.1.v3.exo").toPath()
+        val parked=File(folders.newFolder(),"audio").toPath()
+        Files.move(span,parked)
+        try {Files.createSymbolicLink(span,parked);refuse()}
+        finally {Files.delete(span);Files.move(parked,span)}
+        val shard=File(root,"bytes/0").toPath();val oldShard=File(folders.newFolder(),"shard").toPath()
+        Files.move(shard,oldShard)
+        try {Files.createSymbolicLink(shard,oldShard);refuse()}
+        finally {Files.delete(shard);Files.move(oldShard,shard)}
+        tree.verify(root,false,MigrationIoOwnership()) {}
+        assertArrayEquals(byteArrayOf(1,2),span.toFile().readBytes())
+        PartitionMoveTreeRemoval().run(tree,root) {};assertFalse(root.exists())
+    }
+    @Test fun sameLengthReplacementAndChangedTypeAreRejectedBeforePendingCleanupUnlink() {
+        val root=source();val tree=persisted(capture(root));val span=File(root,"bytes/0/0.0.1.v3.exo")
+        val held=File(folders.newFolder(),"audio");Files.move(span.toPath(),held.toPath())
+        try {
+            Files.copy(held.toPath(),span.toPath());span.setLastModified(held.lastModified())
+            var unlinks=0
+            assertThrows(IOException::class.java) {PartitionMoveTreeRemoval(unlink={unlinks++;Files.delete(it.toPath())}).run(tree,root) {}}
+            assertEquals(0,unlinks);assertArrayEquals(byteArrayOf(1,2),held.readBytes())
+            Files.delete(span.toPath());Files.createDirectory(span.toPath())
+            assertThrows(IOException::class.java) {tree.verify(root,true,MigrationIoOwnership()) {}}
+        } finally {Files.delete(span.toPath());Files.move(held.toPath(),span.toPath())}
+        tree.verify(root,false,MigrationIoOwnership()) {}
+    }
     @Test fun unknownActualUnlinkRetainsOwnerAndCannotRetryInProcess() {
         val root=source(); val tree=capture(root); val owner=PartitionMoveTreeRemoval(unlink={throw IOException("Unknown unlink")})
         assertThrows(PartitionOwnershipUncertain::class.java) {owner.run(tree,root) {}}

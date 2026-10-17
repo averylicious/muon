@@ -118,7 +118,8 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
                 if(!allowMissing) throw IOException("Move tree directory is missing")
                 continue
             }
-            if(!attributes(file).isDirectory || fileIdentity(file)!=d.identity)
+            val observed=attributes(file)
+            if(!observed.isDirectory || fileIdentity(observed)!=d.identity)
                 throw IOException("Move tree directory changed")
             ownership.directory(file.toPath()).use {entries ->
                 var count=0
@@ -136,9 +137,11 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
             // Check all existing ancestors before touching the leaf; no symlink traversal.
             for(d in directories.filter {it.path.isEmpty() || f.path.startsWith(it.path+"/")}) {
                 val ancestor=if(d.path.isEmpty()) root else File(root,d.path)
-                if(moveTreePathPresent(ancestor) &&
-                    (!attributes(ancestor).isDirectory || fileIdentity(ancestor)!=d.identity))
-                    throw IOException("Move tree ancestor changed")
+                if(moveTreePathPresent(ancestor)) {
+                    val observed=attributes(ancestor)
+                    if(!observed.isDirectory || fileIdentity(observed)!=d.identity)
+                        throw IOException("Move tree ancestor changed")
+                }
             }
             if(!moveTreePathPresent(file)) {
                 if(!allowMissing) throw IOException("Move tree file is missing")
@@ -152,7 +155,8 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
     }
     internal fun parent(root:File) {
         val parent=root.parentFile ?: throw IOException("Move tree parent missing")
-        if(parent.absoluteFile!=parent.canonicalFile || !attributes(parent).isDirectory || fileIdentity(parent)!=parentIdentity)
+        val observed=attributes(parent)
+        if(!observed.isDirectory || fileIdentity(observed)!=parentIdentity)
             throw IOException("Move tree parent replaced")
     }
     companion object {
@@ -164,15 +168,18 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
             if(value.length !in 1..256 || value.any {it=='\u0000'}) throw IOException("Move tree identity unavailable")
         }
         private fun attributes(file:File):BasicFileAttributes {
-            if(file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
-                throw IOException("Move tree path is not exact")
-            return Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+            if(file.absoluteFile!=file.canonicalFile) throw IOException("Move tree path is not exact")
+            val observed=Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+            if(observed.isSymbolicLink) throw IOException("Move tree path is not exact")
+            return observed
         }
-        private fun fileIdentity(file:File)=attributes(file).fileKey()?.toString()?.also(::identity)
+        // Type, identity, size and timestamp belong to the SAME fresh observation. Never carry
+        // these attributes across a caller checkpoint, file read/hash or destructive operation.
+        private fun fileIdentity(observed:BasicFileAttributes)=observed.fileKey()?.toString()?.also(::identity)
             ?: throw IOException("Move tree file identity unavailable")
         private fun exact(file:File,expected:PartitionMoveTreeFile) {
             val a=attributes(file)
-            if(!a.isRegularFile || fileIdentity(file)!=expected.identity || a.size()!=expected.length ||
+            if(!a.isRegularFile || fileIdentity(a)!=expected.identity || a.size()!=expected.length ||
                 a.lastModifiedTime().toString()!=expected.modified) throw IOException("Move tree file changed")
         }
         private fun hash(file:File,length:Long,ownership:MigrationIoOwnership,checkpoint:()->Unit):String {
@@ -194,9 +201,10 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
             val dirs=ArrayList<PartitionMoveTreeDirectory>(); val files=ArrayList<PartitionMoveTreeFile>()
             fun scan(directory:File,path:String) {
                 checkpoint()
-                if(dirs.size>=PARTITION_MOVE_TREE_DIRECTORIES || !attributes(directory).isDirectory)
-                    throw IOException("Move tree directory budget/type differs")
-                dirs+=PartitionMoveTreeDirectory(path,fileIdentity(directory))
+                if(dirs.size>=PARTITION_MOVE_TREE_DIRECTORIES) throw IOException("Move tree directory budget/type differs")
+                val observed=attributes(directory)
+                if(!observed.isDirectory) throw IOException("Move tree directory budget/type differs")
+                dirs+=PartitionMoveTreeDirectory(path,fileIdentity(observed))
                 val children=ownership.directory(directory.toPath()).use {entries ->
                     val bounded=ArrayList<File>()
                     for(entry in entries) {
@@ -209,16 +217,16 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
                 } // Close the actual directory before recursion/file readers; never grow handle depth.
                 for(file in children) {
                         checkpoint(); val name=if(path.isEmpty()) file.name else path+"/"+file.name
-                        if(attributes(file).isDirectory) {
+                        val a=attributes(file)
+                        if(a.isDirectory) {
                             if(name !in listOf("bytes","index","metadata") && !name.matches(Regex("bytes/[0-9]")))
                                 throw IOException("Move tree contains an unowned directory")
                             scan(file,name)
                         } else {
                             if(files.size>=PARTITION_MOVE_TREE_FILES || !allowedFile(name)) throw IOException("Move tree file budget/path differs")
-                            val a=attributes(file)
                             if(!a.isRegularFile || (!name.endsWith(".v3.exo") && a.size()>MOVE_TREE_DATABASE_BYTES))
                                 throw IOException("Move tree file type/metadata exceeds budget")
-                            files+=PartitionMoveTreeFile(name,fileIdentity(file),a.size(),a.lastModifiedTime().toString(),
+                            files+=PartitionMoveTreeFile(name,fileIdentity(a),a.size(),a.lastModifiedTime().toString(),
                                 hash(file,a.size(),ownership,checkpoint)).also {exact(file,it)}
                         }
                 }
@@ -227,7 +235,7 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
             scan(root,"")
             if(files.count {it.path=="bytes/"+java.lang.Long.toHexString(uid)+".uid"}!=1)
                 throw IOException("Move tree UID marker differs")
-            return PartitionMoveTree(fileIdentity(parent),dirs.sortedBy {it.path},files.sortedBy {it.path}).also {
+            return PartitionMoveTree(fileIdentity(attributes(parent)),dirs.sortedBy {it.path},files.sortedBy {it.path}).also {
                 it.validate(); it.verify(root,false,ownership,checkpoint)
             }
         }
