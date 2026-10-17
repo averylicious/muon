@@ -1919,6 +1919,60 @@ class OwnedPartitionShelfTest {
         fun sourceRecord()=PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key)
         fun close()=f.close()
     }
+    @Test fun sourceJournalLinkDuringActualTargetDigestRefusesBeforeAnySourceUnlinkAndCanRetry() {
+        val n=NewSourceMoveFixture();val f=n.f
+        val journal=File(f.targetRoot,"partition-moves-v1.db")
+        val held=File(folders.newFolder(),"held-move-journal")
+        val audio=n.originalAllocation.walkTopDown().single {it.name.endsWith(".v3.exo")}
+        var replaced=false
+        try {
+            assertEquals(0,f.f.budget.resident)
+            val result=try {n.finish {
+                if(!replaced && f.f.budget.resident>0) {
+                    java.nio.file.Files.move(journal.toPath(),held.toPath());replaced=true
+                    java.nio.file.Files.createSymbolicLink(journal.toPath(),held.toPath())
+                }
+            }} finally {
+                if(replaced) {
+                    java.nio.file.Files.deleteIfExists(journal.toPath())
+                    java.nio.file.Files.move(held.toPath(),journal.toPath())
+                }
+            }
+            assertTrue(replaced);assertEquals(OfflineStore.SavedRemoval.Failed,result)
+            assertArrayEquals(payload,audio.readBytes());assertNotNull(n.sourceRecord())
+            assertArrayEquals(byteArrayOf(2,4,6),coverFile(n.art,f.key).readBytes())
+            assertEquals(n.pending,onWorker {f.target.moveRecoveryPage().single()})
+            assertTrue(f.f.barrier.quiescent);assertEquals(0,f.f.budget.resident)
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+        } finally {n.close()}
+    }
+    @Test fun sourceVolumeLossDuringActualTargetDigestPreservesSourceAndKnownReaderClosure() {
+        val n=NewSourceMoveFixture();val f=n.f;var changed=false
+        val audio=n.originalAllocation.walkTopDown().single {it.name.endsWith(".v3.exo")}
+        try {
+            val result=try {n.finish {
+                if(!changed && f.f.budget.resident>0) {changed=true;f.targetVolume=null}
+            }} finally {f.targetVolume="fixture"}
+            assertTrue(changed);assertEquals(OfflineStore.SavedRemoval.Failed,result)
+            assertArrayEquals(payload,audio.readBytes());assertNotNull(n.sourceRecord())
+            assertEquals(n.pending,onWorker {f.target.moveRecoveryPage().single()})
+            assertTrue(f.f.barrier.quiescent);assertEquals(0,f.f.budget.resident)
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+        } finally {n.close()}
+    }
+    @Test fun cancellationWithActualTargetNativeOwnerOpenClosesItAndKeepsExactPendingSource() {
+        val n=NewSourceMoveFixture();val f=n.f;var cancelled=false
+        val audio=n.originalAllocation.walkTopDown().single {it.name.endsWith(".v3.exo")}
+        try {
+            assertEquals(OfflineStore.SavedRemoval.Failed,n.finish {
+                if(f.f.budget.resident>0) {cancelled=true;throw java.io.InterruptedIOException("Cancel actual target digest")}
+            })
+            assertTrue(cancelled);assertArrayEquals(payload,audio.readBytes());assertNotNull(n.sourceRecord())
+            assertEquals(n.pending,onWorker {f.target.moveRecoveryPage().single()})
+            assertTrue(f.f.barrier.quiescent);assertEquals(0,f.f.budget.resident)
+            assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
+        } finally {n.close()}
+    }
     @Test fun actualNewSourceMoveFinishesTreeRowAndOwnCoverAndSurvivesRestart() {
         val n=NewSourceMoveFixture(); val f=n.f
         try {
