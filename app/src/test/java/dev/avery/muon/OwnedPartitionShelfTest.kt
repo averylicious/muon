@@ -835,6 +835,22 @@ class OwnedPartitionShelfTest {
             assertArrayEquals(payload,f.original.readBytes()); assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
         } finally {resumed?.let(::teardown); if(!firstClosed) teardown(first); f.provider.close()}
     }
+    @Test fun linkToOriginalJournalInodeStillRefusesUntilExactDirectChildReturns() {
+        val f=Fixture();val owner=f.owner()
+        val file=File(f.root,"legacy-retirements-v1.db");val kept=File(f.root,"retained-retirements.db")
+        try {
+            onWorker {owner.prepare()}
+            assertTrue(file.renameTo(kept))
+            java.nio.file.Files.createSymbolicLink(file.toPath(),kept.toPath())
+            assertFalse(owner.isAvailable)
+            assertThrows(IOException::class.java) {owner.audio.contains("old")}
+            assertThrows(IOException::class.java) {onWorker {owner.beginOriginalRetirement("old",true)}}
+            assertArrayEquals(payload,f.original.readBytes());assertTrue(kept.isFile)
+            java.nio.file.Files.delete(file.toPath());assertTrue(kept.renameTo(file))
+            assertTrue(owner.isAvailable);assertTrue(owner.audio.contains("old"))
+            assertEquals(0,f.budget.resident);assertFalse(SimpleCache.isCacheFolderLocked(f.legacy))
+        } finally {teardown(owner);f.provider.close()}
+    }
     @Test fun replacedRetirementJournalStopsRoutingWithoutAdoptingReplacement() {
         val f=Fixture(); val owner=f.owner()
         try {

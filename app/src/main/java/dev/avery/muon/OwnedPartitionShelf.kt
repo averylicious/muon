@@ -54,24 +54,33 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private class Resources(val legacy:LegacyTransitionOwner,val retirements:LegacyRetirementJournal,val moves:PartitionSavedMoveJournal,val deletes:PartitionSavedDeleteJournal,val catalog:CachePartitionCatalog,
         val migrations:CacheMigrationJournal,val saves:PartitionSaveJournal,val session:PartitionStorageSession,
         val manager:PartitionShelfManager,val workers:java.util.concurrent.ExecutorService,val work:PartitionMigrationWork)
-    private fun exactDirectory(file:File) {
-        if(!file.isDirectory || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
-            throw IOException("Partition shelf directory identity differs")
+    private fun exactDirectory(file:File):Any {
+        if(file.absoluteFile!=file.canonicalFile) throw IOException("Partition shelf directory identity differs")
+        val attributes=Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+        if(!attributes.isDirectory) throw IOException("Partition shelf directory identity differs")
+        return attributes.fileKey() ?: throw IOException("Partition shelf file identity cannot be observed")
     }
     private fun key(file:File):Any=Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,
         LinkOption.NOFOLLOW_LINKS).fileKey() ?: throw IOException("Partition shelf file identity cannot be observed")
-    private fun exactJournal(file:File) {
-        if(!file.isFile || file.absoluteFile!=file.canonicalFile || Files.isSymbolicLink(file.toPath()))
-            throw IOException("Partition shelf journal is missing or changed")
+    /** Only fixed direct children of the separately validated canonical root. One NOFOLLOW
+     * attribute read supplies both regular-file type and identity; a link to the original inode
+     * still refuses. Re-canonicalizing every child's full parent chain adds repeated FUSE work
+     * without granting extra authority. located() brackets the sweep with exact root identity. */
+    private fun exactJournal(file:File):Any {
+        if(file.parentFile!=directory || file.name !in journalNames)
+            throw IOException("Partition shelf journal is not a fixed direct child")
+        val attributes=Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+        if(!attributes.isRegularFile) throw IOException("Partition shelf journal is missing or changed")
+        return attributes.fileKey() ?: throw IOException("Partition shelf file identity cannot be observed")
     }
     private fun located() {
         if(currentVolume()!=volume) throw IOException("Partition shelf volume unavailable or changed")
-        exactDirectory(directory)
-        if(key(directory)!=rootIdentity) throw IOException("Partition shelf root replaced")
+        if(exactDirectory(directory)!=rootIdentity) throw IOException("Partition shelf root replaced")
         for(i in journalNames.indices) {
-            val file=File(directory,journalNames[i]); exactJournal(file)
-            if(key(file)!=identities[i]) throw IOException("Partition shelf journal replaced")
+            if(exactJournal(File(directory,journalNames[i]))!=identities[i])
+                throw IOException("Partition shelf journal replaced")
         }
+        if(exactDirectory(directory)!=rootIdentity) throw IOException("Partition shelf root changed during journal observation")
     }
     private fun available():Boolean = phase==Phase.Ready && runCatching { located(); true }.getOrDefault(false)
     private fun preflight() {
@@ -83,11 +92,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         if(creating) {
             if(Files.exists(directory.toPath(),LinkOption.NOFOLLOW_LINKS)) throw IOException("Fresh partition shelf root already exists")
         } else {
-                exactDirectory(directory)
-                rootIdentity=key(directory)
-                for(i in journalNames.indices) {
-                    val file=File(directory,journalNames[i]); exactJournal(file); identities[i]=key(file)
-                }
+                rootIdentity=exactDirectory(directory)
+                for(i in journalNames.indices) identities[i]=exactJournal(File(directory,journalNames[i]))
                 located()
         }
     }
@@ -104,12 +110,10 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             val legacy=owner.own { LegacyTransitionOwner(legacyDirectory,legacyDatabase,barrier,{currentVolume()==volume}) }
             val audio=legacy.open()
             if(creating) owner.own {PartitionBootstrapOwner(directory,barrier,{currentVolume()==volume})}.publish()
-            exactDirectory(directory)
+            val actualRootIdentity=exactDirectory(directory)
             if(creating) {
-                rootIdentity=key(directory)
-                for(i in journalNames.indices) {
-                    val file=File(directory,journalNames[i]);exactJournal(file);identities[i]=key(file)
-                }
+                rootIdentity=actualRootIdentity
+                for(i in journalNames.indices) identities[i]=exactJournal(File(directory,journalNames[i]))
             }
             located()
             val catalog=owner.own {CachePartitionCatalog(directory,create=false,autoOpen=false)};catalog.open();located()
