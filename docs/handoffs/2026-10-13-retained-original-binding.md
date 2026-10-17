@@ -1,0 +1,9 @@
+# Retained-original Delete binding — 2026-10-13
+
+Cumulative successor to #541 c2c5746edd668853e8e668e6e354b336a025aa46, includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No Claude/phones/independent review.
+
+Legacy manifest v5 binds a stable STOPPED/FAILED record separately from completed audio; the identities are mutually exclusive and retained records cannot gain Move authority. v1–v4 decode remains supported with explicit compatibility fixtures. Actual Delete owner/session verifies original claims, persists the exact partial-row identity, rechecks it before each irreversible source unlink, then performs public index removal, own-cover disposition and durable Complete. Recovery requires exact shown key/token and renewed consent; changed state/progress refuses, missing record/bytes are accepted only under the bound Pending. Bounded Delete summaries offer supported retained recovery without request retention.
+
+Five added tests use actual SQLite/cache/shelf ownership: distinct manifest/old-version authority; stopped/failed removal; changed state/progress refusal; actual record change before unlink; and restart recovery with known already-absent bytes/row. Local diff/branch preflight; Actions first Android compile. Exact-head reports/APK on PR; no runtime/device/performance/durability claim.
+
+Partition mode remains disabled. This handles retained originals that still have a native cache resource entry. Zero-cache-entry failed records remain protected and need explicit absence binding next; no error is treated as absence. Production opt-in/startup/migration controls and final lifecycle coverage remain. Full legacy Delete/Move required before activation; all application PRs OPEN for inherited UAT. No phone needed for this preparation.
