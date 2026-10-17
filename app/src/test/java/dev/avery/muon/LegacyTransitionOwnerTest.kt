@@ -70,6 +70,36 @@ class LegacyTransitionOwnerTest {
         assertThrows(IOException::class.java) {linked.open()}
         assertTrue(f.barrier.quiescent);f.unchanged()
     }
+    private fun liveDatabaseReplacementRefuses(replace:(File,File)->Unit) {
+        val f=Fixture();val owner=f.owner();val audio=owner.open()
+        val held=File(folders.newFolder(),"original-database")
+        try {
+            java.nio.file.Files.move(f.databaseFile.toPath(),held.toPath())
+            try {
+                replace(f.databaseFile,held)
+                assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+                assertTrue(f.barrier.quiescent)
+            } finally {
+                java.nio.file.Files.deleteIfExists(f.databaseFile.toPath())
+                java.nio.file.Files.move(held.toPath(),f.databaseFile.toPath())
+            }
+            // Only the exact known file returned; no new connection/identity is adopted.
+            assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage)
+            val reader=audio.source.createDataSource()
+            try {
+                assertEquals(4L,reader.open(spec));val bytes=ByteArray(4)
+                assertEquals(4,reader.read(bytes,0,4));assertArrayEquals(payload,bytes)
+            } finally {reader.close()}
+            assertTrue(f.barrier.quiescent);f.unchanged()
+        } finally {owner.close()}
+    }
+    @Test fun liveOwnerRefusesALeafLinkToItsPinnedDatabaseInodeAndRecoversOnlyTheExactDirectFile() {
+        liveDatabaseReplacementRefuses {path,held ->java.nio.file.Files.createSymbolicLink(path.toPath(),held.toPath())}
+    }
+    @Test fun liveOwnerRefusesADirectoryAtItsPinnedDatabasePathBeforeQueryingTheBorrowedConnection() {
+        liveDatabaseReplacementRefuses {path,_ ->java.nio.file.Files.createDirectory(path.toPath())}
+    }
+
     @Test fun startupNeverOpensLegacyNativeCacheAndCloseRefusesAnActualReaderEvenAtEof() {
         val f=Fixture(70); val owner=f.owner(); val audio=owner.open()
         try {
