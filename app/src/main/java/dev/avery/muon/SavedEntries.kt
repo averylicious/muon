@@ -388,6 +388,15 @@ private fun savedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download
     projectSavedInventory(shelf, downloads, audio, played, ownsCover) { entries += it }
 }
 
+/** A durable disposition is not a failed scan or missing audio. Only omit the exact key the
+ * backend identified; never turn an unrelated I/O error into a successful partial catalog. Rows,
+ * bytes and recovery journals are untouched, including their contribution to ownership checks. */
+private fun inventoryAudioState(audio: SavedAudio, key: String): SavedAudioState? =
+    try { audio.inspect(key) } catch (retired: SavedCopyRetired) {
+        if (retired.key != key) throw retired
+        null
+    }
+
 private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<Download>, audio: SavedAudio, played: PlayedClaims?,
     ownsCover: (String) -> Boolean, include: (SavedRef) -> Boolean = { true },
     checkpoint: () -> Unit = {}, ownership: ((Download) -> Boolean)? = null,
@@ -399,7 +408,7 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
         val key = keyOf(download)
         val ref = SavedRef.download(shelf, request.id, key) ?: continue
         if (!include(ref)) continue
-        val state = audio.inspect(key)
+        val state = inventoryAudioState(audio, key) ?: continue
         val (coverage, bytes) = state
         // Only a new save's own cover is shown, and only for the row it was fetched for (see DownloadArt).
         val newSave = request.id.startsWith(NEW_SAVE_PREFIX) && request.customCacheKey == request.id
@@ -415,7 +424,7 @@ private fun projectSavedInventory(shelf: SavedShelf, downloads: () -> Sequence<D
             checkpoint()
             val ref = SavedRef.played(key) ?: return true
             if (!include(ref)) return true
-            val state = audio.inspect(key)
+            val state = inventoryAudioState(audio, key) ?: return true
             val (coverage, bytes) = state
             if (coverage != SavedCoverage.Full) return true
             val metadata = state.metadata
@@ -449,13 +458,13 @@ internal fun countCompleteSavedCopies(shelf: SavedShelf, index: DownloadIndex, a
                 SavedRef.download(shelf, download.request.id, keyOf(download)) == null) continue
             val canPlay = download.state == Download.STATE_COMPLETED ||
                 (download.state == Download.STATE_STOPPED && download.stopReason == RETAINED_STOP_REASON)
-            val coverage = audio.inspect(keyOf(download)).coverage
+            val coverage = (inventoryAudioState(audio, keyOf(download)) ?: continue).coverage
             if (canPlay && coverage == SavedCoverage.Full) count++
         }
     }
     if (includePlayed && shelf == SavedShelf.Phone) {
         fun countPlayed(key: String): Boolean {
-            if (SavedRef.played(key) != null && audio.inspect(key).coverage == SavedCoverage.Full) count++
+            if (SavedRef.played(key) != null && inventoryAudioState(audio, key)?.coverage == SavedCoverage.Full) count++
             return true
         }
         if (playedKeys != null) playedKeys(::countPlayed) else audio.forEachKey(::countPlayed)

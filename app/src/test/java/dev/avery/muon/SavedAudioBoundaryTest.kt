@@ -115,6 +115,32 @@ class SavedAudioBoundaryTest {
         assertEquals(Download.STATE_REMOVING, index.getDownload("saved/removing")?.state)
     }
 
+    @Test fun dispositionInventorySkipsOnlyItsExactCopyIncludingAnExplicitPlayedCensus() {
+        for(key in listOf("saved/one","saved/two","played:one","played:two")) seed(key,payload,4)
+        put("saved/one");put("saved/two")
+        val legacy=LegacySavedAudio(cache)
+        val audio=object:SavedAudio by legacy {
+            override fun inspect(key:String):SavedAudioState =
+                if(key.endsWith("one")) throw SavedCopyRetired(key) else legacy.inspect(key)
+        }
+        val rows=mutableListOf<SavedEntry>()
+        fun played(visit:(String)->Boolean) {for(key in listOf("played:one","played:two")) if(!visit(key)) break}
+        forEachSavedEntry(SavedShelf.Phone,index,audio,PlayedClaims.none(),{false},playedKeys=::played,emit=rows::add)
+        assertEquals(listOf("saved/two","played:two"),rows.map {it.ref.key})
+        assertEquals(2L,countCompleteSavedCopies(SavedShelf.Phone,index,audio,true,::played))
+        assertNotNull(index.getDownload("saved/one"));assertArrayEquals(payload,requireNotNull(cache.getCachedSpans("saved/one").single().file).readBytes())
+    }
+
+    @Test fun dispositionForAnotherKeyCannotTurnAnInventoryFailureIntoAPartialSuccess() {
+        seed("saved/one",payload,4);put("saved/one")
+        val audio=object:SavedAudio by LegacySavedAudio(cache) {
+            override fun inspect(key:String):SavedAudioState=throw SavedCopyRetired("different-key")
+        }
+        assertThrows(SavedCopyRetired::class.java) {savedInventory(SavedShelf.Phone,index,audio,null) {false}}
+        assertThrows(SavedCopyRetired::class.java) {countCompleteSavedCopies(SavedShelf.Phone,index,audio,false)}
+        assertNotNull(index.getDownload("saved/one"))
+    }
+
     @Test fun inspectionFailurePropagatesAndClosesTheActualIndexCursor() {
         seed("saved/one", payload, 4); put("saved/one")
         var closed = false

@@ -7,6 +7,10 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.ContentMetadata
 
+/** An exact disposition journal suppresses THIS key. Inventory may omit it while recovery
+ * remains explicit; generic storage/read failures must still abort an atomic refresh. */
+internal class SavedCopyRetired(val key: String) : java.io.IOException("Saved copy has a removal disposition")
+
 /** Read boundary for one shelf. Callers receive one resource's state, never its native Cache/owner.
  * A future partition implementation must hold its reader lease for inspection and keep a source's
  * lease until actual close. It must enumerate published keys from disk, not open every partition.

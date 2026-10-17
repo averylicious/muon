@@ -954,6 +954,44 @@ class OwnedPartitionShelfTest {
             }
         } finally {permit.close()}
     }
+    @Test fun pendingOriginalDeletionKeepsOtherSavedCopiesVisibleAcrossRestartWithoutRestoringItsRoute() {
+        val f=Fixture("42"); val index=seedOriginal(f)
+        val other="43"
+        val native=SimpleCache(f.legacy,NoOpCacheEvictor(),f.provider)
+        val otherFile:File
+        try {
+            native.checkInitialization()
+            val hole=requireNotNull(native.startReadWrite(other,0,4))
+            try {otherFile=native.startFile(other,0,4);otherFile.writeBytes(payload);native.commitFile(otherFile,4)}
+            finally {native.releaseHoleSpan(hole)}
+            native.applyContentMetadataMutations(other,ContentMetadataMutations.setContentLength(ContentMetadataMutations(),4))
+        } finally {native.release()}
+        val request=DownloadRequest.Builder(other,Uri.parse("http://127.0.0.1:7814/api1/fileopus/43")).setCustomCacheKey(other).build()
+        index.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
+        var owner=f.owner()
+        try {
+            onWorker {owner.prepare()}
+            val pending=boundOriginalIntent(f,owner)
+            repeat(2) {pass ->
+                onWorker {
+                    val rows=savedInventory(SavedShelf.Card,index,owner.audio,null) {false}
+                    assertEquals(listOf(other),rows.map {it.ref.key});assertTrue(rows.single().complete)
+                    assertEquals(1L,countCompleteSavedCopies(SavedShelf.Card,index,owner.audio,false))
+                    assertEquals(pending,owner.retirementRecoveryPage().single())
+                    assertFalse(owner.audio.contains(f.oldKey))
+                    assertThrows(SavedCopyRetired::class.java) {owner.audio.inspect(f.oldKey)}
+                    val reader=owner.audio.source.createDataSource()
+                    try {assertThrows(IOException::class.java) {reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey(f.oldKey).build())}}
+                    finally {reader.close()}
+                }
+                assertNotNull(index.getDownload(f.oldKey));assertNotNull(index.getDownload(other))
+                assertArrayEquals(payload,f.original.readBytes());assertArrayEquals(payload,otherFile.readBytes())
+                assertTrue(f.barrier.quiescent);assertEquals(0,f.budget.resident)
+                if(pass==0) {teardown(owner);owner=f.owner(PartitionShelfStart.Resume);onWorker {owner.prepare()}}
+            }
+        } finally {teardown(owner);f.provider.close()}
+    }
+
     @Test fun completeOriginalDeleteDisposesReadyBytesTerminalRecordAndCoverBeforeComplete() {
         val f=Fixture("42"); val index=seedOriginal(f); val owner=f.owner(); var covers=0
         try {

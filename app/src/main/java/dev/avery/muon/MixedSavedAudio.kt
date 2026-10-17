@@ -41,6 +41,7 @@ internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
     }
     override fun inspect(key:String):SavedAudioState {
         val expected=route(key)
+        if(expected==PartitionReadRoute.Retired) throw SavedCopyRetired(key)
         return audio(expected).inspect(key).also { unchanged(key,expected) }
     }
     override fun forEachKey(visit:(String)->Boolean) {
