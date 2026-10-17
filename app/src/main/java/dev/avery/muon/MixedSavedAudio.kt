@@ -24,8 +24,16 @@ internal sealed interface PartitionReadRoute {
  */
 internal class MixedSavedAudio(private val owner:PartitionNativeOwner,
     private val legacy:SavedAudio,private val published:PartitionPublishedAudio,
-    private val completed:PartitionCompletedAudio,private val retired:(String)->Boolean={false}):SavedAudio {
-    private fun route(key:String)=if(retired(key)) PartitionReadRoute.Retired else owner.savedReadRoute(key)
+    private val completed:PartitionCompletedAudio,
+    private val routeTiming:StorageRootTiming?=StorageRootTiming.begin(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS),
+    private val retired:(String)->Boolean={false}):SavedAudio {
+    // Observe the existing complete decision, including retirement and current-volume refusal.
+    // No identities enter the sink, and the shared process event cap also stops its clock work.
+    private fun route(key:String):PartitionReadRoute {
+        val timing=routeTiming
+        return if(timing==null) routeNow(key) else timing.measure(StorageRootTiming.Phase.MIXED_ROUTE) {routeNow(key)}
+    }
+    private fun routeNow(key:String)=if(retired(key)) PartitionReadRoute.Retired else owner.savedReadRoute(key)
     private fun audio(route:PartitionReadRoute):SavedAudio=when(route) {
         PartitionReadRoute.Retired -> throw IOException("Original copy removal is pending or complete; legacy fallback is unavailable")
         PartitionReadRoute.Legacy -> legacy

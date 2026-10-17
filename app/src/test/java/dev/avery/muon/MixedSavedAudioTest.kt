@@ -195,4 +195,25 @@ class MixedSavedAudioTest {
         assertThrows(IOException::class.java) { reader.open(spec("old")) }; reader.close()
         assertTrue(gate.quiescent); assertTrue(gate.allowsShared); assertTrue(f.native.isCached("old",0,1))
     }
+    @Test fun brokenRouteDiagnosticsPreserveReadBytesVolumeRefusalAndSharedLease() {
+        val f=fixture();val key="saved/route-observer";seed(f.native,key,byteArrayOf(4,5,6))
+        for(brokenClock in listOf(false,true)) {
+            f.volume="card"
+            val timing=requireNotNull(StorageRootTiming.begin(true,java.util.concurrent.atomic.AtomicInteger(32),
+                {if(brokenClock) throw IOException("Clock unavailable") else 0L},
+                {throw IOException("Sink unavailable")}))
+            val mixed=MixedSavedAudio(f.owner,f.legacy,f.published,f.completed,routeTiming=timing)
+            val gate=SavedStorageBarrier();val reader=BarrierSavedAudio(mixed,gate).source.createDataSource()
+            try {
+                assertEquals(3L,reader.open(spec(key)))
+                val first=ByteArray(1);assertEquals(1,reader.read(first,0,1));assertArrayEquals(byteArrayOf(4),first)
+                f.volume=null
+                assertThrows(IOException::class.java) {reader.read(ByteArray(1),0,1)}
+                assertEquals(1,gate.active)
+            } finally {reader.close()}
+            assertTrue(gate.quiescent);assertTrue(gate.allowsShared)
+            assertTrue(f.native.isCached(key,0,3))
+        }
+    }
+
 }
