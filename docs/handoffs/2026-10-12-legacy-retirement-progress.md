@@ -1,5 +1,7 @@
 # Partition retirement engineering checkpoint — updated 2026-10-13
 
+Historical detailed receipts below are retained from the merged #515 snapshot. For the final combined current candidate and idle handoff use [Canary preview](2026-10-13-partition-canary-optin.md), PR #562 and issue #253. #515 merged at a2db02b8ba0b4959f28aecf5fa89196cf92622bc; its old OPEN/sole-writer/pending-.1102 statements below are dated observations, not current ownership. Final application branch includes that main. Canary preview is enabled only on the open candidate; Stable/benchmark remain false.
+
 This supplements [the startup/played checkpoint](2026-10-12-storage-startup-played-integration.md). Latest product decision: **full Delete/Move for legacy originals is required before partition activation**; protected/read-only originals are not the accepted substitute. Release/benchmark partition mode remains disabled; only Canary preview is prepared on OPEN #562 after renewed activation approval. Installing does not opt in. Inspected main before this documentation merge remains 5a2c47f8c21517de7801ccadfe108c9ea6206dbf (docs-only #504); the application stack below is OPEN for inherited acceptance and has not been published from main.
 
 ## Ownership and scope
@@ -103,7 +105,7 @@ Old native-index metadata may remain after exact selected audio/terminal row/own
 
 ## Latest verified boundary and continuation
 
-All receipt rows below were verified from downloaded JUnit/lint reports, BUILD.txt, checksum and actual signed APK certificate/package/non-debuggable/export checks. Tests are per variant; lint has zero errors. No device/performance/power-loss claim. All app PRs remain OPEN for cumulative UAT; activation is false. Initial journal reruns .1072/.1073/.1077/.1078 failed fixture cleanup or missing initialized fixture schema and were corrected without weakening production ownership.
+All receipt rows below were verified from downloaded JUnit/lint reports, BUILD.txt, checksum and actual signed APK certificate/package/non-debuggable/export checks. Tests are per variant; lint has zero errors. No device/performance/power-loss claim. All app PRs remain OPEN for cumulative UAT; these receipt rows precede Canary-only preview activation. Initial journal reruns .1072/.1073/.1077/.1078 failed fixture cleanup or missing initialized fixture schema and were corrected without weakening production ownership.
 
 | PR | Exact head | Run / ID | Tests / lint warnings | APK artifact / SHA256 |
 | --- | --- | --- | --- | --- |
