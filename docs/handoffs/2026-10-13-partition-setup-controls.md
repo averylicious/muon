@@ -1,0 +1,13 @@
+# Staged partition selection and setup review — 2026-10-13
+
+Cumulative successor to #554 b90c6d1f39ca87f71a804965fee84435fe45f230; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check; exact variant/effort not reported. No Claude/phones/independent review.
+
+The actual application initializer now enters a selected-backend boundary before provider/native allocation. Legacy retains its existing preparer. Explicit partition selection routes only to trusted platform-root preparation when the shared compile-time activation gate allows it; a disabled/malformed choice refuses with no legacy fallback. Tests explicitly exercise enabled selection through actual fixture roots, not a production preference override. PARTITION_OPT_IN_AVAILABLE remains false, so no new backend or controls are enabled for users in this build.
+
+Prepared Settings controls explain first opt-in, full restart, temporary space, retained originals/obsolete old index metadata and absence of bulk migration/secure erasure. Confirmed/unknown startup writes replace storage actions with restart guidance; bounded fixed state is polled only for the active submitted attempt. No whole library/journal scans run on the UI thread. The controls share the selector gate, avoiding an opt-in button that creates an unusable choice in a disabled build.
+
+Interrupted Preparing setup offers explicit renewed Resume, saving exact original identities with Resume rather than Fresh. One process owner registers actual settings before read/write on the existing serial worker. Current failed native owners are neither reopened nor released. Success takes effect only on full restart; malformed/unsupported or unconfirmed writes are retained and cannot be retried in this process. No automatic journal repair, root recreation, live manager replacement or reset API.
+
+Two actual app-preparation tests cover disabled refusal before allocation/fallback and enabled real partition roots with no legacy native cache. Three preference/ownership tests cover reviewed Resume, consent/phase refusal and failed commit after memory change retaining the exact settings owner. No Compose UI, spoken, Android live platform, performance, device or physical power-loss verification; Actions first compile.
+
+Remaining engineering: bounded first-opt-in startup-failure recovery that does not require an already initialized legacy native index; composed lifecycle/dispatch/UI checks; release activation disposition and inherited acceptance. Full supported Delete/Move is prepared, not substituted by read-only originals. Application PRs remain OPEN; no phone needed while the activation gate stays disabled.
