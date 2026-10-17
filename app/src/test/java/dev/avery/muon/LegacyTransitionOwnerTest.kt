@@ -108,7 +108,8 @@ class LegacyTransitionOwnerTest {
         val audio=owner.open()
         val other=SQLiteDatabase.openDatabase(f.databaseFile.path,null,SQLiteDatabase.OPEN_READONLY)
         try {
-            f.barrier.shared().use {
+            val permit=f.barrier.shared()
+            try {
                 val actual=requireNotNull(borrowed)
                 assertEquals(SavedCoverage.Full,savedAudioState(
                     LegacyResourceProjection.readOwnedAudio(f.root,f.uid,"saved/0",actual,owner).cache,"saved/0").coverage)
@@ -118,7 +119,7 @@ class LegacyTransitionOwnerTest {
                 f.present=false
                 assertThrows(IOException::class.java) {audio.inspect("saved/0")}
                 f.present=true
-            }
+            } finally {permit.close()}
             owner.close()
             assertThrows(IOException::class.java) {LegacyResourceProjection.readOwnedAudio(f.root,f.uid,"saved/0",requireNotNull(borrowed),owner)}
             assertTrue(f.barrier.quiescent);f.unchanged()
