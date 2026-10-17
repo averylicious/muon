@@ -27,6 +27,33 @@ class PartitionRemovalCoverTest {
         requireNotNull(queued).run()
         assertEquals(0,fetched); assertArrayEquals(byteArrayOf(7),older.readBytes()); assertTrue(gate.quiescent)
     }
+    @Test fun absentOptionalCoverDirectoryCanFinishDeleteWithoutCreatingItOrTouchingOtherFiles() {
+        val parent=folders.newFolder();val dir=File(parent,"covers")
+        val unrelated=File(parent,"unrelated").apply {writeBytes(byteArrayOf(6,7))}
+        val gate=SavedStorageBarrier();val art=DownloadArt(dir,barrier=gate)
+        val permit=gate.exclusive()
+        try {
+            val expected=art.savedDeleteCover("saved/without-cover",permit)
+            assertEquals(SavedMoveCoverIdentity(0,null),expected)
+            art.removeSavedDeleteCoverConfirmed("saved/without-cover",expected,permit)
+            assertFalse(dir.exists());assertArrayEquals(byteArrayOf(6,7),unrelated.readBytes());permit.check()
+        } finally {permit.close()}
+        assertTrue(gate.quiescent)
+    }
+    @Test fun exactDeleteRecoveryAcceptsAlreadyAbsentCoverAndDirectoryWithoutInventingACopy() {
+        val parent=folders.newFolder();val dir=File(parent,"covers").apply {check(mkdir())}
+        val gate=SavedStorageBarrier();val art=DownloadArt(dir,barrier=gate);val id="saved/interrupted-cover"
+        val file=entry(art,id).apply {writeBytes(byteArrayOf(1,3,5))};val permit=gate.exclusive()
+        try {
+            val expected=art.savedDeleteCover(id,permit);assertEquals(3L,expected.length)
+            // Fixture models completed cover unlink before a prior process interruption.
+            java.nio.file.Files.delete(file.toPath());java.nio.file.Files.delete(dir.toPath())
+            art.removeSavedDeleteCoverConfirmed(id,expected,permit)
+            assertFalse(dir.exists());assertFalse(file.exists());permit.check()
+        } finally {permit.close()}
+        assertTrue(gate.quiescent)
+    }
+
     @Test fun confirmedCoverAndQueueRemovalRefuseForeignGateBeforeMutation() {
         val gate=SavedStorageBarrier(); val art=DownloadArt(folders.newFolder(),barrier=gate)
         val id="saved/fixture"; val cover=entry(art,id).apply {writeBytes(byteArrayOf(1,2))}

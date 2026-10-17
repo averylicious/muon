@@ -294,14 +294,29 @@ internal class DownloadArt(private val dir: File,
         return SavedMoveCoverIdentity(before.size(),digest.digest().joinToString("") {"%02x".format(it)})
     }
     private fun syncCoverDirectory(permit:SavedStorageBarrier.Lease) {
-        permit.check(); val io=SavedCoverIo(); io.disposition=dir
+        permit.check()
+        val original=coverAttributes(dir)
+        // Covers are optional. If the directory was never created (or is already absent
+        // during exact recovery), sync its existing parent rather than creating/adopting it.
+        val target=if(original==null) requireNotNull(dir.parentFile) else dir
+        if(target.absoluteFile!=target.canonicalFile) throw IOException("Saved cover sync parent changed")
+        val before=original ?: Files.readAttributes(target.toPath(),BasicFileAttributes::class.java,NOFOLLOW_LINKS)
+        if(!before.isDirectory || before.fileKey()==null) throw IOException("Saved cover sync directory unavailable")
+        val io=SavedCoverIo(); io.disposition=arrayOf(dir,target,before)
         try {
             try {
-                val channel=FileChannel.open(dir.toPath(),READ).also {io.extra=it}; channel.force(true)
+                val channel=FileChannel.open(target.toPath(),READ).also {io.extra=it}; channel.force(true)
             } finally {io.finish()}
         } catch(close:SavedCoverCloseUncertain) {
             retain(close.owner); permit.quarantine(close.owner); throw close
         }
+        permit.check()
+        val after=Files.readAttributes(target.toPath(),BasicFileAttributes::class.java,NOFOLLOW_LINKS)
+        if(target.absoluteFile!=target.canonicalFile || !after.isDirectory || before.fileKey()!=after.fileKey())
+            throw IOException("Saved cover sync directory changed")
+        val current=coverAttributes(dir)
+        if((original==null)!=(current==null) || original!=null && original.fileKey()!=current?.fileKey())
+            throw IOException("Saved cover directory changed during sync")
         permit.check()
     }
     private companion object { const val COVER_BYTES = 4L * 1024 * 1024 }

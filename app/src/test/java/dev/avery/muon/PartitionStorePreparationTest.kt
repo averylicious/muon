@@ -152,15 +152,24 @@ class PartitionStorePreparationTest {
             f.originals.forEach { assertArrayEquals(bytes,it.readBytes()) }
         } finally { cleanup(startup); f.seed.close() }
     }
-    @Test fun actualAppPreparationResolvesFrameworkDatabaseParentAliasWithoutChangingOriginals() {
+    @Test fun actualAppPreparationResolvesFrameworkParentsButStillRejectsACoverDirectoryLeafLink() {
         val f=Fixture();val startup=StorageStartup<OfflineStore.PreparedStorage>()
         val database=app.getDatabasePath(StandaloneDatabaseProvider.DATABASE_NAME)
         val alias=File(folders.newFolder(),"framework-databases")
         java.nio.file.Files.createSymbolicLink(alias.toPath(),requireNotNull(database.parentFile).toPath())
+        val filesAlias=File(folders.newFolder(),"framework-files")
+        java.nio.file.Files.createSymbolicLink(filesAlias.toPath(),app.filesDir.canonicalFile.toPath())
         val context=object:android.content.ContextWrapper(app) {
             override fun getApplicationContext():android.content.Context=this
             override fun getDatabasePath(name:String):File=File(alias,name)
+            override fun getFilesDir():File=filesAlias
         }
+        val coverDirectory=File(app.filesDir.canonicalFile,"downloads-art").apply {check(isDirectory || mkdirs())}
+        val coverId="saved/framework-alias"
+        val coverName="entry-"+java.security.MessageDigest.getInstance("SHA-256")
+            .digest("muon-saved-entry\u0000$coverId".toByteArray()).joinToString("") {"%02x".format(it)}
+        val ownCover=File(coverDirectory,coverName).apply {writeBytes(byteArrayOf(3,5,7))}
+        val unrelated=File(coverDirectory,"older-track-cover").apply {writeBytes(byteArrayOf(9,8))}
         val probe=PreservingMediaDatabase(context)
         try {
             assertNotEquals(File(probe.readableDatabase.path),File(probe.readableDatabase.path).canonicalFile)
@@ -176,6 +185,24 @@ class PartitionStorePreparationTest {
                         val read=ByteArray(4);assertEquals(4,reader.read(read,0,4));assertArrayEquals(bytes,read)
                     } finally {reader.close()}
                 }
+            }
+            worker {
+                val permit=ready.barrier.exclusive()
+                try {
+                    val expected=ready.art.savedDeleteCover(coverId,permit)
+                    assertEquals(3L,expected.length)
+                    ready.art.removeSavedDeleteCoverConfirmed(coverId,expected,permit)
+                    assertFalse(ownCover.exists());assertArrayEquals(byteArrayOf(9,8),unrelated.readBytes())
+                    val held=File(coverDirectory.parentFile,"held-cover-directory")
+                    java.nio.file.Files.move(coverDirectory.toPath(),held.toPath())
+                    try {
+                        java.nio.file.Files.createSymbolicLink(coverDirectory.toPath(),held.toPath())
+                        assertThrows(IOException::class.java) {ready.art.savedDeleteCover(coverId,permit)}
+                    } finally {
+                        java.nio.file.Files.deleteIfExists(coverDirectory.toPath())
+                        java.nio.file.Files.move(held.toPath(),coverDirectory.toPath())
+                    }
+                } finally {permit.close()}
             }
             assertNull(ready.phone.cache);assertNull(ready.card!!.cache)
             assertEquals(0,PartitionNativeBudget.process.resident)

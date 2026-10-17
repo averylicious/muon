@@ -258,7 +258,7 @@ internal object OfflineStore {
             // A partial card allocation is not 'no card': keep the failed startup and all actual
             // owners. Retrying with only a phone manager would hide uncertainty over the provider.
             val card=folder?.let { native(File(it,"downloads"),NoOpCacheEvictor(),"card",MuonCardDownloadService::class.java) { cardPresent(it) } }
-            val art=owner.own { DownloadArt(File(context.filesDir,"downloads-art"),barrier=barrier) }
+            val art=owner.own { DownloadArt(File(context.filesDir.canonicalFile,"downloads-art"),barrier=barrier) }
             val workers=owner.own { Executors.newSingleThreadExecutor() }
             val artwork=owner.own { DownloadArtworkWork(workers,art::fetchEntry,art::removeEntry,
                 barrier=barrier,knownRejectionBeforeSubmission=true) }
@@ -316,7 +316,7 @@ internal object OfflineStore {
         // its order. Partition accounting/admission/Clear use the session's actual mixed route.
         val order=owner.own { DiskPlayedSpanOrder(File(context.noBackupFilesDir,"played-span-order-v1.db")) }
         val played=owner.own { PlayedSongEvictor(limit,claims::removable,order) { used -> main.post { PlayedCacheState.used=used } } }
-        val art=owner.own { DownloadArt(File(context.filesDir,"downloads-art"),barrier=barrier) }
+        val art=owner.own { DownloadArt(File(context.filesDir.canonicalFile,"downloads-art"),barrier=barrier) }
         val legacyDatabase=platformMediaDatabaseFile(File(database.readableDatabase.path))
         var phoneOwner:OwnedPartitionShelf?=null; var cardOwner:OwnedPartitionShelf?=null
         var claimsReady=false
