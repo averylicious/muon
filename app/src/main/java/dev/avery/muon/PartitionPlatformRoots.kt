@@ -14,7 +14,7 @@ internal class PartitionPlatformRoots(
     private val files:()->File,
     private val external:()->Array<File?>,
     private val phoneVolume:(File)->String,
-    private val cardVolume:(File)->String?) {
+    private val cardVolume:(File)->String?,private val timing:StorageRootTiming?=null) {
     private fun worker() {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Storage root resolution requires a worker"}
     }
@@ -29,11 +29,23 @@ internal class PartitionPlatformRoots(
     private fun child(base:File,name:String):File=File(base,name).also {
         if(it!=it.canonicalFile) throw IOException("Selected saved-storage path has an alias")
     }
+    private fun phoneNow(base:File):String? {
+        if(folder(files())!=base) return null
+        val observed=if(timing==null) phoneVolume(base)
+            else timing.measure(StorageRootTiming.Phase.PHONE_VOLUME) {phoneVolume(base)}
+        return identity(observed)
+    }
     private fun currentPhone(base:File):String?=try {
-        if(folder(files())!=base) null else identity(phoneVolume(base))
+        if(timing==null) phoneNow(base) else timing.measure(StorageRootTiming.Phase.PHONE_ROOT) {phoneNow(base)}
     } catch(_:Exception) {null}
+    private fun cardNow(base:File):String? {
+        if(!base.isDirectory || base!=base.canonicalFile) return null
+        val observed=if(timing==null) cardVolume(base)
+            else timing.measure(StorageRootTiming.Phase.CARD_VOLUME) {cardVolume(base)}
+        return observed?.let(::identity)
+    }
     private fun currentCard(base:File):String?=try {
-        if(!base.isDirectory || base!=base.canonicalFile) null else cardVolume(base)?.let(::identity)
+        if(timing==null) cardNow(base) else timing.measure(StorageRootTiming.Phase.CARD_ROOT) {cardNow(base)}
     } catch(_:Exception) {null}
     private fun phone(start:PartitionShelfStart):PartitionRootPlan {
         val base=folder(files());val volume=currentPhone(base) ?: throw IOException("Private storage identity unavailable")
@@ -91,7 +103,7 @@ internal class PartitionPlatformRoots(
                     val volume=manager.getStorageVolume(directory)
                     if(volume==null || !volume.isRemovable || volume.isEmulated || volume.state!=Environment.MEDIA_MOUNTED) null
                     else volume.uuid?.let {"removable:$it"}
-                })
+                },timing=if(BuildConfig.DEBUG) StorageRootTiming.begin(true) else null)
         }
     }
 }
