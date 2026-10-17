@@ -1,0 +1,7 @@
+# Storage busy feedback
+
+POCO diagnostic acceptance observed Settings saying the SD card was unavailable while the card remained mounted and an exclusive migration/Delete permit was active. Shelf availability includes ordinary admission, so the existing once-per-visit remembered result treated that temporary refusal as card loss and could retain it after work finished.
+
+Settings now observes the existing scalar DownloadMarks.moving boundary: it checks the current card when work starts/finishes, describes an unavailable observation during active work as busy, and disables the SD destination switch until the operation ends. The footer no longer instructs the user to return a card during that operation. No polling, new worker, physical-presence authority, changed storage barrier, automatic retry, setting write or mutation permission is introduced. A genuinely unavailable card after work ends still refuses as before. This does not implement general hot-remount recovery.
+
+The change is presentation/admission of a Settings toggle only; storage controllers still enforce their actual ownership checks. CI provides Kotlin/Compose compilation, not visual proof. On a disposable fixture, open Settings during explicit recovery/optimization, verify busy wording and disabled destination toggle, then verify a fresh availability observation when work ends. Source author self-check: GPT-6 / Codex desktop, exact variant/effort not reported; no independent review or Claude. Cumulative app candidate stays open for acceptance; no Stable activation.
