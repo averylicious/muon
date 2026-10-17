@@ -23,7 +23,9 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
     private val io:()->MigrationIoOwnership={MigrationIoOwnership()},
     private val owner:LegacyTransitionOwner?=null):SavedAudio {
     private val table=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+java.lang.Long.toHexString(uid)
-    private fun checked(ownership:MigrationIoOwnership)=LegacyResourceProjection.validate(directory,uid,index,checkpoint,ownership)
+    private fun checked(ownership:MigrationIoOwnership)=
+        if(owner==null) LegacyResourceProjection.validate(directory,uid,index,checkpoint,ownership)
+        else LegacyResourceProjection.validateOwned(directory,uid,index,owner,ownership)
     private fun projection(key:String,ownership:MigrationIoOwnership):LegacyAudioProjection =
         if(owner==null) LegacyResourceProjection.readAudio(directory,uid,key,index,checkpoint,ownership)
         else LegacyResourceProjection.readOwnedAudio(directory,uid,key,index,owner,ownership)

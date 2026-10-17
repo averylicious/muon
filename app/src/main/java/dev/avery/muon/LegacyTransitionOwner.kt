@@ -157,7 +157,7 @@ internal class LegacyTransitionOwner(private val directory:File,private val data
             throw IOException("Original name probe needs actual exclusive ownership and a bounded name")
         try {
             checkpoint(); permit.check()
-            LegacyResourceProjection.validate(directory,requireNotNull(uid),requireNotNull(index),::checkpoint,directoryIo)()
+            LegacyResourceProjection.validateOwned(directory,requireNotNull(uid),requireNotNull(index),this,directoryIo)()
             val table="ExoPlayerCacheIndex"+java.lang.Long.toHexString(requireNotNull(uid))
             val found=directoryIo.useOwned({requireNotNull(index).rawQuery(
                 "SELECT CASE WHEN typeof(key)='text' THEN 1 ELSE 0 END FROM $table WHERE key=? OR typeof(key)!='text' LIMIT 1",arrayOf(name))}) {

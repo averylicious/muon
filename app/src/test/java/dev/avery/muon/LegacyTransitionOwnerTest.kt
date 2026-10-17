@@ -78,6 +78,10 @@ class LegacyTransitionOwnerTest {
             try {
                 replace(f.databaseFile,held)
                 assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+                assertThrows(IOException::class.java) {audio.contains("saved/0")}
+                assertThrows(IOException::class.java) {audio.forEachKey {error("Replaced database must not enumerate")}}
+                val permit=f.barrier.exclusive()
+                try {assertThrows(IOException::class.java) {owner.claimsOriginalName("saved/0",permit)}} finally {permit.close()}
                 assertTrue(f.barrier.quiescent)
             } finally {
                 java.nio.file.Files.deleteIfExists(f.databaseFile.toPath())
@@ -132,12 +136,33 @@ class LegacyTransitionOwnerTest {
             val table="ExoPlayerCacheIndex"+java.lang.Long.toHexString(f.uid)
             writer.execSQL("CREATE INDEX unexpected_projection_index ON $table(key)")
             assertThrows(IOException::class.java) {audio.inspect("saved/0")}
+            assertThrows(IOException::class.java) {audio.contains("saved/0")}
+            assertThrows(IOException::class.java) {audio.forEachKey {error("Unknown schema must not enumerate")}}
+            val permit=f.barrier.exclusive()
+            try {assertThrows(IOException::class.java) {owner.claimsOriginalName("saved/0",permit)}} finally {permit.close()}
             val reader=audio.source.createDataSource()
             try {assertThrows(IOException::class.java) {reader.open(spec)}} finally {reader.close()}
             assertTrue(f.barrier.quiescent);f.unchanged()
             writer.execSQL("DROP INDEX unexpected_projection_index")
             assertEquals(SavedCoverage.Full,audio.inspect("saved/0").coverage)
         } finally {writer.close();owner.close()}
+    }
+    @Test fun ownedOriginalNameCensusStillNeedsTheActualExclusiveGateAndFreshVolume() {
+        val f=Fixture();val owner=f.owner();owner.open()
+        try {
+            val shared=f.barrier.shared()
+            try {assertThrows(IOException::class.java) {owner.claimsOriginalName("saved/0",shared)}} finally {shared.close()}
+            val foreign=SavedStorageBarrier().exclusive()
+            try {assertThrows(IOException::class.java) {owner.claimsOriginalName("saved/0",foreign)}} finally {foreign.close()}
+            val permit=f.barrier.exclusive()
+            try {
+                assertTrue(owner.claimsOriginalName("saved/0",permit));assertFalse(owner.claimsOriginalName("missing",permit))
+                f.present=false
+                assertThrows(IOException::class.java) {owner.claimsOriginalName("saved/0",permit)}
+                f.present=true;assertTrue(owner.claimsOriginalName("saved/0",permit))
+            } finally {permit.close()}
+            assertTrue(f.barrier.quiescent);f.unchanged()
+        } finally {owner.close()}
     }
     @Test fun ownedProjectionRefusesALiveRootLinkEvenWhenItTargetsThePinnedInode() {
         val f=Fixture();val owner=f.owner();val audio=owner.open()

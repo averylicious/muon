@@ -60,11 +60,7 @@ internal object LegacyResourceProjection {
      * Generic read/readAudio and destructive migration/retirement still use full validation. */
     fun readOwnedAudio(directory:File,uid:Long,key:String,index:SQLiteDatabase,owner:LegacyTransitionOwner,
         ownership:MigrationIoOwnership=MigrationIoOwnership()):LegacyAudioProjection =
-        try {
-            // Refuse a stale owner before touching its possibly closed borrowed connection.
-            owner.checkProjection(directory,uid,index)
-            project(directory,uid,key,index,{owner.checkProjection(directory,uid,index)},ownership,true,owner)
-        }
+        try {project(directory,uid,key,index,{owner.checkProjection(directory,uid,index)},ownership,true,owner)}
         catch(failure:Throwable) {
             if(!ownership.quiescent) throw MigrationIoUncertain(ownership,failure)
             throw failure
@@ -72,10 +68,10 @@ internal object LegacyResourceProjection {
 
     private fun project(directory:File,uid:Long,key:String,index:SQLiteDatabase,checkpoint:()->Unit,
         ownership:MigrationIoOwnership,audioOnly:Boolean,owner:LegacyTransitionOwner?=null):LegacyAudioProjection {
-        if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES || !index.isReadOnly)
+        if(uid<0 || key.length.toLong()*2>MIGRATION_KEY_BYTES)
             throw IOException("Legacy projection needs a bounded identity and read-only database")
         val live=if(owner==null) validate(directory,uid,index,checkpoint,ownership)
-            else validateSchema(uid,index,ownership) {owner.checkProjection(directory,uid,index)}
+            else validateOwned(directory,uid,index,owner,ownership)
         val hex=java.lang.Long.toHexString(uid)
         val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
@@ -164,12 +160,18 @@ internal object LegacyResourceProjection {
         }
         return validateSchema(uid,index,ownership,::live)
     }
+    /** Read-only audio/name observation on the exact live owner. This supplies no permit,
+     * cached claim or deletion authority; callers still hold the actual shared/exclusive gate. */
+    fun validateOwned(directory:File,uid:Long,index:SQLiteDatabase,owner:LegacyTransitionOwner,
+        ownership:MigrationIoOwnership=MigrationIoOwnership()):()->Unit =
+        validateSchema(uid,index,ownership) {owner.checkProjection(directory,uid,index)}
     /** Root observation is supplied only by validate() above or the actual owner-bound entry. */
     private fun validateSchema(uid:Long,index:SQLiteDatabase,ownership:MigrationIoOwnership,
         live:()->Unit):()->Unit {
+        // The owned callback rejects closed/wrong borrowed connections before SQLite is touched.
+        live()
         if(uid<0 || !index.isReadOnly) throw IOException("Legacy source needs read-only identity")
         val hex=java.lang.Long.toHexString(uid)
-        live()
         val content=DatabaseProvider.TABLE_PREFIX+"CacheIndex"+hex
         val files=DatabaseProvider.TABLE_PREFIX+"CacheFileMetadata"+hex
         val versions=DatabaseProvider.TABLE_PREFIX+"Versions"
