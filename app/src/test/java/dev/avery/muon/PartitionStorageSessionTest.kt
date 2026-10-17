@@ -146,7 +146,7 @@ class PartitionStorageSessionTest {
         val gate=SavedStorageBarrier();val source=fixture(nativeCapacity=2,barrier=gate);val target=fixture(nativeCapacity=2,barrier=gate)
         val key="saved/source-mutated";val fresh="saved/copy-mutated";val bytes=ByteArray(3*LOCAL_SAVED_READ_BYTES+17) {it.toByte()}
         completedLocal(source,key,bytes);var changed=false
-        assertThrows(IOException::class.java) {worker {
+        worker {assertThrows(IOException::class.java) {
             source.session.copyCompletedSavedTo(target.session,key,fresh,true) {
                 if(!changed && destinationHasBytes(target,fresh)) {
                     changed=true
@@ -170,7 +170,7 @@ class PartitionStorageSessionTest {
         val gate=SavedStorageBarrier();val source=fixture(nativeCapacity=2,barrier=gate);val target=fixture(nativeCapacity=2,barrier=gate)
         val key="saved/source-cancelled";val fresh="saved/copy-cancelled";val bytes=ByteArray(3*LOCAL_SAVED_READ_BYTES+17)
         val before=completedLocal(source,key,bytes);var cancelled=false
-        assertThrows(java.io.InterruptedIOException::class.java) {worker {
+        worker {assertThrows(java.io.InterruptedIOException::class.java) {
             source.session.copyCompletedSavedTo(target.session,key,fresh,true) {
                 if(destinationHasBytes(target,fresh)) {cancelled=true;throw java.io.InterruptedIOException("Cancel after actual destination write")}
             }
