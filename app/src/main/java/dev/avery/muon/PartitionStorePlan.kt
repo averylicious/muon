@@ -8,7 +8,10 @@ import java.io.IOException
  * Selection/serialization is still disabled; this is the actual app composition's typed boundary.
  */
 internal data class PartitionRootPlan(val directory:File,val legacyDirectory:File,val volume:String,
-    val currentVolume:()->String?,val start:PartitionShelfStart)
+    val currentVolume:()->String?,val start:PartitionShelfStart,
+    /** Fresh volume observation ONLY for LegacyTransitionOwner, which separately rechecks the
+     * whole canonical legacy path, root, UID and database. Not partition-root authority. */
+    val legacyCurrentVolume:()->String?=currentVolume)
 internal data class PartitionStorePlan(val phone:PartitionRootPlan,val card:PartitionRootPlan?=null,
     /** Exact persisted Ready card identity, never a replacement or a claim census. */
     val missingCardVolume:String?=null) {

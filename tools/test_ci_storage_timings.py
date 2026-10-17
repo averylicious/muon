@@ -152,6 +152,9 @@ class StorageTimingModeTest(unittest.TestCase):
         self.assertIn('buildConfigField("boolean", "STORAGE_TIMINGS", storageTimings.toString())', debug)
         release = gradle.split('getByName("release") {', 1)[1].split('create("benchmark")', 1)[0]
         self.assertNotIn('storageTimings', release)
+        self.assertNotIn('"STORAGE_TIMINGS"', release)
+        benchmark = gradle.split('create("benchmark")', 1)[1].split('\n    }', 1)[0]
+        self.assertNotIn('"STORAGE_TIMINGS"', benchmark)
         self.assertIn('initWith(getByName("release"))', gradle.split('create("benchmark")', 1)[1])
         settings = (ROOT/'app/src/main/java/dev/avery/muon/SettingsScreen.kt').read_text()
         self.assertIn('else if (BuildConfig.STORAGE_TIMINGS) StorageTimingBuildBanner()', settings)

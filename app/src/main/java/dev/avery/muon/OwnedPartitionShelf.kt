@@ -41,7 +41,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private val unclaimed:(String)->Boolean,private val upstream:DataSource.Factory,
     private val budget:PartitionNativeBudget=PartitionNativeBudget.process,
     /** Frozen false when another selected shelf is absent; its hidden names cannot be inspected. */
-    private val mutationsAllowed:()->Boolean={true}) {
+    private val mutationsAllowed:()->Boolean={true},
+    /** Only passed to the legacy owner, whose observed() retains full path/identity checks. */
+    private val legacyCurrentVolume:()->String?=currentVolume) {
     internal val storageBarrier:SavedStorageBarrier get()=barrier
     init { require(volume.isNotEmpty()) }
     private val startup=StorageStartup<Resources>()
@@ -107,7 +109,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         phase=Phase.Preparing
         try { startup.open { owner ->
             preflight()
-            val legacy=owner.own { LegacyTransitionOwner(legacyDirectory,legacyDatabase,barrier,{currentVolume()==volume}) }
+            val legacy=owner.own { LegacyTransitionOwner(legacyDirectory,legacyDatabase,barrier,{legacyCurrentVolume()==volume}) }
             val audio=legacy.open()
             if(creating) owner.own {PartitionBootstrapOwner(directory,barrier,{currentVolume()==volume})}.publish()
             val actualRootIdentity=exactDirectory(directory)

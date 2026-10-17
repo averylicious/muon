@@ -81,7 +81,7 @@ For the preserved Canary legacy fixture, manually dispatch **Android APKs** on a
 
 The mode is off by default and rejected on main/tags or non-manual events. Selection happens before SDK/signing and is independently checked against the raw input before APK upload. Both the channel and publication job refuse timing builds. Release/benchmark keep timing disabled. No secrets, triggers or fork access are added. Explicit `diagnostic_debug=true` still selects the separate debugging app and its existing notice; timing does not enable debugging.
 
-Only capped root/volume and legacy-projection constant-label numbers/flags are logged: at most32events per observer family per process, no identifiers, paths, song/server/error text or retained history. Root totals overlap volume totals; do not add them. These extra clock/log calls are diagnostic observations, not an uninstrumented benchmark. The existing debug-only startup logger remains debug-only. Ordinary builds construct neither observer and make no extra clock/log calls.
+Only capped root/volume and legacy-projection constant-label numbers/flags are logged: at most32events per observer family per process, no identifiers, paths, song/server/error text or retained history. PHONE_ROOT/CARD_ROOT totals overlap their PHONE_VOLUME/CARD_VOLUME totals; do not add them. LEGACY_CARD_VOLUME separately counts fresh volume-only observations used inside the actual legacy owner, whose own canonical-path/root/UID/database checks remain in force. These extra clock/log calls are diagnostic observations, not an uninstrumented benchmark. The existing debug-only startup logger remains debug-only. Ordinary builds construct neither observer and make no extra clock/log calls.
 
 ## Where the originals are
 

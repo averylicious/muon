@@ -47,6 +47,14 @@ internal class PartitionPlatformRoots(
     private fun currentCard(base:File):String?=try {
         if(timing==null) cardNow(base) else timing.measure(StorageRootTiming.Phase.CARD_ROOT) {cardNow(base)}
     } catch(_:Exception) {null}
+    /** The actual legacy owner already canonicalizes its whole downloads child at each checkpoint.
+     * Avoid canonicalizing the parent a second time; still ask Android for fresh mounted UUID
+     * on EVERY call. This observation alone never admits a path, owner, read or mutation. */
+    private fun legacyCardVolume(base:File):String?=try {
+        val observed=if(timing==null) cardVolume(base)
+            else timing.measure(StorageRootTiming.Phase.LEGACY_CARD_VOLUME) {cardVolume(base)}
+        observed?.let(::identity)
+    } catch(_:Exception) {null}
     private fun phone(start:PartitionShelfStart):PartitionRootPlan {
         val base=folder(files());val volume=currentPhone(base) ?: throw IOException("Private storage identity unavailable")
         return PartitionRootPlan(child(base,PARTITION_DIRECTORY),child(base,"downloads"),volume,{currentPhone(base)},start)
@@ -67,7 +75,7 @@ internal class PartitionPlatformRoots(
     }
     private fun card(selected:Pair<File,String>,start:PartitionShelfStart):PartitionRootPlan {
         val (base,volume)=selected
-        return PartitionRootPlan(child(base,PARTITION_DIRECTORY),child(base,"downloads"),volume,{currentCard(base)},start)
+        return PartitionRootPlan(child(base,PARTITION_DIRECTORY),child(base,"downloads"),volume,{currentCard(base)},start,{legacyCardVolume(base)})
     }
     /** Use only the already-open legacy shelf selected by Android, never a newly inserted/unowned
      * card. Caller still must refuse opt-in while old card records/claims cannot be inspected. */
