@@ -136,6 +136,8 @@ class PartitionPlatformRootsTest {
             {calls++;f.phoneId},PartitionShelfStart.Fresh)
         assertEquals(f.phoneId,root.legacyCurrentVolume());assertEquals(1,calls)
         f.phoneId="changed";assertEquals(f.phoneId,root.legacyCurrentVolume());assertEquals(2,calls)
+        val copied=root.copy(currentVolume={"copied-callback"})
+        assertEquals("copied-callback",copied.legacyCurrentVolume());assertEquals(2,calls)
     }
 
 }
