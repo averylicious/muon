@@ -356,7 +356,10 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
                     throw IOException("Local publication destination bytes/metadata changed")
             }
             bytes()
-            if(!comparison.compare(spec,source,LegacySavedAudio(actual).source,{bytes(); true},{}))
+            // Full claim/metadata checks bracket the whole exact byte comparison and known
+            // reader closure. Each bounded read still gets fresh actual gate/root/volume and
+            // cancellation checks; scalar rows are not rehydrated for every64KiB block.
+            if(!comparison.compare(spec,source,LegacySavedAudio(actual).source,{live(); true},{}))
                 throw IOException("Local publication destination byte comparison failed")
             bytes(); releasing=true; actual.release(); cache=null; releasing=false
             claims()

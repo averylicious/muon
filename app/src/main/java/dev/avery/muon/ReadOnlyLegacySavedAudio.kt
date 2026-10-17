@@ -82,6 +82,11 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
     private inner class Reader:DataSource {
         private var child:DataSource?=null
         private var uncertainty:MigrationIoUncertain?=null
+        private var timing:LegacyReaderTiming?=null
+        private fun checkReader() {
+            val observer=timing
+            if(observer==null) checkpoint() else observer.measure(LegacyReaderTiming.Stage.CHECKS,checkpoint)
+        }
         private val listeners=arrayOfNulls<TransferListener>(4)
         override fun addTransferListener(listener:TransferListener) {
             if(listeners.any { it===listener }) return
@@ -91,20 +96,36 @@ internal class ReadOnlyLegacySavedAudio(private val directory:File,private val u
         override fun open(spec:DataSpec):Long {
             check(child==null && uncertainty==null) { "Legacy reader already active or uncertain" }
             val name=spec.key ?: throw IOException("Saved legacy read requires exact key")
-            val projection=try { projection(name,io()) }
-                catch(failure:MigrationIoUncertain) { uncertainty=failure; throw failure }
-            val opened=LegacyResourceProjection.audioReader(projection,files); child=opened
-            for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)
-            checkpoint(); return opened.open(spec).also { checkpoint() }
+            val observer=LegacyReaderTiming.begin();timing=observer
+            try {
+                val view=try {
+                    observer?.measure(LegacyReaderTiming.Stage.PROJECTION) {projection(name,io())} ?: projection(name,io())
+                } catch(failure:MigrationIoUncertain) {uncertainty=failure;throw failure}
+                val opened=LegacyResourceProjection.audioReader(view,files);child=opened
+                for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)
+                checkReader()
+                val length=observer?.measure(LegacyReaderTiming.Stage.OPEN) {opened.open(spec)} ?: opened.open(spec)
+                checkReader();observer?.opened();return length
+            } catch(failure:Throwable) {observer?.failure();throw failure}
         }
         override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
-            checkpoint(); return requireNotNull(child).read(buffer,offset,length).also { checkpoint() }
+            val observer=timing
+            try {
+                checkReader();val actual=requireNotNull(child)
+                val count=observer?.measure(LegacyReaderTiming.Stage.READ) {actual.read(buffer,offset,length)} ?: actual.read(buffer,offset,length)
+                checkReader();observer?.read(count);return count
+            } catch(failure:Throwable) {observer?.failure();throw failure}
         }
         override fun getUri():Uri?=child?.uri
         override fun getResponseHeaders():Map<String,List<String>> = child?.responseHeaders.orEmpty()
         override fun close() {
-            uncertainty?.let { throw it }
-            child?.close(); child=null
+            val observer=timing;var closed=false
+            try {
+                uncertainty?.let {throw it}
+                if(observer==null) child?.close() else observer.measure(LegacyReaderTiming.Stage.CLOSE) {child?.close()}
+                child=null;closed=true
+            } catch(failure:Throwable) {observer?.failure();throw failure}
+            finally {observer?.finish(closed);if(closed) timing=null}
         }
     }
 }

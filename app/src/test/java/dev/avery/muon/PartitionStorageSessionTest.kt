@@ -114,6 +114,100 @@ class PartitionStorageSessionTest {
             f.session.publishLocalSaved(ticket,request,bytes.size.toLong(),metadata,source,permit,{}, {true},10)
         } finally {permit.close()}
     }
+    private fun copiedLocal(f:Fixture,key:String,bytes:ByteArray) = worker {
+        val metadata=androidx.media3.datasource.cache.DefaultContentMetadata.EMPTY.copyWithMutationsApplied(
+            ContentMetadataMutations.setContentLength(ContentMetadataMutations(),bytes.size.toLong()))
+        val ticket=f.session.copyLocalSaved(spec(key).buildUpon().setLength(bytes.size.toLong()).build(),metadata,
+            DataSource.Factory {ByteArrayDataSource(bytes)},{})
+        val request=DownloadRequest.Builder(key,Uri.parse("http://127.0.0.1:7814/api1/fileopus/1")).setCustomCacheKey(key).build()
+        Triple(ticket,metadata,request)
+    }
+    @Test fun localPublicationCompletionClaimsAreBoundedWhileFreshReadChecksStillScale() {
+        val f=fixture(nativeCapacity=2)
+        fun observe(key:String,bytes:ByteArray):Pair<Int,Int> {
+            val (ticket,metadata,request)=copiedLocal(f,key,bytes)
+            return worker {
+                val permit=f.barrier.exclusive();var live=0;var protected=false
+                f.providerReads=0;f.countProviderReads=true
+                try {
+                    val completion=f.session.publishLocalSaved(ticket,request,bytes.size.toLong(),metadata,
+                        DataSource.Factory {ByteArrayDataSource(bytes)},permit,{
+                            live++
+                            if(!protected && f.budget.resident>0) {
+                                protected=true;assertThrows(IOException::class.java) {f.barrier.shared()}
+                            }
+                        },{true},10)
+                    assertTrue(protected);assertEquals(key,completion.key);assertEquals(bytes.size.toLong(),completion.length)
+                    assertEquals(0,f.budget.resident)
+                    f.providerReads to live
+                } finally {f.countProviderReads=false;permit.close()}
+            }
+        }
+        val small=observe("saved/publication-short",byteArrayOf(1,2,3,4))
+        val large=observe("saved/publication-multi",ByteArray(5*LOCAL_SAVED_READ_BYTES+17) {it.toByte()})
+        assertTrue(small.first>0);assertEquals(small.first,large.first)
+        assertTrue("Fresh storage/cancellation checks must grow with actual comparison reads",large.second>small.second)
+        assertTrue(f.barrier.quiescent)
+    }
+    @Test fun localPublicationRefusesMetadataChangedAtActualReaderCloseAndAllowsCleanRetry() {
+        val f=fixture(nativeCapacity=2);val key="saved/publication-metadata";val bytes=ByteArray(2*LOCAL_SAVED_READ_BYTES+17) {it.toByte()}
+        val (ticket,metadata,request)=copiedLocal(f,key,bytes)
+        val uid=requireNotNull(f.saves.find(key)?.uid)
+        val root=File(f.catalog.directory(ticket.allocation),"metadata")
+        var sourceClosed=false
+        val source=DataSource.Factory {
+            val child=ByteArrayDataSource(bytes)
+            object:DataSource by child {
+                override fun close() {
+                    child.close();sourceClosed=true
+                    PartitionContentMetadata(root,uid,key).use {it.write(metadata.copyWithMutationsApplied(
+                        ContentMetadataMutations().set("changed_at_close",byteArrayOf(9))))}
+                }
+            }
+        }
+        worker {
+            val permit=f.barrier.exclusive()
+            try {
+                val failure=assertThrows(IOException::class.java) {
+                    f.session.publishLocalSaved(ticket,request,bytes.size.toLong(),metadata,source,permit,{}, {true},10)
+                }
+                assertFalse(failure is PartitionOwnershipUncertain)
+                assertTrue(sourceClosed);assertNull(f.index.getDownload(key));assertEquals(0,f.budget.resident)
+                PartitionContentMetadata(root,uid,key).use {it.write(metadata)}
+                val completion=f.session.publishLocalSaved(ticket,request,bytes.size.toLong(),metadata,
+                    DataSource.Factory {ByteArrayDataSource(bytes)},permit,{}, {true},20)
+                assertEquals(completion,PartitionCompletionIndex(database,f.name).find(key));assertEquals(0,f.budget.resident)
+            } finally {permit.close()}
+        }
+        assertTrue(f.barrier.quiescent)
+    }
+    @Test fun localPublicationCancellationAfterRealReadKeepsClosedCopyUnpublishedAndRetryable() {
+        val f=fixture(nativeCapacity=2);val key="saved/publication-cancel";val bytes=ByteArray(3*LOCAL_SAVED_READ_BYTES+17) {it.toByte()}
+        val (ticket,metadata,request)=copiedLocal(f,key,bytes);var reads=0;var closes=0
+        val source=DataSource.Factory {
+            val child=ByteArrayDataSource(bytes)
+            object:DataSource by child {
+                override fun read(buffer:ByteArray,offset:Int,length:Int):Int {reads++;return child.read(buffer,offset,length)}
+                override fun close() {child.close();closes++}
+            }
+        }
+        worker {
+            val permit=f.barrier.exclusive()
+            try {
+                assertThrows(java.io.InterruptedIOException::class.java) {
+                    f.session.publishLocalSaved(ticket,request,bytes.size.toLong(),metadata,source,permit,{
+                        if(reads>0) throw java.io.InterruptedIOException("Cancel after actual comparison read")
+                    },{true},10)
+                }
+                assertTrue(reads>0);assertEquals(1,closes);assertNull(f.index.getDownload(key));assertEquals(0,f.budget.resident)
+                assertEquals(PartitionSavePhase.Closed,f.saves.find(key)?.phase)
+                val completion=f.session.publishLocalSaved(ticket,request,bytes.size.toLong(),metadata,
+                    DataSource.Factory {ByteArrayDataSource(bytes)},permit,{}, {true},20)
+                assertEquals(completion,PartitionCompletionIndex(database,f.name).find(key));assertEquals(0,f.budget.resident)
+            } finally {permit.close()}
+        }
+        assertTrue(f.barrier.quiescent)
+    }
     private fun destinationHasBytes(f:Fixture,key:String):Boolean {
         val allocation=f.catalog.find(key) ?: return false
         return f.catalog.directory(allocation).walkTopDown().any {it.name.endsWith(".exo") && it.length()>0}
