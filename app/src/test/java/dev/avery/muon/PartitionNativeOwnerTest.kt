@@ -78,7 +78,7 @@ class PartitionNativeOwnerTest {
         val db=SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READWRITE)
         try { block(db) } finally { db.close() }
     }
-    @Test fun realFactoryPublishesOnlyAfterCleanReopenAndKeepsEveryOriginalByteAndMetadata() {
+    @Test @Config(sdk=[35]) fun realFactoryPublishesOnlyAfterCleanReopenAndKeepsEveryOriginalByteAndMetadata() {
         val f=fixture(); val src=source(); val original=src.getCachedSpans(key).associate { requireNotNull(it.file) to requireNotNull(it.file).readBytes() }
         val ready=publish(f,src); assertEquals(MigrationPhase.Ready,ready.phase); assertEquals(0,f.budget.resident)
         val dir=directory(f); assertTrue(File(dir,"index/native-v1.db").isFile); assertTrue(File(dir,"metadata/content-v1.db").isFile)
@@ -87,7 +87,7 @@ class PartitionNativeOwnerTest {
         assertEquals(ready.evidence,CacheMigrationPreparation.verify(src,cache,key,{})); cache.release(); cache.release()
         assertEquals(0,f.budget.resident); kept(original)
     }
-    @Test fun metadataOnlyReadyRouteSurvivesRealNativeAndSidecarCloseReopen() {
+    @Test @Config(sdk=[35]) fun metadataOnlyReadyRouteSurvivesRealNativeAndSidecarCloseReopen() {
         val f=fixture(); val src=source(null); val ready=publish(f,src)
         assertEquals(MigrationCopyEvidence(0,0),ready.evidence); assertEquals(0,f.budget.resident)
         val cache=route(f); assertTrue(cache.getCachedSpans(key).isEmpty())
