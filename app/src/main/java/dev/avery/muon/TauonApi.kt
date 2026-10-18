@@ -21,7 +21,7 @@ data class TauonTrack(
     val albumArtist: String = artist, val trackNumber: String = "",
 )
 class TauonApi(val endpoint: ServerEndpoint) {
-    private suspend fun json(path: String): JSONObject = withContext(Dispatchers.IO) {
+    private suspend fun text(path: String): String = withContext(Dispatchers.IO) {
         val bytes = Transport.metadataClient.newCall(Request.Builder().url(endpoint.url(path)).build()).readCancellable { response ->
             if (!response.isSuccessful) throw IOException("Tauon returned HTTP ${response.code}")
             val body = response.body ?: throw IOException("Empty Tauon response")
@@ -36,8 +36,9 @@ class TauonApi(val endpoint: ServerEndpoint) {
             }
             output.toByteArray()
         }
-        parseTauonJson(bytes.toString(Charsets.UTF_8))
+        bytes.toString(Charsets.UTF_8)
     }
+    private suspend fun json(path:String):JSONObject = withContext(Dispatchers.IO) { parseTauonJson(text(path)) }
     suspend fun connect() {
         require(json("/api1/version").getInt("version") == 1) { "Unsupported Tauon API version" }
     }
@@ -54,18 +55,9 @@ class TauonApi(val endpoint: ServerEndpoint) {
     }
     suspend fun tracks(playlistId: String): List<TauonTrack> = withContext(Dispatchers.IO) {
         require(playlistId.matches(Regex("[0-9]+")))
-        val a = json("/api1/tracklist/$playlistId").getJSONArray("tracks")
-        requireLibraryEntryCount(a.length())
-        List(a.length()) { i -> a.getJSONObject(i).let {
-            val id = it.getLong("id"); require(id >= 0)
-            val artist = it.optString("artist")
-            TauonTrack(id, trackDisplayTitle(it.opt("title") as? String, it.opt("path") as? String), artist,
-                it.optString("album"), it.optLong("duration"),
-                it.optBoolean("can_download", false), it.optBoolean("has_lyrics"),
-                albumArtist = albumArtistTag(it.opt("album_artist"), artist),
-                trackNumber = trackNumberTag(it.opt("track_number"))).also(::requireTrackMetadataBudget)
-        } }
+        parseTauonTracklist(text("/api1/tracklist/$playlistId"))
     }
+
     suspend fun lyrics(trackId: Long): String {
         require(trackId >= 0)
         val text = json("/api1/lyrics/$trackId").opt("lyrics_text")

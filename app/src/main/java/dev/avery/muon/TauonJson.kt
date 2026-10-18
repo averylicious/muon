@@ -21,6 +21,12 @@ private class JsonContainer(val array: Boolean, var content: Boolean = false, va
  * These are structural bounds, not a byte-exact process/DOM heap budget.
  */
 internal fun parseTauonJson(text: String, limits: TauonJsonLimits = TauonJsonLimits()): JSONObject {
+    validateTauonJson(text,limits)
+    return JSONObject(text)
+}
+
+/** Same bounded structural preflight for DOM and per-record projection. */
+internal fun validateTauonJson(text:String,limits:TauonJsonLimits=TauonJsonLimits()) {
     require(limits.arrayItems > 0 && limits.values > 0)
 
     val tokens = JSONTokener(text)
@@ -71,5 +77,4 @@ internal fun parseTauonJson(text: String, limits: TauonJsonLimits = TauonJsonLim
             }
         }
     }
-    return JSONObject(text)
 }
