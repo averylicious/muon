@@ -66,10 +66,12 @@ class LibraryRetentionCharacterizationTest {
         assertEquals(0, first.failed)
         val occurrences = first.tracks.values.flatten().filter { it.id == 7L }
         assertEquals(4, occurrences.size)
-        // Equal, but each parse made its own track and its own tag strings.
+        // Every occurrence still owns a distinct track. The platform streaming reader may
+        // pool equal short immutable strings; unnecessary duplicate strings are not required.
         assertTrue(occurrences.all { it == occurrences[0] })
         assertEquals(4, identityCount(occurrences))
-        assertEquals(4, identityCount(occurrences.map { it.title }))
+        val titleObjects=identityCount(occurrences.map {it.title})
+        assertTrue(titleObjects in 1..occurrences.size)
         // LibraryModel.allTracks keeps the first occurrence; grouping keeps that same object.
         val unique = first.tracks.values.flatten().distinctBy { it.id }
         assertEquals(listOf(7L, 8L, 9L), unique.map { it.id })
@@ -90,7 +92,7 @@ class LibraryRetentionCharacterizationTest {
         assertEquals(4, mixed.size)
         assertTrue(mixed.any { it === first.tracks.getValue("2")[1] })
         assertTrue(mixed.none { it === first.tracks.getValue("1")[0] })
-        println("MUON_RESOURCE_FIXTURE repeated playlists=3 occurrences=${occurrences.size} unique=${unique.size} keptAfterFailedRefresh=${refreshed.tracks.getValue("2").size}")
+        println("MUON_RESOURCE_FIXTURE repeated playlists=3 occurrences=${occurrences.size} titleObjects=$titleObjects unique=${unique.size} keptAfterFailedRefresh=${refreshed.tracks.getValue("2").size}")
     }
 
     @Test fun aLongAcceptedTagIsCopiedIntoEachRetainedRepresentation() {
