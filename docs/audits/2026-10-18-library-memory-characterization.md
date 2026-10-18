@@ -54,3 +54,9 @@ Verified head `6d7f8db0402e39ed197a83582a25289618bbdfc5`, [run39122002920](https
 No memory guard triggered. These observations vary across runs; they do not isolate causality or establish an absolute peak/speedup. Full stopped before/after proof passed for every saved request field/native/audio/cover/connection byte, and both parked original inventories. Own loopback listener/files and temporary preference backup removed; ordinary app stopped; original volume11 restored/read back. The host proof helper's initial marker-serialization namespace collision was corrected and the existing snapshots reverified; no app crash or additional destructive operation occurred. Selected saved-card playback subsequently reached PLAYING at5,046ms including250ms polling/ADB overhead, so #401 startup improvement remains unproven.
 
 Latest source #611 has not yet been verified on device. See the current handoff for installed versions and active ownership; this report's earlier .1235 final-state paragraph describes that earlier boundary only.
+
+### Near-byte-ceiling long-tag case on .1248
+
+A separate synthetic1,000-track response held16,000-character ASCII titles:16,200,562wire bytes,16,088,550 encoded track-record bytes, largest encoded track16,089bytes. Each remains within its existing limit; no data was truncated. It loaded all1,000 records; eight observations sampled Java PSS170,912KiB / total PSS268,723 / RSS382,388 at their respective maxima. First count observation6.679s includes host/UI cadence. No guard triggered. This is one accepted near-bound case, not an over-byte-limit refusal or absolute heap measurement.
+
+Full stopped saved-row/native/audio/cover/exact-connection and both parked-original proofs passed. Own fixture/listener/backup removed and music11 restored/read back. The ordinary real-library check separately confirmed962 songs. Current operation state is in the handoff, not inferred from this historical test.
