@@ -117,4 +117,62 @@ class PartitionMoveDestinationTest {
             assertEquals(1,closes)
         } finally {raw.close()}
     }
+    @Test fun actualVerifiedDigestStagesIncludeKnownCloseAndBothBindingChecks() {
+        val bytes=ByteArray(3*LOCAL_SAVED_READ_BYTES+17) {it.toByte()}
+        val raw=ByteArrayDataSource(bytes)
+        var now=0L;var reads=0;var closes=0;var guards=0;var checkpoints=0
+        val events=mutableListOf<SavedDigestTiming.Event>()
+        val digest=SavedAudioDigest {SavedDigestTiming.begin(true,java.util.concurrent.atomic.AtomicInteger(1),{now},events::add)}
+        val factory=DataSource.Factory {
+            now+=7
+            object:DataSource by raw {
+                override fun open(spec:DataSpec):Long {now+=5;return raw.open(spec)}
+                override fun read(buffer:ByteArray,offset:Int,length:Int):Int {reads++;now+=13;return raw.read(buffer,offset,length)}
+                override fun close() {closes++;now+=17;raw.close()}
+            }
+        }
+        val hash=worker {digest.readVerified(spec.buildUpon().setLength(bytes.size.toLong()).build(),factory,
+            {checkpoints++;now+=3},{guards++;now+=11})}
+        assertEquals(MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {"%02x".format(it)},hash)
+        assertEquals(2,guards);assertEquals(1,closes);assertEquals(5,reads)
+        val e=events.single();assertTrue(e.successful)
+        assertEquals(22L,e.bindingMs);assertEquals(checkpoints*3L,e.checkpointMs)
+        assertEquals(7L,e.createMs);assertEquals(5L,e.openMs);assertEquals(reads*13L,e.readMs)
+        assertEquals(0L,e.hashMs);assertEquals(17L,e.closeMs)
+        assertEquals(e.bindingMs+e.checkpointMs+e.createMs+e.openMs+e.readMs+e.hashMs+e.closeMs,e.totalMs)
+    }
+    @Test fun actualDigestDiagnosticsCannotPublishAfterChangedBindingOrUnknownClose() {
+        for(unknownClose in listOf(false,true)) {
+            val events=mutableListOf<SavedDigestTiming.Event>()
+            var guards=0;var closes=0
+            val raw=ByteArrayDataSource(payload);val actual=IOException("Actual failure")
+            val child=object:DataSource by raw {
+                override fun close() {closes++;raw.close();if(unknownClose) throw actual}
+            }
+            val digest=SavedAudioDigest {SavedDigestTiming.begin(true,java.util.concurrent.atomic.AtomicInteger(1),{0L}) {
+                events+=it;throw IOException("Diagnostic sink failed")
+            }}
+            val failure=assertThrows(Exception::class.java) {worker {
+                digest.readVerified(spec,DataSource.Factory {child},{},{if(++guards==2) throw actual})
+            }}
+            assertEquals(1,closes);assertFalse(events.single().successful)
+            if(unknownClose) {
+                assertTrue(failure is PartitionOwnershipUncertain)
+                assertSame(child,SavedAudioDigest::class.java.getDeclaredField("source").apply {isAccessible=true}.get(digest))
+                assertEquals(1,guards)
+            } else {assertSame(actual,failure);assertEquals(2,guards)}
+        }
+        // A failing first or later diagnostic clock cannot change real bytes or known closure.
+        for(failAt in listOf(1,2,7)) {
+            var clocks=0;var closes=0;var guards=0;val raw=ByteArrayDataSource(payload)
+            val digest=SavedAudioDigest {SavedDigestTiming.begin(true,java.util.concurrent.atomic.AtomicInteger(1),{
+                if(++clocks==failAt) throw IOException("Clock failed");0L
+            },{error("Invalidated observer must not emit")})}
+            val factory=DataSource.Factory {object:DataSource by raw {override fun close() {closes++;raw.close()}}}
+            val actual=worker {digest.readVerified(spec,factory,{},{guards++})}
+            assertEquals(MessageDigest.getInstance("SHA-256").digest(payload).joinToString("") {"%02x".format(it)},actual)
+            assertEquals(1,closes);assertEquals(2,guards)
+        }
+    }
+
 }

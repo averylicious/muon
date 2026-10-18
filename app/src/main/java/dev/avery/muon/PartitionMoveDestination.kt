@@ -56,42 +56,60 @@ internal fun partitionMoveMetadataDigest(metadata:DefaultContentMetadata):String
 /** One actual local reader, one close attempt. A digest is returned only AFTER real close. Unknown
  * construction/close retains the exact factory/reader through a typed owner; caller retains native
  * and borrowed provider/legacy owners too. No retry, upstream fallback, deletion or recovery grant. */
-internal class SavedAudioDigest {
+internal class SavedAudioDigest(
+    private val timingFactory: () -> SavedDigestTiming? = { SavedDigestTiming.begin() },
+) {
     private var used=false
     private var source:DataSource?=null
     private var construction:DataSource.Factory?=null
     private var uncertainty:Throwable?=null
+    private fun <T> stage(observer:SavedDigestTiming?,stage:SavedDigestTiming.Stage,work:()->T):T =
+        if(observer==null) work() else observer.measure(stage,work)
+    private fun <T> observed(work:(SavedDigestTiming?)->T):T {
+        // Start at the read call, not construction before unrelated native-opening work.
+        val observer=runCatching(timingFactory).getOrNull()
+        var successful=false
+        try {return work(observer).also {successful=true}}
+        finally {observer?.finish(successful)}
+    }
     /** Full immutable binding checks bracket actual reading AND known close. The caller keeps
      * its real exclusive lease; every block still checks fresh storage/cancellation. No digest
      * escapes after a changed binding, and unknown construction/close retains this same owner. */
-    fun readVerified(spec:DataSpec,factory:DataSource.Factory,checkpoint:()->Unit,verifyBinding:()->Unit):String {
-        verifyBinding()
-        val digest=read(spec,factory,checkpoint)
-        verifyBinding()
-        return digest
-    }
-    fun read(spec:DataSpec,factory:DataSource.Factory,checkpoint:()->Unit):String {
+    fun readVerified(spec:DataSpec,factory:DataSource.Factory,checkpoint:()->Unit,verifyBinding:()->Unit):String =
+        observed {observer ->
+            stage(observer,SavedDigestTiming.Stage.BINDING,verifyBinding)
+            val digest=readNow(spec,factory,checkpoint,observer)
+            stage(observer,SavedDigestTiming.Stage.BINDING,verifyBinding)
+            digest
+        }
+    fun read(spec:DataSpec,factory:DataSource.Factory,checkpoint:()->Unit):String =
+        observed {observer ->readNow(spec,factory,checkpoint,observer)}
+    private fun readNow(spec:DataSpec,factory:DataSource.Factory,checkpoint:()->Unit,observer:SavedDigestTiming?):String {
         check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {"Saved digest requires a worker"}
         if(used || spec.position!=0L || spec.length<=0) throw IOException("Saved digest requires one exact full read")
         used=true; var failure:Throwable?=null
-        val hash=MessageDigest.getInstance("SHA-256")
+        val hash=stage(observer,SavedDigestTiming.Stage.HASH) {MessageDigest.getInstance("SHA-256")}
+        fun live()=stage(observer,SavedDigestTiming.Stage.CHECKPOINT,checkpoint)
         try {
-            checkpoint(); construction=factory; source=factory.createDataSource(); construction=null
-            val actual=requireNotNull(source); actual.open(spec)
+            live(); construction=factory
+            source=stage(observer,SavedDigestTiming.Stage.CREATE) {factory.createDataSource()}; construction=null
+            val actual=requireNotNull(source); stage(observer,SavedDigestTiming.Stage.OPEN) {actual.open(spec)}
             val bytes=ByteArray(LOCAL_SAVED_READ_BYTES); var left=spec.length
             while(left>0) {
-                checkpoint(); val count=actual.read(bytes,0,minOf(left,bytes.size.toLong()).toInt())
+                live(); val count=stage(observer,SavedDigestTiming.Stage.READ) {
+                    actual.read(bytes,0,minOf(left,bytes.size.toLong()).toInt())
+                }
                 if(count<=0) throw IOException("Saved digest audio ended before its exact length")
-                hash.update(bytes,0,count); left-=count
+                stage(observer,SavedDigestTiming.Stage.HASH) {hash.update(bytes,0,count)}; left-=count
             }
-            checkpoint()
-            if(actual.read(bytes,0,1)!=androidx.media3.common.C.RESULT_END_OF_INPUT)
+            live()
+            if(stage(observer,SavedDigestTiming.Stage.READ) {actual.read(bytes,0,1)}!=androidx.media3.common.C.RESULT_END_OF_INPUT)
                 throw IOException("Saved digest audio exceeds its exact length")
         } catch(error:Throwable) {failure=error}
         finally {
             if(construction!=null) uncertainty=failure ?: IOException("Saved digest construction is unknown")
             source?.let {actual ->
-                try {actual.close(); source=null}
+                try {stage(observer,SavedDigestTiming.Stage.CLOSE) {actual.close()}; source=null}
                 catch(close:Throwable) {
                     if(failure!=null && failure!==close) close.addSuppressed(failure)
                     uncertainty=close
@@ -100,6 +118,6 @@ internal class SavedAudioDigest {
         }
         uncertainty?.let {throw PartitionOwnershipUncertain(this,it)}
         failure?.let {throw it}
-        checkpoint(); return hash.digest().joinToString("") {"%02x".format(it)}
+        live(); return stage(observer,SavedDigestTiming.Stage.HASH) {hash.digest().joinToString("") {"%02x".format(it)}}
     }
 }
