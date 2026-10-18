@@ -2922,18 +2922,19 @@ class OwnedPartitionShelfTest {
         } finally {teardown(owner);f.provider.close()}
     }
     @Test fun volumeOnlyObservationCannotAdmitReplacedOrAliasedPartitionRoot() {
-        for(alias in listOf(false,true)) {
+        for(mode in listOf("replacement","root-alias","parent-alias")) {
             val f=Fixture();val owner=f.owner(ownedCurrentVolume={f.volume})
-            val retained=File(f.parent,"retained-partition")
+            val moved=if(mode=="parent-alias") f.parent else f.root
+            val retained=File(folders.newFolder(),"retained-partition")
             try {
-                onWorker {owner.prepare()};assertTrue(f.root.renameTo(retained))
+                onWorker {owner.prepare()};assertTrue(moved.renameTo(retained))
                 try {
-                    if(alias) java.nio.file.Files.createSymbolicLink(f.root.toPath(),retained.toPath())
-                    else assertTrue(f.root.mkdir())
+                    if(mode!="replacement") java.nio.file.Files.createSymbolicLink(moved.toPath(),retained.toPath())
+                    else assertTrue(moved.mkdir())
                     assertFalse(owner.isAvailable)
                     assertThrows(IOException::class.java) {owner.audio.contains("old")}
                     assertArrayEquals(payload,f.original.readBytes())
-                } finally {java.nio.file.Files.delete(f.root.toPath());assertTrue(retained.renameTo(f.root))}
+                } finally {java.nio.file.Files.delete(moved.toPath());assertTrue(retained.renameTo(moved))}
                 assertTrue(owner.isAvailable);assertTrue(owner.audio.contains("old"))
                 assertEquals(0,f.budget.resident);assertTrue(f.barrier.quiescent)
             } finally {teardown(owner);f.provider.close()}
