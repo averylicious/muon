@@ -22,7 +22,7 @@ The constructor option is not a general permission to use a partial availability
 
 Initial `originalPermit`, native open/release and non-Move paths retain their existing full checks. Exact Closed save ticket, allocation, migration/disposition claims, completion/native UID/metadata/bytes, immutable binding around full digest and known close, expected receipt equality, Pending/source checks and full target-before-every-source-file-removal remain. Unknown closure/ownership is retained, not retried or treated as success.
 
-Regression additions exercise an actual target native owner while replacing its save journal with a link and aliasing its parent without changing the root inode. Both must refuse before source removal, close known owners, preserve exact Pending and allow an explicit retry after restoration. A generic-session test rejects loss of full availability while native verification is open. Existing source-journal, volume-loss, cancellation, byte/metadata/binding and restart tests remain enabled.
+Regression additions observe the actual target native owner and then replace its save journal with a link or alias its parent without changing the root inode immediately after known native closure. Both must fail final verification before source removal, preserve exact Pending and allow an explicit retry after restoration. Replacement while native ownership is still open can require quarantine instead of known closure; these tests do not authorize force-closing that uncertainty. A generic-session test rejects loss of full availability while native verification is open. Existing source-journal, volume-loss, cancellation, byte/metadata/binding and restart tests remain enabled.
 
 ## Verification status
 

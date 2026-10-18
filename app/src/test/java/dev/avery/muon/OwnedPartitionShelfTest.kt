@@ -1947,15 +1947,16 @@ class OwnedPartitionShelfTest {
             assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
         } finally {n.close()}
     }
-    @Test fun destinationJournalLinkDuringOwnedDigestCheckpointPreservesSourceAndCanRetry() {
+    @Test fun destinationJournalLinkAfterKnownTargetClosePreservesSourceAndCanRetry() {
         val n=NewSourceMoveFixture();val f=n.f
         val journal=File(f.f.root,"partition-saves-v1.db")
         val held=File(folders.newFolder(),"held-target-save-journal")
         val audio=n.originalAllocation.walkTopDown().single {it.name.endsWith(".v3.exo")}
-        var replaced=false
+        var replaced=false;var nativeObserved=false
         try {
             val result=try {n.finish {
-                if(!replaced && f.f.budget.resident>0) {
+                if(f.f.budget.resident>0) nativeObserved=true
+                if(nativeObserved && !replaced && f.f.budget.resident==0) {
                     java.nio.file.Files.move(journal.toPath(),held.toPath());replaced=true
                     java.nio.file.Files.createSymbolicLink(journal.toPath(),held.toPath())
                 }
@@ -1973,14 +1974,15 @@ class OwnedPartitionShelfTest {
             assertEquals(OfflineStore.SavedRemoval.Sent,n.finish())
         } finally {n.close()}
     }
-    @Test fun destinationParentAliasDuringOwnedDigestCheckpointRefusesEvenWithSameRootInode() {
+    @Test fun destinationParentAliasAfterKnownTargetCloseRefusesEvenWithSameRootInode() {
         val n=NewSourceMoveFixture();val f=n.f
         val parent=f.f.parent;val held=File(folders.newFolder(),"held-target-parent")
         val audio=n.originalAllocation.walkTopDown().single {it.name.endsWith(".v3.exo")}
-        var replaced=false
+        var replaced=false;var nativeObserved=false
         try {
             val result=try {n.finish {
-                if(!replaced && f.f.budget.resident>0) {
+                if(f.f.budget.resident>0) nativeObserved=true
+                if(nativeObserved && !replaced && f.f.budget.resident==0) {
                     java.nio.file.Files.move(parent.toPath(),held.toPath());replaced=true
                     java.nio.file.Files.createSymbolicLink(parent.toPath(),held.toPath())
                 }
