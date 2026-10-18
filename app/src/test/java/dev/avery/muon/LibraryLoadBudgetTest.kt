@@ -87,4 +87,44 @@ class LibraryLoadBudgetTest {
             LibraryLoadBudget(listOf(a, b), limits(bytes = labels - 1))
         }
     }
+    @Test fun admittedFreshRecordsAreNotWalkedAgainDuringFinalAssembly() {
+        val track=song("Fresh");var visits=0
+        val fresh=object:AbstractList<TauonTrack>() {
+            override val size=2
+            override fun get(index:Int):TauonTrack {check(index in 0..1);visits++;return track}
+        }
+        val load=BudgetedLibraryLoad(listOf(a),limits())
+        load.add(a.id,fresh);val admittedVisits=visits;assertTrue(admittedVisits>0)
+        val previous=mapOf(a.id to listOf(song("Old")))
+        val result=load.finish(previous)
+        assertEquals(admittedVisits,visits);assertSame(fresh,result.tracks[a.id])
+        assertEquals(0,result.failed);assertEquals("Old",previous.getValue(a.id).single().title)
+        assertThrows(IllegalStateException::class.java) {load.finish(previous)}
+        assertThrows(IllegalStateException::class.java) {load.add(a.id,emptyList())}
+    }
+    @Test fun preAdmittedFreshLoadStillRefusesOverBudgetFallbackWithoutChangingOldLibrary() {
+        val fresh=listOf(song("Fresh"));val retained=listOf(song("Old"),song("Old second"))
+        val previous=mapOf(b.id to retained)
+        val exact=labelBytes(listOf(a,b))+encodeSong(fresh.single()).size+encodeSong(retained.first()).size
+        val load=BudgetedLibraryLoad(listOf(a,b),limits(entries=3,bytes=exact))
+        load.add(a.id,fresh)
+        assertThrows(LibraryResourceLimit::class.java) {load.finish(previous)}
+        assertSame(retained,previous[b.id]);assertEquals(listOf("Old","Old second"),retained.map {it.title})
+        assertThrows(IllegalStateException::class.java) {load.add(b.id,emptyList())}
+    }
+    @Test fun refusedBatchesAndInvalidPlaylistIdsCannotSpendOrDuplicateAdmission() {
+        val load=BudgetedLibraryLoad(listOf(a,b),limits(entries=2))
+        assertThrows(LibraryResourceLimit::class.java) {load.add(a.id,List(3) {song()})}
+        load.add(a.id,listOf(song("A")))
+        assertThrows(IllegalArgumentException::class.java) {load.add(a.id,listOf(song("Duplicate")))}
+        assertThrows(IllegalArgumentException::class.java) {load.add("99",listOf(song("Unknown")))}
+        load.add(b.id,listOf(song("B")))
+        val result=load.finish(null)
+        assertEquals(listOf(a,b),result.playlists);assertEquals(0,result.failed)
+        assertEquals(listOf("A","B"),result.tracks.values.map {it.single().title})
+        // Convenience callers preserve combineLoad's policy of ignoring unlisted map entries.
+        val ignored=combineBudgetedLoad(listOf(a),mapOf(a.id to listOf(song()),"99" to List(3) {song()}),null,limits(entries=1))
+        assertEquals(setOf(a.id),ignored.tracks.keys)
+    }
+
 }

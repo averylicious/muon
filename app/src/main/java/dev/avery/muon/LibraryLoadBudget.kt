@@ -59,11 +59,34 @@ internal class LibraryLoadBudget(lists: List<TauonPlaylist>, private val limits:
     }
 }
 
-/** Also account for old playlists retained after a failed fetch, before any new library is published. */
+/** One IO-confined load owns the fresh lists it admits. Keep those admissions through final
+ * assembly instead of encoding every fresh record a second time. API-projected track lists are
+ * read-only for this load; callers must not mutate them after add(). Retained fallback occurrences
+ * are still charged before a result escapes. A failed finish publishes nothing and is not reusable. */
+internal class BudgetedLibraryLoad(private val lists:List<TauonPlaylist>,
+    limits:LibraryLoadLimits=LIBRARY_LOAD_LIMITS) {
+    private val budget=LibraryLoadBudget(lists,limits)
+    private val loaded=linkedMapOf<String,List<TauonTrack>>()
+    private var finished=false
+    fun add(id:String,songs:List<TauonTrack>) {
+        check(!finished) {"Library load is already finished"}
+        require(lists.any {it.id==id} && !loaded.containsKey(id)) {"Library batch is unknown or already admitted"}
+        budget.add(songs) // Refused batches commit neither budget counters nor the loaded map.
+        loaded[id]=songs
+    }
+    fun finish(previous:Map<String,List<TauonTrack>>?):LibraryLoad {
+        check(!finished) {"Library load is already finished"};finished=true
+        val result=combineLoad(lists,loaded,previous)
+        for((id,songs) in result.tracks) if(!loaded.containsKey(id)) budget.add(songs)
+        return result
+    }
+}
+
+/** Full convenience path for callers without a pre-admitted load. Ignore unlisted map entries,
+ * as combineLoad does; every retained fresh or fallback occurrence is still charged once. */
 internal fun combineBudgetedLoad(lists: List<TauonPlaylist>, loaded: Map<String, List<TauonTrack>>,
     previous: Map<String, List<TauonTrack>>?, limits: LibraryLoadLimits = LIBRARY_LOAD_LIMITS): LibraryLoad {
-    val result = combineLoad(lists, loaded, previous)
-    val budget = LibraryLoadBudget(result.playlists, limits)
-    result.tracks.values.forEach(budget::add)
-    return result
+    val load=BudgetedLibraryLoad(lists,limits)
+    for(id in lists.map {it.id}.distinct()) loaded[id]?.let {load.add(id,it)}
+    return load.finish(previous)
 }

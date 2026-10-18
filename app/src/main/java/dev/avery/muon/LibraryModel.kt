@@ -134,8 +134,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 ensureCurrent()
                 val lists = api.playlists()
                 ensureCurrent()
-                val budget = withContext(Dispatchers.IO) { LibraryLoadBudget(lists) }
-                val loaded = linkedMapOf<String, List<TauonTrack>>()
+                val loadBuilder = withContext(Dispatchers.IO) { BudgetedLibraryLoad(lists) }
                 var firstFailure: Exception? = null
                 lists.forEachIndexed { i, list ->
                     ensureCurrent()
@@ -147,15 +146,14 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                     catch (failure: LibraryResourceLimit) { throw failure }
                     catch (failure: Exception) { if (firstFailure == null) firstFailure = failure; null }
                     if (songs != null) {
-                        withContext(Dispatchers.IO) { budget.add(songs) }
+                        withContext(Dispatchers.IO) { loadBuilder.add(list.id,songs) }
                         ensureCurrent()
-                        loaded[list.id] = songs
                     }
                 }
                 ensureCurrent()
                 // Only this server's own last library can fill a gap; never another's, nor the offline one.
                 val previous = tracksByPlaylist.takeIf { endpoint?.origin == e.origin && !offline }
-                val load = withContext(Dispatchers.IO) { combineBudgetedLoad(lists, loaded, previous) }
+                val load = withContext(Dispatchers.IO) { loadBuilder.finish(previous) }
                 ensureCurrent()
                 // Nothing at all to show: handled as a failed connection, exactly as before.
                 if (lists.isNotEmpty() && load.tracks.isEmpty()) throw firstFailure ?: IllegalStateException("No playlists loaded")

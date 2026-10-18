@@ -1,0 +1,11 @@
+# Fresh library admission reuse
+
+Source inspection found two complete encoded-metadata budget walks for every successful playlist: `LibraryModel.connect` used `LibraryLoadBudget.add(songs)` during fetch, then `combineBudgetedLoad` built a new budget and encoded those same fresh records again. The first check must remain before retaining another playlist, so simply removing it would break aggregate memory admission.
+
+`BudgetedLibraryLoad` now owns the bounded fresh-playlist map and the original budget for one IO-confined load. `add` accepts only a known, not-yet-admitted playlist and commits the map only after successful budget admission. Final assembly uses the same server-order/fallback function, charging only fallback playlists that were not already admitted fresh. Finish is one-shot even on refusal; a new refresh creates a new builder. The existing convenience function still fully admits its input and ignores unlisted map entries as before.
+
+The production API-projected track lists and immutable track records are owned by that load and are not mutated after admission. There is no cross-refresh cache, changed ceiling, silent truncation or omission of duplicate song occurrences across different playlists. Fresh empty lists remain successful. Previous-library records remain untouched when fallback exceeds a count/byte budget. Library publication and cancellation/revision checks remain in their existing positions.
+
+Pure regressions verify that final assembly does not revisit already admitted fresh records, fallback encoded bytes still refuse before publication without changing the old map, and a refused batch/unknown or duplicate playlist cannot spend or duplicate an admission. Existing Unicode, duplicate occurrence, ordering, exact boundary and partial-load tests remain enabled.
+
+Local source review, branch preflight and diff checks are not Android compilation or runtime validation. CI is the first compile/test. Existing #608 controlled 50,000-entry/refusal measurements are a baseline, not execution of this source. Repeat selected ordinary-build library/refusal checks after actual current-head APK verification. No measured speedup or whole-process heap guarantee follows from removing one duplicate walk.
