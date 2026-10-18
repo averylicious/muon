@@ -62,7 +62,7 @@ class PartitionMoveDestinationTest {
         assertThrows(IOException::class.java) {worker {SavedAudioDigest().read(spec,DataSource.Factory {ByteArrayDataSource(byteArrayOf(2))}) {}}}
     }
     @Test fun verifiedDigestBindsBeforeAndAfterMultiBlockReadAndActualClose() {
-        val bytes=ByteArray(3*LOCAL_SAVED_READ_BYTES+17) {it.toByte()};var reads=0;var closes=0;var guards=0;var live=0
+        val bytes=ByteArray(3*SAVED_DIGEST_READ_BYTES+17) {it.toByte()};var reads=0;var closes=0;var guards=0;var live=0
         val raw=ByteArrayDataSource(bytes)
         val source=DataSource.Factory {object:DataSource by raw {
             override fun read(buffer:ByteArray,offset:Int,length:Int):Int {reads++;return raw.read(buffer,offset,length)}
@@ -76,7 +76,7 @@ class PartitionMoveDestinationTest {
         assertEquals(MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {"%02x".format(it)},hash)
     }
     @Test fun digestCancellationAfterShortReadClosesBeforeAnySecondReadOrBindingResult() {
-        val bytes=ByteArray(2*LOCAL_SAVED_READ_BYTES+17);val raw=ByteArrayDataSource(bytes)
+        val bytes=ByteArray(2*SAVED_DIGEST_READ_BYTES+17);val raw=ByteArrayDataSource(bytes)
         var reads=0;var closes=0;var guards=0
         val source=DataSource.Factory {object:DataSource by raw {
             override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
@@ -118,7 +118,7 @@ class PartitionMoveDestinationTest {
         } finally {raw.close()}
     }
     @Test fun actualVerifiedDigestStagesIncludeKnownCloseAndBothBindingChecks() {
-        val bytes=ByteArray(3*LOCAL_SAVED_READ_BYTES+17) {it.toByte()}
+        val bytes=ByteArray(3*SAVED_DIGEST_READ_BYTES+17) {it.toByte()}
         val raw=ByteArrayDataSource(bytes)
         var now=0L;var reads=0;var closes=0;var guards=0;var checkpoints=0
         val events=mutableListOf<SavedDigestTiming.Event>()
@@ -173,6 +173,38 @@ class PartitionMoveDestinationTest {
             assertEquals(MessageDigest.getInstance("SHA-256").digest(payload).joinToString("") {"%02x".format(it)},actual)
             assertEquals(1,closes);assertEquals(2,guards)
         }
+    }
+
+    @Test fun realFileDigestUsesBoundedBlocksAndCancellationClosesBeforeAnotherRead() {
+        val directory=java.nio.file.Files.createTempDirectory("digest-block").toFile()
+        val file=java.io.File(directory,"disposable-audio")
+        val bytes=ByteArray(3*SAVED_DIGEST_READ_BYTES+17) {(it*31).toByte()}
+        file.writeBytes(bytes)
+        fun source(requests:MutableList<Int>,closes:IntArray)=DataSource.Factory {
+            val raw=androidx.media3.datasource.FileDataSource()
+            object:DataSource by raw {
+                override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                    requests+=length;return raw.read(buffer,offset,length)
+                }
+                override fun close() {closes[0]++;raw.close()}
+            }
+        }
+        try {
+            val full=spec.buildUpon().setUri(android.net.Uri.fromFile(file)).setLength(bytes.size.toLong()).build()
+            val requests=mutableListOf<Int>();val closes=IntArray(1)
+            val actual=worker {SavedAudioDigest().readVerified(full,source(requests,closes),{},{})}
+            assertEquals(MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {"%02x".format(it)},actual)
+            assertEquals(listOf(SAVED_DIGEST_READ_BYTES,SAVED_DIGEST_READ_BYTES,SAVED_DIGEST_READ_BYTES,17,1),requests)
+            assertEquals(1,closes[0])
+            val cancelled=mutableListOf<Int>();val cancelledCloses=IntArray(1)
+            val failure=java.io.InterruptedIOException("Cancel after first real block")
+            assertSame(failure,assertThrows(java.io.InterruptedIOException::class.java) {worker {
+                SavedAudioDigest().readVerified(full,source(cancelled,cancelledCloses),{
+                    if(cancelled.isNotEmpty()) throw failure
+                },{})
+            }})
+            assertEquals(listOf(SAVED_DIGEST_READ_BYTES),cancelled);assertEquals(1,cancelledCloses[0])
+        } finally {assertTrue(file.delete());assertTrue(directory.delete())}
     }
 
 }

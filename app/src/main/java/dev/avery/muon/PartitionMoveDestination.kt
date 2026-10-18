@@ -53,6 +53,12 @@ internal fun partitionMoveMetadataDigest(metadata:DefaultContentMetadata):String
     return hash.digest().joinToString("") {"%02x".format(it)}
 }
 
+/** One fixed buffer per active full digest, independent of library size. The production callers
+ * hold the actual exclusive storage gate. Each actual read still gets a fresh checkpoint; a
+ * longer bounded block trades 768KiB more working memory for fewer expensive guard round trips.
+ * Ordinary playback/local-copy buffers and exact full length/EOF/binding checks are unchanged. */
+internal const val SAVED_DIGEST_READ_BYTES=1024*1024
+
 /** One actual local reader, one close attempt. A digest is returned only AFTER real close. Unknown
  * construction/close retains the exact factory/reader through a typed owner; caller retains native
  * and borrowed provider/legacy owners too. No retry, upstream fallback, deletion or recovery grant. */
@@ -94,7 +100,7 @@ internal class SavedAudioDigest(
             live(); construction=factory
             source=stage(observer,SavedDigestTiming.Stage.CREATE) {factory.createDataSource()}; construction=null
             val actual=requireNotNull(source); stage(observer,SavedDigestTiming.Stage.OPEN) {actual.open(spec)}
-            val bytes=ByteArray(LOCAL_SAVED_READ_BYTES); var left=spec.length
+            val bytes=ByteArray(SAVED_DIGEST_READ_BYTES); var left=spec.length
             while(left>0) {
                 live(); val count=stage(observer,SavedDigestTiming.Stage.READ) {
                     actual.read(bytes,0,minOf(left,bytes.size.toLong()).toInt())
