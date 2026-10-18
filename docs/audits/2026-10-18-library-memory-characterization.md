@@ -39,3 +39,18 @@ Two earlier host-driver attempts are not refusal passes: one intentionally stopp
 ## Release-gate disposition
 
 This provides selected device evidence for the live-library record ceiling and rejection preservation with short metadata. It does not establish whole-process heap bounds, absolute peaks, long-tag/near-encoded-byte-ceiling behavior, artwork-heavy browsing, many-playlist refresh overlap, queue/IPC peaks or large native saved-copy inventory behavior. Those remaining dimensions must not be called complete based on this table. #401 SD startup/Move latency remains engineering. Hardware/spoken/subjective user acceptance remains separate. No Stable promotion or application merge follows from this report.
+
+## Follow-up #610 ordinary .1248
+
+Verified head `6d7f8db0402e39ed197a83582a25289618bbdfc5`, [run39122002920](https://github.com/averylicious/muon/actions/runs/39122002920), actual reports1,745tests per variant and selected signed/non-debuggable APK checked. Three cold loads used the identical short-tag50,000 fixture and procedure, followed by50,001 refresh in the last process. First visible count observations7.486/6.249/5.786s include host/UI cadence, not precise application timing.
+
+| Workload | Samples | Highest Java PSS KiB | Highest total PSS KiB | Highest RSS KiB |
+| --- | ---: | ---: | ---: | ---: |
+| 50,000 run1 | 8 | 80,428 | 208,135 | 327,728 |
+| 50,000 run2 | 7 | 105,796 | 211,645 | 329,128 |
+| 50,000 run3 | 7 | 146,980 | 242,445 | 357,740 |
+| 50,001 explicit refusal, old50,000 retained | 8 | 116,620 | 224,279 | 343,300 |
+
+No memory guard triggered. These observations vary across runs; they do not isolate causality or establish an absolute peak/speedup. Full stopped before/after proof passed for every saved request field/native/audio/cover/connection byte, and both parked original inventories. Own loopback listener/files and temporary preference backup removed; ordinary app stopped; original volume11 restored/read back. The host proof helper's initial marker-serialization namespace collision was corrected and the existing snapshots reverified; no app crash or additional destructive operation occurred. Selected saved-card playback subsequently reached PLAYING at5,046ms including250ms polling/ADB overhead, so #401 startup improvement remains unproven.
+
+Latest source #611 has not yet been verified on device. See the current handoff for installed versions and active ownership; this report's earlier .1235 final-state paragraph describes that earlier boundary only.
