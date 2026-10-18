@@ -1949,7 +1949,7 @@ class OwnedPartitionShelfTest {
     }
     @Test fun destinationJournalLinkAfterKnownTargetClosePreservesSourceAndCanRetry() {
         val n=NewSourceMoveFixture();val f=n.f
-        val journal=File(f.f.root,"partition-saves-v1.db")
+        val journal=File(f.f.root,"new-save-journal-v1.db")
         val held=File(folders.newFolder(),"held-target-save-journal")
         val audio=n.originalAllocation.walkTopDown().single {it.name.endsWith(".v3.exo")}
         var replaced=false;var nativeObserved=false
