@@ -50,6 +50,7 @@ class PartitionStorageSessionTest {
         val name="storage_session_"+fixtures.size
         val index=DefaultDownloadIndex(database,name).also { it.getDownloads().close() }
         var available=true
+        var refuseSessionWithNative=false
         val native=PartitionNativeOwner(catalog,migrations,"card",{if(available) "card" else null},budget=budget,saves=saves)
         var countProviderReads=false;var providerReads=0
         private val trackedDatabase=object:androidx.media3.database.DatabaseProvider {
@@ -61,7 +62,7 @@ class PartitionStorageSessionTest {
         }
         val session=PartitionStorageSession(catalog,saves,migrations,native,trackedDatabase,name,LegacySavedAudio(legacy),
             DataSource.Factory { ByteArrayDataSource(payload) },
-            { key -> legacy.getCachedBytes(key,0,Long.MAX_VALUE)==0L && index.getDownload(key)==null },{available},barrier,commandCapacity)
+            { key -> legacy.getCachedBytes(key,0,Long.MAX_VALUE)==0L && index.getDownload(key)==null },{available && !(refuseSessionWithNative && budget.resident>0)},barrier,commandCapacity)
         fun seed(key:String):File {
             val hole=requireNotNull(legacy.startReadWrite(key,0,payload.size.toLong()))
             val file:File
@@ -275,6 +276,27 @@ class PartitionStorageSessionTest {
         assertTrue(gate.quiescent)
     }
 
+    @Test fun genericMoveDigestRetainsFullAvailabilityWhenNativeOwnerIsOpen() {
+        val f=fixture(nativeCapacity=2);val key="saved/generic-move-availability"
+        val completion=completedLocal(f,key,payload)
+        val ticket=requireNotNull(f.saves.find(key)).ticket
+        var observed=false
+        worker {
+            val permit=f.barrier.exclusive()
+            try {
+                val failure=assertThrows(IOException::class.java) {
+                    f.session.moveDestinationIdentity(ticket,completion,"card","fixture-root",permit) {
+                        if(f.budget.resident>0) {observed=true;f.refuseSessionWithNative=true}
+                    }
+                }
+                assertFalse(failure is PartitionOwnershipUncertain)
+                assertTrue(observed);assertEquals(0,f.budget.resident)
+                assertEquals(completion,PartitionCompletionIndex(database,f.name).find(key))
+            } finally {f.refuseSessionWithNative=false;permit.close()}
+            assertEquals(SavedCoverage.Full,f.session.audio.inspect(key).coverage)
+        }
+        assertTrue(f.barrier.quiescent)
+    }
     @Test fun moveDestinationCompletedRowWorkIsBoundedIndependentlyOfAudioBlockCount() {
         val f=fixture(nativeCapacity=2)
         fun observe(key:String,bytes:ByteArray):Pair<Int,Int> = worker {

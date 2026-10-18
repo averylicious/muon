@@ -91,6 +91,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         if(exactDirectory(directory)!=rootIdentity) throw IOException("Partition shelf root changed during journal observation")
     }
     private fun available():Boolean = phase==Phase.Ready && runCatching { located(); true }.getOrDefault(false)
+    /** Used only before the Move caller's full owned checkpoint. Every actual shelf Move caller
+     * below finishes its checkpoint with located() for the destination; the complete binding
+     * and every source-unlink boundary remain fully checked too. No journal observation is
+     * cached, and native/open/close/ordinary availability keep their full checks. */
+    private fun moveReadAvailable():Boolean = phase==Phase.Ready && runCatching {rootLocated();true}.getOrDefault(false)
     private fun preflight() {
         if(currentVolume()!=volume || directory.absoluteFile!=directory.canonicalFile ||
             directory.toPath().startsWith(legacyDirectory.toPath()) || legacyDirectory.toPath().startsWith(directory.toPath()))
@@ -134,7 +139,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
                 { if(runCatching { located(); true }.getOrDefault(false)) volume else null },budget=budget,saves=saves) }
             val index=PartitionCompletionIndex(database,indexName)
             val session=owner.own { PartitionStorageSession(catalog,saves,migrations,native,database,indexName,
-                audio,upstream,{ name -> !retirements.holdsName(name) && !moves.holdsName(name) && !deletes.holdsName(name) && !audio.contains(name) && !index.holdsName(name) && unclaimed(name) },::available,barrier,retirements=retirements,moves=moves,deletes=deletes) }
+                audio,upstream,{ name -> !retirements.holdsName(name) && !moves.holdsName(name) && !deletes.holdsName(name) && !audio.contains(name) && !index.holdsName(name) && unclaimed(name) },::available,barrier,retirements=retirements,moves=moves,deletes=deletes,moveReadAvailable=::moveReadAvailable) }
             val manager=owner.own { PartitionShelfManager(context.applicationContext,database,indexName,session,barrier) }
             val workers=owner.own { java.util.concurrent.Executors.newSingleThreadExecutor() }
             val work=owner.own { PartitionMigrationWork(workers,{ control,name ->

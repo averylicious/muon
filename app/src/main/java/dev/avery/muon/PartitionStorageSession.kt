@@ -30,7 +30,11 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
     legacy:SavedAudio,upstream:DataSource.Factory,unclaimed:(String)->Boolean,
     private val available:()->Boolean,private val barrier:SavedStorageBarrier,
     commandCapacity:Int=DOWNLOAD_COMMAND_COUNT,private val retirements:LegacyRetirementJournal?=null,
-    private val moves:PartitionSavedMoveJournal?=null,private val deletes:PartitionSavedDeleteJournal?=null):Closeable {
+    private val moves:PartitionSavedMoveJournal?=null,private val deletes:PartitionSavedDeleteJournal?=null,
+    /** OwnedPartitionShelf alone supplies a fresh root/volume observation here. Its Move
+     * checkpoints finish with full journal/root validation before physical digest I/O. Generic
+     * sessions retain full availability; all non-digest paths still use available unchanged. */
+    private val moveReadAvailable:()->Boolean=available):Closeable {
     private fun holdsDisposition(key:String)=retirements?.holdsName(key)==true || moves?.holdsName(key)==true || deletes?.holdsName(key)==true
     internal fun usesBarrier(candidate:SavedStorageBarrier):Boolean = candidate===barrier
     @Volatile private var stopped=false
@@ -399,7 +403,15 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
         val digest=SavedAudioDigest()
         val timing=if(BuildConfig.DEBUG) MoveVerificationTiming.begin(true) else null
         var successful=false
-        fun live() {originalPermit(permit); checkpoint()}
+        fun live() {
+            if(!permit.exclusive || !permit.belongsTo(barrier)) throw IOException("Move digest needs the actual exclusive gate")
+            if(stopped || closing || uncertain || !moveReadAvailable()) throw IOException("Move digest owner unavailable")
+            permit.check(); checkpoint()
+            // Caller callbacks may cancel/invalidate an owner. Do not return to physical I/O
+            // with a stale session or lease even if the callback itself returned normally.
+            if(stopped || closing || uncertain) throw IOException("Move digest owner unavailable")
+            permit.check()
+        }
         fun unknown(failure:Throwable):Nothing {
             val handles=arrayOf(this,cache,digest,ticket,failure)
             retainedMoveIdentity=handles; uncertain=true
