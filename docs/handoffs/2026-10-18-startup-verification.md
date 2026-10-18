@@ -57,3 +57,7 @@ Both POCO apps STOPPED ordinary.1224/diagnostic.1212; music11 restored/separateG
 ## User concern: test-suite growth
 
 See [measured suite assessment](../audits/2026-10-18-test-suite-cost.md): .1224has544plain-JVM and1,190Robolectric executions per variant,211classes/1,721source methods. Plain tests total~3.5sper variant; Android simulation dominates145.7/174.7s summed class times. Counts do not prove quality. Pause further case expansion while reviewing overlap/value and potential routine one-variant/full release-gate scheduling. No tests/checks deleted or scheduling changed; #606/#607already-running regressions were written before this feedback. Complete current safe phone verification and preserve actual guards. This is an assessment, not authorization to silently skip mandatory checks or a new Stable blocker based only on test count.
+
+### Test policy clarification from user
+
+User agreed with assessing overlap/scheduling and explicitly approved continuing tests as necessary during this audit, trimming afterward. This supersedes the temporary test-growth hold above. Add tests for distinct meaningful failure paths/safety contracts; do not inflate progress by count, duplicate existing coverage without reason or weaken currently required checks. No CI coverage change or test removal authorized by implication. Keep the suite-cost report for follow-up consolidation.

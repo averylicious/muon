@@ -2,7 +2,7 @@
 
 ## Scope and evidence
 
-User raised concern about continuing growth into thousands of unit tests. Pause new case expansion while evaluating value/overlap; do not use a rising count as a quality or completion metric. No coverage/check was removed and no workflow scheduling changed by this report. Existing #606/#607 changes/tests preceded this feedback; finish their running checks and safe device cleanup.
+User raised concern about continuing growth into thousands of unit tests. User subsequently approved continuing necessary tests for distinct audit contracts and trimming/consolidating after this audit; do not use a rising count as a quality or completion metric. No coverage/check was removed and no workflow scheduling changed by this report. Existing #606/#607 checks and safe device cleanup continue. Additional tests are appropriate where a distinct failure path warrants them; a growing count is not a quality metric.
 
 Evidence: downloaded reports from #606099b15edc0718db9f065577247cdb6029d3f95dc / [ordinary .1224](https://github.com/averylicious/muon/actions/runs/39100765303), report artifact12127265138; classified against that exact source tree. Each variant has211test classes and1,734executions. Source contains1,721@Test methods; SDK parameterization contributes additional executions. Debug and Release repeat the same suite structure; they are not3,468distinct methods.
 
@@ -32,4 +32,4 @@ Review candidates by protected contract, trigger and assertion strength. Consoli
 
 ## Next decision
 
-The user's concern is acknowledged, but no user instruction to delete a specific test or weaken a required check was inferred. Continue current safe verification; prioritize a focused redundancy/scheduling review before further test growth. Keep the engineering/acceptance gates separate from test count. Source author/self-check: GPT-6 / Codex desktop; exact variant/effort not reported. No Claude/subagents or independent review claimed.
+The user's concern is acknowledged, but no user instruction to delete a specific test or weaken a required check was inferred. Continue safe engineering and meaningful audit tests under the user's renewed approval; retain the focused redundancy/scheduling review as follow-up work. Keep the engineering/acceptance gates separate from test count. Source author/self-check: GPT-6 / Codex desktop; exact variant/effort not reported. No Claude/subagents or independent review claimed.
