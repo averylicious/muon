@@ -328,7 +328,8 @@ internal object OfflineStore {
                     if(!claimsReady) throw java.io.IOException("Partition app-wide claims are not ready")
                     val other=if(index.isEmpty()) cardOwner else phoneOwner
                     !art.hasEntry(name) && requireNotNull(extraClaims)(name) && (other?.claimsName(name)!=true)
-                },OkHttpDataSource.Factory(Transport.client),mutationsAllowed={plan.missingCardVolume==null},legacyCurrentVolume=root.legacyCurrentVolume) }
+                },OkHttpDataSource.Factory(Transport.client),mutationsAllowed={plan.missingCardVolume==null},legacyCurrentVolume=root.legacyCurrentVolume,
+                    ownedCurrentVolume=root.ownedCurrentVolume) }
             if(index.isEmpty()) phoneOwner=partition else cardOwner=partition
             partition.prepare()
             return PreparedShelf(null,null,index,service,{ root.currentVolume()==root.volume },partition)

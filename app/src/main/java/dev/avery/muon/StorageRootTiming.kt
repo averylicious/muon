@@ -4,13 +4,13 @@ import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Fixed cumulative diagnostic counters, no identities/paths/text/history. Root timings include
- * their CARD/PHONE volume timing; LEGACY_CARD_VOLUME is separate. MIXED_ROUTE wraps route journals/availability and overlaps
+ * their CARD/PHONE volume timing; LEGACY_CARD_VOLUME and OWNED_CARD_VOLUME are separate volume-only observations. MIXED_ROUTE wraps route journals/availability and overlaps
  * nested root timing. Do not add overlapping totals. Only first/every64th observations emit,
  * at most32 events per process, then even diagnostic clock calls stop. Actions never run under
  * this observer's monitor. Clock/log failures cannot change the action's result or exception. */
 internal class StorageRootTiming private constructor(private val allowance:AtomicInteger,
     private val clock:()->Long,private val emit:(Event)->Unit) {
-    enum class Phase { PHONE_ROOT,PHONE_VOLUME,CARD_ROOT,CARD_VOLUME,LEGACY_CARD_VOLUME,MIXED_ROUTE }
+    enum class Phase { PHONE_ROOT,PHONE_VOLUME,CARD_ROOT,CARD_VOLUME,LEGACY_CARD_VOLUME,OWNED_CARD_VOLUME,MIXED_ROUTE }
     data class Event(val phase:Phase,val count:Long,val totalMs:Long,val failures:Long)
     private val count=LongArray(Phase.entries.size)
     private val elapsed=LongArray(Phase.entries.size)

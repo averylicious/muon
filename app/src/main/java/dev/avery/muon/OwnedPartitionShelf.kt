@@ -43,7 +43,10 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     /** Frozen false when another selected shelf is absent; its hidden names cannot be inspected. */
     private val mutationsAllowed:()->Boolean={true},
     /** Only passed to the legacy owner, whose observed() retains full path/identity checks. */
-    private val legacyCurrentVolume:()->String?=currentVolume) {
+    private val legacyCurrentVolume:()->String?=currentVolume,
+    /** Only rootLocated uses this: full canonical child/inode and journal checks remain.
+     * Generic callers keep the original full volume callback. Startup/bootstrap use it too. */
+    private val ownedCurrentVolume:()->String?=currentVolume) {
     internal val storageBarrier:SavedStorageBarrier get()=barrier
     init { require(volume.isNotEmpty()) }
     private val startup=StorageStartup<Resources>()
@@ -76,7 +79,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         return attributes.fileKey() ?: throw IOException("Partition shelf file identity cannot be observed")
     }
     private fun rootLocated() {
-        if(currentVolume()!=volume) throw IOException("Partition shelf volume unavailable or changed")
+        if(ownedCurrentVolume()!=volume) throw IOException("Partition shelf volume unavailable or changed")
         if(exactDirectory(directory)!=rootIdentity) throw IOException("Partition shelf root replaced")
     }
     private fun located() {

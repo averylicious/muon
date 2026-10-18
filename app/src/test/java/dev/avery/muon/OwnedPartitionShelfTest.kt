@@ -52,9 +52,10 @@ class OwnedPartitionShelfTest {
                 databaseFile=File(provider.readableDatabase.path)
             } finally { native.release() }
         }
-        fun owner(start:PartitionShelfStart=PartitionShelfStart.Fresh,path:File=root,currentVolume:()->String?={volume})=OwnedPartitionShelf(
+        fun owner(start:PartitionShelfStart=PartitionShelfStart.Fresh,path:File=root,currentVolume:()->String?={volume},
+            ownedCurrentVolume:()->String?=currentVolume)=OwnedPartitionShelf(
             RuntimeEnvironment.getApplication(),path,legacy,databaseFile,provider,"owned_partition","fixture",currentVolume,
-            start,barrier,{true},DataSource.Factory { ByteArrayDataSource(payload) },budget)
+            start,barrier,{true},DataSource.Factory { ByteArrayDataSource(payload) },budget,ownedCurrentVolume=ownedCurrentVolume)
     }
     private fun await(manager:DownloadManager,condition:()->Boolean) {
         val end=System.nanoTime()+TimeUnit.SECONDS.toNanos(10)
@@ -2901,4 +2902,58 @@ class OwnedPartitionShelfTest {
             f.provider.close()
         }        } // SQLite transaction cleanup must run on the same worker as the injected write.
     }
+    @Test fun ownedVolumeObservationAvoidsParentProbeButStillRefusesLostVolumeDuringRead() {
+        val f=Fixture();var parentCalls=0;var ownedCalls=0
+        val owner=f.owner(currentVolume={parentCalls++;f.volume},ownedCurrentVolume={ownedCalls++;f.volume})
+        try {
+            onWorker {owner.prepare()}
+            val before=parentCalls;val ownedBefore=ownedCalls
+            assertTrue(owner.isAvailable)
+            assertEquals(before,parentCalls);assertEquals(ownedBefore+1,ownedCalls)
+            val reader=owner.audio.source.createDataSource()
+            try {
+                reader.open(DataSpec.Builder().setUri("muon-saved:test").setKey("old").build())
+                val bytes=ByteArray(4);assertEquals(4,reader.read(bytes,0,4));assertArrayEquals(payload,bytes)
+                f.volume=null
+                assertFalse(owner.isAvailable)
+                assertThrows(IOException::class.java) {reader.read(bytes,0,1)}
+            } finally {reader.close();f.volume="fixture"}
+            assertArrayEquals(payload,f.original.readBytes());assertTrue(f.barrier.quiescent)
+        } finally {teardown(owner);f.provider.close()}
+    }
+    @Test fun volumeOnlyObservationCannotAdmitReplacedOrAliasedPartitionRoot() {
+        for(alias in listOf(false,true)) {
+            val f=Fixture();val owner=f.owner(ownedCurrentVolume={f.volume})
+            val retained=File(f.parent,"retained-partition")
+            try {
+                onWorker {owner.prepare()};assertTrue(f.root.renameTo(retained))
+                try {
+                    if(alias) java.nio.file.Files.createSymbolicLink(f.root.toPath(),retained.toPath())
+                    else assertTrue(f.root.mkdir())
+                    assertFalse(owner.isAvailable)
+                    assertThrows(IOException::class.java) {owner.audio.contains("old")}
+                    assertArrayEquals(payload,f.original.readBytes())
+                } finally {java.nio.file.Files.delete(f.root.toPath());assertTrue(retained.renameTo(f.root))}
+                assertTrue(owner.isAvailable);assertTrue(owner.audio.contains("old"))
+                assertEquals(0,f.budget.resident);assertTrue(f.barrier.quiescent)
+            } finally {teardown(owner);f.provider.close()}
+        }
+    }
+    @Test fun volumeOnlyObservationRetainsEveryJournalIdentityCheck() {
+        val f=Fixture();val owner=f.owner(ownedCurrentVolume={f.volume})
+        try {
+            onWorker {owner.prepare()}
+            val original=File(f.root,"partition-moves-v1.db");val retained=File(folders.newFolder(),"retained-move")
+            assertTrue(original.renameTo(retained))
+            try {
+                retained.copyTo(original)
+                assertFalse(owner.isAvailable)
+                assertThrows(IOException::class.java) {owner.audio.contains("old")}
+                assertArrayEquals(payload,f.original.readBytes())
+            } finally {assertTrue(original.delete());assertTrue(retained.renameTo(original))}
+            assertTrue(owner.isAvailable);assertTrue(owner.audio.contains("old"))
+            assertEquals(0,f.budget.resident);assertTrue(f.barrier.quiescent)
+        } finally {teardown(owner);f.provider.close()}
+    }
+
 }

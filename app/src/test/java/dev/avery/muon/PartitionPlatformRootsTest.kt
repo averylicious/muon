@@ -48,7 +48,7 @@ class PartitionPlatformRootsTest {
             when(e.phase) {
                 StorageRootTiming.Phase.MIXED_ROUTE ->routeReads++
                 StorageRootTiming.Phase.PHONE_ROOT,StorageRootTiming.Phase.CARD_ROOT ->rootReads++
-                StorageRootTiming.Phase.PHONE_VOLUME,StorageRootTiming.Phase.CARD_VOLUME,StorageRootTiming.Phase.LEGACY_CARD_VOLUME ->volumeReads++
+                StorageRootTiming.Phase.PHONE_VOLUME,StorageRootTiming.Phase.CARD_VOLUME,StorageRootTiming.Phase.LEGACY_CARD_VOLUME,StorageRootTiming.Phase.OWNED_CARD_VOLUME ->volumeReads++
             }
             throw IOException("Diagnostic sink unavailable")
         }))
@@ -139,6 +139,27 @@ class PartitionPlatformRootsTest {
         f.phoneId="changed";assertEquals(f.phoneId,root.legacyCurrentVolume());assertEquals(2,calls)
         val copied=root.copy(currentVolume={"copied-callback"})
         assertEquals("copied-callback",copied.legacyCurrentVolume());assertEquals(2,calls)
+    }
+
+    @Test fun ownedObservationIsFreshAndSeparateWhileGenericPlansFollowCurrentCallback() {
+        val f=Fixture();var calls=0
+        val events=mutableListOf<StorageRootTiming.Event>()
+        val timing=requireNotNull(StorageRootTiming.begin(true,java.util.concurrent.atomic.AtomicInteger(32),{0L},events::add))
+        val resolver=PartitionPlatformRoots({f.phone},{f.dirs},{f.phoneId},{calls++;f.cardId},timing)
+        val plan=worker {resolver.fresh(f.card)};val card=requireNotNull(plan.card)
+        val before=calls
+        repeat(3) {assertEquals(f.cardId,card.ownedCurrentVolume())}
+        assertEquals(before+3,calls)
+        assertEquals(1,events.count {it.phase==StorageRootTiming.Phase.OWNED_CARD_VOLUME})
+        f.cardId=null;assertNull(card.ownedCurrentVolume())
+        f.cardId="removable:replacement";assertEquals(f.cardId,card.ownedCurrentVolume())
+        f.cardId="invalid\u0000";assertNull(card.ownedCurrentVolume())
+        assertFalse(card.directory.exists()) // Volume observation creates/adopts no root.
+        var genericCalls=0
+        val generic=PartitionRootPlan(f.phone,f.card,"fixture",{genericCalls++;"fixture"},PartitionShelfStart.Resume)
+        assertEquals("fixture",generic.ownedCurrentVolume());assertEquals(1,genericCalls)
+        val copied=generic.copy(currentVolume={"changed"})
+        assertEquals("changed",copied.ownedCurrentVolume());assertEquals(1,genericCalls)
     }
 
 }

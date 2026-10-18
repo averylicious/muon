@@ -11,9 +11,13 @@ internal data class PartitionRootPlan(val directory:File,val legacyDirectory:Fil
     val currentVolume:()->String?,val start:PartitionShelfStart,
     /** Fresh volume observation ONLY for LegacyTransitionOwner, which separately rechecks the
      * whole canonical legacy path, root, UID and database. Not partition-root authority. */
-    private val legacyVolumeObservation:(()->String?)?=null) {
+    private val legacyVolumeObservation:(()->String?)?=null,
+    /** Used only inside OwnedPartitionShelf.rootLocated(), which still checks the entire
+     * canonical partition path/root inode and every journal before exposing resources. */
+    private val ownedVolumeObservation:(()->String?)?=null) {
     // Generic copied plans must follow their current callback, not capture an earlier default.
     val legacyCurrentVolume:()->String? get()=legacyVolumeObservation ?: currentVolume
+    val ownedCurrentVolume:()->String? get()=ownedVolumeObservation ?: currentVolume
 }
 internal data class PartitionStorePlan(val phone:PartitionRootPlan,val card:PartitionRootPlan?=null,
     /** Exact persisted Ready card identity, never a replacement or a claim census. */
