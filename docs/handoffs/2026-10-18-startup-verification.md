@@ -43,3 +43,13 @@ Separately requested diagnostic#606[.1226/run39101566965](https://github.com/ave
 ## Actual owner boundary optimization
 
 New OPEN[#607](https://github.com/averylicious/muon/pull/607)ad106d1612595ad362a74d224df99b459a085d4c, codex/owned-partition-volume-boundary-oct18 persistent worktree, based on#606. [Ordinary.1227/run39101582693](https://github.com/averylicious/muon/actions/runs/39101582693) first compile pending, expected1,738tests per variant. Removes duplicate parent canonicalization only INSIDE OwnedPartitionShelf.rootLocated: fresh volume-only callback, same full canonical child/root inode, every journal identity and second canonical root check. Preflight/bootstrap/generic plans/legacy/outer shelf callbacks retain full observations. No caching/TTL, mount/recovery/destructive authority or guard removal. Separate OWNED_CARD_VOLUME bounded observer; four new resolver/actual-owner regressions cover freshness/bytes/lost volume/root replacement-symlink/journal replacement/default copied-plan behavior. No runtime improvement claimed before current-head verification and capture. Source claims are not measured speedup.
+
+## Current receipt table (supersedes earlier active statuses)
+
+| Source | Exact head | Verification / next action |
+| --- | --- | --- |
+| #605 | dda7faff681e0ace96a1e6aa5a4cf013b36701f4 | .1221timing actual APK/reports verified1,728/variant; selected startup capture and full stopped normal preservation proof passed. Replaced by newer ordinary.1224. |
+| #606 | 099b15edc0718db9f065577247cdb6029d3f95dc | .1224ordinary actual APK/reports verified1,734/variant, freshPlaying5622/5593/5343ms; full stopped normal request/native metadata/audio/cover identical/no changed fields/no phone completed row. .1226diagnostic still building, no Move started. |
+| #607 | 3960604a998fa5d05a5887ff4b2f415e17b054d0 | .1229/run39101775459 pending1,738/variant. Earlierad106d1/.1227confirmed cancelled/superseded after strengthening parent-alias regression. No failed compilation or device pass claimed. |
+
+Both POCO apps STOPPED ordinary.1224/diagnostic.1212; music11 restored/separateGET. Full diagnostic copy CARD/old partial CARD. Both parked pre-ROM inventories match again. No active mutation/profile/forward/probe. Next verify#606diagnostic.1226before fresh disposable Card-to-Phone Move; full stopped proof after known idle. Do not overlap with any normal playback. New#607capture waits for latest-head checks and completed Move. Last live account reading36%five-hour/6%weekly USED; continue useful authorized engineering, reserve capacity for clean completion/ordinary restore/handoff. No Claude/subagents/main-experiment merge/Stable/tag/release.
