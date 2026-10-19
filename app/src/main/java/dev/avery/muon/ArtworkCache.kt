@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import android.content.Context
 import java.io.File
 import java.security.MessageDigest
+import okio.buffer
+import okio.source
 
 /**
  * How much artwork may stay on disk: roughly a large library's list thumbnails plus some covers. List
@@ -13,6 +15,10 @@ import java.security.MessageDigest
  * thumbnails of a few kB, so this is twice what those needed.
  */
 internal const val ARTWORK_DISK_BYTES = 128L * 1024 * 1024
+
+/** Raw server covers are capped at4MiB. Smaller scaled PNGs can exceed their input size;
+ * allow8MiB per derived entry, independently of the total LRU. Oversized entries are misses. */
+internal const val ARTWORK_DISK_ENTRY_BYTES = 8L * 1024 * 1024
 
 /**
  * How long a stored picture is trusted. A track number reused for a different song is already a miss,
@@ -80,10 +86,16 @@ internal class ArtworkDiskCache(private val dir: File, private val maxBytes: Lon
             synchronized(lock) { if (total >= 0) total -= file.length(); file.delete() }
             return null
         }
-        file.readBytes()
+        if (file.length() > ARTWORK_DISK_ENTRY_BYTES) return null
+        // Check the opened stream too: length can change between the size observation and read.
+        file.source().buffer().use { source ->
+            if (source.request(ARTWORK_DISK_ENTRY_BYTES + 1)) null
+            else source.readByteArray(source.buffer.size)
+        }
     }.getOrNull()
 
     fun write(url: String, identity: String, bytes: ByteArray) {
+        if (bytes.size.toLong() > ARTWORK_DISK_ENTRY_BYTES) return
         runCatching {
             dir.mkdirs()
             val target = file(url, identity)

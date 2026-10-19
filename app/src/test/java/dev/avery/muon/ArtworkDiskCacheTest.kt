@@ -5,6 +5,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.io.RandomAccessFile
 
 class ArtworkDiskCacheTest {
     @get:Rule val folder = TemporaryFolder()
@@ -82,6 +83,25 @@ class ArtworkDiskCacheTest {
         val cache = cache(dir = notADirectory)
         cache.write(a, song, bytes(10))
         assertNull(cache.read(a, song))
+    }
+
+    @Test fun anOversizedDerivedEntryIsAMissWithoutLosingOtherCoversAndCanBeReplaced() {
+        val cache = cache(maxBytes = ARTWORK_DISK_ENTRY_BYTES * 3)
+        cache.write(b, song, bytes(10, 7))
+        val boundary = bytes(ARTWORK_DISK_ENTRY_BYTES.toInt(), 2)
+        cache.write(a, song, boundary)
+        assertArrayEquals(boundary, cache.read(a, song))
+        // Simulate an older/corrupted cache entry without constructing its oversized payload.
+        val file = File(folder.root, ArtworkDiskCache.key(a, song))
+        RandomAccessFile(file, "rw").use { it.setLength(ARTWORK_DISK_ENTRY_BYTES + 1) }
+        assertNull(cache.read(a, song))
+        assertArrayEquals(bytes(10, 7), cache.read(b, song))
+        cache.write(a, song, bytes(20, 3))
+        assertArrayEquals(bytes(20, 3), cache.read(a, song))
+        // A rejected oversized write must not replace a good cache entry or leave a temp file.
+        cache.write(a, song, bytes(ARTWORK_DISK_ENTRY_BYTES.toInt() + 1, 4))
+        assertArrayEquals(bytes(20, 3), cache.read(a, song))
+        assertEquals(2, folder.root.listFiles()!!.size)
     }
 
     @Test fun keysAreFixedLengthFileNames() {
