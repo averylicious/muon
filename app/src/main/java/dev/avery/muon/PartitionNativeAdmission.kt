@@ -43,14 +43,18 @@ internal object PartitionNativeAdmission {
         val contentSql="CREATE TABLE $content (id INTEGER PRIMARY KEY NOT NULL,key TEXT NOT NULL,metadata BLOB NOT NULL)"
         val filesSql="CREATE TABLE $files (name TEXT PRIMARY KEY NOT NULL,length INTEGER NOT NULL,last_touch_timestamp INTEGER NOT NULL)"
         var tables=0; var objects=0
-        index.rawQuery("SELECT type,name,sql FROM sqlite_master WHERE tbl_name IN (?,?) LIMIT 5",arrayOf(content,files)).use { rows ->
+        // Classify the exact pinned schemas inside SQLite. Unknown names/SQL (including a
+        // huge trigger body) must not become CursorWindow or Java payloads before refusal.
+        index.rawQuery("SELECT CASE WHEN type='table' AND name=? AND sql=? THEN 1 "+
+            "WHEN type='table' AND name=? AND sql=? THEN 2 "+
+            "WHEN type='index' AND name=? AND sql IS NULL THEN 3 ELSE 0 END "+
+            "FROM sqlite_master WHERE tbl_name IN (?,?) LIMIT 5",
+            arrayOf(content,contentSql,files,filesSql,"sqlite_autoindex_${files}_1",content,files)).use { rows ->
             while(rows.moveToNext()) {
                 checkpoint(); if(++objects>3) throw IOException("Unknown native partition schema objects")
-                val type=rows.getString(0); val name=rows.getString(1)
-                when {
-                    type=="table" && name==content && rows.getString(2)==contentSql -> tables++
-                    type=="table" && name==files && rows.getString(2)==filesSql -> tables++
-                    type=="index" && name=="sqlite_autoindex_${files}_1" && rows.isNull(2) -> Unit
+                when(rows.getInt(0)) {
+                    1,2 -> tables++
+                    3 -> Unit
                     else -> throw IOException("Unknown native partition schema")
                 }
             }

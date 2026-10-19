@@ -121,8 +121,18 @@ class PartitionNativeAdmissionTest {
     }
     @Test fun unknownTriggersOrFileFormatsRefuseWithoutEditingNativeTablesOrFiles() {
         val f=fixture(); val db=database.writableDatabase
-        db.execSQL("CREATE TRIGGER foreign_native_trigger AFTER INSERT ON ${table(f)} BEGIN SELECT 1; END")
+        db.execSQL("CREATE TRIGGER foreign_native_trigger AFTER INSERT ON ${table(f)} BEGIN /*"+
+            "x".repeat(3*1024*1024)+"*/ SELECT 1; END")
+        db.rawQuery("SELECT length(CAST(sql AS BLOB)) FROM sqlite_master WHERE name='foreign_native_trigger'",null).use {
+            assertTrue(it.moveToFirst());assertTrue(it.getLong(0)>3*1024*1024)
+        }
+        val contentBefore=db.rawQuery("SELECT id,key,metadata FROM ${table(f)}",null).use {
+            assertTrue(it.moveToFirst());Triple(it.getLong(0),it.getString(1),it.getBlob(2).toList())
+        }
         assertThrows(IOException::class.java) { inspect(f) }; kept(f)
+        db.rawQuery("SELECT id,key,metadata FROM ${table(f)}",null).use {
+            assertTrue(it.moveToFirst());assertEquals(contentBefore,Triple(it.getLong(0),it.getString(1),it.getBlob(2).toList()));assertFalse(it.moveToNext())
+        }
         db.rawQuery("SELECT name FROM sqlite_master WHERE name='foreign_native_trigger'",null).use { assertTrue(it.moveToFirst()) }
         db.execSQL("DROP TRIGGER foreign_native_trigger")
         db.execSQL("UPDATE ${table(f,true)} SET name='0.0.0.v4.exo'")
