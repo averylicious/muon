@@ -7,3 +7,5 @@ Add only diagnostic/timing-build observation around the existing fresh root cano
 CI first compile/run. After its own head passes, a separately requested diagnostic build must be verified/idle-installed and the selected disposable CARD reader repeated with the additional tag. Prior .1296 runtime does not certify this head or later #630 source-hash changes. This is diagnosis engineering, NOT a measured speed improvement or Stable clearance.
 
 GPT-6 / Codex desktop implementation/source/device author self-check; exact variant/effort not reported, no Claude/independent review. Isolated worktree, cumulative #630/main a2db02b8ba0b4959f28aecf5fa89196cf92622bc. App stack OPEN; no main/experiment merge, Stable/tag/release/activation.
+
+First ordinary .1302 compiled production but failed an exhaustive enum when in PartitionPlatformRootsTest. Add explicit shelf-event counters/assertzero to that existing fixture: platform-root observations must not become shelf phases, including a failing sink. No assertions weakened or test count added. Refreshed head requires full CI.

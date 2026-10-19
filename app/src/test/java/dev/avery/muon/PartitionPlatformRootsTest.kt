@@ -43,10 +43,11 @@ class PartitionPlatformRootsTest {
         assertFalse(plan.phone.directory.exists());assertFalse(plan.card!!.directory.exists())
     }
     @Test fun diagnosticTimingRetainsLiveRootRefusalEvenWhenTheSinkFails() {
-        val f=Fixture();var rootReads=0;var volumeReads=0;var routeReads=0
+        val f=Fixture();var rootReads=0;var volumeReads=0;var routeReads=0;var shelfReads=0
         val timing=requireNotNull(StorageRootTiming.begin(true,java.util.concurrent.atomic.AtomicInteger(32),{0L},{e ->
             when(e.phase) {
                 StorageRootTiming.Phase.MIXED_ROUTE ->routeReads++
+                StorageRootTiming.Phase.SHELF_CANONICAL,StorageRootTiming.Phase.SHELF_ATTRIBUTES,StorageRootTiming.Phase.SHELF_JOURNALS ->shelfReads++
                 StorageRootTiming.Phase.PHONE_ROOT,StorageRootTiming.Phase.CARD_ROOT ->rootReads++
                 StorageRootTiming.Phase.PHONE_VOLUME,StorageRootTiming.Phase.CARD_VOLUME,StorageRootTiming.Phase.LEGACY_CARD_VOLUME,StorageRootTiming.Phase.OWNED_CARD_VOLUME ->volumeReads++
             }
@@ -54,7 +55,7 @@ class PartitionPlatformRootsTest {
         }))
         val resolver=PartitionPlatformRoots({f.phone},{f.dirs},{f.phoneId},{f.cardId},timing)
         val plan=worker {resolver.fresh(f.card)}
-        assertEquals(2,rootReads);assertEquals(2,volumeReads);assertEquals(0,routeReads)
+        assertEquals(2,rootReads);assertEquals(2,volumeReads);assertEquals(0,routeReads);assertEquals(0,shelfReads)
         f.cardId="removable:changed";assertThrows(IOException::class.java) {plan.validate()}
         f.cardId=null;assertNull(plan.card!!.currentVolume())
         assertFalse(plan.phone.directory.exists());assertFalse(plan.card!!.directory.exists())
