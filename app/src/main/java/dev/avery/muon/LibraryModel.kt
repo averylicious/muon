@@ -115,7 +115,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         }
     }
     private val loads = LibraryLoads(viewModelScope) { busy = it }
-    val allTracks: List<TauonTrack> get() = tracksByPlaylist.values.flatten().distinctBy { it.id }
+    val allTracks: List<TauonTrack> get() = libraryTracks(tracksByPlaylist)
     init { if (address.isNotBlank()) connect() }
     fun connect() {
         if (busy) return

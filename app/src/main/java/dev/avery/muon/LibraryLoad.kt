@@ -28,3 +28,9 @@ internal fun combineLoad(lists: List<TauonPlaylist>, loaded: Map<String, List<Ta
 /** The note shown when some playlists did not load, with Retry beside it. */
 internal fun partialLoadMessage(failed: Int, total: Int): String =
     "$failed of $total ${if (total == 1) "playlist" else "playlists"} didn't load. Retry to try again."
+
+/** Same first occurrence/order as flatten().distinctBy(id), without an intermediate list of
+ * every playlist occurrence. Playlist lists and returned display list are still complete;
+ * nothing is cached across refresh, and the accepted-load budgets remain the caller's. */
+internal fun libraryTracks(byPlaylist: Map<String, List<TauonTrack>>): List<TauonTrack> =
+    byPlaylist.values.asSequence().flatten().distinctBy { it.id }.toList()

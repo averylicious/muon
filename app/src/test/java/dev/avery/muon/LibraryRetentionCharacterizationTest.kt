@@ -22,8 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * #253 inventory: which representations of accepted library metadata main keeps, through the actual
  * HTTP/platform-JSON path ([TauonApi]) and the existing load and projection helpers. Counts, equality
  * and object identity only. Not a heap or time measurement, an IPC failure, a phone result or a limit.
- * Two expressions are mirrored rather than called, because they live in the view model and composable:
- * `LibraryModel.allTracks` (flatten, then distinct by id) and `startQueue`/`playAll`'s queue mapping.
+ * The production libraryTracks helper is called; only startQueue/playAll's queue mapping is mirrored
+ * because it lives in the composable.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
@@ -73,7 +73,7 @@ class LibraryRetentionCharacterizationTest {
         val titleObjects=identityCount(occurrences.map {it.title})
         assertTrue(titleObjects in 1..occurrences.size)
         // LibraryModel.allTracks keeps the first occurrence; grouping keeps that same object.
-        val unique = first.tracks.values.flatten().distinctBy { it.id }
+        val unique = libraryTracks(first.tracks)
         assertEquals(listOf(7L, 8L, 9L), unique.map { it.id })
         assertSame(first.tracks.getValue("1")[0], unique[0])
         assertSame(unique[0], groupAlbums(unique).first { album -> album.tracks.any { it.id == 7L } }.tracks.single { it.id == 7L })
@@ -108,13 +108,14 @@ class LibraryRetentionCharacterizationTest {
             "/api1/tracklist/2" to tracklist(members.take(2)),
         )
         Server(routes).use { server ->
-            val occurrences = load(server.api, null).tracks.values.flatten()
+            val loaded = load(server.api, null)
+            val occurrences = loaded.tracks.values.flatten()
             assertEquals(6, occurrences.size)
             assertTrue(occurrences.all { it.album == album })
             // One string per parsed occurrence, not one per song or per album.
             assertEquals(6, identityCount(occurrences.map { it.album }))
 
-            val unique = occurrences.distinctBy { it.id }
+            val unique = libraryTracks(loaded.tracks)
             val albums = groupAlbums(unique)
             assertEquals(1, albums.size)
             assertEquals(album, albums[0].title)
