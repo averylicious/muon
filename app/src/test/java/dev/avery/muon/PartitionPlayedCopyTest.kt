@@ -190,4 +190,43 @@ class PartitionPlayedCopyTest {
         } finally {raw.close(); held?.let {worker {it.release()}}; f.close()}
     }
 
+    @Test @Config(sdk=[34,35]) fun verificationReadsFullAudioAndMetadataWithReadOnlySidecarWhereSupported() {
+        val f=Fixture();val spec=localSpec();val id=requireNotNull(spec.key)
+        val metadata=localMetadata().copyWithMutationsApplied(ContentMetadataMutations().set("future/chunked",ByteArray(3*64*1024+7) {it.toByte()}))
+        fun sidecar(cache:Cache):android.database.sqlite.SQLiteDatabase {
+            val h=cache.javaClass.getDeclaredField("h").apply {isAccessible=true}.get(cache)
+            val store=h.javaClass.getDeclaredField("metadata").apply {isAccessible=true}.get(h)
+            return PartitionContentMetadata::class.java.getDeclaredField("database").apply {isAccessible=true}.get(store) as android.database.sqlite.SQLiteDatabase
+        }
+        fun hashes(root:File)=root.walkTopDown().filter {it.isFile}.associate {it.relativeTo(root).path to
+            java.security.MessageDigest.getInstance("SHA-256").digest(it.readBytes()).toList()}
+        try {
+            val ticket=worker {f.copy.copyLocalSaved(spec,metadata,upstream())}
+            val root=File(f.catalog.directory(ticket.allocation),"metadata");val before=hashes(root)
+            val saved=f.saves.find(id)
+            worker {
+                val cache=f.native.openClosedSaveVerification(id)
+                try {
+                    assertEquals(android.os.Build.VERSION.SDK_INT>=35,sidecar(cache).isReadOnly)
+                    val digest=SavedAudioDigest().readVerified(spec,LegacySavedAudio(cache).source,{}, {
+                        assertEquals(metadata,cache.getContentMetadata(id))
+                        assertEquals(payload.size.toLong(),cache.getCachedBytes(id,0,Long.MAX_VALUE))
+                    })
+                    val expected=java.security.MessageDigest.getInstance("SHA-256").digest(payload).joinToString("") {"%02x".format(it)}
+                    assertEquals(expected,digest)
+                } finally {cache.release()}
+            }
+            assertEquals(0,f.budget.resident);assertEquals(saved,f.saves.find(id));assertEquals(before,hashes(root))
+            worker {
+                val ordinary=f.native.openClosedSaveRead(id)
+                try {
+                    assertFalse(sidecar(ordinary).isReadOnly)
+                    ordinary.applyContentMetadataMutations(id,ContentMetadataMutations().set("writer-still-works",byteArrayOf(5,9)))
+                    assertArrayEquals(byteArrayOf(5,9),ordinary.getContentMetadata(id).get("writer-still-works",null as ByteArray?))
+                    assertArrayEquals(metadata.get("future/chunked",null as ByteArray?),ordinary.getContentMetadata(id).get("future/chunked",null as ByteArray?))
+                } finally {ordinary.release()}
+            }
+        } finally {f.close()}
+    }
+
 }

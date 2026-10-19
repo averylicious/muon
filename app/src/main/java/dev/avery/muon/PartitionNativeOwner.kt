@@ -155,10 +155,12 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         return open(row.ticket.allocation,requireNotNull(row.uid),false)
     }
     /** Verification is not listening. Keep the exact Closed route and all native admission/
-     * lifecycle checks, but do not write last-access timestamps for target hash reads. */
+     * lifecycle checks, but do not write last-access timestamps for target hash reads. On API35+,
+     * use the existing transactional read-only sidecar too; native DB ownership/release is unchanged. */
     @Synchronized fun openClosedSaveVerification(key:String):Cache {
         val row=closedSaveRoute(key) ?: throw IOException("Save has no clean owned route")
-        return open(row.ticket.allocation,requireNotNull(row.uid),false,touchSpans=false)
+        return open(row.ticket.allocation,requireNotNull(row.uid),false,touchSpans=false,
+            readOnlyMetadata=android.os.Build.VERSION.SDK_INT>=35)
     }
     /** Return a distinct adapter per migration attempt. It cannot adopt an interrupted old target. */
     fun migrationTarget(key:String):(File)->Cache {
@@ -184,7 +186,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         } }
     }
     /** Must be called under this owner's creation mutex; actual native lock also refuses duplicates. */
-    private fun open(allocation:CachePartitionAllocation,expectedUid:Long?,fresh:Boolean,forbiddenUid:Long?=null,save:SaveLifecycle?=null,touchSpans:Boolean=true):Cache {
+    private fun open(allocation:CachePartitionAllocation,expectedUid:Long?,fresh:Boolean,forbiddenUid:Long?=null,save:SaveLifecycle?=null,touchSpans:Boolean=true,readOnlyMetadata:Boolean=false):Cache {
         if(allocation.key.length.toLong()*2>limits.keyBytes) throw IOException("Partition key exceeds its budget")
         available()
         val root=catalog.directory(allocation)
@@ -216,7 +218,7 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
             db.execSQL("PRAGMA cache_size=-256"); db.execSQL("PRAGMA synchronous=FULL")
             if(!fresh) {
                 val uid=expectedUid ?: throw IOException("Partition UID missing")
-                h.metadata=PartitionContentMetadata(metadata,uid,allocation.key)
+                h.metadata=PartitionContentMetadata(metadata,uid,allocation.key,readOnly=readOnlyMetadata)
                 PartitionResourceCache.measured(requireNotNull(h.metadata).read(),limits)
                 PartitionNativeAdmission.inspect(bytes,uid,allocation.key,db,limits,checkpoint=::available)
             }
