@@ -1,6 +1,9 @@
 package dev.avery.muon
 
 import java.util.Locale
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -86,4 +89,25 @@ class LibraryGroupsTest {
         assertTrue(groupAlbums(emptyList()).isEmpty())
         assertTrue(groupArtists(emptyList()).isEmpty())
     }
+    @Test fun cancelledReplacementStopsBothGroupTraversalsBeforeReadingTheRest() {
+        val factories = listOf<(List<TauonTrack>, () -> Unit) -> Unit>(
+            { tracks, check -> groupArtists(tracks, check); Unit },
+            { tracks, check -> groupAlbums(tracks, check); Unit })
+        for (group in factories) {
+            val job = Job()
+            val read = mutableListOf<Int>()
+            val tracks = object : AbstractList<TauonTrack>() {
+                override val size = 20
+                override fun get(index: Int): TauonTrack {
+                    read += index
+                    if (index == 2) job.cancel()
+                    // Duplicate IDs must still observe cancellation during source traversal.
+                    return track(1, "A; a; B", "Album")
+                }
+            }
+            assertThrows(CancellationException::class.java) { group(tracks) { job.ensureActive() } }
+            assertEquals(listOf(0, 1, 2), read)
+        }
+    }
+
 }

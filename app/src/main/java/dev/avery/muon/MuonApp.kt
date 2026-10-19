@@ -41,6 +41,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.session.MediaController
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -171,9 +173,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var albumGroups by remember { mutableStateOf<AlbumGroups?>(null) }
         LaunchedEffect(snapshot, origin) {
             val grouping = origin ?: run { artistGroups = null; albumGroups = null; return@LaunchedEffect }
-            // Albums are grouped in the same pass, on the same terms as artists.
+            // A new snapshot already hides the old groups. Drop their retained graph now, rather
+            // than keeping it throughout replacement work. Superseded CPU loops must observe cancel.
+            artistGroups = null; albumGroups = null
             val (grouped, albumsGrouped) = withContext(Dispatchers.Default) {
-                groupArtists(snapshot.tracks) to groupAlbums(snapshot.tracks)
+                val job = currentCoroutineContext()
+                groupArtists(snapshot.tracks) { job.ensureActive() } to
+                    groupAlbums(snapshot.tracks) { job.ensureActive() }
             }
             artistGroups = ArtistGroups(grouping, snapshot, grouped)
             albumGroups = AlbumGroups(grouping, snapshot, albumsGrouped)
