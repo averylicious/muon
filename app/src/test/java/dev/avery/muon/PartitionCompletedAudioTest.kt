@@ -97,7 +97,7 @@ class PartitionCompletedAudioTest {
         assertEquals(0,f.budget.resident); assertEquals(closed,f.saves.find("saved/one"))
         bytes(f,closed).forEach { (file,data) -> assertArrayEquals(payload,data); assertArrayEquals(data,file.readBytes()) }
     }
-    @Test fun actualManagerCompletionSurvivesNewOwnerWithoutProcessTokenAndReadsLeaveClosed() {
+    @Test @Config(sdk=[34,35]) fun actualManagerCompletionSurvivesNewOwnerWithoutProcessTokenAndReadsLeaveClosed() {
         val f=fixture(1); val request=request()
         val commands=PartitionSaveCommands(f.catalog,f.saves,f.migrations,f.owner,{true},{f.volume=="card"})
         val pool=PartitionCacheLeases(commands::open,capacity=1).also(f.writers::add)

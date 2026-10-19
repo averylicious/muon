@@ -85,7 +85,7 @@ internal class PartitionCompletedAudio(private val owner:PartitionNativeOwner,
     }
     private val pool=PartitionCacheLeases({ key ->
         val expected=required(key)
-        val cache=owner.openClosedSaveRead(key)
+        val cache=owner.openClosedSavePlayback(key)
         try { checked(cache,expected,requireFull=expected.complete!=null); cache }
         catch(failure:Throwable) {
             try { cache.release() } catch(cleanup:Throwable) { if(cleanup!==failure) failure.addSuppressed(cleanup) }

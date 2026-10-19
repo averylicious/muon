@@ -190,7 +190,7 @@ class PartitionPlayedCopyTest {
         } finally {raw.close(); held?.let {worker {it.release()}}; f.close()}
     }
 
-    @Test @Config(sdk=[34,35]) fun verificationReadsFullAudioAndMetadataWithReadOnlySidecarWhereSupported() {
+    @Test @Config(sdk=[34,35]) fun cacheOnlyFactoriesReadFullAudioAndMetadataWithReadOnlySidecarWhereSupported() {
         val f=Fixture();val spec=localSpec();val id=requireNotNull(spec.key)
         val metadata=localMetadata().copyWithMutationsApplied(ContentMetadataMutations().set("future/chunked",ByteArray(3*64*1024+7) {it.toByte()}))
         fun sidecar(cache:Cache):android.database.sqlite.SQLiteDatabase {
@@ -204,8 +204,9 @@ class PartitionPlayedCopyTest {
             val ticket=worker {f.copy.copyLocalSaved(spec,metadata,upstream())}
             val root=File(f.catalog.directory(ticket.allocation),"metadata");val before=hashes(root)
             val saved=f.saves.find(id)
-            worker {
-                val cache=f.native.openClosedSaveVerification(id)
+            for(open in listOf<()->Cache>({f.native.openClosedSaveVerification(id)},
+                {f.native.openClosedSavePlayback(id)})) worker {
+                val cache=open()
                 try {
                     assertEquals(android.os.Build.VERSION.SDK_INT>=35,sidecar(cache).isReadOnly)
                     val digest=SavedAudioDigest().readVerified(spec,LegacySavedAudio(cache).source,{}, {

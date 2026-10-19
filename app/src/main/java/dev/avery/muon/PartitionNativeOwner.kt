@@ -154,6 +154,14 @@ internal class PartitionNativeOwner(private val catalog:CachePartitionCatalog,
         val row=closedSaveRoute(key) ?: throw IOException("Save has no clean owned route")
         return open(row.ticket.allocation,requireNotNull(row.uid),false)
     }
+    /** Cache-only completed playback may read the sidecar without write authority on API35+.
+     * Native span touches/LRU remain enabled. Callers that mutate metadata must keep using the
+     * ordinary read/write factory above; this does not make the native cache/index read-only. */
+    @Synchronized fun openClosedSavePlayback(key:String):Cache {
+        val row=closedSaveRoute(key) ?: throw IOException("Save has no clean owned route")
+        return open(row.ticket.allocation,requireNotNull(row.uid),false,
+            readOnlyMetadata=android.os.Build.VERSION.SDK_INT>=35)
+    }
     /** Verification is not listening. Keep the exact Closed route and all native admission/
      * lifecycle checks, but do not write last-access timestamps for target hash reads. On API35+,
      * use the existing transactional read-only sidecar too; native DB ownership/release is unchanged. */
