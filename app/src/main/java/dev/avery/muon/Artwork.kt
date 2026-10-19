@@ -32,9 +32,28 @@ import okhttp3.Request
 // Acquire before disk/HTTP bytes, retain through decode/publication/write, cancel queued requests.
 private val artworkLoads = Semaphore(2)
 
-private val artCache = object : LruCache<ArtworkMemoryKey, Bitmap>(12 * 1024 * 1024) {
-    override fun sizeOf(key: ArtworkMemoryKey, value: Bitmap) = value.byteCount
+internal const val ARTWORK_MEMORY_BYTES = 12 * 1024 * 1024
+private const val ARTWORK_MEMORY_ENTRY_FLOOR = 32 * 1024
+
+/** A bitmap-byte LRU alone can retain millions of tiny images' URL/identity keys. Charge
+ * their UTF-16 payload plus a conservative per-entry allowance, and at least32KiB per entry:
+ * at most384 keys in the production12MiB weighted cache. This is logical cache accounting,
+ * not an exact ART/native retained-byte measurement. Never recycle a bitmap on eviction: a
+ * visible/crossfading component may still hold it, including a value shared by several keys. */
+internal fun artworkMemoryCache(maxBytes: Int = ARTWORK_MEMORY_BYTES): LruCache<ArtworkMemoryKey, Bitmap> {
+    require(maxBytes in 1..ARTWORK_MEMORY_BYTES)
+    return object : LruCache<ArtworkMemoryKey, Bitmap>(maxBytes) {
+        override fun sizeOf(key: ArtworkMemoryKey, value: Bitmap): Int {
+            val weight = maxOf(value.byteCount, value.allocationByteCount).toLong() +
+                key.url.length.toLong() * 2 + (key.identity?.length ?: 0).toLong() * 2 + 128
+            // An over-budget value need only cost budget+1. Avoid overflowing LruCache's Int
+            // accounting when it adds this weight to the existing (at most budget) contents.
+            return weight.coerceAtLeast(ARTWORK_MEMORY_ENTRY_FLOOR.toLong()).coerceAtMost(maxBytes.toLong() + 1).toInt()
+        }
+    }
 }
+
+private val artCache = artworkMemoryCache()
 
 /**
  * The sizes a picture is decoded at, in pixels along its shorter side. A picture is decoded for the
