@@ -38,7 +38,7 @@ internal data class PartitionSaveCompletion private constructor(val key:String,v
     }
 }
 
-/** Prepared completed-new-save reader, not yet selected by app services. Closed ALONE is insufficient:
+/** Completed-new-save reader for the selected owned backend. Closed ALONE is insufficient:
  * require an exact bounded COMPLETED index snapshot, matching UID/allocation and full native bytes.
  * Completed reads keep the journal Closed, use no upstream/sink and never fabricate migration Ready.
  * Restart can read a clean completed copy without restoring a process command token; Open/Opening/
@@ -74,6 +74,11 @@ internal class PartitionCompletedAudio(private val owner:PartitionNativeOwner,
     }
     private fun checked(cache:Cache,expected:Route,requireFull:Boolean=true):SavedAudioState {
         unchanged(expected)
+        return inspectAndRecheck(cache,expected,requireFull)
+    }
+    /** Call only immediately after a fresh required()/unchanged() observation. Cache and final
+     * route checks remain; no app callback occurs between that observation and this private helper. */
+    private fun inspectAndRecheck(cache:Cache,expected:Route,requireFull:Boolean=true):SavedAudioState {
         if(cache.uid!=expected.saved.uid) throw IOException("Completed save native identity changed")
         val state=savedAudioState(cache,expected.saved.ticket.allocation.key)
         val complete=expected.complete
@@ -93,10 +98,18 @@ internal class PartitionCompletedAudio(private val owner:PartitionNativeOwner,
         }
     },capacity=capacity)
     override val source:DataSource.Factory=PartitionSavedSource(pool,validation={ key ->
-        requireOpen(); val expected=required(key)
-        val check:()->Unit={ unchanged(expected) }
+        requireOpen()
+        var captured:Route?=null
+        // Reader invokes this before acquiring any native pin, then around every physical I/O.
+        // Capture at that mandatory first check, not once here plus again immediately afterward.
+        val check:()->Unit={
+            val current=required(key)
+            val expected=captured
+            if(expected==null) captured=current
+            else if(current!=expected) throw IOException("Completed save route or record changed")
+        }
         check
-    },cacheValidation={ key,cache -> checked(cache,required(key)); Unit })
+    },cacheValidation={ key,cache -> inspectAndRecheck(cache,required(key)); Unit })
     override fun inspect(key:String):SavedAudioState {
         requireOpen(); val expected=required(key)
         return pool.acquire(key).use { checked(it.cache,expected,requireFull=expected.complete!=null) }

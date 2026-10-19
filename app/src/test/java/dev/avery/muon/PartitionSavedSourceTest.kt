@@ -51,7 +51,11 @@ class PartitionSavedSourceTest {
 
     @Test fun cachedFileReaderAndEvenEofKeepItsNativePartitionPinnedUntilCleanClose() {
         PartitionCacheLeases(::native,capacity=1).use { pool ->
-            val factory=PartitionSavedSource(pool); val first=factory.createDataSource(); val other=factory.createDataSource()
+            val events=ArrayList<LegacyReaderTiming.Event>();var tick=0L
+            val readerBudget=AtomicInteger(8);val eventBudget=AtomicInteger(32)
+            val factory=PartitionSavedSource(pool,timingFactory={
+                LegacyReaderTiming.begin(true,readerBudget,eventBudget,{++tick},events::add)
+            }); val first=factory.createDataSource(); val other=factory.createDataSource()
             first.open(spec("first")); assertEquals(1,pool.active); assertEquals(1,pool.resident)
             assertThrows(PartitionCacheBusy::class.java) { other.open(spec("other")) }; assertEquals(1,opened)
             read(first); assertEquals(-1,first.read(ByteArray(1),0,1)); assertEquals(1,pool.active)
@@ -60,6 +64,12 @@ class PartitionSavedSourceTest {
             other.open(spec("other")); assertEquals(2,opened); read(other); other.close()
             first.open(spec("first")); read(first); first.close(); assertEquals(3,opened)
             assertTrue(roots.values.all { root -> root.walkTopDown().any { it.name.endsWith(".exo") } })
+            val successful=events.filter {it.closed && !it.failed}
+            assertEquals(3,successful.size);assertTrue(successful.all {it.bytesRead==3L && it.checksMs>0 && it.closeMs>0})
+            assertTrue(events.any {it.failed});assertEquals(0,pool.active)
+            // A broken optional observer factory must not duplicate/drop I/O or strand a real pin.
+            val noObserver=PartitionSavedSource(pool,timingFactory={throw IOException("Observer unavailable")}).createDataSource()
+            noObserver.open(spec("first"));read(noObserver);noObserver.close();assertEquals(0,pool.active)
         }
     }
     @Test fun samePartitionReadersShareOneNativeInstanceButEachOwnsABoundedPin() {

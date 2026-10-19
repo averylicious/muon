@@ -8,8 +8,20 @@ import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheKeyFactory
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
-/** UNWIRED saved-copy reader. Default sources have NO upstream or sink: a missing byte fails, never
+// Separate fixed budgets from the legacy layer; latest numeric snapshot PER reader is cumulative.
+private val partitionTimingReaders=AtomicInteger(32)
+private val partitionTimingEvents=AtomicInteger(32)
+private fun partitionReaderTiming():LegacyReaderTiming?=LegacyReaderTiming.begin(
+    readerBudget=partitionTimingReaders,eventBudget=partitionTimingEvents,emit={e ->
+        android.util.Log.d("MuonPartitionTiming",
+            "reader="+e.reader+" closed="+e.closed+" failed="+e.failed+" totalMs="+e.totalMs+
+                " acquireMs="+e.projectionMs+" openMs="+e.openMs+" checksMs="+e.checksMs+
+                " readMs="+e.readMs+" closeMs="+e.closeMs+" readCalls="+e.readCalls+" bytesRead="+e.bytesRead)
+    })
+
+/** Saved-copy reader for the selected owned backend. Default sources have NO upstream or sink: a missing byte fails, never
  * streams/re-downloads. A pool pin outlives cached-file reads, including EOF, and ends only after a
  * clean source close. The pool/factory owner must validate exact ready routing/volume/native identity.
  * This does not establish that owner or integrate legacy/download/played routing. */
@@ -18,6 +30,8 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
     private val validation:(String)->(() -> Unit)={ { } },
     /** Recheck the acquired native identity even when an idle cached instance is reused. */
     private val cacheValidation:(String,Cache)->Unit={ _,_ -> },
+    /** Optional observation only; factory/clock/sink failure must never change real I/O. */
+    private val timingFactory:()->LegacyReaderTiming?=::partitionReaderTiming,
     /** Internal fixture seam. The production default is the actual read-only Media3 cache source. */
     private val readers:(Cache)->DataSource={ cache -> savedCacheReader(cache) }) : DataSource.Factory {
     override fun createDataSource():DataSource=Reader()
@@ -30,6 +44,11 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
         private var lost=false
         private var constructing=false
         private var uncertainty:Throwable?=null
+        private var timing:LegacyReaderTiming?=null
+        private fun <T> measured(stage:LegacyReaderTiming.Stage,work:()->T):T {
+            val observer=timing
+            return if(observer==null) work() else observer.measure(stage,work)
+        }
         private val listeners=arrayOfNulls<TransferListener>(4)
 
         @Synchronized override fun addTransferListener(transferListener:TransferListener) {
@@ -50,26 +69,27 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
         private fun quarantine(failure:Throwable) {
             if(uncertainty==null) uncertainty=failure
             phase=Phase.Uncertain; pin?.quarantine(this)
+            timing?.finish(false);timing=null
         }
         @Synchronized override fun open(dataSpec:DataSpec):Long {
             check(phase==Phase.Idle) { "Partition reader is already open or uncertain" }
             phase=Phase.Opening
+            timing=runCatching {timingFactory()}.getOrNull()
             try {
                 val key=CacheKeyFactory.DEFAULT.buildCacheKey(dataSpec)
-                validate=validation(key)
-                validate!!.invoke()
-                pin=pool.acquire(key) // Before any source can observe a cached span/file.
-                validate!!.invoke()
-                cacheValidation(key,pin!!.cache)
+                measured(LegacyReaderTiming.Stage.CHECKS) {validate=validation(key);validate!!.invoke()}
+                pin=measured(LegacyReaderTiming.Stage.PROJECTION) {pool.acquire(key)} // Before cached bytes.
+                measured(LegacyReaderTiming.Stage.CHECKS) {validate!!.invoke();cacheValidation(key,pin!!.cache)}
                 constructing=true
-                val opened=readers(pin!!.cache)
+                val opened=measured(LegacyReaderTiming.Stage.OPEN) {readers(pin!!.cache)}
                 source=opened; constructing=false
-                for(listener in listeners) if(listener!=null) opened.addTransferListener(listener)
-                val length=opened.open(dataSpec.buildUpon().setKey(key).build())
-                validate!!.invoke()
-                phase=Phase.Open
+                for(listener in listeners) if(listener!=null) measured(LegacyReaderTiming.Stage.OPEN) {opened.addTransferListener(listener)}
+                val length=measured(LegacyReaderTiming.Stage.OPEN) {opened.open(dataSpec.buildUpon().setKey(key).build())}
+                measured(LegacyReaderTiming.Stage.CHECKS) {validate!!.invoke()}
+                phase=Phase.Open;timing?.opened()
                 return length
             } catch(failure:Throwable) {
+                timing?.failure()
                 // DataSource requires close even after failed open. Never drop a pin on unknown close.
                 if(constructing) {
                     val unknown=PartitionOwnershipUncertain(this,failure)
@@ -85,12 +105,13 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
             phase=Phase.Reading
             try {
                 if(lost) throw IOException("Partition reader lost its published route; close before reopening")
-                validate!!.invoke()
-                val count=source!!.read(buffer,offset,length)
-                validate!!.invoke()
+                measured(LegacyReaderTiming.Stage.CHECKS) {validate!!.invoke()}
+                val count=measured(LegacyReaderTiming.Stage.READ) {source!!.read(buffer,offset,length)}
+                measured(LegacyReaderTiming.Stage.CHECKS) {validate!!.invoke()}
+                timing?.read(count)
                 return count
             } catch(failure:Throwable) {
-                lost=true
+                lost=true;timing?.failure()
                 if(failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain) quarantine(failure)
                 throw failure
             } finally { if(phase!=Phase.Uncertain) phase=Phase.Open }
@@ -107,10 +128,13 @@ internal class PartitionSavedSource(private val pool:PartitionCacheLeases,
         private fun finish() {
             phase=Phase.Closing
             try {
-                source?.close()
-                // Underlying readers/holes/listeners ended first. A stopped pool can now retire safely.
-                pin?.close()
+                measured(LegacyReaderTiming.Stage.CLOSE) {
+                    source?.close()
+                    // Underlying readers/holes/listeners ended first; only then can a pin retire.
+                    pin?.close()
+                }
                 source=null; pin=null; validate=null; lost=false; phase=Phase.Idle
+                timing?.finish(true);timing=null
             } catch(failure:Throwable) {
                 // No queue or replacement instance can hide this uncertainty. Capacity stays counted,
                 // and ordinary close retry cannot incorrectly release a possibly active cached reader.
