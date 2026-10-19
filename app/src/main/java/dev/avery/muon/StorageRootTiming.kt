@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * this observer's monitor. Clock/log failures cannot change the action's result or exception. */
 internal class StorageRootTiming private constructor(private val allowance:AtomicInteger,
     private val clock:()->Long,private val emit:(Event)->Unit) {
-    enum class Phase { PHONE_ROOT,PHONE_VOLUME,CARD_ROOT,CARD_VOLUME,LEGACY_CARD_VOLUME,OWNED_CARD_VOLUME,MIXED_ROUTE }
+    enum class Phase { PHONE_ROOT,PHONE_VOLUME,CARD_ROOT,CARD_VOLUME,LEGACY_CARD_VOLUME,OWNED_CARD_VOLUME,MIXED_ROUTE,SHELF_CANONICAL,SHELF_ATTRIBUTES,SHELF_JOURNALS }
     data class Event(val phase:Phase,val count:Long,val totalMs:Long,val failures:Long)
     private val count=LongArray(Phase.entries.size)
     private val elapsed=LongArray(Phase.entries.size)

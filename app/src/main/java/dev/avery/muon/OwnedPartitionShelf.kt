@@ -11,6 +11,9 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.attribute.BasicFileAttributes
+import java.util.concurrent.atomic.AtomicInteger
+
+private val shelfIdentityTimingEvents=AtomicInteger(32)
 
 private class PartitionDeleteAdmissionBusy(cause:IOException):IOException("Saved Delete admission is busy",cause)
 
@@ -56,14 +59,28 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private val journalNames=PARTITION_BOOTSTRAP_JOURNALS
     private var creating=false
     private val identities=arrayOfNulls<Any>(journalNames.size)
+    // Separate fixed process budget from volume/routing counters; numeric only, no identity/path.
+    private val identityTiming=if(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS)
+        StorageRootTiming.begin(true,shelfIdentityTimingEvents,emit={e ->
+            android.util.Log.d("MuonShelfTiming","card="+volume.startsWith("removable:")+" phase="+e.phase+
+                " count="+e.count+" totalMs="+e.totalMs+" failures="+e.failures)
+        }) else null
+    private inline fun <T> identityPhase(phase:StorageRootTiming.Phase,crossinline work:()->T):T {
+        val observer=identityTiming
+        return if(observer==null) work() else observer.measure(phase) {work()}
+    }
     private class Resources(val legacy:LegacyTransitionOwner,val retirements:LegacyRetirementJournal,val moves:PartitionSavedMoveJournal,val deletes:PartitionSavedDeleteJournal,val catalog:CachePartitionCatalog,
         val migrations:CacheMigrationJournal,val saves:PartitionSaveJournal,val session:PartitionStorageSession,
         val manager:PartitionShelfManager,val workers:java.util.concurrent.ExecutorService,val work:PartitionMigrationWork)
     private fun exactDirectory(file:File):Any {
-        if(file.absoluteFile!=file.canonicalFile) throw IOException("Partition shelf directory identity differs")
-        val attributes=Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
-        if(!attributes.isDirectory) throw IOException("Partition shelf directory identity differs")
-        return attributes.fileKey() ?: throw IOException("Partition shelf file identity cannot be observed")
+        identityPhase(StorageRootTiming.Phase.SHELF_CANONICAL) {
+            if(file.absoluteFile!=file.canonicalFile) throw IOException("Partition shelf directory identity differs")
+        }
+        return identityPhase(StorageRootTiming.Phase.SHELF_ATTRIBUTES) {
+            val attributes=Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+            if(!attributes.isDirectory) throw IOException("Partition shelf directory identity differs")
+            attributes.fileKey() ?: throw IOException("Partition shelf file identity cannot be observed")
+        }
     }
     private fun key(file:File):Any=Files.readAttributes(file.toPath(),BasicFileAttributes::class.java,
         LinkOption.NOFOLLOW_LINKS).fileKey() ?: throw IOException("Partition shelf file identity cannot be observed")
@@ -84,9 +101,11 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     }
     private fun located() {
         rootLocated()
-        for(i in journalNames.indices) {
-            if(exactJournal(File(directory,journalNames[i]))!=identities[i])
-                throw IOException("Partition shelf journal replaced")
+        identityPhase(StorageRootTiming.Phase.SHELF_JOURNALS) {
+            for(i in journalNames.indices) {
+                if(exactJournal(File(directory,journalNames[i]))!=identities[i])
+                    throw IOException("Partition shelf journal replaced")
+            }
         }
         if(exactDirectory(directory)!=rootIdentity) throw IOException("Partition shelf root changed during journal observation")
     }
