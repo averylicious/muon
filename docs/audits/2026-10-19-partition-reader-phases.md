@@ -9,3 +9,5 @@ The shared tested LegacyReaderTiming numeric observer also measures partition re
 Existing actual-native pin/EOF/reopen control now injects the real numeric observer, requires three successful closed byte counts plus failed admissions with unchanged pool behavior, then proves a throwing observer factory still reads/closes and releases its pin. Existing close-uncertainty, failed-open and changed-route/record/native-identity cases remain. No new test class or test comparing a mocked implementation's call counts. CI is first compile/run. A later diagnostic build is required for phase evidence and a readiness-aware/longer resume observation; no measured improvement claimed here.
 
 GPT-6 / Codex desktop implementation/source/device self-check; exact variant/effort not reported. Claude unavailable/no independent review. Cumulative on #626/main a2db02b8ba0b4959f28aecf5fa89196cf92622bc; app stack OPEN. No Stable/tag/activation/experimental integration.
+
+First CI .1290 compiled production sources but stopped at the expanded fixture: missing AtomicInteger import. Added the test import; no behavior/test assertion was weakened. The refreshed head needs its own full CI.
