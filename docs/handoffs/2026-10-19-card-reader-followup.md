@@ -1,5 +1,7 @@
 # October 19: completed memory boundaries and card-reader follow-up
 
+Historical chronology: current state is superseded by [the shelf/artwork checkpoint](2026-10-19-shelf-and-artwork-checkpoint.md).
+
 **Current user override: POCO AVAILABLE AGAIN.** The user explicitly resumed POCO testing after a temporary personal-use pause. USB surya/root UID0 reverified. Prior setup-only Move reconciled with full both-app saved/audio/native/card proof and no Move started; its missing Settings target is a setup/transition observation, not a confirmed app defect. Diagnostic storage toggle was observed enabled/no busy work, then diagnostic stopped before the fresh baseline. One .1296 Card→Phone disposable Move driver is now ACTIVE under marker readonly1296-card-phone-retry-progress.json. Respect maybeActiveMove: never force-stop/update an uncertain Move. No other phone writer assigned.
 
 Supersedes the current-state claims in [the cache/queue chronology](2026-10-19-cache-reader-queue.md); that file retains earlier artifact/phone/failure evidence. One solo GPT-6 / Codex desktop writer, exact variant/effort not reported. Implementation and author source/device self-check, NOT independent review. Claude unavailable/not resumed, no other agent assigned. Main still a2db02b8ba0b4959f28aecf5fa89196cf92622bc; experiment untouched. Application acceptance stack OPEN; no Stable/tag/release/production activation/main or experimental merge.
@@ -62,7 +64,7 @@ Force-stop after a test does not prove graceful idle native-pool release. Target
 3. Source review the observed dominant phases for a safe #401 fix, then verify it. New-stat/route composition changes are not latency acceptance. Continue authorized useful engineering across verified boundaries; do not stop because a PR/checkpoint is green.
 4. #253 current source bounds and selected memory cases are verified as above; combined native/queue/artwork pressure and user acceptance remain. No blanket absolute heap guarantee. Hardware media controls/spoken TalkBack/subjective interaction remain user UAT; deep SD lifecycle #179 and dependency/tool/cache provenance keep prior user deferrals. Production Stable promotion still needs separate review/authorization; do not toggle flags or create tags here.
 
-Current quota reading:49% WEEKLY USED, no five-hour window exposed. Never reuse another account/window's old percentage. Claude unavailable. Keep capacity for fixes and durable handoff. All source work is committed/pushed. #627/#628/#629 builds and selected .1296 phone proof passed; #630 and #631 CI are active, no phone writer is active.
+Quota checked this cycle; current readings are kept local/private, no five-hour window exposed. Never reuse another account/window's old percentage. Claude unavailable. Keep capacity for fixes and durable handoff. All source work is committed/pushed. #627/#628/#629 builds and selected .1296 phone proof passed; #630 and #631 CI are active, no phone writer is active.
 
 Continuation preflight: no other live agent; Claude unused. USB surya/root UID0 reverified; apps still idle. #565 prior headbf61fef770155adeb72a7201d3401c84ea47f50e docs-only checks PASSED, run39225436522, no APK. Prepared but NOT yet run a version-parameterized CARD driver that captures MuonPartitionTiming and allows25seconds after seek/resume instead of3. No claim from preparation.
 
