@@ -6,6 +6,10 @@ import androidx.compose.runtime.setValue
 import android.content.Context
 import java.io.File
 import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.PriorityQueue
 import okio.buffer
 import okio.source
 
@@ -15,6 +19,8 @@ import okio.source
  * thumbnails of a few kB, so this is twice what those needed.
  */
 internal const val ARTWORK_DISK_BYTES = 128L * 1024 * 1024
+// A byte cap alone permits arbitrarily many tiny files and unbounded filename arrays.
+internal const val ARTWORK_DISK_ENTRIES = 8_192
 
 /** Raw server covers are capped at4MiB. Smaller scaled PNGs can exceed their input size;
  * allow8MiB per derived entry, independently of the total LRU. Oversized entries are misses. */
@@ -75,15 +81,24 @@ internal object ArtworkIdentities {
  * for every picture it stores. Every failure is a miss: the picture is fetched as if nothing were kept.
  */
 internal class ArtworkDiskCache(private val dir: File, private val maxBytes: Long = ARTWORK_DISK_BYTES,
-    private val maxAgeMs: Long = ARTWORK_MAX_AGE_MS, private val now: () -> Long = System::currentTimeMillis) {
+    private val maxAgeMs: Long = ARTWORK_MAX_AGE_MS, private val maxEntries: Int = ARTWORK_DISK_ENTRIES,
+    private val now: () -> Long = System::currentTimeMillis) {
+    init { require(maxBytes >= 0 && maxEntries in 1..ARTWORK_DISK_ENTRIES) }
     private val lock = Any()
     private var total = -1L
+    private var entries = -1
 
     fun read(url: String, identity: String): ByteArray? = runCatching {
         val file = file(url, identity)
         if (!file.isFile) return null
         if (now() - file.lastModified() > maxAgeMs) {
-            synchronized(lock) { if (total >= 0) total -= file.length(); file.delete() }
+            synchronized(lock) {
+                val size = file.length()
+                if (file.delete()) {
+                    if (total >= 0) total -= size
+                    if (entries > 0) entries--
+                } else { total = -1; entries = -1 }
+            }
             return null
         }
         if (file.length() > ARTWORK_DISK_ENTRY_BYTES) return null
@@ -103,34 +118,65 @@ internal class ArtworkDiskCache(private val dir: File, private val maxBytes: Lon
             val temp = File.createTempFile(target.name, ".tmp", dir)
             temp.writeBytes(bytes)
             synchronized(lock) {
-                val replaced = if (target.isFile) target.length() else 0L
+                val existed = target.isFile
+                val replaced = if (existed) target.length() else 0L
                 if (!temp.renameTo(target)) { temp.delete(); return }
                 if (total >= 0) total += bytes.size - replaced
-                if (total < 0 || total > maxBytes) trim()
+                if (entries >= 0 && !existed) entries++
+                if (total < 0 || entries < 0 || total > maxBytes || entries > maxEntries) trim()
             }
         }
     }
 
-    /** Forgets every stored picture, as when leaving a server. */
+    /** Forgets derived entries only; stream names and never descend into a directory/link. */
     fun clear() {
         synchronized(lock) {
-            dir.listFiles()?.forEach { it.delete() }
-            total = 0
+            total = -1; entries = -1
+            runCatching {
+                var complete = true
+                Files.newDirectoryStream(dir.toPath()).use { paths ->
+                    for (path in paths) if (!path.toFile().delete()) complete = false
+                }
+                if (complete) { total = 0; entries = 0 }
+            }
         }
     }
 
-    // Called with the lock held. Counts from the directory, then drops the oldest until under the cap.
-    // A temporary file an interrupted write left behind is removed once it is clearly abandoned.
+    private data class Candidate(val file: File, val bytes: Long, val modified: Long)
+
+    // Called with the lock held. Never list/sort the entire directory: retain at most the
+    // newest maxEntries+1 candidates, evicting older derived pictures as the scan proceeds.
+    // Failed observation/deletion leaves accounting unknown, so the next write retries.
     private fun trim() {
-        dir.listFiles { f -> f.name.endsWith(".tmp") && now() - f.lastModified() > 60_000 }?.forEach { it.delete() }
-        val files = dir.listFiles { f -> f.isFile && !f.name.endsWith(".tmp") }.orEmpty()
-        var sum = files.sumOf { it.length() }
-        if (sum > maxBytes) for (file in files.sortedBy { it.lastModified() }) {
-            if (sum <= maxBytes) break
-            val size = file.length()
-            if (file.delete()) sum -= size
+        total = -1; entries = -1
+        val newest = PriorityQueue<Candidate>(compareBy<Candidate> { it.modified }.thenBy { it.file.name })
+        var sum = 0L
+        var complete = true
+        fun discard(candidate: Candidate) {
+            sum -= candidate.bytes
+            if (!candidate.file.delete()) complete = false
         }
-        total = sum
+        Files.newDirectoryStream(dir.toPath()).use { paths ->
+            for (path in paths) {
+                val attributes = Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+                val file = path.toFile()
+                if (attributes.isSymbolicLink) {
+                    if (!file.delete()) complete = false
+                } else if (attributes.isRegularFile) {
+                    if (file.name.endsWith(".tmp")) {
+                        if (now() - attributes.lastModifiedTime().toMillis() > 60_000 && !file.delete()) complete = false
+                    } else if (attributes.size() > ARTWORK_DISK_ENTRY_BYTES) {
+                        if (!file.delete()) complete = false
+                    } else {
+                        newest.add(Candidate(file, attributes.size(), attributes.lastModifiedTime().toMillis()))
+                        sum += attributes.size()
+                        if (newest.size > maxEntries) discard(newest.remove())
+                    }
+                }
+            }
+        }
+        while (sum > maxBytes && newest.isNotEmpty()) discard(newest.remove())
+        if (complete) { total = sum; entries = newest.size }
     }
 
     private fun file(url: String, identity: String) = File(dir, key(url, identity))
