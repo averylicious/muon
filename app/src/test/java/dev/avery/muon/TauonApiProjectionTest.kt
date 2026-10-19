@@ -1,6 +1,8 @@
 package dev.avery.muon
 
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,6 +24,23 @@ class TauonApiProjectionTest {
             val actual = runBlocking { server.api.playlists() }
             assertEquals(listOf(TauonPlaylist("1", "Fixture", 2), TauonPlaylist("2", "Empty", 0)), actual)
             assertEquals("GET /api1/playlists HTTP/1.1", server.requestLine)
+        }
+    }
+
+    @Test fun playlistLabelsHaveAnIndividualEncodedBudgetBeforePublicationAndRetainedAdmission() {
+        val exact=TauonPlaylist("1","x".repeat(PLAYLIST_LABEL_BYTES-1),0)
+        val over=exact.copy(name=exact.name+"x")
+        val unicode=exact.copy(name="二".repeat(PLAYLIST_LABEL_BYTES/2))
+        fun payload(list:TauonPlaylist)=JSONObject().put("playlists",JSONArray().put(JSONObject()
+            .put("id",list.id).put("name",list.name).put("count",0))).toString()
+        Response(payload(exact)).use {server ->assertEquals(listOf(exact),runBlocking {server.api.playlists()})}
+        LibraryLoadBudget(listOf(exact))
+        for(list in listOf(over,unicode,exact.copy(id="1".repeat(PLAYLIST_LABEL_BYTES+1),name=""))) {
+            Response(payload(list)).use {server ->
+                val failure=assertThrows(LibraryResourceLimit::class.java) {runBlocking {server.api.playlists()}}
+                assertTrue(friendlyError(failure).contains("16 KiB"));assertTrue(friendlyError(failure).length<512)
+            }
+            assertThrows(LibraryResourceLimit::class.java) {LibraryLoadBudget(listOf(list))}
         }
     }
 

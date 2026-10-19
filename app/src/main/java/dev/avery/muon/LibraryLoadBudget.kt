@@ -10,6 +10,15 @@ internal data class LibraryLoadLimits(
     val artistMemberships: Int = 100_000,
 )
 
+/** Per-label display bound in addition to whole-response/library budgets; includes the numeric ID. */
+internal const val PLAYLIST_LABEL_BYTES = 16 * 1024
+internal fun requirePlaylistLabelBudget(id:String,name:String) {
+    fun tooLarge():Nothing=throw LibraryResourceLimit(
+        "Playlist label exceeds Muon's 16 KiB limit. Check the playlist data in Tauon and retry.")
+    if(id.length.toLong()+name.length>PLAYLIST_LABEL_BYTES) tooLarge()
+    if(id.toByteArray(Charsets.UTF_8).size.toLong()+name.toByteArray(Charsets.UTF_8).size>PLAYLIST_LABEL_BYTES) tooLarge()
+}
+
 private val LIBRARY_LOAD_LIMITS = LibraryLoadLimits()
 
 internal class LibraryResourceLimit(message: String =
@@ -39,6 +48,7 @@ internal class LibraryLoadBudget(lists: List<TauonPlaylist>, private val limits:
         requireLibraryPlaylistCount(lists.size, limits)
         for (list in lists) {
             checkpoint()
+            requirePlaylistLabelBudget(list.id,list.name)
             // UTF-8 needs at least one byte per UTF-16 code unit; reject before allocating encodings.
             if (list.id.length.toLong() + list.name.length > remaining) throw LibraryResourceLimit()
             val bytes = list.id.toByteArray(Charsets.UTF_8).size.toLong() + list.name.toByteArray(Charsets.UTF_8).size
