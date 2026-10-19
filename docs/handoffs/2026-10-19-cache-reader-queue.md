@@ -1,6 +1,6 @@
 # October19 renewed solo cycle: cache readers and queue limits
 
-Supersedes the quiescent end state in [the preceding checkpoint](2026-10-19-native-cost-fallback.md). This is an ACTIVE source/CI checkpoint; all device operations described as completed below have finished. At the latest revision the solo diagnostic memory driver may be active: inspect its progress/process before any competing phone action. No Move is active. GPT-6 / Codex desktop, exact variant/effort not reported; implementation and source self-check. Claude unavailable and not resumed; no delegated writer. Current user explicitly renewed rooted POCO Muon testing. Main remains a2db02b8ba0b4959f28aecf5fa89196cf92622bc; experimental checkout untouched. App acceptance stack OPEN; no Stable/tag/release/production activation or experimental integration.
+Supersedes the quiescent end state in [the preceding checkpoint](2026-10-19-native-cost-fallback.md). This is an ACTIVE source/CI checkpoint; all device operations described as completed below have finished. At the latest revision diagnostic profiling is completed; the solo .1278 known-scratch cleanup acceptance driver may be active. Inspect current progress/process before any competing phone action. No Move is active. GPT-6 / Codex desktop, exact variant/effort not reported; implementation and source self-check. Claude unavailable and not resumed; no delegated writer. Current user explicitly renewed rooted POCO Muon testing. Main remains a2db02b8ba0b4959f28aecf5fa89196cf92622bc; experimental checkout untouched. App acceptance stack OPEN; no Stable/tag/release/production activation or experimental integration.
 
 ## Source / checks
 
@@ -85,3 +85,22 @@ Each attempt restored exact connection/music11, stopped its own app/controller/l
 Separate diagnostic .1279 idle update from .1265 passed exact installed APK SHA/UID, both saved/private/native/card proofs and unchanged volume. A solo read-only small→50,000 unique groups→small managed profiling driver is now assigned to that diagnostic package. It temporarily uses only a loopback metadata fixture and muted volume, records local-only0600 heaps/counts, restores exact connection/music, and preserves saved originals. Ordinary Canary stays .1277; no production debug flag/SELinux/security setting changed. Inspect current private progress before competing device actions. Raw private files remain ignored and never uploaded. Small/wide requested-GC object counts are not dominator/ART retained-byte proof; diagnostic data is not an ordinary-build benchmark. No result claimed until completion and full preservation proof.
 
 Source recheck found the proposed direct-journal-stat/root-bracketing optimization already implemented in earlier ad106d16; do not duplicate it. #401 still needs evidence-led work rather than weaker guards.
+
+
+## Diagnostic wide/replacement profiling completed
+
+Separate .1279-diagnostic small→50,000 distinct songs/artists/albums→small fixture PASSED, including Songs/Artists/Albums access and zero audio requests. Three requested-GC HPROFs were structurally parsed locally with bounded streaming parsing (unknown tags refuse, payloads skipped, no object values/strings emitted). Selected app-class counts:
+
+| Case | TauonTrack | LibraryArtist | LibraryAlbum | Single subsequent Java heap PSS observation KiB |
+|---|---:|---:|---:|---:|
+| Small initial | 1 | 1 | 1 | 15,780 |
+| Wide settled | 50,000 | 50,000 | 50,000 | 58,000 |
+| Small replacement | 1 | 1 | 1 | 16,436 |
+
+All three had one LibrarySnapshot, ArtistGroups and AlbumGroups. Sparse during-stage JavaPss maximum107408KiB; new320MiB guard did not trigger. This supports the narrow grouped-graph replacement lifetime, not a dominator/liveness proof, whole-process bound, arbitrary native-index acceptance or ordinary-Canary benchmark. HPROF file sizes are representation size, not heap-used totals; native dump overhead and graphics/resident measurements overlap. This differs from the earlier cold ordinary .1274 stop at its conservative220MiB test threshold; neither proves an app OOM.
+
+All three owned remote heap files removed after inode checks; local raw heaps/counts stay0600/ignored/private, never uploaded. Exact connection/music11 restored/read back, app/listener stopped and own fixture files removed. Full stopped saved/audio/card/no_backup/native checks passed, including every global native DB table/schema. Proof initially compared the source-defined millisecond package-update field to dumpsys' second-resolution display: reconciled existing stopped evidence using the verified installed APK and matching reported update second, with full ProfileInstaller schema/result/other fields still checked. No scenario rerun or blanket timestamp exception.
+
+Ordinary .1278 idle update also passed installed SHA/UID and full preservation for both apps. A read-only small metadata startup is now assigned to check #620's exact two known derived spool removals; validate their original source/schema/unchanged-manager rows and every other ownership/audio/index byte. No Move/eject/download/SD mutation is needed. Private marker bootstrap-cleanup1278-progress.json must be inspected before competing commands.
+
+New cumulative [#621](https://github.com/averylicious/muon/pull/621), head959f06d514051a3349a6799f15dbbbc45c5d1e64, bounds derived artwork disk reads to8MiB at file observation AND opened stream. HTTP4MiB, decoded geometry, totalLRU/identity/expiry/saved covers unchanged. One actual-cache boundary/sparse-oversize/replacement control, CI [.1282/run39216218046](https://github.com/averylicious/muon/actions/runs/39216218046) running as first compile. Source-confirmed missing allocation bound, not a corrupt user cache/OOM finding. Details in its audit note; app stack remains OPEN. Current account reading28% weekly used; no5h reading exposed. Claude unavailable/not resumed.
