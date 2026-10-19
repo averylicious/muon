@@ -9,10 +9,12 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.util.UUID
+import java.nio.file.Files
+import java.nio.file.LinkOption
 
 /** Complete derived status spool plus exact live-event tombstones; never native row/audio authority. */
 internal class DownloadBootstrapSnapshot(context: Context) : Closeable {
-    private val prefix = File(context.noBackupFilesDir,"download-bootstrap-${UUID.randomUUID()}")
+    private val prefix = reserve(context.noBackupFilesDir)
     private val recordsFile = File("${prefix.path}-records.db")
     private val changedFile = File("${prefix.path}-changed.db")
     private var records: SQLiteDatabase? = null // Worker writes, then main reads after ready publication.
@@ -23,6 +25,7 @@ internal class DownloadBootstrapSnapshot(context: Context) : Closeable {
     /** One raw index row at a time. Even a cursor-close failure refuses the entire snapshot. */
     fun read(index: DownloadIndex) {
         try {
+            cleanStale(requireNotNull(prefix.parentFile)) // Worker only, before this spool opens files.
             val db = open(recordsFile).also { records = it }
             db.execSQL("CREATE TABLE statuses(ordinal INTEGER PRIMARY KEY, id BLOB NOT NULL, state INTEGER NOT NULL, bytes INTEGER NOT NULL)")
             var ordinal = 0L
@@ -81,8 +84,45 @@ internal class DownloadBootstrapSnapshot(context: Context) : Closeable {
         valid = false; ready = false
         runCatching { records?.close() }; records = null
         runCatching { changes?.close() }; changes = null
-        for (file in listOf(recordsFile,changedFile)) {
-            runCatching { SQLiteDatabase.deleteDatabase(file) }
+        try {
+            for (file in listOf(recordsFile,changedFile)) {
+                runCatching { SQLiteDatabase.deleteDatabase(file) }
+            }
+        } finally { synchronized(scratchLock) { active.remove(prefix) } }
+    }
+
+    companion object {
+        private val scratchLock = Any()
+        private val active = HashSet<File>()
+        private val scanned = HashSet<File>() // The app has one private root and one process.
+        private val scratchName = Regex("(download-bootstrap-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})-(records|changed)\\.db(?:-journal|-wal|-shm)?")
+        private fun reserve(root:File):File = synchronized(scratchLock) {
+            File(root,"download-bootstrap-${UUID.randomUUID()}").also { active.add(it) }
+        }
+        /** Process-kill leftovers contain derived status/tombstone data only. Never scan native
+         * journals, follow links, recurse, or touch a prefix reserved by ANY live snapshot. A new
+         * snapshot may register during iteration; its check and unlink share the same short lock.
+         * Bound inspected entries, not just deletions, and keep unsupported/failing cleanup optional. */
+        private fun cleanStale(root:File) {
+            if (!synchronized(scratchLock) { scanned.add(root) }) return
+            try {
+                if (!root.isDirectory || root.absoluteFile != root.canonicalFile || Files.isSymbolicLink(root.toPath())) return
+                Files.newDirectoryStream(root.toPath()).use { entries ->
+                    var inspected = 0
+                    for (path in entries) {
+                        if (++inspected > 128) break
+                        val match = scratchName.matchEntire(path.fileName.toString()) ?: continue
+                        synchronized(scratchLock) {
+                            if (File(root,match.groupValues[1]) in active) return@synchronized
+                            try {
+                                if (!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS) || root.absoluteFile != root.canonicalFile) return@synchronized
+                                val links = Files.getAttribute(path,"unix:nlink",LinkOption.NOFOLLOW_LINKS) as? Number
+                                if (links?.toLong() == 1L) Files.deleteIfExists(path)
+                            } catch (_: Exception) { /* Scratch cleanup cannot refuse a real index scan. */ }
+                        }
+                    }
+                }
+            } catch (_: Exception) { /* Missing/unsupported roots retain leftovers; no authority inferred. */ }
         }
     }
 

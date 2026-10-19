@@ -24,6 +24,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.SQLiteMode
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.util.UUID
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34],manifest = Config.NONE)
@@ -101,4 +103,41 @@ class DownloadBootstrapSnapshotTest {
         }
         assertEquals(request,index.getDownload(request.id)?.request)
     }
+    @Test fun startupRemovesOnlyStaleReservedScratchAndPreservesLiveLinksAndUnrelatedFiles() {
+        val root = context.noBackupFilesDir
+        fun stale(suffix:String) = File(root,"download-bootstrap-${UUID.randomUUID()}-$suffix")
+        val old = stale("records.db").apply { writeText("old derived spool") }
+        val sidecar = File(old.path+"-journal").apply { writeText("old scratch journal") }
+        val unrelated = File(root,"download-bootstrap-not-a-uuid-records.db").apply { writeText("keep") }
+        val outside = folders.newFile("outside").apply { writeText("original") }
+        val link = stale("changed.db"); Files.createSymbolicLink(link.toPath(),outside.toPath())
+        val hard = stale("records.db"); Files.createLink(hard.toPath(),outside.toPath())
+        DownloadBootstrapSnapshot(context).use { active ->
+            val prefix = DownloadBootstrapSnapshot::class.java.getDeclaredField("prefix").apply { isAccessible = true }.get(active) as File
+            // A registered owner can begin writing while another worker scans scratch entries.
+            val live = File(prefix.path+"-records.db").apply { writeText("active owner") }
+            DownloadBootstrapSnapshot(context).use { reader ->
+                reader.read(index); assertTrue(reader.page(0).isEmpty())
+                assertFalse(old.exists()); assertFalse(sidecar.exists())
+                assertEquals("active owner",live.readText()); assertEquals("keep",unrelated.readText())
+                assertTrue(Files.isSymbolicLink(link.toPath())); assertTrue(hard.isFile)
+                assertEquals("original",outside.readText()); assertEquals("original",hard.readText())
+            }
+        }
+    }
+
+    @Test fun startupScratchInspectionIsBoundedAndDoesNotChangeDownloadRecords() {
+        val request = DownloadRequest.Builder("saved/protected",Uri.parse("https://fixture.invalid/1")).build()
+        index.putDownload(Download(request,Download.STATE_COMPLETED,1,1,4,0,0))
+        val leftovers = List(140) {
+            File(context.noBackupFilesDir,"download-bootstrap-${UUID.randomUUID()}-records.db").apply { writeText("derived") }
+        }
+        DownloadBootstrapSnapshot(context).use { reader ->
+            reader.read(index); assertEquals(1,reader.page(0).size)
+            assertEquals(request,index.getDownload(request.id)?.request)
+        }
+        val remaining = leftovers.count { it.exists() }
+        assertTrue(remaining >= 12); assertTrue(remaining < 140)
+    }
+
 }
