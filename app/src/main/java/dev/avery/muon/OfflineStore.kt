@@ -1385,6 +1385,7 @@ internal object OfflineStore {
     private fun movePartitionBatch(context:Context,store:Store,from:Shelf,to:Shelf,
         batch:DownloadMoveOwnership.Batch,main:Handler) {
         val timing=if(BuildConfig.DEBUG) MoveOperationTiming.begin(true) else null
+        val timedBoundary:(PartitionOriginalMoveStage)->Unit=if(timing==null) { _ -> } else timing::boundary
         var total=0; var handled=0; var kept=0; var later=0; var needsRecovery=false; var complete=false
         try {
             val source=from.partition; val target=to.partition
@@ -1413,7 +1414,7 @@ internal object OfflineStore {
                 timing?.phase(MoveOperationTiming.Phase.COPY)
                 val result=source.moveCompletedTo(target,entry.id,key,true,store.art,store.artwork,{name ->
                     if(name==entry.id) true else !store.art.hasEntry(name)
-                },::checked,boundary=if(timing==null) {} else timing::boundary)
+                },::checked,boundary=timedBoundary)
                 timing?.phase(MoveOperationTiming.Phase.SUBMISSION)
                 if(result.stage in setOf(PartitionOriginalMoveStage.Published,PartitionOriginalMoveStage.Pending,PartitionOriginalMoveStage.Complete)) {
                     val status=DownloadStatus(key,Download.STATE_COMPLETED,result.bytes)
