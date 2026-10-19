@@ -104,20 +104,26 @@ internal class DownloadBootstrapSnapshot(context: Context) : Closeable {
          * snapshot may register during iteration; its check and unlink share the same short lock.
          * Bound inspected entries, not just deletions, and keep unsupported/failing cleanup optional. */
         private fun cleanStale(root:File) {
-            if (!synchronized(scratchLock) { scanned.add(root) }) return
             try {
-                if (!root.isDirectory || root.absoluteFile != root.canonicalFile || Files.isSymbolicLink(root.toPath())) return
-                Files.newDirectoryStream(root.toPath()).use { entries ->
+                // The framework's private parent may be aliased inside the app's mount namespace.
+                // Resolve that trusted parent on this worker, never a link at the cleanup leaf.
+                val canonical = File(requireNotNull(root.parentFile).canonicalFile,root.name)
+                if (!synchronized(scratchLock) { scanned.add(canonical) }) return
+                fun located() = root.canonicalFile == canonical && canonical.absoluteFile == canonical.canonicalFile
+                if (!canonical.isDirectory || !located() || Files.isSymbolicLink(root.toPath())) return
+                Files.newDirectoryStream(canonical.toPath()).use { entries ->
                     var inspected = 0
                     for (path in entries) {
                         if (++inspected > 128) break
                         val match = scratchName.matchEntire(path.fileName.toString()) ?: continue
                         synchronized(scratchLock) {
-                            if (File(root,match.groupValues[1]) in active) return@synchronized
+                            // Prefix names are process-unique; conservatively protect an active name
+                            // even when another Context supplied the same root with different spelling.
+                            if (active.any { it.name == match.groupValues[1] }) return@synchronized
                             try {
-                                if (!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS) || root.absoluteFile != root.canonicalFile) return@synchronized
+                                if (!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS) || !located()) return@synchronized
                                 val links = Files.getAttribute(path,"unix:nlink",LinkOption.NOFOLLOW_LINKS) as? Number
-                                if (links?.toLong() == 1L) Files.deleteIfExists(path)
+                                if (links?.toLong() == 1L && located()) Files.deleteIfExists(path)
                             } catch (_: Exception) { /* Scratch cleanup cannot refuse a real index scan. */ }
                         }
                     }

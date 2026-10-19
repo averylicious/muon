@@ -112,17 +112,35 @@ class DownloadBootstrapSnapshotTest {
         val outside = folders.newFile("outside").apply { writeText("original") }
         val link = stale("changed.db"); Files.createSymbolicLink(link.toPath(),outside.toPath())
         val hard = stale("records.db"); Files.createLink(hard.toPath(),outside.toPath())
+        val parentAlias = File(root.parentFile,"trusted-parent-alias")
+        Files.createSymbolicLink(parentAlias.toPath(),root.parentFile.toPath())
+        val aliasedRoot = File(parentAlias,root.name)
+        assertNotEquals(aliasedRoot.absoluteFile,aliasedRoot.canonicalFile)
+        val aliasedContext = object:ContextWrapper(context) {
+            override fun getNoBackupFilesDir():File = aliasedRoot
+        }
         DownloadBootstrapSnapshot(context).use { active ->
             val prefix = DownloadBootstrapSnapshot::class.java.getDeclaredField("prefix").apply { isAccessible = true }.get(active) as File
             // A registered owner can begin writing while another worker scans scratch entries.
             val live = File(prefix.path+"-records.db").apply { writeText("active owner") }
-            DownloadBootstrapSnapshot(context).use { reader ->
+            DownloadBootstrapSnapshot(aliasedContext).use { reader ->
                 reader.read(index); assertTrue(reader.page(0).isEmpty())
                 assertFalse(old.exists()); assertFalse(sidecar.exists())
                 assertEquals("active owner",live.readText()); assertEquals("keep",unrelated.readText())
                 assertTrue(Files.isSymbolicLink(link.toPath())); assertTrue(hard.isFile)
                 assertEquals("original",outside.readText()); assertEquals("original",hard.readText())
             }
+        }
+        // Resolving a trusted PARENT must not authorize following a link at the cleanup root itself.
+        val leaf = File(root.parentFile,"linked-cleanup-root")
+        Files.createSymbolicLink(leaf.toPath(),root.toPath())
+        val kept = stale("records.db").apply { writeText("derived but outside refused leaf") }
+        val linkedContext = object:ContextWrapper(context) {
+            override fun getNoBackupFilesDir():File = leaf
+        }
+        DownloadBootstrapSnapshot(linkedContext).use { reader ->
+            reader.read(index); assertTrue(reader.page(0).isEmpty())
+            assertTrue(kept.exists()); assertTrue(Files.isSymbolicLink(leaf.toPath()))
         }
     }
 
