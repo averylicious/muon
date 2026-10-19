@@ -1384,7 +1384,8 @@ internal object OfflineStore {
      * Production selection remains disabled until opt-in/recovery/lifecycle work is complete. */
     private fun movePartitionBatch(context:Context,store:Store,from:Shelf,to:Shelf,
         batch:DownloadMoveOwnership.Batch,main:Handler) {
-        var total=0; var handled=0; var kept=0; var later=0; var needsRecovery=false
+        val timing=if(BuildConfig.DEBUG) MoveOperationTiming.begin(true) else null
+        var total=0; var handled=0; var kept=0; var later=0; var needsRecovery=false; var complete=false
         try {
             val source=from.partition; val target=to.partition
             if(source==null || target==null || source.storageBarrier!==store.storageBarrier || target.storageBarrier!==store.storageBarrier) {
@@ -1401,6 +1402,7 @@ internal object OfflineStore {
             }
             main.post {DownloadMarks.moving=0 to total}
             for(entry in selection.targets) {
+                timing?.phase(MoveOperationTiming.Phase.ADMISSION)
                 fun checked() {
                     if(!from.locationAvailable() || !to.locationAvailable() || !moveOwnership.permits(batch,entry.id))
                         throw java.io.InterruptedIOException("Move cancelled or storage unavailable")
@@ -1408,9 +1410,11 @@ internal object OfflineStore {
                 checked()
                 if(target.claimsName(entry.id)) {kept++; continue}
                 val key=newSaveId {source.claimsName(it) || target.claimsName(it) || store.art.hasEntry(it)}
+                timing?.phase(MoveOperationTiming.Phase.COPY)
                 val result=source.moveCompletedTo(target,entry.id,key,true,store.art,store.artwork,{name ->
                     if(name==entry.id) true else !store.art.hasEntry(name)
-                },::checked)
+                },::checked,boundary=if(timing==null) {} else timing::boundary)
+                timing?.phase(MoveOperationTiming.Phase.SUBMISSION)
                 if(result.stage in setOf(PartitionOriginalMoveStage.Published,PartitionOriginalMoveStage.Pending,PartitionOriginalMoveStage.Complete)) {
                     val status=DownloadStatus(key,Download.STATE_COMPLETED,result.bytes)
                     val removed=result.outcome==SavedRemoval.Sent
@@ -1431,9 +1435,11 @@ internal object OfflineStore {
             if(kept>0) notice(context,"$kept saved copies weren't moved: their current ownership or storage format isn't supported by this Move path.")
             if(later>0) notice(context,"$later more saved copies remain for a later Move.")
             if(needsRecovery) notice(context,"Move stopped with recovery work pending. Existing destination copies remain recorded; review storage recovery before retrying.")
+            complete=total>0 && handled==total && kept==0 && later==0 && !needsRecovery
         } catch(_:Exception) {
             notice(context,"Move stopped before it could finish. Check saved storage and recovery before retrying.")
         } finally {
+            timing?.finish(complete)
             main.post {try {moveExclusion.release()} finally {moveOwnership.finish(batch); DownloadMarks.moving=null}}
         }
     }
