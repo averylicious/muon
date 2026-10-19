@@ -2,6 +2,9 @@ package dev.avery.muon
 
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 
 class LibraryLoadBudgetTest {
     private val a = TauonPlaylist("1", "A", 1)
@@ -125,6 +128,37 @@ class LibraryLoadBudgetTest {
         // Convenience callers preserve combineLoad's policy of ignoring unlisted map entries.
         val ignored=combineBudgetedLoad(listOf(a),mapOf(a.id to listOf(song()),"99" to List(3) {song()}),null,limits(entries=1))
         assertEquals(setOf(a.id),ignored.tracks.keys)
+    }
+
+    @Test fun actualJobCancellationStopsFreshAndFallbackAdmissionWithoutPublishingOrSpendingBudget() {
+        var reads = 0
+        fun cancellingRows(job: Job) = object:AbstractList<TauonTrack>() {
+            override val size = 2
+            override fun get(index: Int): TauonTrack {
+                check(index in 0..1); reads++; job.cancel(); return song()
+            }
+        }
+        val job = Job()
+        val load = BudgetedLibraryLoad(listOf(a),limits(entries=2))
+        assertThrows(CancellationException::class.java) {
+            load.add(a.id,cancellingRows(job)) { job.ensureActive() }
+        }
+        assertEquals(1,reads) // Remaining record was never read/encoded or entered in the fresh map.
+        val fresh = listOf(song("Fresh"),song("Second"))
+        load.add(a.id,fresh)
+        assertSame(fresh,load.finish(null).tracks[a.id]) // Cancelled batch spent no admission budget.
+        assertThrows(CancellationException::class.java) {
+            BudgetedLibraryLoad(listOf(a),limits()) { job.ensureActive() }
+        }
+        val fallbackJob = Job();val retained = cancellingRows(fallbackJob)
+        val previous = mapOf(b.id to retained);reads=0
+        val partial = BudgetedLibraryLoad(listOf(a,b),limits())
+        partial.add(a.id,listOf(song("New")))
+        assertThrows(CancellationException::class.java) {
+            partial.finish(previous) { fallbackJob.ensureActive() }
+        }
+        assertEquals(1,reads);assertSame(retained,previous[b.id])
+        assertThrows(IllegalStateException::class.java) { partial.finish(previous) }
     }
 
     @Test fun expandedCreditsAreChargedExactlyAndRefusedBatchesSpendNoBudget() {
