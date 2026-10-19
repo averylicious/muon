@@ -59,6 +59,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private val journalNames=PARTITION_BOOTSTRAP_JOURNALS
     private var creating=false
     private val identities=arrayOfNulls<Any>(journalNames.size)
+    private val journalObservation=PartitionJournalObservation(directory,onMode=if(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS) {
+        {relative:Boolean -> android.util.Log.d("MuonJournalTiming","relative="+relative);Unit}
+    } else null)
     // Separate fixed process budget from volume/routing counters; numeric only, no identity/path.
     private val identityTiming=if(BuildConfig.DEBUG || BuildConfig.STORAGE_TIMINGS)
         StorageRootTiming.begin(true,shelfIdentityTimingEvents,emit={e ->
@@ -102,10 +105,7 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     private fun located() {
         rootLocated()
         identityPhase(StorageRootTiming.Phase.SHELF_JOURNALS) {
-            for(i in journalNames.indices) {
-                if(exactJournal(File(directory,journalNames[i]))!=identities[i])
-                    throw IOException("Partition shelf journal replaced")
-            }
+            journalObservation.check(requireNotNull(rootIdentity),identities)
         }
         if(exactDirectory(directory)!=rootIdentity) throw IOException("Partition shelf root changed during journal observation")
     }
