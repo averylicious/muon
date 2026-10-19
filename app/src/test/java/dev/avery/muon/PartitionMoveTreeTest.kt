@@ -176,7 +176,7 @@ class PartitionMoveTreeTest {
     }
     @Test fun fullMutationGuardBracketsRealMultiBlockHashInsteadOfRepeatingPerBlock() {
         val root=source();val first=File(root,"bytes/0/0.0.1.v3.exo")
-        first.writeBytes(ByteArray(3*LOCAL_SAVED_READ_BYTES+17) {it.toByte()})
+        first.writeBytes(ByteArray(3*SAVED_DIGEST_READ_BYTES+17) {it.toByte()})
         val tree=capture(root);var reads=0;var guards=0;var live=0;var unlinks=0
         val ownership=MigrationIoOwnership(inputs={file ->object:java.io.RandomAccessFile(file,"r") {
             override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
@@ -211,21 +211,26 @@ class PartitionMoveTreeTest {
         assertTrue(tree.files.all {File(root,it.path).isFile});assertArrayEquals(byteArrayOf(1,2),first.readBytes())
     }
     @Test fun freshReadCheckpointStillCancelsBetweenRealHashBlocksWithoutUnlink() {
-        val root=source();val first=File(root,"bytes/0/0.0.1.v3.exo")
-        first.writeBytes(ByteArray(3*LOCAL_SAVED_READ_BYTES+17) {it.toByte()})
-        val tree=capture(root);var reads=0;var unlinks=0
-        val ownership=MigrationIoOwnership(inputs={file ->object:java.io.RandomAccessFile(file,"r") {
-            override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
-                if(file==first) reads++
-                return super.read(buffer,offset,length)
+        // Multi-block and exactly-complete first reads must both cancel before ANY next physical
+        // read. The latter exercises the EOF probe, not just a second buffered data read.
+        for(length in listOf(3*SAVED_DIGEST_READ_BYTES+17,2)) {
+            val root=source();val first=File(root,"bytes/0/0.0.1.v3.exo")
+            val kept=ByteArray(length) {it.toByte()};first.writeBytes(kept)
+            val tree=capture(root);var reads=0;var probes=0;var unlinks=0
+            val ownership=MigrationIoOwnership(inputs={file ->object:java.io.RandomAccessFile(file,"r") {
+                override fun read(buffer:ByteArray,offset:Int,length:Int):Int {
+                    if(file==first) reads++
+                    return super.read(buffer,offset,length)
+                }
+                override fun read():Int {if(file==first) probes++;return super.read()}
+            }})
+            assertThrows(InterruptedIOException::class.java) {
+                PartitionMoveTreeRemoval(ownership,unlink={unlinks++;Files.delete(it.toPath())})
+                    .runMoved(tree,root,{if(reads>0) throw InterruptedIOException("Storage/cancellation changed after actual read")},{})
             }
-        }})
-        assertThrows(InterruptedIOException::class.java) {
-            PartitionMoveTreeRemoval(ownership,unlink={unlinks++;Files.delete(it.toPath())})
-                .runMoved(tree,root,{if(reads>0) throw InterruptedIOException("Storage/cancellation changed after actual read")},{})
+            assertEquals(1,reads);assertEquals(0,probes);assertEquals(0,unlinks);assertTrue(ownership.quiescent)
+            assertTrue(tree.files.all {File(root,it.path).isFile});assertArrayEquals(kept,first.readBytes())
         }
-        assertEquals(1,reads);assertEquals(0,unlinks);assertTrue(ownership.quiescent)
-        assertTrue(tree.files.all {File(root,it.path).isFile});assertEquals(3*LOCAL_SAVED_READ_BYTES+17,first.length().toInt())
     }
     @Test fun interruptedAfterActualFirstUnlinkResumesFromPersistedIdentity() {
         val root=source(); val tree=persisted(capture(root)); val first=File(root,"bytes/0/0.0.1.v3.exo")

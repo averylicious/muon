@@ -83,9 +83,11 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
         return spans
     }
     internal fun requireAudioLength(length:Long) {audioFiles(length)}
-    /** Capture must match the bound full audio digest, not merely hash whatever files remain. */
+    /** Capture must match the bound full audio digest, not merely hash whatever files remain.
+     * One fixed full-digest block matches destination verification; ordinary copying keeps its
+     * smaller buffer. Fresh checks still precede EVERY physical read, including the EOF probe. */
     internal fun verifyAudio(root:File,length:Long,expected:String,ownership:MigrationIoOwnership,checkpoint:()->Unit) {
-        val digest=MessageDigest.getInstance("SHA-256"); val buffer=ByteArray(LOCAL_SAVED_READ_BYTES)
+        val digest=MessageDigest.getInstance("SHA-256"); val buffer=ByteArray(SAVED_DIGEST_READ_BYTES)
         for(span in audioFiles(length)) {
             checkpoint(); val file=File(root,span.path); exact(file,span)
             val reader=ownership.input(file)
@@ -96,7 +98,7 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
                     if(n<=0) throw IOException("Move audio ended early")
                     digest.update(buffer,0,n); left-=n
                 }
-                if(reader.read()!=-1) throw IOException("Move audio grew")
+                checkpoint(); if(reader.read()!=-1) throw IOException("Move audio grew")
             } finally {ownership.close(reader)}
             exact(file,span)
         }
@@ -211,13 +213,13 @@ internal data class PartitionMoveTree private constructor(val parentIdentity:Str
         private fun hash(file:File,length:Long,ownership:MigrationIoOwnership,checkpoint:()->Unit):String {
             val digest=MessageDigest.getInstance("SHA-256"); val input=ownership.input(file)
             try {
-                val buffer=ByteArray(LOCAL_SAVED_READ_BYTES); var left=length
+                val buffer=ByteArray(SAVED_DIGEST_READ_BYTES); var left=length
                 while(left>0) {
                     checkpoint(); val n=input.read(buffer,0,minOf(left,buffer.size.toLong()).toInt())
                     if(n<=0) throw IOException("Move tree file ended early")
                     digest.update(buffer,0,n); left-=n
                 }
-                if(input.read()!=-1) throw IOException("Move tree file grew")
+                checkpoint(); if(input.read()!=-1) throw IOException("Move tree file grew")
             } finally {ownership.close(input)}
             return digest.digest().joinToString("") {"%02x".format(it)}
         }
