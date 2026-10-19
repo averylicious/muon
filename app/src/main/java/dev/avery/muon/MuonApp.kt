@@ -139,7 +139,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val revision = remember(playback) { { playback.revision } }
         // One object per library snapshot: the tracks everything lists, and the identity artist
         // grouping is keyed and checked on.
-        val snapshot = remember(model.tracksByPlaylist) { LibrarySnapshot(model.allTracks) }
+        val snapshot = remember(model.playlists, model.tracksByPlaylist) { LibrarySnapshot(model.allTracks) }
         val all = snapshot.tracks
         // Which song each artwork address names, published before any of this library's artwork
         // loads, so a picture kept on disk is only ever shown for the song it was stored for.

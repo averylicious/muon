@@ -41,7 +41,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     // Flattening every playlist is O(library). Do it when the library changes, never while scrolling.
-    val trackCount = remember(model.tracksByPlaylist) { model.allTracks.size }
+    val trackCount = remember(model.playlists, model.tracksByPlaylist) { model.allTracks.size }
     // The expanded title is 36sp, so its bar has to grow with the user's font scale or it clips.
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 2f)
     val colors = MaterialTheme.colorScheme

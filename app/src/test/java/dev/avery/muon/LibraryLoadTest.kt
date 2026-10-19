@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import androidx.compose.runtime.mutableStateOf
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -53,6 +54,25 @@ class LibraryLoadTest {
         assertSame(fresh, next[0]); assertSame(last, next[1]); assertSame(first, projected[0])
         assertTrue(libraryTracks(emptyMap()).isEmpty())
         assertTrue(libraryTracks(mapOf("empty" to emptyList())).isEmpty())
+    }
+
+    @Test fun reorderedEqualMapUsesPublishedPlaylistOrderForFirstDuplicateWinner() {
+        val first = song(7).single()
+        val second = first.copy(title = "Second playlist title", playable = false)
+        val before = linkedMapOf("a" to listOf(first), "b" to listOf(second))
+        val after = linkedMapOf("b" to listOf(second.copy()), "a" to listOf(first.copy()))
+        assertEquals(before, after) // Map equality does not include order.
+        val tracks = mutableStateOf<Map<String, List<TauonTrack>>>(before)
+        val playlists = mutableStateOf(listOf(a, b))
+        tracks.value = after; playlists.value = listOf(b, a)
+        assertSame(before, tracks.value) // Real default Compose policy retains the old map.
+        val ordered = libraryTracks(tracks.value, playlists.value.map { it.id })
+        assertEquals(listOf(second), ordered); assertSame(second, ordered.single())
+        assertSame(first, libraryTracks(tracks.value).single())
+        // Reordering back and a later failed playlist's fallback use the same explicit order.
+        val fallback = combineLoad(listOf(a, b), mapOf("a" to listOf(first.copy(title = "Fresh"))), tracks.value)
+        assertEquals("Fresh", libraryTracks(fallback.tracks, fallback.playlists.map { it.id }).single().title)
+        assertEquals(listOf(first), libraryTracks(tracks.value, listOf("a")))
     }
 
 }

@@ -31,6 +31,8 @@ internal fun partialLoadMessage(failed: Int, total: Int): String =
 
 /** Same first occurrence/order as flatten().distinctBy(id), without an intermediate list of
  * every playlist occurrence. Playlist lists and returned display list are still complete;
- * nothing is cached across refresh, and the accepted-load budgets remain the caller's. */
-internal fun libraryTracks(byPlaylist: Map<String, List<TauonTrack>>): List<TauonTrack> =
-    byPlaylist.values.asSequence().flatten().distinctBy { it.id }.toList()
+ * nothing is cached across refresh, and the accepted-load budgets remain the caller's. Explicit
+ * order is required when a state map may retain its old iteration order after an equal update. */
+internal fun libraryTracks(byPlaylist: Map<String, List<TauonTrack>>,
+    order: Iterable<String> = byPlaylist.keys): List<TauonTrack> =
+    order.asSequence().flatMap { byPlaylist[it].orEmpty().asSequence() }.distinctBy { it.id }.toList()

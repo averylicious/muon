@@ -115,7 +115,10 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         }
     }
     private val loads = LibraryLoads(viewModelScope) { busy = it }
-    val allTracks: List<TauonTrack> get() = libraryTracks(tracksByPlaylist)
+    // Map equality ignores iteration order: a reordered equal refresh may keep the old state map.
+    // Follow the separately published playlist order, including the first winner for duplicate IDs.
+    val allTracks: List<TauonTrack> get() = libraryTracks(tracksByPlaylist,
+        playlists.asSequence().map { it.id }.asIterable())
     init { if (address.isNotBlank()) connect() }
     fun connect() {
         if (busy) return
