@@ -20,13 +20,16 @@ private class JsonContainer(val array: Boolean, var content: Boolean = false, va
  * (object names included) and containers before allocating the DOM, not just recognized tracks.
  * These are structural bounds, not a byte-exact process/DOM heap budget.
  */
-internal fun parseTauonJson(text: String, limits: TauonJsonLimits = TauonJsonLimits()): JSONObject {
-    validateTauonJson(text,limits)
-    return JSONObject(text)
+internal fun parseTauonJson(text: String, limits: TauonJsonLimits = TauonJsonLimits(),
+    checkpoint: () -> Unit = {}): JSONObject {
+    validateTauonJson(text,limits,checkpoint)
+    checkpoint()
+    return JSONObject(text).also { checkpoint() }
 }
 
 /** Same bounded structural preflight for DOM and per-record projection. */
-internal fun validateTauonJson(text:String,limits:TauonJsonLimits=TauonJsonLimits()) {
+internal fun validateTauonJson(text:String,limits:TauonJsonLimits=TauonJsonLimits(),checkpoint:()->Unit={}) {
+    checkpoint()
     require(limits.arrayItems > 0 && limits.values > 0)
 
     val tokens = JSONTokener(text)
@@ -37,6 +40,7 @@ internal fun validateTauonJson(text:String,limits:TauonJsonLimits=TauonJsonLimit
         values++
     }
     while (tokens.more()) {
+        checkpoint()
         val token = tokens.nextClean()
         // A nonempty array has one slot plus its separators. Android JSONTokener accepts missing
         // values and a trailing separator as null slots, so counting only literal starts misses them.

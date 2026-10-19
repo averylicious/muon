@@ -5,6 +5,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -17,6 +20,29 @@ class TauonTracklistTest {
         requireLibraryEntryCount(array.length())
         return List(array.length()) {projectTauonTrack(array.getJSONObject(it))}
     }
+    @Test fun cancellationAtAnyVisitedBoundaryEscapesInsteadOfPublishingAPrefixOrCompatibilityResult() {
+        for(text in listOf(
+            """{"tracks":[{"id":-1}],"ignored":[0,1],"tracks":[{"id":1},{"id":2}]}""",
+            "{tracks:[{id=1;title:'Separators'},{id:2}]}",
+        )) {
+            var boundaries=0
+            assertEquals(previous(text),parseTauonTracklist(text,checkpoint={boundaries++}))
+            assertTrue(boundaries>1)
+            // Fault injection at every boundary of these tiny strict/lenient inputs. Do not encode
+            // token counts: the successful production parse supplies the visited boundary count.
+            for(stop in 1..boundaries) {
+                val job=Job();var visited=0
+                assertThrows(CancellationException::class.java) {
+                    parseTauonTracklist(text,checkpoint={
+                        if(++visited==stop) job.cancel()
+                        job.ensureActive()
+                    })
+                }
+                assertEquals(stop,visited)
+            }
+        }
+    }
+
     @Test fun ordinaryWideTracklistMatchesTheExistingProjectionAndKeepsEveryRecord() {
         val array=JSONArray()
         repeat(1000) {i ->array.put(JSONObject().put("id",i).put("title","Track $i")

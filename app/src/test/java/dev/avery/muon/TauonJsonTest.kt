@@ -3,6 +3,9 @@ package dev.avery.muon
 import java.io.IOException
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -10,6 +13,19 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 34], manifest = Config.NONE)
 class TauonJsonTest {
+    @Test fun cancelledGeneralMetadataDoesNotEscapePreflightOrDomCompletion() {
+        val text="""{"version":1,"ignored":[{"nested":[0,1,2]}]}"""
+        var boundaries=0
+        assertEquals(1,parseTauonJson(text,checkpoint={boundaries++}).getInt("version"))
+        for(stop in 1..boundaries) {
+            val job=Job();var visited=0
+            assertThrows(CancellationException::class.java) {
+                parseTauonJson(text,checkpoint={if(++visited==stop) job.cancel();job.ensureActive()})
+            }
+            assertEquals(stop,visited)
+        }
+    }
+
     @Test fun ordinaryApiObjectsAndWideArraysRemainReadable() {
         val tracks = (0 until 1000).joinToString(",") { "{\"id\":$it,\"title\":\"Song\"}" }
         assertEquals(1000, parseTauonJson("{\"tracks\":[$tracks]}").getJSONArray("tracks").length())

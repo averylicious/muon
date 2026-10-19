@@ -2,6 +2,8 @@ package dev.avery.muon
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -38,7 +40,10 @@ class TauonApi(val endpoint: ServerEndpoint) {
         }
         bytes.toString(Charsets.UTF_8)
     }
-    private suspend fun json(path:String):JSONObject = withContext(Dispatchers.IO) { parseTauonJson(text(path)) }
+    private suspend fun json(path:String):JSONObject = withContext(Dispatchers.IO) {
+        val job=currentCoroutineContext()
+        parseTauonJson(text(path),checkpoint={job.ensureActive()})
+    }
     suspend fun connect() {
         require(json("/api1/version").getInt("version") == 1) { "Unsupported Tauon API version" }
     }
@@ -55,7 +60,8 @@ class TauonApi(val endpoint: ServerEndpoint) {
     }
     suspend fun tracks(playlistId: String): List<TauonTrack> = withContext(Dispatchers.IO) {
         require(playlistId.matches(Regex("[0-9]+")))
-        parseTauonTracklist(text("/api1/tracklist/$playlistId"))
+        val job=currentCoroutineContext()
+        parseTauonTracklist(text("/api1/tracklist/$playlistId"),checkpoint={job.ensureActive()})
     }
 
     suspend fun lyrics(trackId: Long): String {
