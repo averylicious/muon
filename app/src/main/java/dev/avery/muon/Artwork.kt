@@ -24,7 +24,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.Request
+
+// Finished-cache size does not bound simultaneous encoded bodies or native decode/scale work.
+// Acquire before disk/HTTP bytes, retain through decode/publication/write, cancel queued requests.
+private val artworkLoads = Semaphore(2)
 
 private val artCache = object : LruCache<ArtworkMemoryKey, Bitmap>(12 * 1024 * 1024) {
     override fun sizeOf(key: ArtworkMemoryKey, value: Bitmap) = value.byteCount
@@ -112,39 +118,41 @@ private fun cachedArtwork(request: ArtworkRequest): LoadedArtwork? {
  * Each [size] is its own entry in memory and on disk: a list row keeps its small decode, the player
  * keeps the server's picture as it came.
  */
-private suspend fun fetchArtwork(request: ArtworkRequest, size: Int, disk: ArtworkDiskCache): Bitmap? = withContext(Dispatchers.IO) {
-    val url = request.url
-    val key = request.memoryKey(size)
-    val identity = request.identity
-    // Preserve existing disk filenames while the memory key also includes identity.
-    val diskKey = if (size >= ARTWORK_ORIGINAL_SIZE) url else "$url#$size"
-    fun keep(art: Bitmap): Bitmap? = ArtworkIdentities.ifCurrent(request) { artCache.put(key, art); art }
-    // A saved copy's own cover is read from that entry's file and nowhere else, never fetched (#213).
-    // A live song's picture never comes from a saved copy: one kept under its number may be another song's.
-    savedArtRequest(url)?.let { requestId ->
-        return@withContext OfflineStore.current()?.art?.forEntry(requestId)?.let { decodeArtwork(it, size) }?.let(::keep)
-    }
-    if (url.startsWith("$SAVED_ART_SCHEME:")) return@withContext null
-    if (identity != null) disk.read(diskKey, identity)?.let { decodeArtwork(it, size) }?.let { art ->
-        return@withContext keep(art)
-    }
-    try {
-        val bytes = Transport.metadataClient.newCall(Request.Builder().url(url).build()).readCancellable { response ->
-            if (!response.isSuccessful) return@readCancellable null
-            val body = response.body ?: return@readCancellable null
-            val source = body.source()
-            if (source.request(4 * 1024 * 1024 + 1L)) return@readCancellable null
-            source.readByteArray()
-        } ?: return@withContext null
-        decodeArtwork(bytes, size)?.let { art ->
-            keep(art)?.also {
-                // A late disk write uses its captured identity, never the replacement's.
-                if (identity != null) disk.write(diskKey, identity,
-                    if (size >= ARTWORK_ORIGINAL_SIZE) bytes else encodeArtwork(art))
-            }
+private suspend fun fetchArtwork(request: ArtworkRequest, size: Int, disk: ArtworkDiskCache): Bitmap? = artworkLoads.withPermit {
+    withContext(Dispatchers.IO) {
+        val url = request.url
+        val key = request.memoryKey(size)
+        val identity = request.identity
+        // Preserve existing disk filenames while the memory key also includes identity.
+        val diskKey = if (size >= ARTWORK_ORIGINAL_SIZE) url else "$url#$size"
+        fun keep(art: Bitmap): Bitmap? = ArtworkIdentities.ifCurrent(request) { artCache.put(key, art); art }
+        // A saved copy's own cover is read from that entry's file and nowhere else, never fetched (#213).
+        // A live song's picture never comes from a saved copy: one kept under its number may be another song's.
+        savedArtRequest(url)?.let { requestId ->
+            return@withContext OfflineStore.current()?.art?.forEntry(requestId)?.let { decodeArtwork(it, size) }?.let(::keep)
         }
-    } catch (cancelled: CancellationException) { throw cancelled }
-    catch (_: Exception) { null }
+        if (url.startsWith("$SAVED_ART_SCHEME:")) return@withContext null
+        if (identity != null) disk.read(diskKey, identity)?.let { decodeArtwork(it, size) }?.let { art ->
+            return@withContext keep(art)
+        }
+        try {
+            val bytes = Transport.metadataClient.newCall(Request.Builder().url(url).build()).readCancellable { response ->
+                if (!response.isSuccessful) return@readCancellable null
+                val body = response.body ?: return@readCancellable null
+                val source = body.source()
+                if (source.request(4 * 1024 * 1024 + 1L)) return@readCancellable null
+                source.readByteArray()
+            } ?: return@withContext null
+            decodeArtwork(bytes, size)?.let { art ->
+                keep(art)?.also {
+                    // A late disk write uses its captured identity, never the replacement's.
+                    if (identity != null) disk.write(diskKey, identity,
+                        if (size >= ARTWORK_ORIGINAL_SIZE) bytes else encodeArtwork(art))
+                }
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
+    }
 }
 
 /**

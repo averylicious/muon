@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -72,6 +73,43 @@ class ArtworkRequestIntegrationTest {
                 assertEquals("cancelled load must not seed the memory cache", 2, server.requests.get())
             } finally { server.release.countDown(); pending.cancelAndJoin() }
         }
+    }
+
+    @Test fun concurrentActualLoadsWaitBeforeHttpAndCancelledWaiterCannotConsumeTheNextPermit() = runBlocking(Dispatchers.IO) {
+        forgetArtwork(disk)
+        HeldArtworkServer(png()).use { first -> HeldArtworkServer(png()).use { second ->
+            HeldArtworkServer(png()).use { third ->
+                val servers = listOf(first, second, third)
+                ArtworkIdentities.publish(servers.associate { it.url to "current" })
+                val one = async { artworkBitmap(context, ArtworkIdentities.request(first.url)) }
+                val two = async { artworkBitmap(context, ArtworkIdentities.request(second.url)) }
+                val entered = CompletableDeferred<Unit>()
+                var waiting: kotlinx.coroutines.Deferred<android.graphics.Bitmap?>? = null
+                try {
+                    assertTrue(first.firstBody.await(8, TimeUnit.SECONDS))
+                    assertTrue(second.firstBody.await(8, TimeUnit.SECONDS))
+                    val queued = async {
+                        entered.complete(Unit)
+                        artworkBitmap(context, ArtworkIdentities.request(third.url))
+                    }
+                    waiting = queued
+                    withTimeout(8_000) { entered.await() }
+                    assertFalse("queued artwork began HTTP before an active load finished",
+                        third.firstBody.await(250, TimeUnit.MILLISECONDS))
+                    queued.cancelAndJoin()
+                    first.release.countDown(); second.release.countDown()
+                    assertNotNull(withTimeout(8_000) { one.await() })
+                    assertNotNull(withTimeout(8_000) { two.await() })
+                    assertEquals(0, third.requests.get())
+                    third.release.countDown()
+                    assertNotNull(withTimeout(8_000) { artworkBitmap(context, ArtworkIdentities.request(third.url)) })
+                    assertEquals(1, third.requests.get())
+                } finally {
+                    servers.forEach { it.release.countDown() }
+                    waiting?.cancelAndJoin(); one.cancelAndJoin(); two.cancelAndJoin()
+                }
+            }
+        } }
     }
 
     private fun png() = requireNotNull(javaClass.getResourceAsStream(
