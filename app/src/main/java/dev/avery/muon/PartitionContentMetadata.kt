@@ -48,9 +48,14 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
             database.execSQL("PRAGMA cache_size=-256"); database.execSQL("PRAGMA synchronous=FULL")
             beginRead()
             try {
-                val schemas=database.rawQuery("SELECT name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name!='android_metadata' ORDER BY name",null).use { rows ->
-                    val result=ArrayList<Pair<String,String>>(2)
-                    while(rows.moveToNext()) { if(result.size==2) throw IOException("Unknown partition metadata schema"); result+=rows.getString(0) to rows.getString(1) }
+                // Reject unknown/oversized schema text inside SQLite, before CursorWindow/Java
+                // projection. At most three scalar rows distinguish exactly our two known tables.
+                val schemas=database.rawQuery("SELECT CASE WHEN type='table' AND name='chunks' AND sql=? THEN 1 "+
+                    "WHEN type='table' AND name='owner' AND sql=? THEN 2 ELSE 0 END "+
+                    "FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name!='android_metadata' ORDER BY name LIMIT 3",
+                    arrayOf(chunkSchema,ownerSchema)).use { rows ->
+                    val result=ArrayList<Int>(2)
+                    while(rows.moveToNext()) { if(result.size==2) throw IOException("Unknown partition metadata schema"); result+=rows.getInt(0) }
                     result
                 }
                 when(database.version) {
@@ -65,7 +70,7 @@ internal class PartitionContentMetadata(root:File,private val uid:Long,private v
                         database.execSQL("INSERT INTO chunks VALUES(0,?)",arrayOf(ByteArray(4)))
                         database.version=1
                     }
-                    1 -> if(schemas!=listOf("chunks" to chunkSchema,"owner" to ownerSchema)) throw IOException("Unknown partition metadata schema")
+                    1 -> if(schemas!=listOf(1,2)) throw IOException("Unknown partition metadata schema")
                     else -> throw IOException("Unsupported partition metadata version")
                 }
                 checkOwner(uid,key); database.setTransactionSuccessful()

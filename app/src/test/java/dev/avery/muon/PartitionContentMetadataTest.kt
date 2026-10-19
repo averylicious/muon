@@ -87,7 +87,12 @@ class PartitionContentMetadataTest {
         assertThrows(IOException::class.java) {PartitionContentMetadata(root,10,"key",readOnly=true)}
         assertThrows(IOException::class.java) {PartitionContentMetadata(root,9,"other",readOnly=true)}
         assertEquals(before,inventory(root))
-        sql(root) {it.execSQL("CREATE TABLE foreign_data(value BLOB)")}
+        // This is larger than a normal CursorWindow. Unknown text must stay in SQLite,
+        // while refusal preserves the exact database even on the read-only API35 path.
+        sql(root) {it.execSQL("CREATE TABLE foreign_data(value BLOB /*"+"x".repeat(3*1024*1024)+"*/)")}
+        sql(root) {db -> db.rawQuery("SELECT length(CAST(sql AS BLOB)) FROM sqlite_master WHERE name='foreign_data'",null).use {
+            assertTrue(it.moveToFirst());assertTrue(it.getLong(0)>3*1024*1024)
+        }}
         val foreign=inventory(root)
         assertThrows(IOException::class.java) {PartitionContentMetadata(root,9,"key",readOnly=true)}
         assertEquals(foreign,inventory(root))
@@ -172,7 +177,9 @@ class PartitionContentMetadataTest {
         val root=directory()
         PartitionContentMetadata(root,6,"key",create=true).close()
         sql(root) { it.execSQL("CREATE TABLE foreign_data(value BLOB)") }
+        val foreign=inventory(root)
         assertThrows(IOException::class.java) { PartitionContentMetadata(root,6,"key") }
+        assertEquals(foreign,inventory(root))
         sql(root) { db -> db.rawQuery("SELECT name FROM sqlite_master WHERE name='foreign_data'",null).use { assertTrue(it.moveToFirst()) }
             db.execSQL("DROP TABLE foreign_data"); db.execSQL("UPDATE owner SET key=?",arrayOf(savedCatalogSortKey("other"))) }
         assertThrows(IOException::class.java) { PartitionContentMetadata(root,6,"key") }
