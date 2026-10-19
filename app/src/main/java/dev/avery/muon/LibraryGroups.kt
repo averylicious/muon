@@ -32,7 +32,7 @@ internal fun groupAlbums(tracks: List<TauonTrack>, checkpoint: () -> Unit = {}):
     }
 
 /** Semicolons are the only agreed credit separator; ampersands, slashes and commas remain names. */
-private fun artistCredits(artist: String, checkpoint: () -> Unit = {}): Sequence<String> =
+internal fun artistCredits(artist: String, checkpoint: () -> Unit = {}): Sequence<String> =
     artist.splitToSequence(';').onEach { checkpoint() }
         .map(String::trim).filter(String::isNotEmpty).distinctBy(::canonicalTag).ifEmpty { sequenceOf("") }
 

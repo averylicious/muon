@@ -7,13 +7,14 @@ internal data class LibraryLoadLimits(
     val playlists: Int = 2_048,
     val entries: Int = 50_000,
     val encodedMetadataBytes: Long = 16L * 1024 * 1024,
+    val artistMemberships: Int = 100_000,
 )
 
 private val LIBRARY_LOAD_LIMITS = LibraryLoadLimits()
 
 internal class LibraryResourceLimit(message: String =
     "Library exceeds Muon's resource limits (2,048 playlists, 50,000 playlist entries or " +
-        "16 MiB encoded metadata). Reduce the server library and retry.") : IOException(message)
+        "16 MiB encoded metadata; at most 100,000 artist credits). Reduce the server library and retry.") : IOException(message)
 
 internal fun requireLibraryPlaylistCount(count: Int, limits: LibraryLoadLimits = LIBRARY_LOAD_LIMITS) {
     if (count > limits.playlists) throw LibraryResourceLimit()
@@ -30,9 +31,10 @@ internal fun requireLibraryEntryCount(count: Int, limits: LibraryLoadLimits = LI
 internal class LibraryLoadBudget(lists: List<TauonPlaylist>, private val limits: LibraryLoadLimits = LIBRARY_LOAD_LIMITS) {
     private var entries = 0
     private var remaining = limits.encodedMetadataBytes
+    private var remainingArtists = limits.artistMemberships
 
     init {
-        require(limits.playlists >= 0 && limits.entries >= 0 && limits.encodedMetadataBytes >= 0)
+        require(limits.playlists >= 0 && limits.entries >= 0 && limits.encodedMetadataBytes >= 0 && limits.artistMemberships >= 0)
         requireLibraryPlaylistCount(lists.size, limits)
         for (list in lists) {
             // UTF-8 needs at least one byte per UTF-16 code unit; reject before allocating encodings.
@@ -46,6 +48,7 @@ internal class LibraryLoadBudget(lists: List<TauonPlaylist>, private val limits:
     fun add(songs: List<TauonTrack>) {
         if (songs.size > limits.entries - entries) throw LibraryResourceLimit()
         var left = remaining
+        var artistsLeft = remainingArtists
         for (song in songs) {
             val characters = listOf(song.title, song.artist, song.album, song.albumArtist, song.trackNumber)
                 .sumOf { it.length.toLong() }
@@ -53,9 +56,17 @@ internal class LibraryLoadBudget(lists: List<TauonPlaylist>, private val limits:
             val bytes = encodeSong(song).size.toLong()
             if (bytes > left) throw LibraryResourceLimit()
             left -= bytes
+            // Splitting credits can amplify one accepted record into many retained group members.
+            // Use the exact grouping parser (case-insensitive per-track dedup, blank fallback), and
+            // charge every playlist occurrence: an upper bound without a global retained ID map.
+            artistCredits(song.artist).forEach {
+                if (artistsLeft == 0) throw LibraryResourceLimit()
+                artistsLeft--
+            }
         }
         entries += songs.size
         remaining = left
+        remainingArtists = artistsLeft
     }
 }
 

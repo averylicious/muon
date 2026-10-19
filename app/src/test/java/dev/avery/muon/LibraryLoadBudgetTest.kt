@@ -127,4 +127,37 @@ class LibraryLoadBudgetTest {
         assertEquals(setOf(a.id),ignored.tracks.keys)
     }
 
+    @Test fun expandedCreditsAreChargedExactlyAndRefusedBatchesSpendNoBudget() {
+        val named = song().copy(artist = " A ; a ; ; B/C & D, E ")
+        val unknown = song("Unknown").copy(artist = " ; ; ")
+        val limit = limits().copy(artistMemberships = 3)
+        val budget = LibraryLoadBudget(listOf(a), limit)
+        assertThrows(LibraryResourceLimit::class.java) { budget.add(listOf(named, named)) }
+        budget.add(listOf(named, unknown)) // Two distinct credits and one unknown: exact boundary.
+        assertEquals(3, groupArtists(listOf(named.copy(id = 1), unknown.copy(id = 2))).sumOf { it.tracks.size })
+        assertThrows(LibraryResourceLimit::class.java) { budget.add(listOf(unknown)) }
+        LibraryLoadBudget(listOf(a), limit.copy(artistMemberships = 0)).add(emptyList())
+        assertThrows(IllegalArgumentException::class.java) {
+            LibraryLoadBudget(listOf(a), limit.copy(artistMemberships = -1))
+        }
+    }
+
+    @Test fun fallbackAndRepeatedOccurrencesCannotBypassArtistMembershipAdmission() {
+        val credits = song().copy(artist = "One; Two")
+        val retained = listOf(credits)
+        val previous = mapOf(b.id to retained)
+        val limit = limits().copy(artistMemberships = 3)
+        val load = BudgetedLibraryLoad(listOf(a, b), limit)
+        load.add(a.id, listOf(credits))
+        assertThrows(LibraryResourceLimit::class.java) { load.finish(previous) }
+        assertSame(retained, previous[b.id]); assertEquals("One; Two", retained.single().artist)
+        val retry = combineBudgetedLoad(listOf(a, b), mapOf(a.id to listOf(credits)), previous,
+            limit.copy(artistMemberships = 4))
+        assertEquals(listOf(a, b), retry.playlists); assertSame(retained, retry.tracks[b.id])
+        // Subset maps ignored by combineLoad are not charged; record text/entry budgets still apply.
+        val ignored = combineBudgetedLoad(listOf(a), mapOf(a.id to listOf(song()), b.id to List(3) { credits }),
+            null, limit.copy(artistMemberships = 1))
+        assertEquals(setOf(a.id), ignored.tracks.keys)
+    }
+
 }
