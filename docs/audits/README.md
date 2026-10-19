@@ -1,5 +1,7 @@
 # Main-branch audit
 
+Current October19 continuation: [native-cost/fallback checkpoint](../handoffs/2026-10-19-native-cost-fallback.md). Claude Opus5.5 High selected/confirmed but first launch blocked by expired OAuth; human reauthenticating, source branch clean at #611. Coordinator owns rooted wireless POCO .1251 read-only fallback/byte-budget QA; current operation is PREPARING/ACTIVE, not yet a pass. Use checkpoint and live marker before device commands. Application PRs OPEN; main/experiment unchanged, no Stable/activation/merge.
+
 Current October18 verification checkpoint: [storage/memory continuation](../handoffs/2026-10-18-owned-move-continuation.md). Solo/no Claude or subagents. Source #609 `ad617a1`, #610 `6d7f8db`, #611 `da66f41`: latest-head CI/reports/selected signed APKs verified. Fresh diagnostic .1247 Moves in both directions passed full stopped preservation; clean Phone-to-Card still287–305s. Ordinary .1251 passed repeated50,000 loads, structural/aggregate-record/aggregate-byte refusals preserving the old library, accepted long tags, real962-song load and selected saved playback. Sampled memory overlaps .1248; no whole-process improvement claim. Both apps stopped, no driver/Move/listener, exact connection and music11 restored, own fixtures removed. #253 broader memory cases/#401 latency and UAT remain. Main/experiment untouched, app PRs OPEN; no merge/Stable/release/activation. Necessary tests approved, consolidate later.
 
 
