@@ -1,5 +1,7 @@
 # October 19: shelf latency and completed artwork verification
 
+Historical continuation; superseded by [the verified wrap-up](2026-10-19-wrap-up.md). Read its final source/check/device state first.
+
 Current-state successor to [the detailed card-reader chronology](2026-10-19-card-reader-followup.md), which retains earlier failures, #612–#626 heads and measurements. Solo GPT-6 / Codex desktop implementation/source/device author self-check; exact variant/effort not reported, NOT independent review. Claude unavailable/not resumed. No other agent/phone writer assigned. Main remains a2db02b8ba0b4959f28aecf5fa89196cf92622bc; original experimental checkout untouched. Application acceptance stack OPEN; no main/experiment merge, Stable/tag/release or production activation. User now requests wrap-up after the next current CI or two because of network instability: stop new engineering/device work, finish current checks and preserve durable state.
 
 ## Current ownership and device
