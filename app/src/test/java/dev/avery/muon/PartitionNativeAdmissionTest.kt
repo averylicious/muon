@@ -102,6 +102,20 @@ class PartitionNativeAdmissionTest {
         val link=File(f.root,"0-link"); Files.createSymbolicLink(link.toPath(),f.audio.keys.single().toPath())
         assertThrows(IOException::class.java) { inspect(f) }; assertTrue(Files.isSymbolicLink(link.toPath())); kept(f)
         Files.delete(link.toPath())
+        // Even an otherwise-correct indexed filename/length must never admit a leaf link.
+        val original=f.audio.keys.single();val bytes=f.audio.getValue(original)
+        val outside=folders.newFile("outside-span").apply {writeBytes(bytes)}
+        assertTrue(original.delete());Files.createSymbolicLink(original.toPath(),outside.toPath())
+        assertThrows(IOException::class.java) {inspect(f)}
+        assertTrue(Files.isSymbolicLink(original.toPath()));assertArrayEquals(bytes,outside.readBytes())
+        Files.delete(original.toPath());original.writeBytes(bytes)
+        assertEquals(PartitionNativeEvidence(3,1),inspect(f));kept(f)
+        val marker=File(f.root,java.lang.Long.toHexString(f.uid)+".uid")
+        val empty=folders.newFile("outside-marker");assertTrue(marker.delete())
+        Files.createSymbolicLink(marker.toPath(),empty.toPath())
+        assertThrows(IOException::class.java) {inspect(f)}
+        assertTrue(Files.isSymbolicLink(marker.toPath()));assertEquals(0L,empty.length())
+        Files.delete(marker.toPath());marker.writeBytes(byteArrayOf());kept(f)
         val unindexed=File(f.audio.keys.single().parentFile,"0.90.1.v3.exo").apply { writeBytes(byteArrayOf(9)) }
         assertThrows(IOException::class.java) { inspect(f) }; assertArrayEquals(byteArrayOf(9),unindexed.readBytes()); kept(f)
     }

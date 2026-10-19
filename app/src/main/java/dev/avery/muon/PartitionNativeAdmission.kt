@@ -10,10 +10,11 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.attribute.BasicFileAttributes
 
 internal data class PartitionNativeEvidence(val bytes:Long,val spans:Int)
 
-/** UNWIRED read-only preflight for a CLOSED, known private single-resource partition, never legacy.
+/** Read-only preflight for a CLOSED, known private single-resource partition, never legacy.
  * Native initialization can drop a mismatched index/delete unrecognized files before post-open guards
  * run. Inspect only the pinned published database/filename format; unknown format refuses, never edits
  * or repairs Media3 schemas. Caller supplies an ALREADY-OPEN owned DB and holds volume/creation/writer
@@ -93,19 +94,25 @@ internal object PartitionNativeAdmission {
         Files.newDirectoryStream(directory.toPath()).use { entries ->
             for(path in entries) {
                 checkpoint()
-                if(++children>11 || Files.isSymbolicLink(path)) throw IOException("Native partition folder has unknown entries")
-                val file=path.toFile(); val name=file.name
+                if(++children>11) throw IOException("Native partition folder has unknown entries")
+                // One fresh NOFOLLOW observation supplies type/link/length together. The surrounding
+                // checkpoint and complete indexed-layout checks remain; no cached/older observation.
+                val attributes=Files.readAttributes(path,BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+                if(attributes.isSymbolicLink) throw IOException("Native partition folder has unknown entries")
+                val name=path.fileName.toString()
                 when {
-                    name=="$hex.uid" && Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS) && file.length()==0L -> {
+                    name=="$hex.uid" && attributes.isRegularFile && attributes.size()==0L -> {
                         if(uidFound) throw IOException("Duplicate native partition UID"); uidFound=true
                     }
-                    name.length==1 && name[0] in '0'..'9' && Files.isDirectory(path,LinkOption.NOFOLLOW_LINKS) -> {
+                    name.length==1 && name[0] in '0'..'9' && attributes.isDirectory -> {
                         Files.newDirectoryStream(path).use { leaves -> for(leaf in leaves) {
                             checkpoint()
-                            if(++spans>limits.spans || !Files.isRegularFile(leaf,LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(leaf))
+                            if(++spans>limits.spans) throw IOException("Native partition spans exceed or differ from the owned layout")
+                            val span=Files.readAttributes(leaf,BasicFileAttributes::class.java,LinkOption.NOFOLLOW_LINKS)
+                            if(!span.isRegularFile || span.isSymbolicLink)
                                 throw IOException("Native partition spans exceed or differ from the owned layout")
                             val saved=names.remove(leaf.fileName.toString()) ?: throw IOException("Unindexed or repeated native span")
-                            if(leaf.toFile().length()!=saved.length) throw IOException("Native span byte length changed")
+                            if(span.size()!=saved.length) throw IOException("Native span byte length changed")
                         } }
                     }
                     else -> throw IOException("Native partition UID or folder entry differs")
