@@ -4,9 +4,9 @@ Updated 2026-10-21. This is a short resume entry point; detailed current finding
 
 ## Current boundary
 
-Workflow documentation: #635 / branch `codex/stable-closure-oct21`, coordinator GPT-6 / Codex desktop (exact variant/effort not reported). App candidate remains [#634](https://github.com/averylicious/muon/pull/634), `feaa0636c5c034eaa5070d163f2400d856c33bee`. Main verified `a2db02b8ba0b4959f28aecf5fa89196cf92622bc`. App stack OPEN; experiment checkout untouched; no Stable release or production activation.
+Workflow documentation #635 MERGED as `ec02b64f41996ec4a456c764ed94360675570df1`; main .1322 documentation-only checks passed with zero artifacts/no publication. Prepared application successor is on `codex/stable-storage-opt-in-oct21`, implementation `3e609759ef1eedf3e0c3ba19276f700b6f55f188`; source/CI review and acceptance still apply. Coordinator GPT-6 / Codex desktop (exact variant/effort not reported), Claude Opus5.5 High coding completed/idle. App candidate remains [#634](https://github.com/averylicious/muon/pull/634), `feaa0636c5c034eaa5070d163f2400d856c33bee`. Main verified `ec02b64f41996ec4a456c764ed94360675570df1`. App stack OPEN; experiment checkout untouched; no Stable release or production activation.
 
-Latest execution checkpoint: [October21 workflow and device restoration](handoffs/2026-10-21-release-state-workflow.md). Selected .1318 update/reader/Move preservation checks passed, disposable full copy now PHONE. Tiny-artwork verification was interrupted by USB loss; restoration completed, both apps stopped and no Move/helper remains. User paused device audit; fresh-attempt final saved-data proof remains pending. Source/CI work may continue.
+Latest execution checkpoint: [October21 workflow and device restoration](handoffs/2026-10-21-release-state-workflow.md). Selected .1318 update/reader/Move preservation checks passed, disposable full copy now PHONE. Tiny-artwork verification was interrupted by USB loss; restoration completed, both apps stopped and no Move/helper remains. User paused device audit; fresh-attempt final saved-data proof remains pending. User requested early wrap-up for host updates; finish only the already prepared source/CI checkpoint, then stop.
 
 ## Resume order
 
