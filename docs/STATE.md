@@ -9,8 +9,8 @@ One published Stable is available through Obtainium. The current main-track audi
 ## Active work
 
 - [#253 memory/storage](audits/issues/253.md): cumulative redesign on the open app stack; final memory cases, Stable configuration/promotion and acceptance remain.
-- [#401 startup/Move latency](audits/issues/401.md): latest selected comparison preserves data, but latency remains unresolved.
-- Known partial #207 notification artwork needs a fix or explicit release disposition. Existing storage/identity/hardware/accessibility acceptance remains in the [release gate list](release-plan.md).
+- [#401 startup/Move latency](audits/issues/401.md): selected data-preservation comparison passed; user accepted the measured delays for this release. Further performance work is deferred, not fixed.
+- User explicitly deferred #207's notification-only stale-cover case. In-app implementation still needs landing/acceptance. Existing storage/identity/hardware/accessibility acceptance remains in the [release gate list](release-plan.md).
 - Current source baseline: #634, `feaa0636c5c034eaa5070d163f2400d856c33bee`. Main verified `a2db02b8ba0b4959f28aecf5fa89196cf92622bc`; refresh live GitHub state before acting. App changes are not on main merely because a candidate build passed.
 - Full SD lifecycle #179 and dependency/tool/cache provenance retain user-approved release deferrals. Keep them unresolved follow-ups; do not automatically reopen the release scope.
 

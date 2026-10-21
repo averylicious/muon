@@ -1,6 +1,6 @@
 # Original issue descriptions before the concise-state workflow
 
-Archived 2026-10-21 before editing the GitHub bodies for #181, #253 and #401. This preserves their original problem statements and dated evidence; it is **not** current status, ownership, scope or new permission. Use the [maintained issue-state index](issues/README.md) and [release plan](../release-plan.md). Historical comments remain unchanged.
+Archived 2026-10-21 before editing the GitHub bodies for #181, #207, #253 and #401. This preserves their original problem statements and dated evidence; it is **not** current status, ownership, scope or new permission. Use the [maintained issue-state index](issues/README.md) and [release plan](../release-plan.md). Historical comments remain unchanged.
 
 ## Original #181 — Main-branch audit: correctness, security, privacy and release trust
 
@@ -64,4 +64,27 @@ Use an explicit temporary diagnostic build if needed: time queue preparation, se
 ## Attribution
 GPT-6 / Codex desktop, implementation-author device checks, exact variant/effort not exposed. Claude unavailable/not resumed; no independent review. #253 remains required before Stable, and full #179 SD eject/restart recovery remains separately user-deferred. This is a distinct observed playback-start issue, not a claim that OS eject recovery has been fixed.
 
+
+
+## Original #207 — Audit: invalidate in-memory artwork when track identity changes
+
+## Finding: in-memory covers can survive a track-identity change
+
+Main-audit follow-up to #181, distinct from the resolved thumbnail sizing/frame-pacing work (#23) and disk persistence (#111).
+
+**Inspected commits:** main `4fd3af9373bfa232e637c06e9705dae49b9b8fe1`; experiment `e1bf045c1fa7139c4966e480f2f06941a703ddfc`. Also checked #206 head `18c0bb2eb235ea64d28a34c4a2455b08d2809da5`, whose network-lifetime fix does not address identity invalidation. The relevant in-memory key and Compose lifetime logic is present on both inspected tracks; `ArtworkCache.kt` is identical between those main/experiment heads.
+
+**Symbols/evidence:** `Artwork.memoryKey(url, size)` uses URL/size only. `cachedArtwork` and `artworkBitmap` consult that cache without track identity. `Artwork` retains loaded state with `remember(url)` and starts fetches with `LaunchedEffect(url, size)`, returning early when the old bitmap is already large enough. In contrast, `ArtworkDiskCache.key(url, identity)` includes title/artist/album identity, and `MuonApp` republishes `artworkIdentities` after a library refresh.
+
+**Trigger:** fetch a cover, then Tauon rebuilds/reuses the track number or its metadata changes; refresh the library within the same process while the old URL remains resident in memory.
+
+**Actual versus expected:** the memory key and UI effect keys remain unchanged, so the disk identity safeguard can be bypassed by an old in-memory bitmap or already-loaded composable state. Expected: a changed identity invalidates the visible/memory cover and refetches or selects the correctly keyed disk entry. Source confirms the missing invalidation path; no device reproduction or performance measurement is claimed.
+
+**Impact/confidence:** P2 correctness: wrong covers and possibly cover-derived player colour until eviction/recreation/Disconnect. High confidence in the source mismatch; actual refresh timing and retained composition require QA. Origin is part of the URL, so this is not evidence of cross-origin secret disclosure.
+
+**Proposed bounded fix:** include identity in memory lookup/publication and reset artwork state/effects when it changes; make identity changes observable by Compose. Capture request identity and reject stale publication when a refresh happens during an in-flight fetch. Keep existing image/body/decode/cache limits and offline behavior. Avoid a full artwork-loader rewrite.
+
+**Verification:** identity-key/state decision JVM tests including a reused URL and late response; CI against main's pinned Compose/Media3 versions; user QA with a changed title/cover or reused Tauon track ID, refresh without process restart, list/detail/player colours, offline covers and ordinary scrolling. Any implementation PR requiring phone QA stays open per the user's 2026-09-30 instruction. Experimental forward integration is separate and owned by that track's contributor.
+
+Attribution: source audit by GPT-6, Codex desktop, effort not reported (user nickname Sol); no Claude, ADB or device task used. No fix is implemented by this issue.
 

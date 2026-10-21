@@ -5,8 +5,8 @@ Start with the [maintained issue-state index](issues/README.md), [finite release
 ## Current release scope
 
 - [#253](issues/253.md): aggregate memory, bounded storage owners and opt-in migration; final verification/promotion remains.
-- [#401](issues/401.md): measured saved-card startup and Move latency; preservation checks passed for selected cases, latency remains.
-- Known partial #207 notification artwork, actual Stable configuration and the defined data/interaction/hardware/accessibility acceptance gates remain in the release plan.
+- [#401](issues/401.md): selected preservation checks passed; user accepted the measured delays for this release. Performance follow-up stays open/deferred.
+- User deferred #207's notification-only stale-cover case. Actual Stable configuration and defined data/interaction/hardware/accessibility acceptance remain required in the release plan.
 - Existing user-approved SD lifecycle/provenance deferrals remain unresolved maintenance items. A passing build is not a security certification or Stable approval.
 
 The cumulative app candidate is #634, `feaa0636c5c034eaa5070d163f2400d856c33bee`; inspected main is `a2db02b8ba0b4959f28aecf5fa89196cf92622bc`. These are dated snapshots, not a substitute for live verification. The 275 open PRs at inventory time are mostly accumulated components, not independent remaining defects.
