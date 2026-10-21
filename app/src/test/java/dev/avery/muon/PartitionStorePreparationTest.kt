@@ -417,7 +417,7 @@ class PartitionStorePreparationTest {
         val settings=PartitionStartupSettings(prefs);val choice=settings.request(f.plan(),true)
         val startup=StorageStartup<OfflineStore.PreparedStorage>();val before=app.databaseList().toSet()
         try {
-            assertEquals(BuildConfig.BUILD_TYPE=="debug",PARTITION_OPT_IN_AVAILABLE) // Canary only; Stable stays disabled.
+            assertEquals(BuildConfig.BUILD_TYPE in setOf("debug","release"),PARTITION_OPT_IN_AVAILABLE) // Canary and Stable offer it; benchmark never does.
             assertThrows(IOException::class.java) {worker {startup.open {OfflineStore.prepareSelectedStorage(app,it,partitionEnabled=false)}}}
             assertEquals(0,startup.retained);assertEquals(before,app.databaseList().toSet());assertEquals(choice,settings.read())
             assertFalse(f.phoneRoot.exists());assertFalse(f.cardRoot.exists())
@@ -425,13 +425,24 @@ class PartitionStorePreparationTest {
             f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
         } finally {cleanup(startup);f.seed.close();prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()}
     }
-    @Test fun explicitlyEnabledSelectorOwnsActualPartitionRootsAndDoesNotConstructLegacyNativeCache() {
+    @Test fun compiledDefaultSelectorHonorsChannelWithoutLegacyNativeFallback() {
         val f=Fixture();val prefs=app.getSharedPreferences("storage",android.content.Context.MODE_PRIVATE)
         prefs.edit().remove(StorageBackendSelection.KEY).remove(PartitionStartupSettings.KEY).commit()
         val settings=PartitionStartupSettings(prefs);settings.request(f.plan(),true)
         val startup=StorageStartup<OfflineStore.PreparedStorage>()
         try {
-            val ready=worker {startup.open {OfflineStore.prepareSelectedStorage(app,it,partitionEnabled=true,resolve={f.plan()})}}
+            // The tested variant's own compiled availability, as production startup uses it.
+            if(!PARTITION_OPT_IN_AVAILABLE) {
+                assertThrows(IOException::class.java) {worker {startup.open {
+                    OfflineStore.prepareSelectedStorage(app,it,resolve={error("Disabled channel must not resolve roots")})
+                }}}
+                assertEquals(0,startup.retained);assertEquals(PartitionStartupPhase.Planned,settings.read().phase)
+                assertFalse(f.phoneRoot.exists());assertFalse(f.cardRoot.exists())
+                assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy));assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))
+                f.originals.forEach {assertArrayEquals(bytes,it.readBytes())}
+                return
+            }
+            val ready=worker {startup.open {OfflineStore.prepareSelectedStorage(app,it,resolve={f.plan()})}}
             assertNull(ready.phone.cache);assertNull(ready.card!!.cache);assertNotNull(ready.phone.partition)
             assertEquals(PartitionStartupPhase.Ready,settings.read().phase);assertEquals(0,PartitionNativeBudget.process.resident)
             assertFalse(SimpleCache.isCacheFolderLocked(f.phoneLegacy));assertFalse(SimpleCache.isCacheFolderLocked(f.cardLegacy))

@@ -10,7 +10,7 @@ android {
     compileSdkMinor = 0
     buildToolsVersion = "37.0.0"
     defaultConfig {
-        // Stable/benchmark stay disabled until the explicit storage acceptance gate is cleared.
+        // Off unless a build type offers it: Canary and Stable do, benchmark does not.
         buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "false")
         buildConfigField("boolean", "STORAGE_TIMINGS", "false")
         applicationId = "dev.avery.muon"
@@ -49,7 +49,7 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            // Explicit Canary preview only; installing does not opt in or change saved storage.
+            // Explicit Canary preview; installing does not opt in or change saved storage.
             buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "true")
             buildConfigField("boolean", "STORAGE_TIMINGS", storageTimings.toString())
             // Canary is built like Stable in the one way that matters for QA: not debuggable, so
@@ -66,6 +66,8 @@ android {
         getByName("release") {
             // Never debuggable, diagnostic build or not; the benchmark type inherits this.
             isDebuggable = false
+            // Stable offers the same explicit opt-in; installing does not opt in or change saved storage.
+            buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "true")
             // Install beside the original milestone/debug app, preserving its settings.
             applicationIdSuffix = ".release"
             resValue("string", "app_name", "Muon")
@@ -80,6 +82,8 @@ android {
         // never touched. Signed with the debug key. Never published.
         create("benchmark") {
             initWith(getByName("release"))
+            // Profiling never offers the storage opt-in.
+            buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "false")
             applicationIdSuffix = ".benchmark"
             resValue("string", "app_name", "Muon Benchmark")
             isMinifyEnabled = false

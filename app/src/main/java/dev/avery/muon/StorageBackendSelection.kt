@@ -4,14 +4,13 @@ import android.content.SharedPreferences
 import java.io.IOException
 
 /** Process startup reads this choice before allocating providers, caches or service managers.
- * No legacy fallback, live swap, automatic opt-in or preference repair. Partition selection stays
- * unavailable until all production mutation/played/cover paths and recovery controls are wired.
- * Future explicit opt-in must commit this exact choice before a full process restart, never toggle
+ * No legacy fallback, live swap, automatic opt-in or preference repair. Explicit opt-in must
+ * commit this exact choice before a full process restart, never toggle
  * an existing owner. StorageStartup retains the outcome even if preferences subsequently change.
  */
-/** Explicit Canary preview only. Release/benchmark stay disabled pending acceptance and
- * separately reviewed promotion; preferences cannot override the compiled channel gate. Normal
- * startup is still Legacy until an exact persisted opt-in choice exists. */
+/** Explicit opt-in offered by Canary (debug) and Stable (release); benchmark stays disabled.
+ * Preferences cannot override the compiled channel gate. Normal startup is still Legacy until an
+ * exact persisted opt-in choice exists. */
 internal const val PARTITION_OPT_IN_AVAILABLE=BuildConfig.PARTITION_OPT_IN_AVAILABLE
 
 internal enum class StorageBackendSelection {
