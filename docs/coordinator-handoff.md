@@ -6,7 +6,7 @@ Updated 2026-10-21. This is a short resume entry point; detailed current finding
 
 Workflow documentation: #635 / branch `codex/stable-closure-oct21`, coordinator GPT-6 / Codex desktop (exact variant/effort not reported). App candidate remains [#634](https://github.com/averylicious/muon/pull/634), `feaa0636c5c034eaa5070d163f2400d856c33bee`. Main verified `a2db02b8ba0b4959f28aecf5fa89196cf92622bc`. App stack OPEN; experiment checkout untouched; no Stable release or production activation.
 
-Latest prior completed checkpoint: [October19 wrap-up](handoffs/2026-10-19-wrap-up.md). October21 .1318 diagnostic update, CARD reader and Card→Phone Move preservation checks passed; full disposable copy now PHONE. A bounded tiny-artwork check is active in the separate Diagnostic app. The final execution checkpoint will replace this paragraph when that operation ends. Do not assume the phone is idle from an older receipt.
+Latest execution checkpoint: [October21 workflow and device restoration](handoffs/2026-10-21-release-state-workflow.md). Selected .1318 update/reader/Move preservation checks passed, disposable full copy now PHONE. Tiny-artwork verification was interrupted by USB loss; restoration completed, both apps stopped and no Move/helper remains. User paused device audit; fresh-attempt final saved-data proof remains pending. Source/CI work may continue.
 
 ## Resume order
 
