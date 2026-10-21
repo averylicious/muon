@@ -1,5 +1,7 @@
 # Muon: current state
 
+Start with the [maintained issue-state index](audits/issues/README.md). Read only the relevant current snapshot and latest checkpoint; older dated paragraphs below are history, not a required full-context read. Edit issue snapshots in place and avoid repeating checkpoint comments on GitHub.
+
 Current release workflow: [October21 fixed closure gates and release generations](release-plan.md). One published Stable; current main-track candidate and M3E experiment are separate development generations. Audit automation uses the separate Diagnostic app; final release-configuration acceptance remains required. Older dated snapshots below are historical.
 
 Latest October19 USER-REQUESTED WRAP-UP: [verified final checkpoint](handoffs/2026-10-19-wrap-up.md). #632/.1312, #633/.1314 and #634/.1315 exact-head CI/reports/selected ordinary APKs VERIFIED, not installed. .1309 Move/CARD playback/full preservation passed; latency remains. POCO both apps stopped, ordinary .1284 unchanged, diagnostic .1309 full disposable copy CARD, no active helper/Move/listener; connection/music11 restored. All source committed/pushed, app stack OPEN, main/experiment/Stable/activation unchanged. Claude unavailable. Next cycle: verify final-head diagnostic before idle update and relative-journal/tiny-image device evidence; UAT remains separate.
