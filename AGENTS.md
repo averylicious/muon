@@ -52,7 +52,7 @@ See `docs/agent-workflow.md` for starter prompts and the human handoff sequence.
 
 ## Resuming or coordinating across agents
 
-- For the main-branch audit authorized on 2026-09-27, start with [the audit map and latest report](docs/audits/README.md). Astra may review/fix any component while Claude and the user experiment off main. Workstreams organize resumable evidence, not rigid frontend/backend restrictions. Follow [the parallel-track protocol](docs/parallel-tracks.md) and preserve each branch's release behavior; apply the standing merge authorization above.
+- For the main-branch audit authorized on 2026-09-27, start with [current issue state](docs/audits/issues/README.md) and the [release gate list](docs/release-plan.md); use the [audit map and reports](docs/audits/README.md) for targeted supporting evidence. Astra may review/fix any component while Claude and the user experiment off main. Workstreams organize resumable evidence, not rigid frontend/backend restrictions. Follow [the parallel-track protocol](docs/parallel-tracks.md) and preserve each branch's release behavior; apply the standing merge authorization above.
 
 - A user-selected successor Astra may take over backend work and coordination. Read [the coordinator runbook](docs/coordinator-handoff.md) and its linked latest checkpoint before broad exploration; verify live PR heads, checks, ownership and user authorization. A checkpoint records evidence, not new permission to merge or access devices.
 - Keep one writer per branch/worktree/session. Astra audits main; the user and their Claude session own the experiment. The same file may change independently on both tracks, with reconciliation in a separate integration PR. Do not resume the user's Claude session; an explicitly allocated, idle audit session is separate. Routine work does not require a live agent-to-agent handshake. Experimental owners land forward-sync PRs at their own boundary.
@@ -60,3 +60,9 @@ See `docs/agent-workflow.md` for starter prompts and the human handoff sequence.
 - Put portable state in repository documents and PR/issue comments. Local chat history, temporary files, tool memories and local session IDs are optional conveniences, never prerequisites for another contributor. Follow the existing attribution, secret-access and fork-build boundaries.
 
 - Coordinator rotation is reciprocal: a returning Astra follows the same live-state takeover checks as a new contributor. Before yielding, update the runbook checkpoint with active/idle ownership, exact commits, outstanding checks and the next bounded slice; never rely on the previous chat alone.
+
+## Concise portable issue state
+
+- Keep one maintained Markdown current-state file per active issue under `docs/audits/issues/`, linked from a short existing GitHub issue/PR body. Edit current state in place; do not append every session summary to the same file or duplicate trackers. Follow [the reporting contract](docs/audits/issues/README.md).
+- Reserve GitHub comments for decisions/questions, blockers, actionable review feedback, material verification or merge/release results. Routine polling, quota updates and repeated checkpoints do not need comments. Preserve historical user decisions and evidence.
+- Resume from the issue-state index, relevant file and latest checkpoint, then verify live heads/checks. Open individual historical records only when needed; do not load an entire issue timeline or the full historical STATE/runbook by default. Record exact heads and CI/device/UAT distinctions, with no private dumps or secrets.

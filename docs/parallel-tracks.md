@@ -2,6 +2,10 @@
 
 The user authorized these tracks on 2026-09-28. They replace routine live frontend/backend coordination for the current main audit. Read this with [AGENTS.md](../AGENTS.md), [STATE.md](STATE.md) and the [latest checkpoint](coordinator-handoff.md). Earlier handoffs describe history, not current ownership.
 
+## Release generations and frozen candidates
+
+Follow the [release sequence and finite current gate list](release-plan.md). The user-approved sequence is current audit → frozen RC → explicitly approved Stable → checked forward integration into M3E → further experimentation and maintenance → next frozen candidate and delta-focused audit. Current alpha branch protections remain; future promotion requires a reviewed integration/policy change. Routine main-track audit automation should use the separate Diagnostic app when authorized so it does not replace the user's everyday experimental Canary. Release-configuration acceptance is still required.
+
 ## Work without sharing sessions or checkouts
 
 | Track | Destination | Default owner | Purpose |
