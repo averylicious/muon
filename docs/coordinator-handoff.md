@@ -6,7 +6,7 @@ Updated 2026-10-22. This short resume entry points to maintained [issue state](a
 
 Pixel8 user acceptance of .1325 passed the tried Bluetooth controls and found queue Undo/shuffled-order and TalkBack labeling/focus defects. Storage setup wording also needs phone-only/empty-library clarity. These are concrete UAT corrections within the frozen scope, not a reopened general audit.
 
-Implementation is in the isolated #636 candidate worktree; no phone or Claude use for these changes. Main now includes documentation report #637 at `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`. The app candidate remains DRAFT/OPEN pending final-head CI and focused user retesting. See the [current UAT correction checkpoint](handoffs/2026-10-22-uat-corrections.md); the [completed storage/compatibility evidence](handoffs/2026-10-22-release-acceptance.md) remains valid for its exact prior sources.
+Implementation is in the isolated #636 candidate worktree. Initial solo corrections passed interim .1332; user-authorized Claude Opus5.5/High then implemented a reviewed service-authoritative Undo follow-up, now integrated with final-head CI pending. Claude is idle; no parked dirty work or device operation. No phone was used for these corrections. Main now includes documentation report #637 at `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`. The app candidate remains DRAFT/OPEN pending final-head CI and focused user retesting. See the [current UAT correction checkpoint](handoffs/2026-10-22-uat-corrections.md); the [completed storage/compatibility evidence](handoffs/2026-10-22-release-acceptance.md) remains valid for its exact prior sources.
 
 ## Resume order
 
