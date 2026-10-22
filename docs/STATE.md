@@ -1,6 +1,6 @@
 # Muon current state
 
-Updated 2026-10-22. Read this short entry point, the relevant [current issue snapshot](audits/issues/README.md) and latest checkpoint; do not load the full historical chronology by default.
+Updated 2026-10-23. Read this short entry point, the relevant [current issue snapshot](audits/issues/README.md) and latest checkpoint; do not load the full historical chronology by default.
 
 ## Release generations
 
@@ -8,12 +8,13 @@ One published Stable is available through Obtainium. The current main-track audi
 
 ## Active work
 
-- Current user UAT: tried Bluetooth controls passed; shuffled queue Undo, TalkBack labels/grouping and storage-setup wording need corrections/retest. See the [current correction checkpoint](handoffs/2026-10-22-uat-corrections.md). #636 remains draft/open; no new Stable release.
+- Current user UAT: .1334 installed on both phones at the user's request. POCO lockscreen controls passed; tried Bluetooth controls and improved TalkBack mini-player/queue are retained evidence. Slider purpose labels, album-return cover motion, buffering layout and storage clarity need focused corrections/retest. See the [current refinement checkpoint](handoffs/2026-10-23-uat-refinements.md). #636 stays draft/open; no new Stable release.
 
 - [#253 memory/storage](audits/issues/253.md): cumulative redesign on open #636; focused source closure and final selected memory/minified-storage/legacy/queue automation passed. User-approved controlled compatibility replacement passed (no old Stable data exists); interaction and hardware/accessibility acceptance remain; no app merge/release yet.
 - [#401 startup/Move latency](audits/issues/401.md): selected data-preservation comparison passed; user accepted the measured delays for this release. Further performance work is deferred, not fixed.
 - User explicitly deferred #207's notification-only stale-cover case. In-app implementation still needs landing/acceptance. Existing storage/identity/hardware/accessibility acceptance remains in the [release gate list](release-plan.md).
-- Current app candidate: DRAFT/OPEN #636, including October22 UAT corrections and the service-authoritative Undo follow-up and independently reviewed pending-edit/accessibility corrections (`7ef641720eae9f08d037f5a451f9d697a96034c7`, plus this snapshot). Interim .1332 passed; .1333 reproduced the pending-edit regression and failed. Replacement final-head CI and user retest remain. Earlier storage runtime evidence used `af70c50c226cfafb5320052bf71950a40eef60a2`; it does not validate later UI/session changes. Main verified `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`; refresh the PR for its latest head/checks before acting. App changes are not on main merely because a candidate build passed.
+- Current app candidate: DRAFT/OPEN #636. Prior .1334 source `1d73ecda6be93bcb9c17c3f1e48f1047d52c7fec` passed CI/APK checks and is installed for UAT; October23 refinements are now implemented locally with new native-accessibility/presentation regressions, replacement CI pending. The PR body is authoritative for exact pushed head/check/artifacts. Main remains `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`; no app merge/release or experimental change.
+- Separate next-point drafts #641–#644 preserve their own source/CI evidence and stay outside current RC acceptance. Their latest maintained PR/issue bodies may postdate committed snapshots; no future app branch is installed.
 - Full SD lifecycle #179 and dependency/tool/cache provenance retain user-approved release deferrals. Keep them unresolved follow-ups; do not automatically reopen the release scope.
 
 ## Working rules

@@ -1,12 +1,12 @@
 # Coordinator handoff
 
-Updated 2026-10-22. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-23. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
-Pixel8 user acceptance of .1325 passed the tried Bluetooth controls and found queue Undo/shuffled-order and TalkBack labeling/focus defects. Storage setup wording also needs phone-only/empty-library clarity. These are concrete UAT corrections within the frozen scope, not a reopened general audit.
+RC .1334 was installed in place on both Pixel8 and POCO at the user's request, with installed hashes checked and Canary unchanged. User UAT passed POCO lockscreen and reported slider-label, album-return cover, buffering-layout and storage-clarity issues. These are concrete acceptance corrections, not a reopened general audit. The [latest UAT refinement checkpoint](handoffs/2026-10-23-uat-refinements.md) records partial acceptance, historical experimental fixes, current writers and the first-compile/retest boundary.
 
-Implementation is in the isolated #636 candidate worktree. Initial solo corrections passed interim .1332; user-authorized Claude Opus5.5/High then implemented a service-authoritative Undo follow-up. Two October23 independent scoped Codex reviews found a pending-edit race (also reproduced by .1333’s failed regression) and an accessible Previous-action mismatch. Both are source-fixed/rechecked; replacement final-head CI is pending. Claude is idle; no parked dirty work or device operation. No phone was used for these corrections. Main now includes documentation report #637 at `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`. The app candidate remains DRAFT/OPEN pending final-head CI and focused user retesting. See the [current UAT correction checkpoint](handoffs/2026-10-22-uat-corrections.md); the [completed storage/compatibility evidence](handoffs/2026-10-22-release-acceptance.md) remains valid for its exact prior sources.
+Root integrated scoped changes into #636's isolated candidate worktree; subagent writers are stopped, independent source review completed or finishing, final-head CI/APK verification pending. Leave phones for the user's UAT; installation permission does not imply more automated testing. Allocated Claude is idle. Main remains `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`. No merge, Stable release or experimental change. Separate future #641–#644 are not part of this RC; use their maintained live bodies for CI receipts. Preserve [completed storage/compatibility evidence](handoffs/2026-10-22-release-acceptance.md) for its exact prior sources.
 
 ## Resume order
 
