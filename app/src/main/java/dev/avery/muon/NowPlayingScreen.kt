@@ -17,6 +17,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -480,12 +483,22 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
     }
     val waiting = buffering && stalled && scrub == null
     val shown by animateFloatAsState(if (waiting) 1f else 0f, motionMedium(), label = "buffering")
+    val seekPaint = remember { Paint() }
     Column {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
                 onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
                 enabled = seekable && player != null,
-                modifier = Modifier.graphicsLayer { alpha = 1f - shown }.semantics {
+                modifier = Modifier.drawWithContent {
+                    // Fade only pixels. An alpha-zero layout layer would also hide the native
+                    // SeekBar from TalkBack during sustained buffering.
+                    if (shown <= 0f) drawContent()
+                    else if (shown < 1f) {
+                        seekPaint.alpha = 1f - shown
+                        drawContext.canvas.saveLayer(Rect(0f, 0f, size.width, size.height), seekPaint)
+                        try { drawContent() } finally { drawContext.canvas.restore() }
+                    }
+                }.semantics {
                     contentDescription = "Playback position"
                     stateDescription = "${formatTime(elapsed.toLong())} of ${formatTime(duration)}"
                 })
