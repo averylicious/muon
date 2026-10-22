@@ -252,7 +252,7 @@ class QueueRemovalUndoTest {
         // reaching the service, and therefore cannot acknowledge earlier playlist operations.
         val result = p.sendCustomCommand(RESTORE_QUEUE_REMOVAL, Bundle.EMPTY)
         pumpUntil { result.isDone }
-        assertEquals(androidx.media3.session.SessionResult.RESULT_ERROR_BAD_VALUE,
+        assertEquals(androidx.media3.session.SessionError.ERROR_BAD_VALUE,
             result.get(1, TimeUnit.SECONDS).resultCode) // Empty Undo is rejected without mutation.
         shadowOf(Looper.getMainLooper()).idle()
     }

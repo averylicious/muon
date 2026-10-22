@@ -11,6 +11,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import androidx.media3.session.SessionError
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
@@ -53,20 +54,20 @@ internal class PlaybackSessionCallback(
         if (customCommand.customAction != RESTORE_QUEUE_REMOVAL.customAction)
             return super.onCustomCommand(session, controller, customCommand, args)
         if (controller.uid != Process.myUid()) return Futures.immediateFuture(
-            SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
+            SessionResult(SessionError.ERROR_PERMISSION_DENIED))
         val request = QueueRemovalRestore.fromBundle(args) ?: return Futures.immediateFuture(
-            SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE))
+            SessionResult(SessionError.ERROR_BAD_VALUE))
         val exo = shufflePlayer ?: (session.player as? ExoPlayer) ?: return Futures.immediateFuture(
-            SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+            SessionResult(SessionError.ERROR_NOT_SUPPORTED))
         if (!request.matches(session.player)) return Futures.immediateFuture(
-            SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
+            SessionResult(SessionError.ERROR_INVALID_STATE))
         // Reuse the ordinary URI, metadata-budget and asynchronous saved-copy admission gate.
         val admitted = onAddMediaItems(session, controller, mutableListOf(request.item))
         val handler = Handler(session.player.applicationLooper)
         return Futures.transform(admitted, { items ->
             val item = items?.singleOrNull()
             SessionResult(if (item != null && request.apply(session.player, exo, item))
-                SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_INVALID_STATE)
+                SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE)
         }, Executor { work -> check(handler.post(work)) })
     }
 
