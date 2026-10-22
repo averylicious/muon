@@ -2,6 +2,9 @@ package dev.avery.muon
 
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -39,6 +42,28 @@ internal fun sharedPicture(key: String): Modifier {
     val motion = LocalSharedMotion.current ?: return Modifier
     return with(motion.transition) {
         Modifier.sharedElement(rememberSharedContentState(key), motion.visibility)
+    }
+}
+
+/**
+ * Incoming Library chrome must stay above the flying cover, just as it clips the resting grid.
+ * Only its target page is elevated: an outgoing Library must keep fading with its ordinary parent.
+ * Shared overlays bypass parent alpha, so the child owns the matching entrance fade explicitly.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+internal fun libraryChrome(): Modifier {
+    val motion = LocalSharedMotion.current ?: return Modifier
+    val entrance = with(motion.visibility) {
+        Modifier.animateEnterExit(enter = fadeIn(motionMedium()), exit = ExitTransition.None,
+            label = "library chrome")
+    }
+    return with(motion.transition) {
+        Modifier.renderInSharedTransitionScopeOverlay(
+            renderInOverlay = { isTransitionActive &&
+                motion.visibility.transition.targetState == EnterExitState.Visible },
+            zIndexInOverlay = 1f,
+        ).then(entrance)
     }
 }
 
