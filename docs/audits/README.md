@@ -9,7 +9,11 @@ Start with the [maintained issue-state index](issues/README.md), [finite release
 - User deferred #207's notification-only stale-cover case. Actual Stable configuration and defined data/interaction/hardware/accessibility acceptance remain required in the release plan.
 - Existing user-approved SD lifecycle/provenance deferrals remain unresolved maintenance items. A passing build is not a security certification or Stable approval.
 
-The cumulative app candidate is #634, `feaa0636c5c034eaa5070d163f2400d856c33bee`; inspected main is `a2db02b8ba0b4959f28aecf5fa89196cf92622bc`. These are dated snapshots, not a substitute for live verification. The 275 open PRs at inventory time are mostly accumulated components, not independent remaining defects.
+The frozen cumulative candidate is [#636](https://github.com/averylicious/muon/pull/636), `1d73ecda6be93bcb9c17c3f1e48f1047d52c7fec`; .1334 CI/APK verification passed and user retesting remains. Actual main is `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`. Verify live heads; accumulated component PRs are not independent remaining defects.
+
+## Separate next-point audit
+
+The user authorized further audits on October23, including outside the old scope, without phone access. [Post-RC owner state](issues/181.md) and [evidence report](2026-10-23-post-rc.md) track #638, #639, #640 and the test-execution inventory. These are future maintenance work, not automatic additional gates for the frozen candidate.
 
 ## Finding and reporting rules
 

@@ -4,6 +4,10 @@ Start here when resuming the main audit. These are **maintained current snapshot
 
 | Workstream | Current state | GitHub owner record |
 | --- | --- | --- |
+| Post-RC source audit and maintenance | [#181](181.md) | [Audit #181](https://github.com/averylicious/muon/issues/181) |
+| Active probe network ownership | [#638](638.md) | [Issue #638](https://github.com/averylicious/muon/issues/638) |
+| UI-thread collection projections | [#639](639.md) | [Issue #639](https://github.com/averylicious/muon/issues/639) |
+| CI signing exposure and timing labels | [#640](640.md) | [Issue #640](https://github.com/averylicious/muon/issues/640) |
 | Aggregate memory and partition storage | [#253](253.md) | [Issue #253](https://github.com/averylicious/muon/issues/253) |
 | Saved-card startup and Move latency — explicitly deferred post-release | [#401](401.md) | [Issue #401](https://github.com/averylicious/muon/issues/401) |
 | Overall release sequence and acceptance gates | [Release plan](../../release-plan.md) | [Audit #181](https://github.com/averylicious/muon/issues/181) |

@@ -1,12 +1,12 @@
 # Coordinator handoff
 
-Updated 2026-10-22. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-23. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
-Pixel8 user acceptance of .1325 passed the tried Bluetooth controls and found queue Undo/shuffled-order and TalkBack labeling/focus defects. Storage setup wording also needs phone-only/empty-library clarity. These are concrete UAT corrections within the frozen scope, not a reopened general audit.
+Current RC #636/.1334 is frozen at `1d73ecda6be93bcb9c17c3f1e48f1047d52c7fec`; CI/downloaded APK verification passed, user will retest queue/TalkBack later. No app merge/release or experimental change. Main is `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`.
 
-Implementation is in the isolated #636 candidate worktree. Initial solo corrections passed interim .1332; user-authorized Claude Opus5.5/High then implemented a service-authoritative Undo follow-up. Two October23 independent scoped Codex reviews found a pending-edit race (also reproduced by .1333’s failed regression) and an accessible Previous-action mismatch. Both are source-fixed/rechecked; replacement final-head CI is pending. Claude is idle; no parked dirty work or device operation. No phone was used for these corrections. Main now includes documentation report #637 at `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`. The app candidate remains DRAFT/OPEN pending final-head CI and focused user retesting. See the [current UAT correction checkpoint](handoffs/2026-10-22-uat-corrections.md); the [completed storage/compatibility evidence](handoffs/2026-10-22-release-acceptance.md) remains valid for its exact prior sources.
+User authorized separate next-point audits/engineering, including outside old scope, with **no phone access**. [Current post-RC handoff](handoffs/2026-10-23-post-rc-audit.md) records the isolated branch, completed independent reviews and active allocated Claude #640 writer. [#181 snapshot](audits/issues/181.md) links findings/evidence; do not reopen frozen RC gates or rely on older hardware permission.
 
 ## Resume order
 
