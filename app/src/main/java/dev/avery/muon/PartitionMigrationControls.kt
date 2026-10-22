@@ -13,8 +13,10 @@ import kotlinx.coroutines.withContext
 
 /** Only an actually prepared partition store exposes these controls; no backend activation. */
 @Composable
-internal fun PartitionMigrationControls(store:OfflineStore.Store) {
+internal fun PartitionMigrationControls(store:OfflineStore.Store,expanded:Boolean,
+    report:(StorageRecoverySection,StorageRecoveryPresentation)->Unit) {
     if(store.missingPartitionCardVolume!=null) {
+        if(!expanded) return
         Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier=Modifier.fillMaxWidth()) {
             Text("Your selected SD card is unavailable. Phone-saved audio remains readable. Return the same card and fully restart Muon to save, optimize, delete or move copies; the card's ownership records are preserved.",
@@ -22,12 +24,13 @@ internal fun PartitionMigrationControls(store:OfflineStore.Store) {
         }
         return
     }
-    MigrationPanel(store,false)
-    if(store.card?.partition!=null) MigrationPanel(store,true)
+    MigrationPanel(store,false,expanded,report)
+    if(store.card?.partition!=null) MigrationPanel(store,true,expanded,report)
 }
 
 @Composable
-private fun MigrationPanel(store:OfflineStore.Store,sourceCard:Boolean) {
+private fun MigrationPanel(store:OfflineStore.Store,sourceCard:Boolean,expanded:Boolean,
+    report:(StorageRecoverySection,StorageRecoveryPresentation)->Unit) {
     val context=LocalContext.current
     val source=if(sourceCard) store.card?.partition else store.phone.partition
     if(source==null) return
@@ -38,10 +41,11 @@ private fun MigrationPanel(store:OfflineStore.Store,sourceCard:Boolean) {
     var refresh by remember(source) {mutableIntStateOf(0)}
     var page by remember(source,after,refresh) {mutableStateOf<MigrationRecoveryPage?>(null)}
     var unavailable by remember(source,after,refresh) {mutableStateOf(false)}
+    var uncertain by remember(source,after,refresh) {mutableStateOf(false)}
     var selected by remember(source,after,refresh) {mutableStateOf<MigrationRecord?>(null)}
     var admissionFailed by remember(source,after,refresh) {mutableStateOf(false)}
-    var attempt by remember(store) {mutableStateOf<PartitionMigrationAttempt?>(null)}
-    var progress by remember(store) {mutableStateOf<MigrationWorkProgress?>(null)}
+    var attempt by remember(store) {mutableStateOf(store.migrationAttempt?.takeIf {it.sourceCard==sourceCard})}
+    var progress by remember(store) {mutableStateOf(attempt?.control?.progress ?: store.migrationStatus?.takeIf {it.sourceCard==sourceCard}?.progress)}
     var cancelRequested by remember(source,moving) {mutableStateOf(false)}
     LaunchedEffect(store,moving,sourceCard) {
         do {
@@ -55,11 +59,25 @@ private fun MigrationPanel(store:OfflineStore.Store,sourceCard:Boolean) {
     LaunchedEffect(source,after,refresh,revision,moving) {
         selected=null
         if(!moving) {
-            page=null;unavailable=false
+            page=null;unavailable=false;uncertain=false
             try {page=withContext(Dispatchers.IO) {source.pendingMigrationSummaries(after)}}
-            catch(failure:Exception) {if(failure is CancellationException) throw failure;unavailable=true}
+            catch(failure:Exception) {
+                if(failure is CancellationException) throw failure
+                unavailable=true
+                uncertain=failure is PartitionOwnershipUncertain || failure is MigrationIoUncertain || failure is SavedCoverCloseUncertain
+            }
         }
     }
+    // Ready is a completed success, not an outstanding recovery task. Retain the backend status;
+    // active work and every non-success result remain reviewable, including neutral cancellation.
+    val presentation=storageRecoveryPresentation(pageLoaded=page!=null,firstPage=after==null,
+        hasEntries=page?.entries?.isNotEmpty()==true,hasMore=page?.hasMore==true,
+        working=attempt!=null,progress=storageMigrationNeedsReview(progress?.phase,attempt!=null),
+        unavailable=unavailable,selected=selected!=null,admissionFailed=admissionFailed,
+        uncertain=uncertain || progress?.phase==MigrationWorkPhase.Uncertain)
+    val section=if(sourceCard) StorageRecoverySection.CardOptimization else StorageRecoverySection.PhoneOptimization
+    SideEffect {report(section,presentation)}
+    if(!expanded || !storageRecoveryDetailsVisible(presentation)) return
     Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier=Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -108,7 +126,7 @@ private fun MigrationPanel(store:OfflineStore.Store,sourceCard:Boolean) {
     }
     selected?.let {entry ->
         AlertDialog(onDismissRequest={selected=null},title={Text("Retry interrupted optimization?")},
-            text={Text("$location. Muon will recheck this exact interrupted attempt and create a fresh replacement. Keep storage available and enough temporary space for another copy. Original audio and earlier partial replacements remain saved. Nothing is deleted by this action.")},
+            text={Text("$location. Recheck this interrupted attempt and create a fresh replacement. Originals and earlier partial copies stay saved. Keep storage available and enough space for another copy. Nothing is deleted.")},
             confirmButton={TextButton(enabled=!moving,onClick={
                 selected=null
                 admissionFailed=!OfflineStore.beginPartitionMigration(context,sourceCard,entry.ticket.allocation.key,true,entry)

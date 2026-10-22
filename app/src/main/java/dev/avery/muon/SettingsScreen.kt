@@ -45,6 +45,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
     // The expanded title is 36sp, so its bar has to grow with the user's font scale or it clips.
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 2f)
     val colors = MaterialTheme.colorScheme
+    val storageAvailability by OfflineStore.availability.collectAsState()
     // The installed APK's own flag, not a build setting, so the banner cannot disagree with the app.
     val debuggable = remember(context) { (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 }
     Column(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
@@ -64,6 +65,9 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             model.error?.let { ErrorCard(it, "Retry", quiet = model.offline, modifier = Modifier) { model.connect() } }
             if (debuggable) DiagnosticBuildBanner()
             else if (BuildConfig.STORAGE_TIMINGS) StorageTimingBuildBanner()
+            if(storageAvailability==StorageAvailability.Ready) {
+                OfflineStore.current()?.takeIf {it.phone.partition!=null}?.let {PartitionStorageControls(it)}
+            }
 
             GroupLabel("Connection")
             SettingsGroup {
@@ -199,10 +203,6 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
                 })
         }
-    }
-    if(store.phone.partition!=null) {
-        PartitionMoveRecoveryControls(store)
-        PartitionMigrationControls(store)
     }
     offerMove?.let { (toCard, count) ->
         val what = "$count ${if (count == 1) "download" else "downloads"}"
