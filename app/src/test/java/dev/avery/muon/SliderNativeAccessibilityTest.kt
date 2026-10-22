@@ -1,6 +1,8 @@
 package dev.avery.muon
 
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.graphics.Rect
+import android.graphics.Region
 import android.os.Bundle
 import android.os.Looper
 import android.view.View
@@ -26,6 +28,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter
@@ -38,6 +41,9 @@ import java.time.Duration
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w480dp-h1000dp-mdpi")
+// Compose's native accessibility pruning uses Region intersections. Legacy graphics leaves those
+// native operations inert, so it can export only the host even when the composables are laid out.
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class SliderNativeAccessibilityTest {
     private lateinit var activity: ActivityController<ComponentActivity>
@@ -45,6 +51,10 @@ class SliderNativeAccessibilityTest {
     private val exported = mutableListOf<AccessibilityNodeInfo>()
 
     @Before fun enableAccessibility() {
+        val region = Region(0, 0, 10, 10)
+        assertTrue("Compose accessibility requires working native Region intersections",
+            region.op(Region(2, 2, 8, 8), Region.Op.INTERSECT))
+        assertEquals(Rect(2, 2, 8, 8), region.bounds)
         val app = RuntimeEnvironment.getApplication()
         val manager = app.getSystemService(AccessibilityManager::class.java)
         shadowOf(manager).apply {
@@ -154,9 +164,25 @@ class SliderNativeAccessibilityTest {
         val sliders = nodes.filter { it.info.className?.toString() == "android.widget.SeekBar" }
         val matches = sliders.filter { it.info.text?.toString() == label }
         assertEquals("Expected one native SeekBar named $label; exported: " +
-            sliders.map { "text=${it.info.text}, description=${it.info.contentDescription}" }, 1, matches.size)
+            nodes.map(::describe) + "; hierarchy: " + describeHierarchy(view), 1, matches.size)
         return matches.single()
     }
+
+    private fun describe(node: NativeNode): String {
+        val info = node.info
+        val bounds = Rect().also { info.getBoundsInScreen(it) }
+        return "id=${node.id}, class=${info.className}, text=${info.text}, " +
+            "description=${info.contentDescription}, children=${info.childCount}, " +
+            "visible=${info.isVisibleToUser}, bounds=$bounds"
+    }
+
+    private fun describeHierarchy(providerView: View): String =
+        generateSequence(providerView) { it.parent as? View }.joinToString(" <- ") { view ->
+            val visible = Rect()
+            val hasVisibleBounds = view.getGlobalVisibleRect(visible)
+            "${view.javaClass.simpleName}(${view.width}x${view.height}, " +
+                "attached=${view.isAttachedToWindow}, globalVisible=$hasVisibleBounds:$visible)"
+        }
 
     private fun findProvider(view: View): View? {
         if (view.accessibilityNodeProvider != null) return view
