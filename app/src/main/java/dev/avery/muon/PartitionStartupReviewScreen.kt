@@ -72,15 +72,15 @@ internal fun PartitionStartupReviewScreen(claimed:Boolean,darkTheme:Boolean) {
                 Text("Review saved storage",style=MaterialTheme.typography.headlineSmall)
                 // Canary (including a non-debuggable one) is the debug build type; Stable is release.
                 Text(if(BuildConfig.BUILD_TYPE=="debug") "Canary storage preview · opt-in only. Keep a backup of originals while testing."
-                    else "Optional storage optimization · opt-in only. Keep a backup of originals before opting in.",
+                    else "Optional saved-song storage setup for phone storage or an SD card. Keep a backup of any existing originals before opting in.",
                     style=MaterialTheme.typography.bodyMedium)
                 Text(when {
                     !claimed -> "Normal storage startup already owns this process. Use Android App info to Force stop Muon, then long-press its app icon and choose Review saved storage."
-                    phase==PartitionOptInPhase.Checking || pending -> "Checking existing storage and saving the startup choice. Wait for confirmation; keep the original SD card connected."
+                    phase==PartitionOptInPhase.Checking || pending -> "Checking storage and saving the startup choice. Wait for confirmation. If you used an SD card for saved songs, keep that same card connected."
                     phase==PartitionOptInPhase.RestartRequired -> "The startup choice is saved. Use Android App info to Force stop Muon, then reopen its ordinary app icon. Existing originals are kept."
                     phase==PartitionOptInPhase.Uncertain -> "The check or saved choice could not be confirmed. Existing originals are kept. Force stop Muon before reviewing again; do not retry in this process."
-                    phase==PartitionOptInPhase.Refused || refused -> "Could not start. Keep the original SD card connected. Missing or unsupported old cache records are not repaired automatically. Force stop Muon before another review."
-                    backend==StorageBackendSelection.Legacy -> "Review optimized storage without loading the old full native index. This does not start playback, downloads or a server connection. Reconnect the original SD card, including a card previously used for saved songs."
+                    phase==PartitionOptInPhase.Refused || refused -> "Could not start. If you used an SD card for saved songs, reconnect that same card. Existing files are kept; unavailable storage records are not repaired automatically. Force stop Muon before another review."
+                    backend==StorageBackendSelection.Legacy -> "Review saved-song storage setup, including phone storage before your first download. This does not start playback, downloads or a server connection. If you previously saved songs to an SD card, reconnect that same card."
                     backend==StorageBackendSelection.PartitionV1 -> "A storage choice already exists. Interrupted setup requires explicit Resume below. Otherwise Force stop Muon and reopen its ordinary app icon to validate the saved choice."
                     else -> "The saved storage choice is unsupported. Existing data is protected; it will not be reset or replaced automatically."
                 })
@@ -90,8 +90,8 @@ internal fun PartitionStartupReviewScreen(claimed:Boolean,darkTheme:Boolean) {
                     PartitionSetupControls(null,availability)
                 TextButton(onClick={openMuonAppInfo(context)}) {Text("Open Android app info")}
             }
-            if(confirm) AlertDialog(onDismissRequest={confirm=false},title={Text("Use optimized saved storage?")},
-                text={Text("Save the exact current volumes for startup after a full Force stop and restart. Originals remain readable; moving or deleting them stays explicit. No bulk migration or deletion occurs. Optimizing each copy needs temporary free space. Obsolete old index metadata may remain; this is not secure erasure. Missing or unsupported native bootstrap is refused without creating or repairing it.")},
+            if(confirm) AlertDialog(onDismissRequest={confirm=false},title={Text("Set up saved-song storage?")},
+                text={Text("Set up saved-song storage after a full Force stop and restart. This works with phone storage; no SD card is required. Existing originals stay readable. Setup does not move, duplicate or delete audio. Replacing an existing copy is a separate action and needs temporary free space. Setup stops if existing storage cannot be safely checked.")},
                 confirmButton={TextButton(onClick={
                     confirm=false;pending=OfflineStore.beginStartupReviewOptIn(context,true);refused=!pending
                 }) {Text("Save startup choice")}},dismissButton={TextButton(onClick={confirm=false}) {Text("Not now")}})

@@ -202,6 +202,24 @@ class QueueRemovalUndoTest {
         assertTrue(player.shuffleModeEnabled)
     }
 
+    @Test fun savedUndoRechecksOwnershipAfterHeldAdmissionBeforeChangingPlayback() {
+        val work = java.util.ArrayDeque<Runnable>()
+        val executor = java.util.concurrent.Executor { work.add(it) }
+        val ref = requireNotNull(SavedRef.download(SavedShelf.Phone, "saved/undo", "saved/undo"))
+        val saved = queueOccurrence(MediaItem.Builder().setMediaId(ref.handle).setUri(ref.handle).build())
+        player.setMediaItems(listOf(a, saved, c), 0, 0L)
+        val p = connectController(PlaybackSessionCallback({ true }, executor))
+        val removal = remove(p, 1)
+        barrier(p)
+        val future = removal.undo()
+        pumpUntil { work.size == 1 }
+        player.setMediaItems(listOf(c, a), 0, 0L)
+        work.removeFirst().run()
+        pumpUntil { future.isDone }
+        assertFalse(future.get(1, TimeUnit.SECONDS))
+        assertEquals(listOf(c.mediaId, a.mediaId), ids(player))
+    }
+
     @Test fun reshuffleAfterRemovalIsNotOverwrittenByUndo() {
         player.setMediaItems(listOf(1, 2, 3, 4, 5).map(::item), 0, 0L)
         player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 3, 1, 4, 2)))
@@ -221,9 +239,9 @@ class QueueRemovalUndoTest {
     private fun remove(p: Player, index: Int) =
         requireNotNull(QueueRemovalUndo.remove(p, index, p.getMediaItemAt(index))).also(removals::add)
 
-    private fun connectController(): MediaController {
+    private fun connectController(callback: PlaybackSessionCallback = PlaybackSessionCallback()): MediaController {
         val made = MediaSession.Builder(RuntimeEnvironment.getApplication(), player)
-            .setCallback(PlaybackSessionCallback()).build().also { session = it }
+            .setCallback(callback).build().also { session = it }
         val future = MediaController.Builder(RuntimeEnvironment.getApplication(), made.token).buildAsync()
         pumpUntil { future.isDone }
         return future.get(1, TimeUnit.SECONDS).also { controller = it }
