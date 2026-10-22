@@ -14,6 +14,7 @@ One published Stable is available through Obtainium. The current main-track audi
 - [#401 startup/Move latency](audits/issues/401.md): selected data-preservation comparison passed; user accepted the measured delays for this release. Further performance work is deferred, not fixed.
 - User explicitly deferred #207's notification-only stale-cover case. In-app implementation still needs landing/acceptance. Existing storage/identity/hardware/accessibility acceptance remains in the [release gate list](release-plan.md).
 - Current RC: DRAFT/OPEN #636 at `1d73ecda6be93bcb9c17c3f1e48f1047d52c7fec`; .1334 CI and downloaded APK checks passed after queue/TalkBack corrections. User will test later. Main is still `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`; no app merge/release.
+- [#639 worker projections](audits/issues/639.md): implementation/source review complete on its future branch, first CI pending; [checkpoint](handoffs/2026-10-23-collection-projections.md). #638 is separately implementing discovery-network ownership. Both keep current RC frozen; no phone access.
 - Separate user-authorized next-point work: [post-RC audit #181](audits/issues/181.md). No phone access; do not automatically convert its new findings into frozen RC gates.
 - Full SD lifecycle #179 and dependency/tool/cache provenance retain user-approved release deferrals. Keep them unresolved follow-ups; do not automatically reopen the release scope.
 
