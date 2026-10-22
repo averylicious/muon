@@ -104,10 +104,10 @@ class QueueRemovalUndoTest {
         removal.close()
         assertFalse(undo(removal))
         val before = items(player)
-        assertNull(QueueRemovalUndo.remove(player, -1, b))
-        assertNull(QueueRemovalUndo.remove(player, 50, b))
-        assertNull(QueueRemovalUndo.remove(player, 1, c))
-        assertNull(QueueRemovalUndo.remove(player, player.currentMediaItemIndex, a))
+        assertNull(removeOrNull(player, -1, b))
+        assertNull(removeOrNull(player, 50, b))
+        assertNull(removeOrNull(player, 1, c))
+        assertNull(removeOrNull(player, player.currentMediaItemIndex, a))
         assertEquals(before, items(player))
     }
 
@@ -229,14 +229,75 @@ class QueueRemovalUndoTest {
         assertEquals(listOf(0, 4, 2, 3, 1), queueShuffledOrder(player))
     }
 
+    @Test fun pendingControllerEditCannotMisplaceTheShuffledUndoSlot() {
+        player.setMediaItems(listOf(1, 2, 2, 3, 4, 2).map(::item), 0, 0L)
+        player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 2, 5, 4, 1, 3)))
+        player.shuffleModeEnabled = true
+        val p = connectController()
+        // Add to queue, not yet acknowledged: pinned Media3 masks the controller's timeline unshuffled,
+        // so an order captured there would put the restored row in the wrong slot.
+        p.addMediaItem(queueOccurrence(item(9)))
+        assertEquals((0..6).toList(), queueShuffledOrder(p))
+        val removal = remove(p, 2)
+        assertTrue(undo(removal))
+        barrier(p)
+        // The append went last in the shuffle; the restored duplicate is back second, as before removal.
+        assertEquals(listOf(1, 2, 2, 4, 2, 3, 9).map { item(it).mediaId },
+            queueShuffledOrder(player).map { player.getMediaItemAt(it).mediaId })
+        assertEquals(0, player.currentMediaItemIndex)
+    }
+
+    @Test fun quickSecondRemovalOfAStaleRowIsRefusedAndTheFirstUndoRestoresItsExactDuplicateSlot() {
+        player.setMediaItems(listOf(1, 2, 2, 3, 4, 2).map(::item), 0, 0L)
+        player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 2, 5, 4, 1, 3)))
+        player.shuffleModeEnabled = true
+        val p = connectController()
+        val before = queueShuffledOrder(player).map { queueOccurrenceKey(player.getMediaItemAt(it)) }
+        val stale = p.getMediaItemAt(4)
+        val first = QueueRemovalUndo.remove(p, 2, p.getMediaItemAt(2))
+        // Sent before the first is acknowledged, from the same unchanged view: index 4 now holds another row.
+        val second = QueueRemovalUndo.remove(p, 4, stale)
+        pumpUntil { first.isDone && second.isDone }
+        val removal = requireNotNull(first.get()).also(removals::add)
+        assertNull(second.get())
+        assertEquals(5, player.mediaItemCount)
+        assertTrue(queueOccurrenceKey(stale) in items(player).map(::queueOccurrenceKey))
+        assertTrue(undo(removal))
+        // Every surviving duplicate keeps its slot; the restored one is back at shuffled position 1.
+        val after = queueShuffledOrder(player).map { queueOccurrenceKey(player.getMediaItemAt(it)) }
+        assertEquals(before.filterIndexed { i, _ -> i != 1 }, after.filterIndexed { i, _ -> i != 1 })
+        assertNotEquals(before[1], after[1])
+        assertEquals(item(2).mediaId, player.getMediaItemAt(queueShuffledOrder(player)[1]).mediaId)
+    }
+
+    @Test fun undoTicketDoesNotCarryTheSurvivingSongsText() {
+        val many = (1..1_500).map(::item)
+        player.setMediaItems(many, 0, 0L)
+        val survivingChars = many.filterIndexed { i, _ -> i != 700 }
+            .sumOf { it.mediaId.length + requireNotNull(queueOccurrenceKey(it)).length }
+        val ticket = requireNotNull(QueueRemovalRequest(700, many[700].mediaId, queueOccurrenceKey(many[700])).applyTo(player))
+        assertNotNull(QueueRemovalTicket.fromBundle(ticket))
+        val parcel = android.os.Parcel.obtain()
+        try {
+            parcel.writeBundle(ticket)
+            assertTrue("${parcel.dataSize()} bytes", parcel.dataSize() < survivingChars)
+        } finally { parcel.recycle() }
+    }
+
     private fun undo(removal: QueueRemovalUndo): Boolean {
         val future = removal.undo()
         pumpUntil { future.isDone }
         return future.get(1, TimeUnit.SECONDS)
     }
 
-    private fun remove(p: Player, index: Int) =
-        requireNotNull(QueueRemovalUndo.remove(p, index, p.getMediaItemAt(index))).also(removals::add)
+    /** Waits for the session's acknowledgement when [p] is a controller. */
+    private fun removeOrNull(p: Player, index: Int, item: MediaItem): QueueRemovalUndo? {
+        val future = QueueRemovalUndo.remove(p, index, item)
+        pumpUntil { future.isDone }
+        return future.get(1, TimeUnit.SECONDS)?.also(removals::add)
+    }
+
+    private fun remove(p: Player, index: Int) = requireNotNull(removeOrNull(p, index, p.getMediaItemAt(index)))
 
     private fun connectController(callback: PlaybackSessionCallback = PlaybackSessionCallback()): MediaController {
         val made = MediaSession.Builder(RuntimeEnvironment.getApplication(), player)

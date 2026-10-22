@@ -16,6 +16,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * The app owns the queue; trusted system controllers operate the existing queue only. A saved copy
@@ -38,7 +39,8 @@ internal class PlaybackSessionCallback(
         val result = when {
             // Includes Media3's in-process notification controller. Package names are not identity.
             controller.uid == Process.myUid() -> MediaSession.ConnectionResult.accept(
-                MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(RESTORE_QUEUE_REMOVAL).build(),
+                MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+                    .add(REMOVE_QUEUE_ITEM).add(RESTORE_QUEUE_REMOVAL).build(),
                 MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
             )
             controller.isTrusted -> MediaSession.ConnectionResult.accept(
@@ -51,11 +53,21 @@ internal class PlaybackSessionCallback(
 
     override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo,
         customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
-        if (customCommand.customAction != RESTORE_QUEUE_REMOVAL.customAction)
+        val action = customCommand.customAction
+        if (action != REMOVE_QUEUE_ITEM.customAction && action != RESTORE_QUEUE_REMOVAL.customAction)
             return super.onCustomCommand(session, controller, customCommand, args)
         if (controller.uid != Process.myUid()) return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_PERMISSION_DENIED))
-        val request = QueueRemovalRestore.fromBundle(args) ?: return Futures.immediateFuture(
+        if (action == REMOVE_QUEUE_ITEM.customAction) {
+            // Removal and the order Undo needs come from the actual player in this one operation, on
+            // its thread; a controller's pending edits leave its own timeline unshuffled.
+            val removal = QueueRemovalRequest.fromBundle(args) ?: return Futures.immediateFuture(
+                SessionResult(SessionError.ERROR_BAD_VALUE))
+            val ticket = removal.applyTo(session.player) ?: return Futures.immediateFuture(
+                SessionResult(SessionError.ERROR_INVALID_STATE))
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, ticket))
+        }
+        val request = QueueRemovalTicket.fromBundle(args) ?: return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_BAD_VALUE))
         val exo = shufflePlayer ?: (session.player as? ExoPlayer) ?: return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_NOT_SUPPORTED))
@@ -68,7 +80,10 @@ internal class PlaybackSessionCallback(
             val item = items?.singleOrNull()
             SessionResult(if (item != null && request.apply(session.player, exo, item))
                 SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE)
-        }, Executor { work -> check(handler.post(work)) })
+        }, Executor { work ->
+            // Guava propagates a rejection to the result; another exception would leave it pending.
+            if (!handler.post(work)) throw RejectedExecutionException("The player's thread has stopped")
+        })
     }
 
     override fun onAddMediaItems(

@@ -167,15 +167,24 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
         }
     }
 
-    /** Removes the song if its position still holds it, and says whether it did. */
-    fun remove(entry: QueueEntry): Boolean {
-        val p = player ?: return false
-        if (!queueEntryCurrent(p, snapshot.stamp, revision(), entry.index, entry.item)) return false
-        val removal = QueueRemovalUndo.remove(p, entry.index, entry.item) ?: return false
+    /**
+     * Asks the service to remove the song if its position still holds it. Nothing is reported until
+     * the service acknowledges; a refusal calls [refused] (a swiped row goes back) and says so.
+     */
+    fun remove(entry: QueueEntry, refused: () -> Unit = {}) {
+        val p = player
+        val title = entry.item.mediaMetadata.title ?: "song"
         scope.launch {
+            val removal = if (p != null && queueEntryCurrent(p, snapshot.stamp, revision(), entry.index, entry.item))
+                QueueRemovalUndo.removeAwait(p, entry.index, entry.item) else null
+            if (removal == null) {
+                refused()
+                snackbar.showSnackbar("Queue changed; “$title” wasn't removed.")
+                return@launch
+            }
+            snackbar.currentSnackbarData?.dismiss()
             try {
-                snackbar.currentSnackbarData?.dismiss()
-                val result = snackbar.showSnackbar("Removed “${entry.item.mediaMetadata.title ?: "song"}”",
+                val result = snackbar.showSnackbar("Removed “$title”",
                     actionLabel = if (removal.restorable) "Undo" else null, duration = SnackbarDuration.Short)
                 // The service restores the original shuffled slot as well as the playlist index,
                 // and acknowledges the mutation before we report success.
@@ -184,8 +193,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                     snackbar.showSnackbar("Queue changed; removal wasn't undone.")
                 }
             } finally { removal.close() }
-        }.invokeOnCompletion { removal.close() } // Also close if the scope was already cancelled.
-        return true
+        }
     }
 
     Scaffold(
@@ -246,7 +254,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                     } else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                     gesturesEnabled = editable && dragKey == null,
                     // A refused removal (the queue changed under the finger) puts the row back.
-                    onDismiss = { if (!remove(entry)) scope.launch { state.reset() } },
+                    onDismiss = { remove(entry) { scope.launch { state.reset() } } },
                     backgroundContent = {
                         Box(Modifier.fillMaxSize().background(colors.errorContainer).padding(horizontal = 24.dp),
                             contentAlignment = if (state.dismissDirection == SwipeToDismissBoxValue.StartToEnd)

@@ -56,7 +56,8 @@ class QueueIntegrationTest {
         player.setMediaItems(originals)
         val stamp = QueueActionStamp(7, player.currentTimeline, player.currentMediaItemIndex, false)
         assertTrue(queueEntryCurrent(player, stamp, 7, 1, originals[1]))
-        val removal = requireNotNull(QueueRemovalUndo.remove(player, 1, originals[1]))
+        // A raw player completes removal immediately; a controller waits for the session.
+        val removal = requireNotNull(QueueRemovalUndo.remove(player, 1, originals[1]).get())
         try {
             assertFalse(queueEntryCurrent(player, stamp, 7, 1, originals[2]))
             val kept = listOf(originals[0], originals[2], originals[3])
