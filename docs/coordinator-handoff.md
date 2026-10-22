@@ -6,7 +6,7 @@ Updated 2026-10-23. This short resume entry points to maintained [issue state](a
 
 Current RC #636/.1334 is frozen at `1d73ecda6be93bcb9c17c3f1e48f1047d52c7fec`; CI/downloaded APK verification passed, user will retest queue/TalkBack later. No app merge/release or experimental change. Main is `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`.
 
-User authorized separate next-point audits/engineering, including outside old scope, with **no phone access**. [Current post-RC handoff](handoffs/2026-10-23-post-rc-audit.md) records the isolated branch, completed independent reviews and active allocated Claude #640 writer. [#181 snapshot](audits/issues/181.md) links findings/evidence; do not reopen frozen RC gates or rely on older hardware permission.
+User authorized separate next-point audits/engineering. The [latest verification checkpoint](handoffs/2026-10-23-post-rc-verification.md) records the RC's user-requested release-identity installation on both phones, current UAT and separate future branches. The phones are now reserved for the user's UAT; no additional automated testing/settings changes. [#181 snapshot](audits/issues/181.md) links maintained states. No app merge, Stable release or experimental sync; do not reopen frozen gates or rely on old device permission.
 
 ## Resume order
 

@@ -21,6 +21,14 @@ those paths change a lot. Recording never touches Canary or Stable.
    change `baselineprofile/`. It uploads `baseline-profile-tools-<sha>` with two debug-signed APKs:
    - `app-benchmark.apk`: **Muon Benchmark** (`dev.avery.muon.benchmark`), Stable's code, unminified and profileable, in its own package;
    - `baselineprofile-benchmark.apk`: the generator (`dev.avery.muon.baselineprofile`), the journeys in `BaselineProfileGenerator.kt`.
+   Before restoring the debug signing key, the workflow runs exactly two existing storage-startup
+   unit methods against the compiled `benchmark` variant. An XML check requires both to pass without
+   skips, failures or errors; a single surviving Gradle filter is insufficient. This checks that
+   partition opt-in is unavailable in the benchmark channel and that its production default refuses
+   a persisted selection before resolving roots or opening the legacy native cache. It adds no full
+   third unit suite. `benchmark-gate-reports-<sha>` contains the XML/HTML results when available.
+   These checks run only when this optional workflow runs; changing the app selector alone does not
+   currently trigger it. They do not record a profile or perform phone acceptance testing.
 2. On an Android 13+ phone on the same network as Tauon, with the user's go-ahead for device access.
    Install Muon Benchmark, open it once and connect it to Tauon, typing the address if the scan finds
    nothing (it didn't on 2026-09-27). The recording starts from the library, not the Connect screen.
