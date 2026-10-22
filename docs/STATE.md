@@ -8,7 +8,7 @@ One published Stable is available through Obtainium. The current main-track audi
 
 ## Active work
 
-- Current user UAT: tried Bluetooth controls passed; shuffled queue Undo, TalkBack labels/grouping and storage-setup wording need corrections/retest. See the [current correction checkpoint](handoffs/2026-10-22-uat-corrections.md). #636 remains draft/open; no new Stable release.
+- Current user UAT: tried Bluetooth controls passed; shuffled queue Undo, TalkBack labels/grouping and storage-setup wording were corrected for .1334 and need user retest. See the [current correction checkpoint](handoffs/2026-10-22-uat-corrections.md). #636 remains draft/open; no new Stable release.
 
 - [#253 memory/storage](audits/issues/253.md): cumulative redesign on open #636; focused source closure and final selected memory/minified-storage/legacy/queue automation passed. User-approved controlled compatibility replacement passed (no old Stable data exists); interaction and hardware/accessibility acceptance remain; no app merge/release yet.
 - [#401 startup/Move latency](audits/issues/401.md): selected data-preservation comparison passed; user accepted the measured delays for this release. Further performance work is deferred, not fixed.
