@@ -30,6 +30,8 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.C
@@ -499,7 +501,8 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
                         try { drawContent() } finally { drawContext.canvas.restore() }
                     }
                 }.semantics {
-                    contentDescription = "Playback position"
+                    // Keep the purpose on the native SeekBar, including merged slider nodes.
+                    text = AnnotatedString("Playback position")
                     stateDescription = "${formatTime(elapsed.toLong())} of ${formatTime(duration)}"
                 })
             // Decorative only; native seek actions stay on the slider underneath. Scrubbing
