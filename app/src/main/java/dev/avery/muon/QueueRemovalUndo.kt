@@ -35,14 +35,17 @@ internal fun queueShuffledOrder(player: Player): List<Int> {
     return if (order.size == count && index == C.INDEX_UNSET) order else emptyList()
 }
 
-/** Fixed-size identity of an ordered (song, occurrence) list; lengths delimit every field. */
-internal fun queueSnapshotDigest(occurrences: List<Pair<String, String>>): ByteArray {
+/** Fixed-size identity of the ordered songs/occurrences, including ambiguous legacy rows. */
+internal fun queueSnapshotDigest(player: Player): ByteArray {
     val hash = MessageDigest.getInstance("SHA-256")
     fun length(n: Int) { for (shift in 24 downTo 0 step 8) hash.update((n ushr shift).toByte()) }
-    length(occurrences.size)
-    for ((id, key) in occurrences) for (text in arrayOf(id, key)) {
-        val bytes = text.toByteArray(Charsets.UTF_8)
-        length(bytes.size); hash.update(bytes)
+    length(player.mediaItemCount)
+    for (i in 0 until player.mediaItemCount) {
+        val item = player.getMediaItemAt(i)
+        for (text in arrayOf(item.mediaId, queueOccurrenceKey(item).orEmpty())) {
+            val bytes = text.toByteArray(Charsets.UTF_8)
+            length(bytes.size); hash.update(bytes)
+        }
     }
     return hash.digest()
 }
@@ -92,7 +95,7 @@ internal class QueueRemovalUndo private constructor(private val player: Player,
                 player.getMediaItemAt(index).mediaId != item.mediaId ||
                 queueOccurrenceKey(player.getMediaItemAt(index)) != queueOccurrenceKey(item))
                 return Futures.immediateFuture(null)
-            val request = QueueRemovalRequest(index, item.mediaId, queueOccurrenceKey(item))
+            val request = QueueRemovalRequest.capture(player, index, item)
             if (player is MediaController) {
                 if (!player.availableSessionCommands.contains(REMOVE_QUEUE_ITEM)) return Futures.immediateFuture(null)
                 return Futures.transform(player.sendCustomCommand(REMOVE_QUEUE_ITEM, request.toBundle()), { result ->
@@ -115,9 +118,11 @@ internal class QueueRemovalUndo private constructor(private val player: Player,
 }
 
 /** Same-UID removal of the row the app showed: its position, song and occurrence must still match. */
-internal class QueueRemovalRequest(private val index: Int, private val mediaId: String, private val key: String?) {
+internal class QueueRemovalRequest private constructor(private val index: Int, private val mediaId: String,
+    private val key: String?, private val count: Int, private val digest: ByteArray) {
     fun toBundle() = Bundle().apply {
         putInt(INDEX, index); putString(MEDIA_ID, mediaId); key?.let { putString(KEY, it) }
+        putInt(COUNT, count); putByteArray(DIGEST, digest.clone())
     }
 
     /** On the player's thread. Null refuses without change; otherwise removed, with a ticket bundle
@@ -125,6 +130,9 @@ internal class QueueRemovalRequest(private val index: Int, private val mediaId: 
     fun applyTo(player: Player): Bundle? {
         if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) ||
             index !in 0 until player.mediaItemCount || index == player.currentMediaItemIndex) return null
+        // Custom commands can overtake earlier queued/asynchronous player edits. Refuse until the
+        // actual ordered queue matches what the user saw, rather than return an already-stale Undo.
+        if (player.mediaItemCount != count || !MessageDigest.isEqual(queueSnapshotDigest(player), digest)) return null
         val target = player.getMediaItemAt(index)
         if (target.mediaId != mediaId || queueOccurrenceKey(target) != key) return null
         val shuffled = queueShuffledOrder(player)
@@ -136,14 +144,22 @@ internal class QueueRemovalRequest(private val index: Int, private val mediaId: 
         private const val INDEX = "index"
         private const val MEDIA_ID = "mediaId"
         private const val KEY = "key"
+        private const val COUNT = "count"
+        private const val DIGEST = "digest"
+        fun capture(player: Player, index: Int, item: MediaItem) = QueueRemovalRequest(
+            index, item.mediaId, queueOccurrenceKey(item), player.mediaItemCount, queueSnapshotDigest(player))
+
         fun fromBundle(bundle: Bundle): QueueRemovalRequest? = runCatching {
             val index = bundle.getInt(INDEX, -1)
             val mediaId = requireNotNull(bundle.getString(MEDIA_ID))
             val key = bundle.getString(KEY)
-            require(index in 0 until SavedQueueLimits().items && mediaId.isNotEmpty() && mediaId.length <= 16 * 1024)
+            val count = bundle.getInt(COUNT, -1)
+            val digest = requireNotNull(bundle.getByteArray(DIGEST)).clone()
+            require(count in 1..SavedQueueLimits().items && index in 0 until count && digest.size == 32)
+            require(mediaId.isNotEmpty() && mediaId.length <= 16 * 1024)
             // Occurrence keys are canonical UUIDs (queueOccurrenceKey); anything else names no row.
             require(key == null || java.util.UUID.fromString(key).toString() == key)
-            QueueRemovalRequest(index, mediaId, key)
+            QueueRemovalRequest(index, mediaId, key, count, digest)
         }.getOrNull()
     }
 }
@@ -161,7 +177,7 @@ internal class QueueRemovalTicket private constructor(private val index: Int, va
         if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) || player.mediaItemCount != count) return false
         val now = queueOccurrences(player) ?: return false
         val key = queueOccurrenceKey(item)
-        return now.none { it.second == key } && MessageDigest.isEqual(queueSnapshotDigest(now), digest)
+        return now.none { it.second == key } && MessageDigest.isEqual(queueSnapshotDigest(player), digest)
     }
 
     fun apply(player: Player, exo: ExoPlayer, admitted: MediaItem): Boolean {
@@ -200,7 +216,7 @@ internal class QueueRemovalTicket private constructor(private val index: Int, va
             if (survivors.size !in 1 until SavedQueueLimits().items || survivors.any { it.second == key } ||
                 shuffled.size != survivors.size + 1) return null
             return QueueRemovalTicket(index, removed.buildUpon().setUri(uri).build(), survivors.size,
-                queueSnapshotDigest(survivors), shuffled.toIntArray())
+                queueSnapshotDigest(player), shuffled.toIntArray())
         }
 
         fun fromBundle(bundle: Bundle): QueueRemovalTicket? = runCatching {

@@ -115,10 +115,10 @@ class QueueRemovalUndoTest {
         val p = connectController()
         val removedItem = p.getMediaItemAt(1)
         val removal = remove(p, 1)
-        barrier(p)
+        sessionRoundTrip(p)
         assertEquals(3, player.mediaItemCount)
         assertTrue("A normal asynchronous session acknowledgement must not invalidate Undo", undo(removal))
-        barrier(p)
+        sessionRoundTrip(p)
         assertEquals(4, player.mediaItemCount)
         assertEquals(removedItem.mediaId, player.getMediaItemAt(1).mediaId)
         assertEquals(removedItem.mediaMetadata.title, player.getMediaItemAt(1).mediaMetadata.title)
@@ -128,11 +128,11 @@ class QueueRemovalUndoTest {
     @Test fun connectedControllerRejectsAReplacementReceivedFromItsSession() {
         val p = connectController()
         val removal = remove(p, 1)
-        barrier(p)
+        sessionRoundTrip(p)
         player.setMediaItems(listOf(c, a), 0, 0L)
         pumpUntil { ids(p) == listOf(c.mediaId, a.mediaId) }
         assertFalse(undo(removal))
-        barrier(p)
+        sessionRoundTrip(p)
         assertEquals(listOf(c.mediaId, a.mediaId), ids(player))
     }
 
@@ -193,9 +193,9 @@ class QueueRemovalUndoTest {
         val before = queueShuffledOrder(p).map { p.getMediaItemAt(it).mediaId }
         val survivor = queueOccurrenceKey(p.getMediaItemAt(2))
         val removal = remove(p, 5)
-        barrier(p)
+        sessionRoundTrip(p)
         assertTrue(undo(removal))
-        barrier(p)
+        sessionRoundTrip(p)
         assertEquals(before, queueShuffledOrder(player).map { player.getMediaItemAt(it).mediaId })
         assertEquals(survivor, queueOccurrenceKey(player.getMediaItemAt(2)))
         assertTrue(player.shuffleModeEnabled)
@@ -209,7 +209,7 @@ class QueueRemovalUndoTest {
         player.setMediaItems(listOf(a, saved, c), 0, 0L)
         val p = connectController(PlaybackSessionCallback({ true }, executor))
         val removal = remove(p, 1)
-        barrier(p)
+        sessionRoundTrip(p)
         val future = removal.undo()
         pumpUntil { work.size == 1 }
         player.setMediaItems(listOf(c, a), 0, 0L)
@@ -229,7 +229,7 @@ class QueueRemovalUndoTest {
         assertEquals(listOf(0, 4, 2, 3, 1), queueShuffledOrder(player))
     }
 
-    @Test fun pendingControllerEditCannotMisplaceTheShuffledUndoSlot() {
+    @Test fun pendingControllerAppendEitherRefusesUntilCommittedOrRestoresTheExactShuffledSlot() {
         player.setMediaItems(listOf(1, 2, 2, 3, 4, 2).map(::item), 0, 0L)
         player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 2, 5, 4, 1, 3)))
         player.shuffleModeEnabled = true
@@ -238,12 +238,51 @@ class QueueRemovalUndoTest {
         // so an order captured there would put the restored row in the wrong slot.
         p.addMediaItem(queueOccurrence(item(9)))
         assertEquals((0..6).toList(), queueShuffledOrder(p))
-        val removal = remove(p, 2)
+        val pending = QueueRemovalUndo.remove(p, 2, p.getMediaItemAt(2))
+        pumpUntil { pending.isDone }
+        val first = pending.get(1, TimeUnit.SECONDS)?.also(removals::add)
+        if (first == null) assertEquals(listOf(1, 2, 2, 3, 4, 2).map { item(it).mediaId },
+            ids(player).filter { it != item(9).mediaId }) // Refusal didn't remove the target.
+        // Custom commands don't flush the earlier player command. Wait for the actual append and
+        // its controller acknowledgement before retrying a refused swipe.
+        pumpUntil { player.mediaItemCount == 7 - (if (first != null) 1 else 0) &&
+            queueShuffledOrder(p) == queueShuffledOrder(player) && ids(p) == ids(player) }
+        val removal = first ?: remove(p, 2)
         assertTrue(undo(removal))
-        barrier(p)
+        sessionRoundTrip(p)
         // The append went last in the shuffle; the restored duplicate is back second, as before removal.
         assertEquals(listOf(1, 2, 2, 4, 2, 3, 9).map { item(it).mediaId },
             queueShuffledOrder(player).map { player.getMediaItemAt(it).mediaId })
+        assertEquals(0, player.currentMediaItemIndex)
+    }
+
+    @Test fun removalRefusesAnEarlierSavedAppendWhileAdmissionIsHeldThenRetriesAfterAcknowledgement() {
+        val work = java.util.ArrayDeque<Runnable>()
+        player.setMediaItems(listOf(1, 2, 2, 3, 4, 2).map(::item), 0, 0L)
+        player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 2, 5, 4, 1, 3)))
+        player.shuffleModeEnabled = true
+        val before = items(player)
+        val beforeOrder = queueShuffledOrder(player)
+        val ref = requireNotNull(SavedRef.download(SavedShelf.Phone, "saved/pending-undo", "saved/pending-undo"))
+        val saved = queueOccurrence(MediaItem.Builder().setMediaId(ref.handle).setUri(ref.handle).build())
+        val p = connectController(PlaybackSessionCallback({ true }, java.util.concurrent.Executor { work.add(it) }))
+        p.addMediaItem(saved)
+        pumpUntil { work.size == 1 }
+        assertEquals(7, p.mediaItemCount) // Controller masks the not-yet-admitted append.
+        assertEquals(6, player.mediaItemCount)
+        val removal = QueueRemovalUndo.remove(p, 2, p.getMediaItemAt(2))
+        pumpUntil { removal.isDone }
+        assertNull(removal.get(1, TimeUnit.SECONDS))
+        assertEquals(before, items(player))
+        assertEquals(beforeOrder, queueShuffledOrder(player))
+        assertEquals(1, work.size) // No pretend custom-command barrier completed the append.
+        work.removeFirst().run()
+        pumpUntil { player.mediaItemCount == 7 && ids(p) == ids(player) &&
+            queueShuffledOrder(p) == queueShuffledOrder(player) }
+        val expected = queueShuffledOrder(player).map { player.getMediaItemAt(it).mediaId }
+        val retry = remove(p, 2)
+        assertTrue(undo(retry))
+        assertEquals(expected, queueShuffledOrder(player).map { player.getMediaItemAt(it).mediaId })
         assertEquals(0, player.currentMediaItemIndex)
     }
 
@@ -275,7 +314,7 @@ class QueueRemovalUndoTest {
         player.setMediaItems(many, 0, 0L)
         val survivingChars = many.filterIndexed { i, _ -> i != 700 }
             .sumOf { it.mediaId.length + requireNotNull(queueOccurrenceKey(it)).length }
-        val ticket = requireNotNull(QueueRemovalRequest(700, many[700].mediaId, queueOccurrenceKey(many[700])).applyTo(player))
+        val ticket = requireNotNull(QueueRemovalRequest.capture(player, 700, many[700]).applyTo(player))
         assertNotNull(QueueRemovalTicket.fromBundle(ticket))
         val parcel = android.os.Parcel.obtain()
         try {
@@ -307,10 +346,10 @@ class QueueRemovalUndoTest {
         return future.get(1, TimeUnit.SECONDS).also { controller = it }
     }
 
-    /** A real session command/result after prior edits; no sleeps stand in for acknowledgement. */
-    private fun barrier(p: MediaController) {
-        // Use an advertised command: an unknown action can be rejected in the controller without
-        // reaching the service, and therefore cannot acknowledge earlier playlist operations.
+    /** Reaches the session, but does not flush or acknowledge its separate player-command queue. */
+    private fun sessionRoundTrip(p: MediaController) {
+        // An unknown action can be rejected locally. This advertised command proves a service
+        // round trip only; tests must await specific player state for earlier ordinary edits.
         val result = p.sendCustomCommand(RESTORE_QUEUE_REMOVAL, Bundle.EMPTY)
         pumpUntil { result.isDone }
         assertEquals(androidx.media3.session.SessionError.ERROR_BAD_VALUE,

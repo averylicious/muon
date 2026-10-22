@@ -52,7 +52,7 @@ class PlaybackSessionCallbackTest {
         player.setMediaItems(listOf(1L, 2L).map { TauonTrack(it, "S", "A", "B", 1000L, true, false).mediaItem(endpoint) })
         val second = player.getMediaItemAt(1)
         // A valid removal request; both commands must check the caller before parsing their payload.
-        val valid = QueueRemovalRequest(1, second.mediaId, queueOccurrenceKey(second)).toBundle()
+        val valid = QueueRemovalRequest.capture(player, 1, second).toBundle()
         for (command in listOf(REMOVE_QUEUE_ITEM, RESTORE_QUEUE_REMOVAL)) {
             assertTrue(callback.onConnectAsync(session, own).get().availableSessionCommands.contains(command))
             assertFalse(callback.onConnectAsync(session, controller()).get().availableSessionCommands.contains(command))

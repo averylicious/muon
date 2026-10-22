@@ -313,7 +313,7 @@ internal fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, revision:
             p.item?.mediaMetadata?.artist?.toString()?.takeIf { it.isNotBlank() }).joinToString(", ")
         customActions = listOfNotNull(
             if (player != null && p.previous) CustomAccessibilityAction("Previous track") {
-                player.seekToPrevious(); true
+                player.seekToPreviousMediaItem(); true
             } else null,
             if (player != null && p.next) CustomAccessibilityAction("Next track") {
                 player.seekToNextMediaItem(); true
