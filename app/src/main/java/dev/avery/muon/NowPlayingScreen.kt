@@ -2,6 +2,7 @@ package dev.avery.muon
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -21,6 +22,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
@@ -153,8 +155,8 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit, actions: Boolean = true) {
     val item = p.item ?: return
     if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
-    if (p.buffering) LinearProgressIndicator(Modifier.fillMaxWidth())
-    SeekControls(item.mediaId, position, p.duration, p.seekable, player)
+    // Buffering occupies the existing seek slot; adding a row changes the weighted cover size.
+    SeekControls(item.mediaId, position, p.duration, p.seekable, p.buffering, player)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically) {
         if (!narrow) ShuffleControl(p, player)
@@ -462,18 +464,39 @@ private fun RepeatControl(p: PlaybackUi, player: MediaController?) {
     }
 }
 
+/** Brief skips do not flash a new row or change artwork/controls height. */
+private const val BUFFERING_SHOW_DELAY_MS = 300L
+
 @Composable
-private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, seekable: Boolean, player: MediaController?) {
+private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, seekable: Boolean,
+    buffering: Boolean, player: MediaController?) {
     var scrub by remember(mediaId) { mutableStateOf<Float?>(null) }
     val range = duration.coerceAtLeast(1).toFloat()
     val elapsed = scrub ?: position().toFloat().coerceIn(0f, range)
+    var stalled by remember(mediaId) { mutableStateOf(false) }
+    LaunchedEffect(mediaId, buffering) {
+        stalled = false
+        if (buffering) { delay(BUFFERING_SHOW_DELAY_MS); stalled = true }
+    }
+    val waiting = buffering && stalled && scrub == null
+    val shown by animateFloatAsState(if (waiting) 1f else 0f, motionMedium(), label = "buffering")
     Column {
-        Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
-            onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
-            enabled = seekable && player != null, modifier = Modifier.semantics {
-                contentDescription = "Playback position"
-                stateDescription = "${formatTime(elapsed.toLong())} of ${formatTime(duration)}"
-            })
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
+                onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
+                enabled = seekable && player != null,
+                modifier = Modifier.graphicsLayer { alpha = 1f - shown }.semantics {
+                    contentDescription = "Playback position"
+                    stateDescription = "${formatTime(elapsed.toLong())} of ${formatTime(duration)}"
+                })
+            // Decorative only; native seek actions stay on the slider underneath. Scrubbing
+            // immediately restores its thumb, and the times keep the same measured positions.
+            if (waiting || shown > 0f) Box(Modifier.matchParentSize()
+                .graphicsLayer { alpha = shown }.clearAndSetSemantics {},
+                contentAlignment = Alignment.Center) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(elapsed.toLong()), style = MaterialTheme.typography.labelSmall)
             Text(formatTime(duration), style = MaterialTheme.typography.labelSmall)
