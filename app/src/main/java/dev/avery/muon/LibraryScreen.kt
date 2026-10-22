@@ -128,12 +128,8 @@ internal fun LibraryTop(tracks: Int, view: LibraryView, choose: (LibraryView) ->
         val expanded = libraryHeaderHeight(maxHeight.value, LocalDensity.current.fontScale)
         val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(bar)
         Column(Modifier.fillMaxSize()) {
-            // Shared covers move under the opaque controls, including when their grid row is
-            // partly scrolled offscreen. Ordinary parent clipping does not constrain the flight.
-            Column(libraryChrome().background(MaterialTheme.colorScheme.background)) {
-                LibraryHeader(tracks, expanded, titled, offline, scrollBehavior)
-                LibraryChips(view, choose)
-            }
+            LibraryHeader(tracks, expanded, titled, offline, scrollBehavior)
+            LibraryChips(view, choose)
             LibraryPane(refreshing, refresh) {
                 Box(Modifier.fillMaxSize().then(
                     if (expanded != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
@@ -194,8 +190,7 @@ internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
 @Composable
 internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T) -> String, choose: (T) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    Row(libraryChrome().background(MaterialTheme.colorScheme.background)
-        .fillMaxWidth().padding(start = 24.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         // No count where something above already gives it, as the Songs greeting does (#122).
         if (count != null) Text(count, style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
