@@ -1,6 +1,5 @@
 package dev.avery.muon
 
-import android.app.Application
 import android.net.ConnectivityManager
 import android.net.LinkAddress
 import android.net.LinkProperties
@@ -61,7 +60,7 @@ class LanProbeRoundTest {
         assertFalse(probeNetworkEligible(caps(NetworkCapabilities.TRANSPORT_VPN)))
         assertFalse(probeNetworkEligible(null))
 
-        val context = RuntimeEnvironment.getApplication<Application>()
+        val context = RuntimeEnvironment.getApplication()
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val shadow = shadowOf(connectivity)
         shadow.setActiveNetworkInfo(ShadowNetworkInfo.newInstance(NetworkInfo.DetailedState.CONNECTED,
@@ -107,7 +106,7 @@ class LanProbeRoundTest {
 
     @Suppress("DEPRECATION")
     @Test fun ipv6OnlyWifiOwnsAnEmptyProbeWhileNsdCanCompleteAndLossStillClearsIt() = runBlocking(Dispatchers.IO) {
-        val context = RuntimeEnvironment.getApplication<Application>()
+        val context = RuntimeEnvironment.getApplication()
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val shadow = shadowOf(connectivity)
         shadow.setActiveNetworkInfo(ShadowNetworkInfo.newInstance(NetworkInfo.DetailedState.CONNECTED,
