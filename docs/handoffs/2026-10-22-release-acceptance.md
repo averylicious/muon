@@ -82,15 +82,26 @@ Release .1323 loaded a synthetic2,049-song playable selection. Tapping a song sh
 
 Final root checks found no disposable `.exo` audio payloads in either test app's phone/card storage, no owned listener, both apps stopped, original media volume restored and Diagnostic local-network permission back to its original denied state. Full prior file hashes of the regular Muon and separately preserved old Diagnostic card folders matched. No run-as/SELinux/root-manager/network policy was changed. Current authorization covers this resumed task, not every future session.
 
+### Approved controlled compatibility replacement — passed within stated limits
+
+The user reported **no existing Stable data** and explicitly chose controlled compatibility checks instead of the unavailable real-user upgrade UAT. No installed app was uninstalled, downgraded or cleared for this replacement.
+
+Verified published Stable: [v0.1.0](https://github.com/averylicious/muon/releases/tag/v0.1.0), exact source `2c018ce350c46f32757c55cb66c0490de5b1b0f9`. Its source has no OfflineStore/download/cache implementation; PlaybackService streams through HTTP. The published Stable therefore did **not** create the saved-copy indexes assumed by the earlier upgrade checklist. Legacy saved-storage compatibility applies to older development/Canary data, not a nonexistent v0.1.0 saved library.
+
+- Actual old release APK checksum matched its published SHA256SUMS: `a2e505c2ba289750d8eefd466656f32741ba50982b92cdf5e2e6d5627b9fd94b`. Its non-debuggable package is `dev.avery.muon.release`; release certificate matches the independently verified current .1325 APK, and versionCode increases from4 to1325. No old APK was installed. These are update prerequisites, not an observed in-place installation.
+- Old `LibraryModel.kt` stores connection in SharedPreferences file `connection`, string key `origin`. Current code reads that same file/type/key. The actual minified-release fixtures above used that literal source-derived legacy XML format and successfully loaded the synthetic library after restart; restoration compared the prior preference bytes on-device. No real-user connection data was exported or reused as a fixture.
+- Controlled legacy saved-storage evidence remains the two-shelf exact-row/audio opt-in/Delete/Move case above, plus actual Media3 index/cache tests such as `DownloadBootstrapCharacterizationTest.unchangedCompletedDownloadsBootstrapWithoutLosingIndexOrBytes` and `ReadOnlyLegacySavedAudioTest.closedLegacyPlaybackReadsExactSavedBytesAndEofKeepsExclusionWithoutNativeIndex`, run by CI. They are synthetic current-library-format coverage, not an old release database dump or evidence for every historical Canary schema.
+
+This completes the **user-approved replacement criterion**. Real-user in-place upgrade remains unperformed and explicitly disclosed, rather than an impossible mandatory gate. This decision does not waive remaining interaction/hardware acceptance or authorize publication.
+
 ## Remaining release boundary — acceptance, not a fresh engineering backlog
 
 No remaining implementation defect was confirmed in the locked inspected #253 paths. Final tiny-artwork verification, selected unoptimized legacy actions and minified queue refusal now pass. No application code or unit tests were added in this continuation. This does not independently clear every cumulative component or promise exact whole-process memory bounds.
 
-Keep #636 DRAFT/OPEN for these **finite remaining user/RC acceptance groups**:
+Keep #636 DRAFT/OPEN for these **two finite remaining user/RC acceptance groups**:
 
-1. **Existing-data actual-release upgrade:** install the selected release-identity RC over an existing Stable installation, without uninstall/clear-data. Confirm saved rows/bytes/settings remain; installing alone must not opt in. On disposable backed-up copies, explicit opt-in/restart and relevant legacy Delete/Move/identity/refusal/recovery feedback should remain correct. Current POCO was clean-flashed, so fresh-install/Diagnostic results cannot prove this upgrade path.
-2. **Interaction acceptance:** actual-release queue duplicates/Undo, library/artist scroll restoration, player sheet cancellation/Back/reopening, discovery and layout. Earlier selected evidence remains evidence; final user acceptance is not replaced by source reading or silent fixtures.
-3. **Hardware/accessibility acceptance:** Bluetooth/headset controls and complete spoken/focus TalkBack behavior. Rooted UI-tree checks cannot establish audible output or a screen-reader user's experience. Respect the existing Pixel lockscreen-testing deferral; earlier POCO lockscreen evidence is retained rather than changing Pixel settings.
+1. **Interaction acceptance:** actual-release queue duplicates/Undo, library/artist scroll restoration, player sheet cancellation/Back/reopening, discovery and layout. Earlier selected evidence remains evidence; final user acceptance is not replaced by source reading or silent fixtures.
+2. **Hardware/accessibility acceptance:** Bluetooth/headset controls and complete spoken/focus TalkBack behavior. Rooted UI-tree checks cannot establish audible output or a screen-reader user's experience. Respect the existing Pixel lockscreen-testing deferral; earlier POCO lockscreen evidence is retained rather than changing Pixel settings.
 
 Low-space/error paths have unit/source evidence; selected phone happy paths do not establish every injected filesystem failure. The explicitly deferred deeper SD lifecycle #179 is not silently reopened as a gate. #401 performance, #207 notification-only artwork and provenance remain unresolved approved maintenance follow-ups.
 
