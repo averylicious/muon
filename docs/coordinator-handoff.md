@@ -1,12 +1,14 @@
 # Coordinator handoff
 
-Updated 2026-10-21. This is a short resume entry point; detailed current findings belong in the [issue-state index](audits/issues/README.md). Older handoffs are evidence, not permission.
+Updated 2026-10-22. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
-Workflow documentation: #635 / branch `codex/stable-closure-oct21`, coordinator GPT-6 / Codex desktop (exact variant/effort not reported). App candidate remains [#634](https://github.com/averylicious/muon/pull/634), `feaa0636c5c034eaa5070d163f2400d856c33bee`. Main verified `a2db02b8ba0b4959f28aecf5fa89196cf92622bc`. App stack OPEN; experiment checkout untouched; no Stable release or production activation.
+Resumed acceptance checks completed. **All device work stopped/restored**, no active storage worker/helper or code edits. Coordinator GPT-6 / Codex desktop (exact variant/effort not reported); allocated Claude Opus5.5 High finished focused read-only closure review, idle. Main `ec02b64f41996ec4a456c764ed94360675570df1`; experiment untouched.
 
-Latest execution checkpoint: [October21 workflow and device restoration](handoffs/2026-10-21-release-state-workflow.md). Selected .1318 update/reader/Move preservation checks passed, disposable full copy now PHONE. Tiny-artwork verification was interrupted by USB loss; restoration completed, both apps stopped and no Move/helper remains. User paused device audit; fresh-attempt final saved-data proof remains pending. Source/CI work may continue.
+Current app candidate DRAFT/OPEN [#636](https://github.com/averylicious/muon/pull/636), app/build source `af70c50c226cfafb5320052bf71950a40eef60a2`; subsequent checkpoint changes are documentation only. Ordinary .1323/Diagnostic .1324 actual reports/APK checks passed; current-head .1325 CI also passed. Selected minified opt-in/original/optimization/Move/Delete and oversized-queue refusal passed. Resumed Diagnostic tiny-artwork/library replacement and unoptimized legacy Delete/Move passed. No app-stack merge/Stable publication.
+
+Latest execution checkpoint: [October22 release acceptance and restoration](handoffs/2026-10-22-release-acceptance.md). Next is the checkpoint’s finite user/RC acceptance (existing-data release upgrade, interactions, Bluetooth and spoken/focus TalkBack); no confirmed new #253 implementation defect. This documentation report is isolated from the unchanged app PR. Rooted POCO shell works on the clean-flashed A17 ROM; run-as still fails context lookup. Old Diagnostic card data preserved separately, regular Muon unchanged. Historical pre-flash private indexes no longer exist; do not assume older snapshots are a live baseline.
 
 ## Resume order
 
