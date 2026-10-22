@@ -61,7 +61,7 @@ class QueueIntegrationTest {
             assertFalse(queueEntryCurrent(player, stamp, 7, 1, originals[2]))
             val kept = listOf(originals[0], originals[2], originals[3])
             assertEquals(queueRowKeys(kept), queueRowKeys(items()))
-            assertTrue(removal.undo())
+            assertTrue(removal.undo().get())
             assertEquals(originals.map { it.mediaId }, items().map { it.mediaId })
             assertNotEquals(queueOccurrenceKey(originals[1]), queueOccurrenceKey(player.getMediaItemAt(1)))
             assertEquals(queueOccurrenceKey(originals[2]), queueOccurrenceKey(player.getMediaItemAt(2)))

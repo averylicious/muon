@@ -46,6 +46,17 @@ class PlaybackSessionCallbackTest {
         assertEquals(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS, result.availablePlayerCommands)
     }
 
+    @Test fun queueUndoCommandIsOwnUidOnlyAndRejectsMalformedRequests() {
+        val own = controller(uid = Process.myUid())
+        assertTrue(callback.onConnectAsync(session, own).get().availableSessionCommands.contains(RESTORE_QUEUE_REMOVAL))
+        assertFalse(callback.onConnectAsync(session, controller()).get().availableSessionCommands.contains(RESTORE_QUEUE_REMOVAL))
+        assertEquals(androidx.media3.session.SessionResult.RESULT_ERROR_PERMISSION_DENIED,
+            callback.onCustomCommand(session, controller(), RESTORE_QUEUE_REMOVAL, Bundle.EMPTY).get().resultCode)
+        assertEquals(androidx.media3.session.SessionResult.RESULT_ERROR_BAD_VALUE,
+            callback.onCustomCommand(session, own, RESTORE_QUEUE_REMOVAL, Bundle.EMPTY).get().resultCode)
+        assertEquals(0, player.mediaItemCount)
+    }
+
     @Test fun foreignUidWithAppPackageLabelIsRejectedWhenUntrusted() {
         val result = callback.onConnectAsync(session, controller(trusted = false,
             packageName = RuntimeEnvironment.getApplication().packageName)).get()

@@ -115,7 +115,7 @@ class PlaybackService : MediaSessionService() {
                 OkHttpDataSource.Factory(Transport.metadataClient))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            .setCallback(PlaybackSessionCallback({ OfflineStore.admitsSaved(this, it) }, admission, diagnosticTiming)).build()
+            .setCallback(PlaybackSessionCallback({ OfflineStore.admitsSaved(this, it) }, admission, diagnosticTiming, player)).build()
     }
     // Saved-copy admission reads an index row, so it is kept off the session's main thread (#213).
     private val admission = java.util.concurrent.Executors.newSingleThreadExecutor()

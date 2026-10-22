@@ -20,6 +20,14 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -304,7 +312,20 @@ internal fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, revision:
     // scope, and it returns centred with fresh covers — even if the finger never moved. A finger
     // still down cannot resume, because a new detector waits for a new press.
     val shown = revision()
-    key(player, shown) { ArtworkGesture(p, player, shown, revision, modifier) }
+    val accessible = modifier.semantics(mergeDescendants = true) {
+        contentDescription = listOfNotNull("Album artwork",
+            p.item?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() },
+            p.item?.mediaMetadata?.artist?.toString()?.takeIf { it.isNotBlank() }).joinToString(", ")
+        customActions = listOfNotNull(
+            if (player != null && p.previous) CustomAccessibilityAction("Previous track") {
+                player.seekToPrevious(); true
+            } else null,
+            if (player != null && p.next) CustomAccessibilityAction("Next track") {
+                player.seekToNextMediaItem(); true
+            } else null,
+        )
+    }
+    key(player, shown) { ArtworkGesture(p, player, shown, revision, accessible) }
 }
 
 /**
@@ -454,7 +475,19 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
     Column {
         Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
             onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
-            enabled = seekable && player != null, modifier = Modifier.semantics { contentDescription = "Seek position" })
+            enabled = seekable && player != null, modifier = Modifier.clearAndSetSemantics {
+                contentDescription = "Playback position"
+                stateDescription = "${formatTime(elapsed.toLong())} of ${formatTime(duration)}"
+                progressBarRangeInfo = ProgressBarRangeInfo(elapsed, 0f..range)
+                if (!seekable || player == null) disabled() else setProgress { target ->
+                    if (!target.isFinite()) false else {
+                        val value = target.coerceIn(0f, range).toLong()
+                        if (value == elapsed.toLong()) false else {
+                            scrub = null; player.seekTo(value); true
+                        }
+                    }
+                }
+            })
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(elapsed.toLong()), style = MaterialTheme.typography.labelSmall)
             Text(formatTime(duration), style = MaterialTheme.typography.labelSmall)

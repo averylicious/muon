@@ -1,11 +1,16 @@
 package dev.avery.muon
 
 import android.os.Process
+import android.os.Bundle
+import android.os.Handler
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommands
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
@@ -21,6 +26,7 @@ internal class PlaybackSessionCallback(
     private val admitSaved: (SavedRef) -> Boolean = { false },
     private val background: Executor = Executor { it.run() },
     private val timing: SavedStartupTiming = SavedStartupTiming.DISABLED,
+    private val shufflePlayer: ExoPlayer? = null,
 ) : MediaSession.Callback {
     // Cancellation does not free a task that is still queued/running on the admission worker.
     private val savedAdmissionPending = java.util.concurrent.atomic.AtomicBoolean()
@@ -31,7 +37,7 @@ internal class PlaybackSessionCallback(
         val result = when {
             // Includes Media3's in-process notification controller. Package names are not identity.
             controller.uid == Process.myUid() -> MediaSession.ConnectionResult.accept(
-                MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
+                MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(RESTORE_QUEUE_REMOVAL).build(),
                 MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
             )
             controller.isTrusted -> MediaSession.ConnectionResult.accept(
@@ -40,6 +46,28 @@ internal class PlaybackSessionCallback(
             else -> MediaSession.ConnectionResult.reject()
         }
         return Futures.immediateFuture(result)
+    }
+
+    override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo,
+        customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
+        if (customCommand.customAction != RESTORE_QUEUE_REMOVAL.customAction)
+            return super.onCustomCommand(session, controller, customCommand, args)
+        if (controller.uid != Process.myUid()) return Futures.immediateFuture(
+            SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
+        val request = QueueRemovalRestore.fromBundle(args) ?: return Futures.immediateFuture(
+            SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE))
+        val exo = shufflePlayer ?: (session.player as? ExoPlayer) ?: return Futures.immediateFuture(
+            SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+        if (!request.matches(session.player)) return Futures.immediateFuture(
+            SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
+        // Reuse the ordinary URI, metadata-budget and asynchronous saved-copy admission gate.
+        val admitted = onAddMediaItems(session, controller, mutableListOf(request.item))
+        val handler = Handler(session.player.applicationLooper)
+        return Futures.transform(admitted, { items ->
+            val item = items?.singleOrNull()
+            SessionResult(if (item != null && request.apply(session.player, exo, item))
+                SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_INVALID_STATE)
+        }, Executor { work -> check(handler.post(work)) })
     }
 
     override fun onAddMediaItems(

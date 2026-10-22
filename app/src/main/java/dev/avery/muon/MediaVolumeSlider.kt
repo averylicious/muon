@@ -24,7 +24,11 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -90,7 +94,18 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
                     slider.place(0, 0)
                 }
             }
-            .semantics { contentDescription = "Media volume level" },
+            .clearAndSetSemantics {
+                contentDescription = "Media volume"
+                stateDescription = "${state.percent} percent"
+                progressBarRangeInfo = ProgressBarRangeInfo(state.current.toFloat(),
+                    state.minimum.toFloat()..maxOf(state.maximum, state.minimum + 1).toFloat())
+                if (!enabled) disabled() else setProgress { target ->
+                    if (!target.isFinite()) false else {
+                        val value = target.coerceIn(state.minimum.toFloat(), state.maximum.toFloat()).roundToInt()
+                        if (value == state.current) false else { setVolume(value); true }
+                    }
+                }
+            },
         thumb = {
             Layout(content = {
                 // Slimmer than the seek bar's, so volume reads as the secondary control it is.

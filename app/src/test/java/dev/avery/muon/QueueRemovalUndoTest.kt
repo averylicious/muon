@@ -51,10 +51,10 @@ class QueueRemovalUndoTest {
         val removal = remove(player, 1)
         assertEquals(listOf(a.mediaId, b.mediaId, c.mediaId), ids(player))
         assertTrue(removal.restorable)
-        assertTrue(removal.undo())
+        assertTrue(undo(removal))
         assertEquals(initial.map { it.mediaId }, ids(player))
         assertEquals(initial.map { it.mediaMetadata.title }, items(player).map { it.mediaMetadata.title })
-        assertFalse(removal.undo())
+        assertFalse(undo(removal))
     }
 
     @Test fun replacingWithIdenticalRemainingItemsInvalidatesOwnership() {
@@ -63,18 +63,18 @@ class QueueRemovalUndoTest {
         player.setMediaItems(remaining.map(::queueOccurrence), 0, 0L)
         assertEquals(remaining.map { it.mediaId }, ids(player))
         val replacement = items(player)
-        assertFalse(removal.undo())
+        assertFalse(undo(removal))
         assertEquals(replacement, items(player))
     }
 
     @Test fun replacementAndClearDoNotReceiveAnOldRemovedSong() {
         val removal = remove(player, 1)
         player.setMediaItems(listOf(c, a), 0, 0L)
-        assertFalse(removal.undo())
+        assertFalse(undo(removal))
         assertEquals(listOf(c, a), items(player))
         val second = remove(player, 1)
         player.clearMediaItems()
-        assertFalse(second.undo())
+        assertFalse(undo(second))
         assertTrue(items(player).isEmpty())
     }
 
@@ -85,7 +85,7 @@ class QueueRemovalUndoTest {
         player.moveMediaItem(1, 2)
         assertEquals(before.map { it.mediaId }, ids(player)) // Song-ID matching misses this reorder.
         val reordered = items(player)
-        assertFalse(removal.undo())
+        assertFalse(undo(removal))
         assertEquals(reordered, items(player))
     }
 
@@ -93,7 +93,7 @@ class QueueRemovalUndoTest {
         val removal = remove(player, 1)
         player.seekToDefaultPosition(1)
         player.shuffleModeEnabled = true
-        assertTrue(removal.undo())
+        assertTrue(undo(removal))
         assertEquals(initial.map { it.mediaId }, ids(player))
         assertEquals(initial.map { it.mediaMetadata.title }, items(player).map { it.mediaMetadata.title })
         assertTrue(player.shuffleModeEnabled)
@@ -103,7 +103,7 @@ class QueueRemovalUndoTest {
         val removal = remove(player, 1)
         removal.close()
         removal.close()
-        assertFalse(removal.undo())
+        assertFalse(undo(removal))
         val before = items(player)
         assertNull(QueueRemovalUndo.remove(player, -1, b))
         assertNull(QueueRemovalUndo.remove(player, 50, b))
@@ -118,7 +118,7 @@ class QueueRemovalUndoTest {
         val removal = remove(p, 1)
         barrier(p)
         assertEquals(3, player.mediaItemCount)
-        assertTrue("A normal asynchronous session acknowledgement must not invalidate Undo", removal.undo())
+        assertTrue("A normal asynchronous session acknowledgement must not invalidate Undo", undo(removal))
         barrier(p)
         assertEquals(4, player.mediaItemCount)
         assertEquals(removedItem.mediaId, player.getMediaItemAt(1).mediaId)
@@ -132,7 +132,7 @@ class QueueRemovalUndoTest {
         barrier(p)
         player.setMediaItems(listOf(c, a), 0, 0L)
         pumpUntil { ids(p) == listOf(c.mediaId, a.mediaId) }
-        assertFalse(removal.undo())
+        assertFalse(undo(removal))
         barrier(p)
         assertEquals(listOf(c.mediaId, a.mediaId), ids(player))
     }
@@ -142,11 +142,11 @@ class QueueRemovalUndoTest {
         player.setMediaItems(listOf(a, raw, c), 0, 0L)
         val missing = remove(player, 1)
         assertFalse(missing.restorable)
-        assertFalse(missing.undo())
+        assertFalse(undo(missing))
         player.setMediaItems(listOf(a, b, b, b), 0, 0L)
         val ambiguous = remove(player, 1)
         assertFalse(ambiguous.restorable)
-        assertFalse(ambiguous.undo())
+        assertFalse(undo(ambiguous))
     }
 
     @Test fun survivingDuplicateRowsKeepTheirKeysAndUndoCreatesANewRow() {
@@ -154,7 +154,7 @@ class QueueRemovalUndoTest {
         val removal = remove(player, 1)
         val after = queueRowKeys(items(player))
         assertEquals(before.filterIndexed { i, _ -> i != 1 }, after)
-        assertTrue(removal.undo())
+        assertTrue(undo(removal))
         val restored = queueRowKeys(items(player))
         assertNotEquals(before[1], restored[1])
         assertEquals(after, restored.filterIndexed { i, _ -> i != 1 })
@@ -170,6 +170,52 @@ class QueueRemovalUndoTest {
         val legacy = queueRowKeys(listOf(raw, raw, raw))
         assertEquals(3, legacy.toSet().size)
         assertEquals(2, queueRowKeys(listOf(b, b)).toSet().size)
+    }
+
+    @Test fun shuffledUndoRestoresVisibleSlotEvenWhenRemovedItemWasLastInPlaylist() {
+        player.setMediaItems(listOf(1, 2, 2, 3, 4, 5).map(::item), 0, 0L)
+        player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 2, 5, 4, 1, 3)))
+        player.shuffleModeEnabled = true
+        val before = queueShuffledOrder(player).map { player.getMediaItemAt(it).mediaId }
+        val removed = player.getMediaItemAt(5)
+        val removal = remove(player, 5) // Third in playing order; last in the underlying playlist.
+        assertTrue(undo(removal))
+        assertEquals(before, queueShuffledOrder(player).map { player.getMediaItemAt(it).mediaId })
+        assertEquals(removed.mediaMetadata.title, player.getMediaItemAt(5).mediaMetadata.title)
+        assertEquals(0, player.currentMediaItemIndex)
+        assertTrue(player.shuffleModeEnabled)
+    }
+
+    @Test fun connectedControllerUndoRestoresShuffledDuplicatesThroughAcknowledgedSessionCommand() {
+        player.setMediaItems(listOf(1, 2, 2, 3, 4, 5).map(::item), 0, 0L)
+        player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 2, 5, 4, 1, 3)))
+        player.shuffleModeEnabled = true
+        val p = connectController()
+        val before = queueShuffledOrder(p).map { p.getMediaItemAt(it).mediaId }
+        val survivor = queueOccurrenceKey(p.getMediaItemAt(2))
+        val removal = remove(p, 5)
+        barrier(p)
+        assertTrue(undo(removal))
+        barrier(p)
+        assertEquals(before, queueShuffledOrder(player).map { player.getMediaItemAt(it).mediaId })
+        assertEquals(survivor, queueOccurrenceKey(player.getMediaItemAt(2)))
+        assertTrue(player.shuffleModeEnabled)
+    }
+
+    @Test fun reshuffleAfterRemovalIsNotOverwrittenByUndo() {
+        player.setMediaItems(listOf(1, 2, 3, 4, 5).map(::item), 0, 0L)
+        player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 3, 1, 4, 2)))
+        val removal = remove(player, 3)
+        player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 3, 2, 1)))
+        assertTrue(undo(removal))
+        // The deliberate new shuffle survives; inserting at playlist index3 follows its index2.
+        assertEquals(listOf(0, 4, 2, 3, 1), queueShuffledOrder(player))
+    }
+
+    private fun undo(removal: QueueRemovalUndo): Boolean {
+        val future = removal.undo()
+        pumpUntil { future.isDone }
+        return future.get(1, TimeUnit.SECONDS)
     }
 
     private fun remove(p: Player, index: Int) =

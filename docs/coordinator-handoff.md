@@ -4,11 +4,9 @@ Updated 2026-10-22. This short resume entry points to maintained [issue state](a
 
 ## Current boundary
 
-Resumed acceptance checks completed. **All device work stopped/restored**, no active storage worker/helper or code edits. Coordinator GPT-6 / Codex desktop (exact variant/effort not reported); allocated Claude Opus5.5 High finished focused read-only closure review, idle. Main `ec02b64f41996ec4a456c764ed94360675570df1`; experiment untouched.
+Pixel8 user acceptance of .1325 passed the tried Bluetooth controls and found queue Undo/shuffled-order and TalkBack labeling/focus defects. Storage setup wording also needs phone-only/empty-library clarity. These are concrete UAT corrections within the frozen scope, not a reopened general audit.
 
-Current app candidate DRAFT/OPEN [#636](https://github.com/averylicious/muon/pull/636), app/build source `af70c50c226cfafb5320052bf71950a40eef60a2`; subsequent checkpoint changes are documentation only. Ordinary .1323/Diagnostic .1324 actual reports/APK checks passed; current-head .1325 CI also passed. Selected minified opt-in/original/optimization/Move/Delete and oversized-queue refusal passed. Resumed Diagnostic tiny-artwork/library replacement and unoptimized legacy Delete/Move passed. No app-stack merge/Stable publication.
-
-Latest execution checkpoint: [October22 release acceptance and restoration](handoffs/2026-10-22-release-acceptance.md). Next is the checkpoint’s two finite user/RC acceptance groups (interactions/identity feedback, Bluetooth and spoken/focus TalkBack). User reported no existing Stable data and approved the completed controlled compatibility replacement; real-user upgrade remains unperformed/disclosed; no confirmed new #253 implementation defect. This documentation report is isolated from the unchanged app PR. Rooted POCO shell works on the clean-flashed A17 ROM; run-as still fails context lookup. Old Diagnostic card data preserved separately, regular Muon unchanged. Historical pre-flash private indexes no longer exist; do not assume older snapshots are a live baseline.
+Implementation is in the isolated #636 candidate worktree; no phone or Claude use for these changes. Main now includes documentation report #637 at `6eaeb766604d22e5e4f70b7fbacbb82ad924b648`. The app candidate remains DRAFT/OPEN pending final-head CI and focused user retesting. See the [current UAT correction checkpoint](handoffs/2026-10-22-uat-corrections.md); the [completed storage/compatibility evidence](handoffs/2026-10-22-release-acceptance.md) remains valid for its exact prior sources.
 
 ## Resume order
 

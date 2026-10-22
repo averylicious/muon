@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +65,11 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
             // applies before it reports anything.
             .clickable(enabled = active, onClickLabel = "Open Now Playing", onClick = open)
             .semantics {
+                contentDescription = listOfNotNull("Mini-player",
+                    p.item?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() },
+                    p.item?.mediaMetadata?.artist?.toString()?.takeIf { it.isNotBlank() },
+                    if (p.error != null) "Playback interrupted; open player to retry"
+                    else if (p.buffering) "Buffering" else null).joinToString(", ")
                 if (active && ready && p.previous) customActions = listOf(
                     CustomAccessibilityAction("Previous track") { previous(); true })
             }
@@ -211,12 +217,14 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
             }) {
         Column {
             LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
-                modifier = Modifier.fillMaxWidth().height(2.dp))
+                // Visual feedback only. Merging a changing progress range into the clickable
+                // mini-player makes TalkBack repeatedly announce percentages over its song label.
+                modifier = Modifier.fillMaxWidth().height(2.dp).clearAndSetSemantics {})
             Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 // Only the song slides; the controls stay where the thumb expects them. The song is
                 // clipped at its own edge, so it passes under nothing on its way out.
-                Row(Modifier.weight(1f).clipToBounds().graphicsLayer {
+                Row(Modifier.weight(1f).clearAndSetSemantics {}.clipToBounds().graphicsLayer {
                     translationX = swipe.value
                     alpha = 1f - 0.7f * (kotlin.math.abs(swipe.value) / size.width.coerceAtLeast(1f)).coerceAtMost(1f)
                 }, verticalAlignment = Alignment.CenterVertically) {

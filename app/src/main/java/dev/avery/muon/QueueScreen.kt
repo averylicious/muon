@@ -177,10 +177,10 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                 snackbar.currentSnackbarData?.dismiss()
                 val result = snackbar.showSnackbar("Removed “${entry.item.mediaMetadata.title ?: "song"}”",
                     actionLabel = if (removal.restorable) "Undo" else null, duration = SnackbarDuration.Short)
-                // Restore only in this removal's surviving queue/controller. Shuffle still chooses
-                // the restored song's playing order, just as for any ordinary queue insertion.
+                // The service restores the original shuffled slot as well as the playlist index,
+                // and acknowledges the mutation before we report success.
                 if (result == SnackbarResult.ActionPerformed &&
-                    (currentPlayer !== p || !removal.undo())) {
+                    (currentPlayer !== p || !removal.undoAwait())) {
                     snackbar.showSnackbar("Queue changed; removal wasn't undone.")
                 }
             } finally { removal.close() }
@@ -331,7 +331,7 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
         .heightIn(min = 64.dp)
         .then(if (onClick != null) Modifier.clickable(onClickLabel = "Play", onClick = onClick) else Modifier)
         .padding(horizontal = if (playing) 12.dp else 24.dp, vertical = 8.dp)
-        .semantics {
+        .semantics(mergeDescendants = true) {
             if (playing) stateDescription = "Now playing"
             customActions = listOfNotNull(
                 moveUp?.let { CustomAccessibilityAction("Move up") { it(); true } },
