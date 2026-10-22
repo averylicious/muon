@@ -82,6 +82,8 @@ It installs **beside** Canary and Stable; it does not update them or share their
 
 Performance is **not representative** with debugging enabled (#125). Do not use it to judge speed, smoothness or battery. Return to the normal Canary or Stable app for listening; neither needs reinstalling or downgrading. The diagnostic app can remain installed for the next test or be removed separately after test evidence is saved. Never uninstall ordinary Canary or Stable to leave diagnostic mode.
 
+The packaged APK gate requires exactly one app signer and the pinned certificate in every applicable signature-scheme record from Build Tools 37.0.0. A source-stamp certificate cannot satisfy the app identity, and extra signers are refused even when the expected certificate is also present. No key rotation or signing identity change is enabled by this check.
+
 ## Temporary non-debuggable storage timings
 
 For the preserved Canary legacy fixture, manually dispatch **Android APKs** on an isolated non-main branch with `storage_timings=true` and `diagnostic_debug=false`. This keeps the ordinary Canary package, signing identity and data, and remains **non-debuggable**. It adds a `-timings` version suffix, an explicit **Storage timing test build** Settings notice and a mode line in `BUILD.txt`. Its artifact is named `app-timings-<full SHA>`, not `app-debug-<full SHA>`, though the APK inside is still `app-debug.apk`; with `diagnostic_debug=true` too, the artifact is `app-diagnostic-<full SHA>`. Installing it does not opt in, migrate, import or delete data. Return with a newer ordinary build; never uninstall or bypass version-code/signing protection.

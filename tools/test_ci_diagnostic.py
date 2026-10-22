@@ -238,7 +238,8 @@ class PackagedManifestIntegrationTest(unittest.TestCase):
             if Path(args[0]).name == 'apksigner':
                 cert = next(line.split(': ', 1)[1] for line in fingerprints
                             if line.lower().startswith(variant))
-                return f'certificate SHA-256 digest: {cert}'
+                self.assertIn('--verbose', args)
+                return f'Number of signers: 1\nV2 Signer: certificate SHA-256 digest: {cert}\n'
             if Path(args[0]).name == 'aapt':
                 return ApkExpectationTest.badging(package, '0.1.0' + suffix, label, debuggable)
             self.assertEqual(args[1:3], ['manifest', 'print'])
