@@ -1,12 +1,14 @@
 # Coordinator handoff
 
-Updated 2026-10-21. This is a short resume entry point; detailed current findings belong in the [issue-state index](audits/issues/README.md). Older handoffs are evidence, not permission.
+Updated 2026-10-22. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
-Workflow documentation #635 MERGED as `ec02b64f41996ec4a456c764ed94360675570df1`; main .1322 documentation-only checks passed with zero artifacts/no publication. Prepared application successor is on `codex/stable-storage-opt-in-oct21`, implementation `3e609759ef1eedf3e0c3ba19276f700b6f55f188`; source/CI review and acceptance still apply. Coordinator GPT-6 / Codex desktop (exact variant/effort not reported), Claude Opus5.5 High coding completed/idle. App candidate remains [#634](https://github.com/averylicious/muon/pull/634), `feaa0636c5c034eaa5070d163f2400d856c33bee`. Main verified `ec02b64f41996ec4a456c764ed94360675570df1`. App stack OPEN; experiment checkout untouched; no Stable release or production activation.
+User requested early wrap for model settings. **All device work stopped/restored**, no active storage worker/helper or code edits. Coordinator GPT-6 / Codex desktop (exact variant/effort not reported); allocated Claude Opus5.5 High finished focused read-only closure review, idle. Main `ec02b64f41996ec4a456c764ed94360675570df1`; experiment untouched.
 
-Latest execution checkpoint: [October21 workflow and device restoration](handoffs/2026-10-21-release-state-workflow.md). Selected .1318 update/reader/Move preservation checks passed, disposable full copy now PHONE. Tiny-artwork verification was interrupted by USB loss; restoration completed, both apps stopped and no Move/helper remains. User paused device audit; fresh-attempt final saved-data proof remains pending. User requested early wrap-up for host updates; finish only the already prepared source/CI checkpoint, then stop.
+Current app candidate DRAFT/OPEN [#636](https://github.com/averylicious/muon/pull/636), app/build source `af70c50c226cfafb5320052bf71950a40eef60a2`; subsequent checkpoint changes are documentation only. Ordinary .1323 and Diagnostic .1324 passed actual reports/APK identity checks. Fresh minified release selected opt-in/original/optimization/Move/Delete proofs passed; final tiny-artwork case stopped at user request and remains incomplete. No app-stack merge/Stable publication.
+
+Latest execution checkpoint: [October22 release acceptance and restoration](handoffs/2026-10-22-release-acceptance.md). Next is final #253 tiny-image verification when authorized, then defined RC acceptance. Rooted POCO shell works on the clean-flashed A17 ROM; run-as still fails context lookup. Old Diagnostic card data preserved separately, regular Muon unchanged. Historical pre-flash private indexes no longer exist; do not assume older snapshots are a live baseline.
 
 ## Resume order
 

@@ -1,6 +1,6 @@
 # Muon current state
 
-Updated 2026-10-21. Read this short entry point, the relevant [current issue snapshot](audits/issues/README.md) and latest checkpoint; do not load the full historical chronology by default.
+Updated 2026-10-22. Read this short entry point, the relevant [current issue snapshot](audits/issues/README.md) and latest checkpoint; do not load the full historical chronology by default.
 
 ## Release generations
 
@@ -11,7 +11,7 @@ One published Stable is available through Obtainium. The current main-track audi
 - [#253 memory/storage](audits/issues/253.md): cumulative redesign on the open app stack; final memory cases, Stable configuration/promotion and acceptance remain.
 - [#401 startup/Move latency](audits/issues/401.md): selected data-preservation comparison passed; user accepted the measured delays for this release. Further performance work is deferred, not fixed.
 - User explicitly deferred #207's notification-only stale-cover case. In-app implementation still needs landing/acceptance. Existing storage/identity/hardware/accessibility acceptance remains in the [release gate list](release-plan.md).
-- Current source baseline: #634, `feaa0636c5c034eaa5070d163f2400d856c33bee`. Main verified `a2db02b8ba0b4959f28aecf5fa89196cf92622bc`; refresh live GitHub state before acting. App changes are not on main merely because a candidate build passed.
+- Current app candidate: DRAFT/OPEN #636, app/build source `af70c50c226cfafb5320052bf71950a40eef60a2` (later checkpoint commits are documentation only). Main verified `ec02b64f41996ec4a456c764ed94360675570df1`; refresh live GitHub state before acting. App changes are not on main merely because a candidate build passed.
 - Full SD lifecycle #179 and dependency/tool/cache provenance retain user-approved release deferrals. Keep them unresolved follow-ups; do not automatically reopen the release scope.
 
 ## Working rules
