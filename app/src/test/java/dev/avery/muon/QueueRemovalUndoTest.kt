@@ -7,7 +7,6 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
 import androidx.media3.session.MediaSession
-import androidx.media3.session.SessionCommand
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -187,7 +186,7 @@ class QueueRemovalUndoTest {
     }
 
     @Test fun connectedControllerUndoRestoresShuffledDuplicatesThroughAcknowledgedSessionCommand() {
-        player.setMediaItems(listOf(1, 2, 2, 3, 4, 5).map(::item), 0, 0L)
+        player.setMediaItems(listOf(1, 2, 2, 3, 4, 2).map(::item), 0, 0L)
         player.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 2, 5, 4, 1, 3)))
         player.shuffleModeEnabled = true
         val p = connectController()
@@ -249,9 +248,12 @@ class QueueRemovalUndoTest {
 
     /** A real session command/result after prior edits; no sleeps stand in for acknowledgement. */
     private fun barrier(p: MediaController) {
-        val result = p.sendCustomCommand(SessionCommand("dev.avery.muon.test.barrier", Bundle.EMPTY), Bundle.EMPTY)
+        // Use an advertised command: an unknown action can be rejected in the controller without
+        // reaching the service, and therefore cannot acknowledge earlier playlist operations.
+        val result = p.sendCustomCommand(RESTORE_QUEUE_REMOVAL, Bundle.EMPTY)
         pumpUntil { result.isDone }
-        result.get(1, TimeUnit.SECONDS) // Default callback rejects the custom command after processing it.
+        assertEquals(androidx.media3.session.SessionResult.RESULT_ERROR_BAD_VALUE,
+            result.get(1, TimeUnit.SECONDS).resultCode) // Empty Undo is rejected without mutation.
         shadowOf(Looper.getMainLooper()).idle()
     }
 
