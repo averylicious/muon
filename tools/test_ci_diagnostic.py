@@ -174,7 +174,8 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn('    permissions:\n      contents: write\n', PUBLISH)
 
     def test_artifacts_and_build_metadata_identify_the_mode(self):
-        self.assertIn("name: app-${{ steps.diagnostic.outputs.diagnostic == 'true' && 'diagnostic' || 'debug' }}"
+        self.assertIn("name: app-${{ steps.diagnostic.outputs.diagnostic == 'true' && 'diagnostic' || "
+                      "steps.diagnostic.outputs.storage_timings == 'true' && 'timings' || 'debug' }}"
                       "-${{ github.sha }}", BUILD)
         self.assertIn('name: app-release-${{ github.sha }}', BUILD)
         # The publish job still downloads only standard artifact names.
