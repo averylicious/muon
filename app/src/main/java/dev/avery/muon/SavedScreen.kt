@@ -1,12 +1,23 @@
 package dev.avery.muon
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -16,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -24,7 +34,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -58,17 +67,13 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
     val listeningShown = savedListeningShown(listeningChosen, sections, current)
     val end = minOf(count, offset + SAVED_PAGE_SIZE)
     fun storageFor(entry: SavedEntry) = if (entry.ref.shelf == SavedShelf.Card) store?.card?.partition else store?.phone?.partition
+    // Rows join into one group per section, with motion as they come, go and move: a deleted copy folds
+    // away while the rest close up, and Show brings the kept rows in.
     @Composable
-    fun row(entry: SavedEntry) {
-        val source = storageFor(entry)
-        val check = remember(source) { source?.let { owner -> { key: String -> owner.freshMigrationAvailable(key) } } }
-        SavedRow(entry, current == entry.ref.handle, playable, deletable,
-            updateAllowed = playable && DownloadMarks.moving == null && source != null,
-            cardMissing = store?.missingPartitionCardVolume != null,
-            storageCheck = check,
-            play = { play(entry) }, details = { details = entry },
-            delete = { if (!busy && error == null) confirm = entry },
-            update = { if (playable && DownloadMarks.moving == null) migration = entry })
+    fun LazyItemScope.row(entry: SavedEntry, index: Int, size: Int) {
+        SavedRow(entry, current == entry.ref.handle, playable, groupPlace(index, size),
+            open = { details = entry }, play = { play(entry) },
+            modifier = Modifier.animateItem(fadeInSpec = motionMedium(), placementSpec = motionSpatial(), fadeOutSpec = motionShort()))
     }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = if (back != null) 4.dp else 20.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
@@ -102,18 +107,22 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
                 item(key = "empty") { SavedEmpty(busy, error != null) }
                 return@LazyColumn
             }
-            item(key = "info") { InfoLine { explain = true } }
+            item(key = "storage") { StorageCard { explain = true } }
             if (paged) item(key = "page-top") { SavedPageBar(offset, end, count, busy, page) }
             if (sections.downloads.isNotEmpty()) {
                 item(key = "downloads") { SectionHeading("Downloads", sections.downloads.size) }
-                items(sections.downloads, key = { it.ref.handle }, contentType = { "saved" }) { row(it) }
+                itemsIndexed(sections.downloads, key = { _, it -> it.ref.handle }, contentType = { _, _ -> "saved" }) { i, it ->
+                    row(it, i, sections.downloads.size)
+                }
             }
             if (sections.listening.isNotEmpty()) {
                 item(key = "listening") {
                     ListeningHeading(sections.listening.size, listeningShown,
                         toggle = if (listeningForced) null else ({ listeningChosen = !listeningChosen }))
                 }
-                if (listeningShown) items(sections.listening, key = { it.ref.handle }, contentType = { "saved" }) { row(it) }
+                if (listeningShown) itemsIndexed(sections.listening, key = { _, it -> it.ref.handle }, contentType = { _, _ -> "saved" }) { i, it ->
+                    row(it, i, sections.listening.size)
+                }
             }
             if (paged) item(key = "page-bottom") { SavedPageBar(offset, end, count, busy, page) }
             else item(key = "total") {
@@ -124,8 +133,19 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
     }
     if (explain) ExplainSheet { explain = false }
     details?.let { entry ->
+        val source = storageFor(entry)
+        val check = remember(source) { source?.let { owner -> { key: String -> owner.freshMigrationAvailable(key) } } }
+        val updateAllowed = playable && DownloadMarks.moving == null && source != null
+        val cardMissing = store?.missingPartitionCardVolume != null
+        // Offered only once the fresh check for exactly this copy says yes; closing the panel cancels it.
+        var updateConfirmed by remember(entry.ref.handle) { mutableStateOf(false) }
+        LaunchedEffect(entry.ref.handle, entry.complete, updateAllowed, cardMissing, check) {
+            updateConfirmed = false
+            if (updateAllowed) updateConfirmed = storageUpdateConfirmed(entry, cardMissing, check)
+        }
         SavedDetailsSheet(entry, current == entry.ref.handle, canPlay = playable && entry.complete, canDelete = deletable,
-            dismiss = { details = null }, play = { play(entry) }, delete = { if (!busy && error == null) confirm = entry })
+            dismiss = { details = null }, play = { play(entry) }, delete = { if (!busy && error == null) confirm = entry },
+            update = if (updateConfirmed) ({ if (playable && DownloadMarks.moving == null) migration = entry }) else null)
     }
     migration?.let { entry -> SavedMigrationDialog(entry) { migration = null } }
     confirm?.let { entry ->
@@ -141,55 +161,59 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
     }
 }
 
+/** Where a row sits in its section's group: the group's ends are round and its joins tight. */
+internal enum class GroupPlace { Only, First, Middle, Last }
+
+internal fun groupPlace(index: Int, size: Int): GroupPlace = when {
+    size <= 1 -> GroupPlace.Only
+    index == 0 -> GroupPlace.First
+    index == size - 1 -> GroupPlace.Last
+    else -> GroupPlace.Middle
+}
+
+private val GROUP_END = 22.dp
+private val GROUP_JOIN = 6.dp
+
+/**
+ * One saved copy in its section's group: cover, title, artist and a status line, and a ⋮ at the far
+ * right, centred however many lines the row has. The ⋮ and a long press open the same panel (the
+ * details sheet with Play, Update storage format when confirmed, and Delete); a tap plays, or opens
+ * the panel for a copy that can't play yet. The playing copy becomes its own rounded pill.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, deletable: Boolean, updateAllowed: Boolean,
-    cardMissing: Boolean, storageCheck: ((String) -> Boolean)?, play: () -> Unit, details: () -> Unit,
-    delete: () -> Unit, update: () -> Unit) {
+private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, place: GroupPlace,
+    open: () -> Unit, play: () -> Unit, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
-    var menu by remember(entry.ref.handle) { mutableStateOf(false) }
-    // Offered only once the fresh check for exactly this copy says yes; closing the menu cancels it.
-    var updateConfirmed by remember(entry.ref.handle) { mutableStateOf(false) }
-    LaunchedEffect(menu, entry.ref.handle, entry.complete, updateAllowed, cardMissing, storageCheck) {
-        updateConfirmed = false
-        if (menu && updateAllowed) updateConfirmed = storageUpdateConfirmed(entry, cardMissing, storageCheck)
-    }
     val title = entry.title()
     val artist = entry.artistLine()
     val status = entry.statusText(current)
-    ListItem(
-        headlineContent = {
-            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
-        },
-        supportingContent = {
-            Column {
-                Text(artist, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val playable = ready && entry.complete
+    fun corner(end: Boolean) = if (current || end) GROUP_END else GROUP_JOIN
+    val top by animateDpAsState(corner(place == GroupPlace.First || place == GroupPlace.Only), motionSpatial(), label = "row top")
+    val bottom by animateDpAsState(corner(place == GroupPlace.Last || place == GroupPlace.Only), motionSpatial(), label = "row bottom")
+    val ground by animateColorAsState(if (current) colors.secondaryContainer else colors.surfaceContainerLow, motionMedium(), label = "row ground")
+    val ink = if (current) colors.onSecondaryContainer else colors.onSurface
+    val quiet = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant
+    Surface(shape = RoundedCornerShape(top, top, bottom, bottom), color = ground, contentColor = ink,
+        modifier = modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp,
+            top = if (place == GroupPlace.First || place == GroupPlace.Only) 0.dp else 2.dp)) {
+        Row(Modifier.combinedClickable(onClickLabel = if (playable) "Play" else "Song options", onClick = if (playable) play else open,
+                onLongClickLabel = "Song options", onLongClick = open)
+            .heightIn(min = 72.dp).padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            SavedCover(entry, Modifier.size(52.dp))
+            Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
+                Text(artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = quiet)
                 status?.let { StatusLine(statusIcon(entry, current), it, strong = current || !entry.complete) }
             }
-        },
-        leadingContent = { SavedCover(entry, Modifier.size(52.dp)) },
-        trailingContent = {
-            Box {
-                IconButton(onClick = { menu = true },
-                    modifier = Modifier.size(48.dp).semantics { contentDescription = "More options for $title, $artist" }) {
-                    MuonIcon("more")
-                }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("Play") }, leadingIcon = { MuonIcon("play") },
-                        enabled = ready && entry.complete, onClick = { menu = false; play() })
-                    DropdownMenuItem(text = { Text("Details") }, leadingIcon = { MuonIcon("info") },
-                        onClick = { menu = false; details() })
-                    if (updateConfirmed) DropdownMenuItem(text = { Text("Update storage format") },
-                        leadingIcon = { MuonIcon("storage-update") }, onClick = { menu = false; update() })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text(if (entry.ref.source == SavedSource.Played) "Delete from device" else "Delete download") },
-                        leadingIcon = { MuonIcon("delete") }, enabled = deletable, onClick = { menu = false; delete() })
-                }
+            IconButton(onClick = open, modifier = Modifier.size(48.dp).semantics { contentDescription = "More options for $title, $artist" }) {
+                MuonIcon("more")
             }
-        },
-        colors = ListItemDefaults.colors(containerColor = if (current) colors.secondaryContainer else colors.surface),
-        modifier = Modifier.clickable(enabled = ready && entry.complete, onClickLabel = "Play", onClick = play),
-    )
+        }
+    }
 }
 
 private fun statusIcon(entry: SavedEntry, current: Boolean): String = when {
@@ -219,20 +243,50 @@ private fun SavedCover(entry: SavedEntry, modifier: Modifier) {
     else CoverPlaceholder(modifier.clip(shape))
 }
 
+/**
+ * What's kept here, in one card: downloads stay until deleted; copies kept from listening fill the
+ * played-song cache towards its limit, shown as a meter, and the oldest make room when it's full. Its
+ * last line keeps "these play only from this phone" one tap away, as the info line did.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun InfoLine(open: () -> Unit) {
+private fun StorageCard(why: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Surface(onClick = open, shape = RoundedCornerShape(16.dp), color = colors.surfaceContainer,
-        contentColor = colors.onSurfaceVariant,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-        Row(Modifier.heightIn(min = 48.dp).padding(start = 14.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            MuonIcon("info", Modifier.size(20.dp))
-            Spacer(Modifier.width(10.dp))
-            Text("Plays from this device", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            Text("Details", style = MaterialTheme.typography.labelLarge, color = colors.primary)
-            Icon(painterResource(R.drawable.ic_collapse), contentDescription = null, tint = colors.primary,
-                modifier = Modifier.padding(start = 2.dp).size(18.dp)
-                    .rotate(if (LocalLayoutDirection.current == LayoutDirection.Rtl) 90f else -90f))
+    val used = PlayedCacheState.used
+    val limit = PlayedCacheState.limit
+    val share by animateFloatAsState(if (limit > 0) (used.toFloat() / limit).coerceIn(0f, 1f) else 0f, motionSpatial(), label = "cache share")
+    Surface(shape = RoundedCornerShape(26.dp), color = colors.surfaceContainer,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            CardLine("download", "Downloads", "Stay until you delete them.")
+            CardLine("history", "Kept from listening",
+                "${formatBytes(used)} of ${formatBytes(limit)}. When it's full, the oldest make room.") {
+                // Still: the wave shows the fill, and nothing on this page moves on its own.
+                if (Expressive.motion) LinearWavyProgressIndicator(progress = { share }, waveSpeed = 0.dp,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                else LinearProgressIndicator(progress = { share }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            }
+            Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = "Why", onClick = why)
+                .heightIn(min = 40.dp).padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                MuonIcon("info", Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("These play only from this phone. Why?", style = MaterialTheme.typography.labelLarge, color = colors.primary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CardLine(icon: String, title: String, body: String, extra: @Composable ColumnScope.() -> Unit = {}) {
+    val colors = MaterialTheme.colorScheme
+    Row(verticalAlignment = Alignment.Top) {
+        Box(Modifier.size(34.dp).clip(RoundedCornerShape(12.dp)).background(colors.secondaryContainer), contentAlignment = Alignment.Center) {
+            MuonIcon(icon, Modifier.size(18.dp))
+        }
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(body, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            extra()
         }
     }
 }
@@ -263,20 +317,19 @@ private fun SectionHeading(label: String, size: Int) {
 @Composable
 private fun ListeningHeading(size: Int, shown: Boolean, toggle: (() -> Unit)?) {
     val colors = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth()
-        .then(if (toggle != null) Modifier.clickable(onClickLabel = if (shown) "Hide" else "Show", onClick = toggle) else Modifier)
-        .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp)) {
-        Row(Modifier.heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Kept from listening · $size", style = MaterialTheme.typography.titleSmall, color = colors.primary,
-                modifier = Modifier.weight(1f).semantics { heading() })
-            if (toggle != null) {
-                Text(if (shown) "Hide" else "Show", style = MaterialTheme.typography.labelLarge, color = colors.primary)
-                Icon(painterResource(R.drawable.ic_collapse), contentDescription = null, tint = colors.primary,
-                    modifier = Modifier.padding(start = 2.dp).size(18.dp).rotate(if (shown) 180f else 0f))
+    val turn by animateFloatAsState(if (shown) 180f else 0f, motionSpatial(), label = "chevron")
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 8.dp).heightIn(min = 40.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text("Kept from listening · $size", style = MaterialTheme.typography.titleSmall, color = colors.primary,
+            modifier = Modifier.weight(1f).semantics { heading() })
+        if (toggle != null) Surface(onClick = toggle, shape = RoundedCornerShape(50), color = colors.secondaryContainer,
+            contentColor = colors.onSecondaryContainer, modifier = Modifier.semantics { contentDescription = if (shown) "Hide" else "Show" }) {
+            Row(Modifier.padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (shown) "Hide" else "Show", style = MaterialTheme.typography.labelLarge)
+                Icon(painterResource(R.drawable.ic_collapse), contentDescription = null,
+                    modifier = Modifier.padding(start = 2.dp).size(18.dp).rotate(turn))
             }
         }
-        Text("Saved automatically while you listened. When the listening cache is full, older ones make room.",
-            style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
     }
 }
 
@@ -329,7 +382,7 @@ private fun ExplainSheet(dismiss: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SavedDetailsSheet(entry: SavedEntry, current: Boolean, canPlay: Boolean, canDelete: Boolean,
-    dismiss: () -> Unit, play: () -> Unit, delete: () -> Unit) {
+    dismiss: () -> Unit, play: () -> Unit, delete: () -> Unit, update: (() -> Unit)?) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
@@ -361,6 +414,14 @@ private fun SavedDetailsSheet(entry: SavedEntry, current: Boolean, canPlay: Bool
                 }
                 OutlinedButton(enabled = canDelete, onClick = { choose(delete) }) {
                     MuonIcon("delete", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Delete")
+                }
+            }
+            // Only after the fresh check for this exact copy confirmed it, as the row menu offered it before.
+            AnimatedVisibility(update != null, enter = fadeIn(motionMedium()) + expandVertically(motionSpatial()),
+                exit = fadeOut(motionShort()) + shrinkVertically(motionSpatial())) {
+                FilledTonalButton(onClick = { update?.let { choose(it) } },
+                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp).fillMaxWidth()) {
+                    MuonIcon("storage-update", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Update storage format")
                 }
             }
         }
