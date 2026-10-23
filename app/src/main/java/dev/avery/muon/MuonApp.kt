@@ -1,5 +1,8 @@
 package dev.avery.muon
 
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.animation.core.rememberTransition
 import android.os.Build
 import androidx.compose.ui.platform.LocalLayoutDirection
 import android.content.Intent
@@ -49,6 +52,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -675,14 +679,47 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     // Opening a playlist or an artist steps down a level, so the page
                                     // moves along the reading direction; Back reverses it. Back itself is
                                     // still decided above, from the logical state, never from here.
+                                    // Seekable, so a held Back gesture can show the page it leads to
+                                    // underneath while the page on show shrinks away (issue #658).
+                                    val pageState = remember { SeekableTransitionState(page) }
+                                    val peek = remember { BackPeek() }
+                                    LaunchedEffect(page) { pageState.animateTo(page); if (peek.active) peek.reset() }
+                                    val pageTransition = rememberTransition(pageState, label = "library page")
+                                    val backTo = libraryBackPage(page, fromSearch)
+                                    val peekScope = rememberCoroutineScope()
+                                    // Registered after the app's own Back handler, so it takes the gesture
+                                    // while a Library page is open; never while the player is open or
+                                    // being carried up, which have Back of their own.
+                                    PredictiveBackHandler(target == BackTarget.Playlist && backTo != null && !sheet.previewing) { events ->
+                                        val from = page
+                                        val to = backTo ?: return@PredictiveBackHandler
+                                        peek.active = true
+                                        try {
+                                            pageState.seekTo(0f, to)
+                                            events.collect { event -> peek.edge = event.swipeEdge; peek.progress.snapTo(event.progress) }
+                                            // Let go: the card fades away, and the page it covered is already there.
+                                            peek.commit.animateTo(1f, motionShort())
+                                            closePage()
+                                        } catch (cancelled: CancellationException) {
+                                            peekScope.launch {
+                                                peek.progress.animateTo(0f, motionSpatial())
+                                                pageState.snapTo(from)
+                                                peek.reset()
+                                            }
+                                            throw cancelled
+                                        }
+                                    }
                                     SharedTransitionLayout {
                                     val shared = this
-                                    AnimatedContent(page, contentKey = { it.key }, label = "library page",
-                                        transitionSpec = { libraryPageTransform(shift) }) { shown ->
+                                    pageTransition.AnimatedContent(contentKey = { it.key },
+                                        transitionSpec = { if (peek.active) peekTransform() else libraryPageTransform(shift) }) { shown ->
                                         val leaving = transition.targetState != EnterExitState.Visible
-                                        // The pages share their pictures while one replaces another (motion pass 2).
-                                        CompositionLocalProvider(LocalSharedMotion provides SharedMotion(shared, this)) {
-                                        Box(Modifier.fillMaxSize().leaving(leaving)) {
+                                        // The pages share their pictures while one replaces another (motion pass 2),
+                                        // but not while Back is previewing: a shared cover is drawn above the pages
+                                        // and would come apart from the card as it shrinks.
+                                        CompositionLocalProvider(LocalSharedMotion provides if (peek.active) null else SharedMotion(shared, this)) {
+                                        Box(Modifier.fillMaxSize().leaving(leaving)
+                                            .then(if (!peek.active) Modifier else if (leaving) Modifier.peekCard(peek) else Modifier.peekParent(peek))) {
                                             when (shown) {
                                                 is LibraryPage.Album -> {
                                                     val album = keptWhileLeaving(leaving,

@@ -73,9 +73,13 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
                 }
             }
         }
+        // The Canary experiment: the two queue actions lead the panel as one connected pair, as the
+        // Refined design has them (issue #661); the rest stay a list below.
+        val paired = canQueue && Expressive.motion
+        if (paired) QueuePair({ choose { queue(true) } }, { choose { queue(false) } })
         HorizontalDivider(Modifier.padding(horizontal = 24.dp))
         Column(Modifier.padding(vertical = 8.dp)) {
-            if (canQueue) {
+            if (canQueue && !paired) {
                 SheetAction("play-next", "Play next") { choose { queue(true) } }
                 SheetAction("add-queue", "Add to queue") { choose { queue(false) } }
             }
@@ -88,6 +92,29 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
             }
         }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * Play next and Add to queue as one connected pair: round outer ends, tight inner corners, each fully
+ * round while pressed, as Material 3 Expressive's connected button group draws them.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun QueuePair(playNext: () -> Unit, addToQueue: () -> Unit) {
+    val outer = 24.dp
+    val inner = 8.dp
+    val pressed = RoundedCornerShape(50)
+    val gap = ButtonGroupDefaults.ConnectedSpaceBetween
+    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(gap)) {
+        FilledTonalButton(onClick = playNext, modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+            shapes = ButtonDefaults.shapes(RoundedCornerShape(outer, inner, inner, outer), pressed)) {
+            MuonIcon("play-next", Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Play next", maxLines = 1)
+        }
+        FilledTonalButton(onClick = addToQueue, modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+            shapes = ButtonDefaults.shapes(RoundedCornerShape(inner, outer, outer, inner), pressed)) {
+            MuonIcon("add-queue", Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Add to queue", maxLines = 1)
+        }
     }
 }
 
