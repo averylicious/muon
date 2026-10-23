@@ -4,13 +4,13 @@ Updated 2026-10-23. This short resume entry points to maintained [issue state](a
 
 ## Current boundary
 
-User accepted RC .1352 and the .1353 chevron/focus retest, green-lit functionality and authorized merging/cleanup/main-to-M3E integration. They delegated Stable version/publication; selected version is **v0.2.0**. [#648](https://github.com/averylicious/muon/pull/648) accepted source `f6d1be9591ca8e38bdc417906f75c3029c2e3e82` merged into main as `8c456abe408ebd6fcaffe586bd9c6b73fa57ad18`. Its CI passed 1,821 cases per variant; lint 0 errors / 66 warnings. Both installed release APKs matched SHA256 `720f2a5f6f065de585d06683d078b8a61678adef8e695aa4516d312203f036fe`.
+**Stable v0.2.0 is published and verified.** The user accepted .1352/.1353 UAT, authorized landing/cleanup, delegated version/publication and requested M3E synchronization. Accepted #648 and documentation #649 landed; final tag79b5e70e / release1358 APK hash/signature/manifest/metadata and1,821 cases/variant verified. [Current release and cleanup checkpoint](handoffs/2026-10-23-stable-020-release.md) holds exact evidence/limits, retained issues, cleanup counts and owners.
 
-Main's new build/publication, closeout docs, Stable tag/release and isolated M3E merge each need their own current-head verification. The maintained #648 and integration/closeout PR bodies carry later exact receipts; do not repeat the old audit or infer publication from a merge.
+M3E integration #651 landed as4750c876 from verified5c1be7a6 / .1360 (1,853 cases/variant; existing32experimental cases retained). Combined visuals/gestures remain user UAT. Post-merge branch and final documentation-sync checks must be verified live; those docs change no app behavior. Original experimental checkout stays untouched; its owner should fetch/fast-forward before continuing. No phone state was changed in this integration/release task.
 
-**#646 remains open/unresolved by user decision.** Current-copy Delete acceptance is not proof of the lost historical reset/card case. Other explicit performance/artwork/SD/provenance deferrals remain. Next-point #641–#644 and CI test reduction toward 100–500 actual cases are separate maintenance work. README simplification preserves the hero image and safety/license notices; detailed links move to the docs index. Animation and missing-art polish stay deferred.
+The current audit/design scope is closed, with #646 explicitly open/unresolved and other agreed deferrals intact. Four next-point drafts #641–#644 and #638/#639/#640 remain outside v0.2.0. #650 test-overlap review is assigned by the user to another auditing agent; no cases were removed here. Animation, placeholder and Beta exploration remain a later M3E cycle.
 
-GPT-6 owns separate closeout and forward-sync worktrees; verify their live heads/dirt before resuming. The original experiment checkout remains untouched (its local branch is behind the remote, not unpublished ahead). Allocated Claude was not resumed. No device operation is authorized by this checkpoint; prior install and disposable-test evidence remains in the linked RC history.
+Resume from this checkpoint and live GitHub heads, not old .1343 pending paragraphs. GPT-6 owns the isolated release-record/docs-sync work; no new Claude or subagent session was used. Preserve active/uncertain work and recheck actual permissions before any phone or future publication action.
 
 ## Resume order
 
