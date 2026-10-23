@@ -16,7 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -24,6 +27,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -245,6 +249,9 @@ private fun InfoLine(open: () -> Unit) {
             Spacer(Modifier.width(10.dp))
             Text("Plays from this device", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             Text("Details", style = MaterialTheme.typography.labelLarge, color = colors.primary)
+            Icon(painterResource(R.drawable.ic_collapse), contentDescription = null, tint = colors.primary,
+                modifier = Modifier.padding(start = 2.dp).size(18.dp)
+                    .rotate(if (LocalLayoutDirection.current == LayoutDirection.Rtl) 90f else -90f))
         }
     }
 }
@@ -281,7 +288,11 @@ private fun ListeningHeading(size: Int, shown: Boolean, toggle: (() -> Unit)?) {
         Row(Modifier.heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Kept from listening · $size", style = MaterialTheme.typography.titleSmall, color = colors.primary,
                 modifier = Modifier.weight(1f).semantics { heading() })
-            if (toggle != null) Text(if (shown) "Hide" else "Show", style = MaterialTheme.typography.labelLarge, color = colors.primary)
+            if (toggle != null) {
+                Text(if (shown) "Hide" else "Show", style = MaterialTheme.typography.labelLarge, color = colors.primary)
+                Icon(painterResource(R.drawable.ic_collapse), contentDescription = null, tint = colors.primary,
+                    modifier = Modifier.padding(start = 2.dp).size(18.dp).rotate(if (shown) 180f else 0f))
+            }
         }
         Text("Saved automatically while you listened. When the listening cache is full, older ones make room.",
             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)

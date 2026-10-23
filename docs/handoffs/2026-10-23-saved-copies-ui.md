@@ -2,7 +2,17 @@
 
 Branch `codex/saved-copies-ui-oct23`, base `467ab92885dd2c26735245ebcdedc9b7a4d755e9` (RC .1343). Claude implementation integrated with GPT-6 source corrections. Check the PR head for the exact commit and latest CI before resuming. Implements the user-approved proposal (docs/design/current/saved-copies-oct23 on the proposal branch). Frontend only.
 
-**No local Android build/test/lint:** CI was the first compile; see verified runs below. No new-UI user UAT. Nothing here fixes #645 (normalization) or #646 (deletion of shared or unverifiable copies).
+**No local Android build/test/lint:** CI was the first compile. Use the current acceptance section immediately below; older implementation/verification notes describe earlier boundaries. #646 historical deletion is not claimed fixed.
+
+## Current acceptance and chevron follow-up
+
+This section supersedes the older verification/acceptance boundaries below. RC .1352, source `6228ea3f983705274a14602d049af39b02278bd6`, passed [CI](https://github.com/averylicious/muon/actions/runs/39936246036): 1,821 tests per variant, zero failures/errors/skips; lint 0 errors / 66 warnings. Both release installations were updated in place from .1343 and their installed APK hash matched `7f301f5f683693af79cecac8c13dcfedf94e041729391c89e696dc7eb2db8896`. Canary and app data were preserved.
+
+The user reports **everything else on the focused checklist passed UAT**, except missing approved-mockup chevrons and a TalkBack observation. Details now gets a direction-aware trailing chevron; actionable Show/Hide gets down/up chevrons. They are decorative (`contentDescription = null`) and do not add focus stops or change the existing action targets. Forced-open listening sections still have no misleading toggle. Only the chevron change needs a focused visual retest after its own latest-head CI; .1352 acceptance does not validate a later APK automatically.
+
+The screenshot records “Plays from this device. Details. In list. 5 items.” The banner is one item of the mixed-content LazyColumn, whose structural items include section headers/other content as well as saved songs. This is not a five-song count. “On this device” and “Downloads” deliberately expose heading semantics for TalkBack navigation. No collection/heading semantics were stripped to silence those announcements; no new device access is used for this follow-up.
+
+#646 remains **not conclusively reproduced or fixed**: current-copy Delete acceptance is positive evidence, not proof of recovery after the lost factory-reset/card-survival state. Keep its separate disposition visible before release. The shared missing-artwork mockups (saved rows, mini-player and especially full player) remain deferred by the user; no placeholder or artwork-fetch/backend change is part of this follow-up. See the maintained [PR #648 body](https://github.com/averylicious/muon/pull/648) for the exact current head/build and later receipts.
 
 ## Files
 
