@@ -9,9 +9,9 @@ The user accepted RC .1352 plus the .1353 chevron/TalkBack-focus retest, then au
 | Gate | Status |
 | --- | --- |
 | Locked engineering and actual-release acceptance | Complete within recorded scope; .1353 CI passed 1,821 cases per variant, lint 0 errors / 66 warnings. Both installed release APK hashes verified; user acceptance recorded on #648 |
-| Main integration | #648 merged with ancestry preserved; verify main's build and Canary publication before tagging |
-| Stable publication | User authorized v0.2.0; tag only a verified main commit, then check signed release artifacts, checksum, metadata and Latest status |
-| Experimental transfer | Separate merge-commit integration into `claude/m3-expressive-alpha`, with conflict review and its own CI. Preserve the owner's checkout and experimental dependencies/features |
+| Main integration | #648 merged with ancestry preserved; main .1354 build and Canary publication passed; docs #649 passed lightweight checks |
+| Stable publication | v0.2.0 published/Latest at79b5e70e; release .1358, actual signed APK checksum/manifest/metadata and tests verified |
+| Experimental transfer | #651 merged after its own .1360 checks; main baseline included, experimental pins/features preserved with documented Save-copy UI adaptation. Final cleanup documentation sync is separate; user visual/gesture UAT remains |
 
 Real-user upgrade from an old saved-library state was unavailable. The user approved controlled compatibility instead; published v0.1.0 was streaming-only. Selected actual minified storage/Move/Delete/queue checks and memory/legacy fixtures passed. This evidence is not a universal memory guarantee, every filesystem-failure test, or proof of the lost reset-related refusal.
 
@@ -26,6 +26,8 @@ Real-user upgrade from an old saved-library state was unavailable. The user appr
 - CI suite reduction toward 100–500 actual cases requires an overlap review and meaningful retained coverage; keep this separate from the accepted RC's checks.
 
 Do not reopen a general audit for this release. A confirmed security/privacy/data-loss/crash defect or regression against accepted behavior can interrupt it; speculative hardening and ordinary polish go to maintenance. Keep deferred issues open instead of labelling them fixed.
+
+Latest publication/integration/cleanup receipts: [release checkpoint](handoffs/2026-10-23-stable-020-release.md). The original audit/design umbrella is closed; retained maintenance issues remain open.
 
 ## Next cycle
 
