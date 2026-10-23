@@ -15,12 +15,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -214,28 +211,12 @@ private fun StatusLine(icon: String, text: String, strong: Boolean) {
     }
 }
 
-/** A saved copy's own cover, or, for one kept without a cover, a quiet abstract record. */
+/** A saved copy's own cover, or, for one kept without a cover, the cookie placeholder used everywhere. */
 @Composable
 private fun SavedCover(entry: SavedEntry, modifier: Modifier) {
     val shape = RoundedCornerShape(12.dp)
     if (entry.ownCover) Artwork(savedArtUrl(entry.ref.requestId), modifier.clip(shape))
-    else RecordPlaceholder(modifier.clip(shape))
-}
-
-/** Grooves and a centre label, in the theme's own tones; decorative, so TalkBack skips it. */
-@Composable
-private fun RecordPlaceholder(modifier: Modifier) {
-    val colors = MaterialTheme.colorScheme
-    val groove = colors.primary.copy(alpha = 0.22f)
-    val label = colors.primary.copy(alpha = 0.7f)
-    Box(modifier.background(colors.surfaceContainerHighest).clearAndSetSemantics {}.drawBehind {
-        val outer = size.minDimension / 2f
-        val step = 3.dp.toPx()
-        val line = Stroke(width = 1.dp.toPx())
-        var radius = outer * 0.8f
-        while (radius > outer * 0.32f) { drawCircle(groove, radius, center, style = line); radius -= step }
-        drawCircle(label, outer * 0.18f, center)
-    })
+    else CoverPlaceholder(modifier.clip(shape))
 }
 
 @Composable
@@ -316,7 +297,7 @@ private fun SavedEmpty(busy: Boolean, failed: Boolean) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         if (busy) { Text("Loading…", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant); return@Column }
         if (failed) { Text("This list couldn't be loaded.", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant); return@Column }
-        RecordPlaceholder(Modifier.size(96.dp).clip(RoundedCornerShape(28.dp)))
+        CoverPlaceholder(Modifier.size(96.dp).clip(RoundedCornerShape(28.dp)))
         Spacer(Modifier.height(20.dp))
         Text("Nothing on this device yet", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
