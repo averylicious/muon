@@ -51,6 +51,36 @@ class LegacyTransitionOwnerTest {
         fun owner(close:(SQLiteDatabase)->Unit={ it.close() })=LegacyTransitionOwner(root,databaseFile,barrier,{present},closeDatabase=close)
         fun unchanged() { assertFalse(SimpleCache.isCacheFolderLocked(root)); originals.forEach { assertArrayEquals(payload,it.readBytes()) } }
     }
+    /** Controlled factory-reset shape: removable bytes survive, private download/cache indexes do not.
+     * This exercises the read-only owner, not legacy SimpleCache startup or the historical UI refusal. */
+    @Test fun survivingCardBytesWithRebuiltPrivateIndexAreNotInventedAsOwnedDownloads() {
+        val f = Fixture(1)
+        val context = RuntimeEnvironment.getApplication()
+        StandaloneDatabaseProvider(context).use { before ->
+            val index = androidx.media3.exoplayer.offline.DefaultDownloadIndex(before, "card")
+            val request = androidx.media3.exoplayer.offline.DownloadRequest.Builder("saved/0",
+                android.net.Uri.parse("http://fixture.invalid/api1/fileopus/1")).setCustomCacheKey("saved/0").build()
+            index.putDownload(androidx.media3.exoplayer.offline.Download(request,
+                androidx.media3.exoplayer.offline.Download.STATE_COMPLETED, 1, 2, 4, 0,
+                androidx.media3.exoplayer.offline.Download.FAILURE_REASON_NONE))
+            assertNotNull(index.getDownload("saved/0"))
+        }
+        val oldPrivateIndex = File(folders.newFolder(), "old-private-index")
+        java.nio.file.Files.move(f.databaseFile.toPath(), oldPrivateIndex.toPath())
+        StandaloneDatabaseProvider(context).use { fresh ->
+            val index = androidx.media3.exoplayer.offline.DefaultDownloadIndex(fresh, "card")
+            assertNull(index.getDownload("saved/0"))
+            index.getDownloads().use { assertEquals(0, it.count) }
+        }
+        val owner = f.owner()
+        try {
+            assertThrows(IOException::class.java) { owner.open() }
+            assertTrue(f.barrier.quiescent)
+            f.unchanged() // No orphan deletion, native-cache reopening or inferred replacement row.
+            assertTrue(oldPrivateIndex.isFile)
+        } finally { owner.close() }
+    }
+
     @Test fun ownedSchemaRefusesVolumeLossAtKnownCursorCloseBeforeReturningItsGuard() {
         val f=Fixture();var borrowed:SQLiteDatabase?=null
         val owner=LegacyTransitionOwner(f.root,f.databaseFile,f.barrier,{f.present},openDatabase={file ->

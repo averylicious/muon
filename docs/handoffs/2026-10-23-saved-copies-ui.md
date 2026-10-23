@@ -2,7 +2,7 @@
 
 Branch `codex/saved-copies-ui-oct23`, base `467ab92885dd2c26735245ebcdedc9b7a4d755e9` (RC .1343). Claude implementation integrated with GPT-6 source corrections. Check the PR head for the exact commit and latest CI before resuming. Implements the user-approved proposal (docs/design/current/saved-copies-oct23 on the proposal branch). Frontend only.
 
-**Not run:** no local Android build, unit test, lint or device check. CI is the first compile. No phone UAT. Nothing here fixes #645 (normalization) or #646 (deletion of shared or unverifiable copies).
+**No local Android build/test/lint:** CI was the first compile; see verified runs below. No new-UI user UAT. Nothing here fixes #645 (normalization) or #646 (deletion of shared or unverifiable copies).
 
 ## Files
 
@@ -71,3 +71,9 @@ GPT-6, Codex desktop: integration fixes and source self-check; exact variant/eff
 The user explicitly approved a future untagged-song notice and requested Opus UI/UX advice. Opus 5.5 High recommended a Snackbar; root used concise text + Details, corrected the desktop tagging wording, bounded recent-ID suppression to 64, and added a player-overlay host so it cannot hide behind the player. Current selected-audio state is transient; no per-song missing-tag preferences are added. The fresh first-song test passed immediately after the user's requested tagging, at 0/−12/0 dB. No fabricated audio-hearing claim. Latest implementation CI pending; #646 remains open.
 
 Claude is idle, with latest emitted quota 95% five-hour / 14% weekly used; do not treat this snapshot as future availability. Root has not requested another Claude task.
+
+## Verified boundary before reset fixture
+
+UI-only .1347 / `65eebe4d16c2e462a48cf0bd01e3b027be87c620` passed 1,817 cases per variant. Notice .1348 / `0cfedb6ee29148e366440d91351433119de60c59` passed 1,820 per variant, no failures/errors/skips, lint 0 errors/66 warnings. Actual release APK: package dev.avery.muon.release, code1348, non-debuggable per CI verification, SHA256 `3e1e387484932628c1fbfcfd703b73f292db5ce6bc70e3572c923d31dbaefea9`, certificate SHA256 `fb5e1219816246a5ddaa2fc3a632550f3c2d97db2b3cebf31676c1b483e255cf`; notice text verified in its DEX. No .1348 installation/new-notice visual/TalkBack pass yet. Later fixture/docs commit needs fresh final-head CI.
+
+See [#646 current state](../audits/issues/646.md) for new reset clarification and completed selected deletion checks; no original-failure reproduction or backend fix claimed. Only one backed-up regular POCO listening copy was deleted, with explicit current user approval. Other originals remain. No source audio deletion or actual phone reset.

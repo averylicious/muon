@@ -6,6 +6,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | --- | --- | --- |
 | Aggregate memory and partition storage | [#253](253.md) | [Issue #253](https://github.com/averylicious/muon/issues/253) |
 | Saved-card startup and Move latency — explicitly deferred post-release | [#401](401.md) | [Issue #401](https://github.com/averylicious/muon/issues/401) |
+| Saved-copy Delete refusal and reset compatibility | [#646](646.md) | [Issue #646](https://github.com/averylicious/muon/issues/646) |
 | First-song normalization and missing-tags reminder | [#645](645.md) | [Issue #645](https://github.com/averylicious/muon/issues/645) |
 | Overall release sequence and acceptance gates | [Release plan](../../release-plan.md) | [Audit #181](https://github.com/averylicious/muon/issues/181) |
 
