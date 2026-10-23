@@ -24,10 +24,14 @@ class ReplayGainSettingsTest {
     @Test fun freshSettingsAreOffAndUnknownTracksStayAtUnityUntilAGainExists() {
         val settings = ReplayGainSettings(prefs)
         assertFalse(settings.enabled)
+        assertNull(settings.effectiveGainFor(A))
+        assertFalse(loudnessPlayback(A, true, false, settings.effectiveGainFor(A), true).usable)
         assertEquals(1f, settings.volumeFor(A), 0f)
         settings.choose(true)
         assertEquals(1f, settings.volumeFor(A), 0f)
         settings.remember(A, -6f)
+        assertEquals(-6f, settings.effectiveGainFor(B)!!, 0f)
+        assertTrue(loudnessPlayback(B, true, false, settings.effectiveGainFor(B), true).usable)
         assertEquals(volumeForGain(-6f), settings.volumeFor(A), 0.00001f)
         assertEquals(volumeForGain(-6f), settings.volumeFor(null), 0.00001f)
     }

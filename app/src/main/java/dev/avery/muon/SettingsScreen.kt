@@ -372,11 +372,20 @@ private fun ConnectedBadge(offline: Boolean = false) {
 @Composable
 private fun PlaybackGroup() {
     val loudness = rememberReplayGainSettings()
+    val data = PlaybackLoudness.current
+    // An already-on preference can always be switched off, even before any tags are available.
+    val canToggle = loudness.enabled || data.usable
+    val explanation = when (data.source) {
+        LoudnessSource.Checking -> if (data.mediaId == null) "Play a song to check its loudness data." else "Checking this song's loudness data…"
+        LoudnessSource.Missing -> "No loudness data yet. Play a song with ReplayGain tags."
+        LoudnessSource.Estimated -> "No ReplayGain tags for this song. Uses an estimate from other songs."
+        LoudnessSource.Tagged -> "Uses this song's ReplayGain loudness data."
+    }
     SettingsGroup {
         SettingsRow(shape = rowShape(0, 1), headline = "Even out volume",
-            supporting = "Plays songs at a similar loudness, using the ReplayGain tags in your music files",
-            trailing = { Switch(checked = loudness.enabled, onCheckedChange = null) },
-            modifier = Modifier.toggleable(value = loudness.enabled, role = Role.Switch) { loudness.choose(it) })
+            supporting = explanation, enabled = canToggle,
+            trailing = { Switch(checked = loudness.enabled, enabled = canToggle, onCheckedChange = null) },
+            modifier = Modifier.toggleable(value = loudness.enabled, enabled = canToggle, role = Role.Switch) { loudness.choose(it) })
     }
 }
 

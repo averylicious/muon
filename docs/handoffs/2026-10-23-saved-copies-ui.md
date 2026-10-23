@@ -56,7 +56,7 @@ No Compose UI test exists for row/menu labels or 48 dp targets; those need TalkB
 
 - GPT-6 preserved all baseline presentation tests, added the new cases in a separate file, fixed cancelled sheet-hide actions, made sheets scroll at larger fonts, stabilized storage-check effect keys, and renamed the Settings entry.
 - Removal still calls the existing backend. #646 must resolve the actual ownership refusal; the design does not clear it.
-- #645 live normalization remains separate engineering.
+- #645 root cause and follow-up are recorded in [its maintained state](../audits/issues/645.md). Missing tags/readiness/reminder changes now accompany this UI candidate; exact-head CI and notice UAT must be recorded before calling them verified.
 - Counts and grouping remain per page; queue ordering stays in catalog order. No artwork fetching or storage engine/schema changed.
 - Material3 stays on the pinned Stable dependency. The post-RC Beta evaluation is documented in release-plan.md, not part of this RC.
 
@@ -65,3 +65,9 @@ No Compose UI test exists for row/menu labels or 48 dp targets; those need TalkB
 Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, High effort selected by the user (the runtime doesn't report effort). Implementation only; no independent review, compile or device verification yet.
 
 GPT-6, Codex desktop: integration fixes and source self-check; exact variant/effort not reported. This is not an independent whole-app audit.
+
+## Normalization follow-up integrated by GPT-6
+
+The user explicitly approved a future untagged-song notice and requested Opus UI/UX advice. Opus 5.5 High recommended a Snackbar; root used concise text + Details, corrected the desktop tagging wording, bounded recent-ID suppression to 64, and added a player-overlay host so it cannot hide behind the player. Current selected-audio state is transient; no per-song missing-tag preferences are added. The fresh first-song test passed immediately after the user's requested tagging, at 0/−12/0 dB. No fabricated audio-hearing claim. Latest implementation CI pending; #646 remains open.
+
+Claude is idle, with latest emitted quota 95% five-hour / 14% weekly used; do not treat this snapshot as future availability. Root has not requested another Claude task.

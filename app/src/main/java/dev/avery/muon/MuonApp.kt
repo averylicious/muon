@@ -87,6 +87,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         val scope = rememberCoroutineScope()
         val snackbar = remember { SnackbarHostState() }
+        val loudnessNotices = remember { LoudnessNoticeHistory() }
+        var loudnessDetails by remember { mutableStateOf(false) }
+        val loudnessPlayback = PlaybackLoudness.current
+        LaunchedEffect(loudnessPlayback) {
+            if (!loudnessNotices.shouldShow(loudnessPlayback)) return@LaunchedEffect
+            // Do not replace an Undo. Existing snackbars finish before this short, actionable notice.
+            val result = snackbar.showSnackbar("No ReplayGain tags for this song.", actionLabel = "Details",
+                duration = SnackbarDuration.Long)
+            if (result == SnackbarResult.ActionPerformed) loudnessDetails = true
+        }
         // Which playlist is open is about this sitting, not a preference. It is saved with the
         // server it was chosen on, so it survives rotation but never crosses servers, and a
         // refresh that removes or empties it forgets it rather than leaving it to reappear.
@@ -495,7 +505,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     }
                 }
                 // The rail takes the start inset itself, so the content leaves it out.
-                Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { SnackbarHost(snackbar) },
+                Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { if (!playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar) },
                     // The player panel, when it is there, takes the end inset in the same way.
                     contentWindowInsets = if (rail && connected) ScaffoldDefaults.contentWindowInsets
                         .only(if (ui.item != null) WindowInsetsSides.Top + WindowInsetsSides.Bottom
@@ -789,6 +799,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             FullScreenOverlay(visible = queueShown) {
                 QueueScreen(player, revision, ui.playing) { queueOpen = false }
             }
+            // Overlay notices stay above the player instead of resizing artwork or hiding behind it.
+            if (playerShown || lyricsShown || queueShown) SnackbarHost(snackbar,
+                Modifier.align(androidx.compose.ui.Alignment.BottomCenter).safeDrawingPadding().padding(12.dp))
+            if (loudnessDetails) AlertDialog(onDismissRequest = { loudnessDetails = false },
+                title = { Text("Loudness tags missing") },
+                text = { Text("Add ReplayGain tags to this song on your computer. Muon uses an estimate from other songs when available; otherwise its volume stays unchanged.") },
+                confirmButton = { TextButton(onClick = { loudnessDetails = false }) { Text("Got it") } })
         }
     }
 }
