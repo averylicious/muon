@@ -8,6 +8,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyItemScope
@@ -35,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -88,14 +91,8 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
             }
         }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Loading" })
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(bottom = 24.dp + LocalUnderBars.current)) {
-            if (preparing) item(key = "preparing") {
-                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("Preparing playback…", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = cancelPlayback) { Text("Cancel") }
-                }
-            }
             if (cardUnavailable) item(key = "card") {
                 Notice("sd-card", "SD card not found", "Copies on it are hidden and stay on the card.")
             }
@@ -130,6 +127,9 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
             }
         }
+        PreparingPill(preparing, cancelPlayback, Modifier.align(Alignment.BottomCenter)
+            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp + LocalUnderBars.current))
+        }
     }
     if (explain) ExplainSheet { explain = false }
     details?.let { entry ->
@@ -160,6 +160,42 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } })
     }
 }
+
+/**
+ * "Preparing playback…" with Cancel, floating above the bars instead of as a row at the top of the
+ * list: as a row it pushed every copy down a line and back up on each tap (the user's recording on
+ * the POCO, .1370). It waits [PREPARING_SHOWN_AFTER_MS] before showing, so a quick start doesn't
+ * flash it, and rises in and sinks away on Muon's motion springs.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun PreparingPill(preparing: Boolean, cancel: () -> Unit, modifier: Modifier) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(preparing) {
+        if (!preparing) { shown = false; return@LaunchedEffect }
+        delay(PREPARING_SHOWN_AFTER_MS)
+        shown = true
+    }
+    val colors = MaterialTheme.colorScheme
+    AnimatedVisibility(shown, modifier,
+        enter = fadeIn(motionShort()) + slideInVertically(motionSpatial()) { it / 2 },
+        exit = fadeOut(motionShort()) + slideOutVertically(motionSpatial()) { it / 2 }) {
+        Surface(shape = RoundedCornerShape(50), color = colors.inverseSurface, contentColor = colors.inverseOnSurface,
+            shadowElevation = 6.dp) {
+            Row(Modifier.padding(start = 14.dp, end = 4.dp).heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (Expressive.motion) LoadingIndicator(Modifier.size(28.dp), color = colors.inversePrimary)
+                else CircularProgressIndicator(Modifier.size(20.dp), color = colors.inversePrimary, strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+                Text("Preparing playback…", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.width(4.dp))
+                TextButton(onClick = cancel, colors = ButtonDefaults.textButtonColors(contentColor = colors.inversePrimary)) { Text("Cancel") }
+            }
+        }
+    }
+}
+
+/** How long preparing must last before the pill shows, as the seek bar waits before showing buffering. */
+internal const val PREPARING_SHOWN_AFTER_MS = 300L
 
 /** Where a row sits in its section's group: the group's ends are round and its joins tight. */
 internal enum class GroupPlace { Only, First, Middle, Last }
