@@ -8,17 +8,14 @@ One published Stable is available through Obtainium. The current main-track audi
 
 ## Active work
 
-- Current user UAT: release RC .1352 (`6228ea3f983705274a14602d049af39b02278bd6`) installed on both phones, with installed hashes verified. User reports the remaining focused checklist passed, except missing mockup chevrons and the TalkBack list/heading observation. [#648](https://github.com/averylicious/muon/pull/648) restores the decorative Details/Show/Hide chevrons; later-head CI and a focused visual retest remain separate. Heading/list semantics are preserved. Read [the current checkpoint](handoffs/2026-10-23-saved-copies-ui.md).
-
-- [#253 memory/storage](audits/issues/253.md): cumulative redesign on open #636; focused source closure and final selected memory/minified-storage/legacy/queue automation passed. User-approved controlled compatibility replacement passed (no old Stable data exists); interaction and hardware/accessibility acceptance remain; no app merge/release yet.
-- [#401 startup/Move latency](audits/issues/401.md): selected data-preservation comparison passed; user accepted the measured delays for this release. Further performance work is deferred, not fixed.
-- User explicitly deferred #207's notification-only stale-cover case. In-app implementation still needs landing/acceptance. Existing storage/identity/hardware/accessibility acceptance remains in the [release gate list](release-plan.md).
-- Current app candidate: DRAFT/OPEN #648, successor to #636 and including its pending changes. Accepted source `6228ea3f983705274a14602d049af39b02278bd6` passed .1352, 1,821 cases per variant; the chevron follow-up requires its own exact-head checks. Main `c9f2345aa6729360d90ddc79197eb85ffa9bb171` contains approved docs #647, not this app work. No Stable release or experimental change.
-- [#645](audits/issues/645.md): first-song behavior traced to absent ReplayGain tags and no remembered fallback; one user-approved track was tagged, and immediate 0/−12/0 dB toggle was verified after another fresh Diagnostic reset. Readiness/reminder follow-up is implemented in #648; user reports the remaining .1352 focused checklist passed. See its maintained body for precise test coverage and later-head checks.
-- [#646](audits/issues/646.md): historical Delete refusal after reset/card survival is not reproduced on the now-cleared state. Fresh/cloned Diagnostic and one backed-up ordinary .1343 deletion passed. Controlled reset fixture and explicit final disposition remain; do not claim a backend fix.
-
-- Separate next-point drafts #641–#644 preserve their own source/CI evidence and stay outside current RC acceptance. Their latest maintained PR/issue bodies may postdate committed snapshots; no future app branch is installed.
-- Full SD lifecycle #179 and dependency/tool/cache provenance retain user-approved release deferrals. Keep them unresolved follow-ups; do not automatically reopen the release scope.
+- **Accepted v0.2.0 source:** RC .1353 / `f6d1be9591ca8e38bdc417906f75c3029c2e3e82`, merged via [#648](https://github.com/averylicious/muon/pull/648) as `8c456abe408ebd6fcaffe586bd9c6b73fa57ad18`. User accepted the remaining .1352 checklist and .1353 chevrons/focus; installed release hashes were verified on both phones.
+- User green-lit functionality, merging/cleanup and main-to-M3E transfer, and delegated Stable version/publication. **v0.2.0** was selected. Main build/Canary verification, final tag publication checks and separate tested M3E integration remain execution steps; do not describe an uncompleted publication as released.
+- [#253 memory/storage](audits/issues/253.md), compatibility and interaction acceptance are complete within the recorded scope; the unavailable real-user upgrade was replaced by the user-approved controlled compatibility check.
+- [#645 normalization](audits/issues/645.md): missing-tags readiness/notice and live-toggle acceptance landed in #648. The user-approved single-track tagging preserved PCM.
+- [#646](audits/issues/646.md) stays **open and unresolved by user decision**. Current-copy Delete passes; the lost post-reset/SD-card failure is not claimed fixed.
+- [#401 latency](audits/issues/401.md), #207 notification-only stale artwork, #179 deeper SD lifecycle and dependency/tool/cache provenance retain explicit release deferrals.
+- Separate next-point drafts #641–#644 stay outside this release. Animation polish, missing-art mockups and Material3 Beta work belong on the later M3E cycle. CI test-suite reduction toward 100–500 actual cases needs its own overlap review and evidence.
+- See [the concise release ledger](release-plan.md) and [coordinator handoff](coordinator-handoff.md) for current execution state. The original experimental checkout is not reset or reused.
 
 ## Working rules
 
