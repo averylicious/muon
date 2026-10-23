@@ -87,4 +87,3 @@ Main-audit follow-up to #181, distinct from the resolved thumbnail sizing/frame-
 **Verification:** identity-key/state decision JVM tests including a reused URL and late response; CI against main's pinned Compose/Media3 versions; user QA with a changed title/cover or reused Tauon track ID, refresh without process restart, list/detail/player colours, offline covers and ordinary scrolling. Any implementation PR requiring phone QA stays open per the user's 2026-09-30 instruction. Experimental forward integration is separate and owned by that track's contributor.
 
 Attribution: source audit by GPT-6, Codex desktop, effort not reported (user nickname Sol); no Claude, ADB or device task used. No fix is implemented by this issue.
-

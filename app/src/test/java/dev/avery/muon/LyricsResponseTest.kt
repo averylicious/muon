@@ -64,6 +64,28 @@ class LyricsResponseTest {
         }
     }
 
+    @Test fun textAndLineBudgetsKeepCompleteAcceptedLyricsAndRefuseOversizedLayoutInput() {
+        val accepted=listOf("x".repeat(LYRICS_TEXT_UNITS),"二🎵".repeat(LYRICS_TEXT_UNITS/3),
+            "\r\n".repeat(LYRICS_LINES-1),"\u2028".repeat(LYRICS_LINES-1))
+        for(text in accepted) Response(JSONObject().put("lyrics_text",text).toString()).use {server ->
+            assertEquals(text,runBlocking {server.api.lyrics(7)})
+        }
+        val refused=listOf("x".repeat(LYRICS_TEXT_UNITS+1))+listOf("\n","\r","\r\n","\u0085","\u2028","\u2029").map {it.repeat(LYRICS_LINES)}
+        for(text in refused) Response(JSONObject().put("lyrics_text",text).toString()).use {server ->
+            val failure=assertThrows(LyricsResourceLimit::class.java) {runBlocking {server.api.lyrics(7)}}
+            assertTrue(friendlyError(failure).length<512);assertTrue(friendlyError(failure).contains("limits"))
+        }
+    }
+
+    @Test fun lyricsWireBudgetIsEnforcedBeforeDomAndDoesNotTruncateTheAcceptedBoundary() {
+        val prefix="{\"lyrics_text\":\"One line\",\"padding\":\"";val suffix="\"}"
+        val exact=prefix+"x".repeat(LYRICS_RESPONSE_BYTES-prefix.length-suffix.length)+suffix
+        assertEquals(LYRICS_RESPONSE_BYTES,exact.toByteArray(Charsets.UTF_8).size)
+        Response(exact).use {server ->assertEquals("One line",runBlocking {server.api.lyrics(7)})}
+        val over=prefix+"x".repeat(LYRICS_RESPONSE_BYTES-prefix.length-suffix.length+1)+suffix
+        Response(over).use {server ->assertThrows(LyricsResourceLimit::class.java) {runBlocking {server.api.lyrics(7)}}}
+    }
+
     private class Response(json: String) : AutoCloseable {
         private val socket = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         private val executor = Executors.newSingleThreadExecutor()

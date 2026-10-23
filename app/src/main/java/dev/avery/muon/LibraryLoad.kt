@@ -28,3 +28,11 @@ internal fun combineLoad(lists: List<TauonPlaylist>, loaded: Map<String, List<Ta
 /** The note shown when some playlists did not load, with Retry beside it. */
 internal fun partialLoadMessage(failed: Int, total: Int): String =
     "$failed of $total ${if (total == 1) "playlist" else "playlists"} didn't load. Retry to try again."
+
+/** Same first occurrence/order as flatten().distinctBy(id), without an intermediate list of
+ * every playlist occurrence. Playlist lists and returned display list are still complete;
+ * nothing is cached across refresh, and the accepted-load budgets remain the caller's. Explicit
+ * order is required when a state map may retain its old iteration order after an equal update. */
+internal fun libraryTracks(byPlaylist: Map<String, List<TauonTrack>>,
+    order: Iterable<String> = byPlaylist.keys): List<TauonTrack> =
+    order.asSequence().flatMap { byPlaylist[it].orEmpty().asSequence() }.distinctBy { it.id }.toList()

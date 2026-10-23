@@ -6,6 +6,8 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | --- | --- | --- |
 | Aggregate memory and partition storage | [#253](253.md) | [Issue #253](https://github.com/averylicious/muon/issues/253) |
 | Saved-card startup and Move latency — explicitly deferred post-release | [#401](401.md) | [Issue #401](https://github.com/averylicious/muon/issues/401) |
+| Saved-copy Delete refusal and reset compatibility | [#646](646.md) | [Issue #646](https://github.com/averylicious/muon/issues/646) |
+| First-song normalization and missing-tags reminder | [#645](645.md) | [Issue #645](https://github.com/averylicious/muon/issues/645) |
 | Overall release sequence and acceptance gates | [Release plan](../../release-plan.md) | [Audit #181](https://github.com/averylicious/muon/issues/181) |
 
 GitHub remains authoritative for current heads/checks/merge state. A snapshot must identify its date, inspected head and verification limits; it does not grant device access or override user decisions. Latest execution state belongs in the concise [coordinator entry point](../../coordinator-handoff.md), with history linked rather than repeated. Files on an open documentation PR are proposals/working state until merged; verify the linked branch/PR before using a main-branch copy.

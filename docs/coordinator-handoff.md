@@ -1,14 +1,18 @@
 # Coordinator handoff
 
-Updated 2026-10-22. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-23. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
-Resumed acceptance checks completed. **All device work stopped/restored**, no active storage worker/helper or code edits. Coordinator GPT-6 / Codex desktop (exact variant/effort not reported); allocated Claude Opus5.5 High finished focused read-only closure review, idle. Main `ec02b64f41996ec4a456c764ed94360675570df1`; experiment untouched.
+The user accepted the remaining focused RC .1352 checklist, apart from missing Details/Show/Hide chevrons and a TalkBack observation. That source `6228ea3f983705274a14602d049af39b02278bd6` passed [run .1352](https://github.com/averylicious/muon/actions/runs/39936246036), 1,821 cases per variant, zero failure/error/skip, lint 0 errors / 66 warnings. Its actual installed release APK hashes matched on both POCO and Pixel after in-place updates from .1343. Canary and app data were preserved. The chevron-only follow-up requires its own exact-head CI and a focused visual retest; headings/list semantics remain intentional.
 
-Current app candidate DRAFT/OPEN [#636](https://github.com/averylicious/muon/pull/636), app/build source `af70c50c226cfafb5320052bf71950a40eef60a2`; subsequent checkpoint changes are documentation only. Ordinary .1323/Diagnostic .1324 actual reports/APK checks passed; current-head .1325 CI also passed. Selected minified opt-in/original/optimization/Move/Delete and oversized-queue refusal passed. Resumed Diagnostic tiny-artwork/library replacement and unoptimized legacy Delete/Move passed. No app-stack merge/Stable publication.
+[#648](https://github.com/averylicious/muon/pull/648) is the open successor candidate, including #636 and the approved On this device frontend/missing-loudness notice. Read [the current checkpoint](handoffs/2026-10-23-saved-copies-ui.md), [#645 evidence](audits/issues/645.md) and [#646 evidence](audits/issues/646.md). Exact later head/check/artifact receipts are maintained on #648. Current-copy Delete acceptance does not establish recovery after the historical lost reset/card state; its disposition remains separate. No Stable tag/release has been requested.
 
-Latest execution checkpoint: [October22 release acceptance and restoration](handoffs/2026-10-22-release-acceptance.md). Next is the checkpoint’s two finite user/RC acceptance groups (interactions/identity feedback, Bluetooth and spoken/focus TalkBack). User reported no existing Stable data and approved the completed controlled compatibility replacement; real-user upgrade remains unperformed/disclosed; no confirmed new #253 implementation defect. This documentation report is isolated from the unchanged app PR. Rooted POCO shell works on the clean-flashed A17 ROM; run-as still fails context lookup. Old Diagnostic card data preserved separately, regular Muon unchanged. Historical pre-flash private indexes no longer exist; do not assume older snapshots are a live baseline.
+Main is `c9f2345aa6729360d90ddc79197eb85ffa9bb171` after approved design/docs #647; current app work remains unmerged. Experiment remains untouched. GPT-6 owns `codex/saved-copies-ui-oct23` in its isolated worktree; allocated Claude is idle after Opus5.5 High read-only notice advice. Root integrated/fixed its earlier UI implementation. Do not resume the user's experimental Claude session.
+
+Current-task POCO root testing was explicitly authorized, including Diagnostic reset/playback/toggle and later regular-Muon saved-copy deletion. Only Diagnostic data was cleared; one backed-up regular listening copy was deleted successfully under that later permission. Later explicit install permission covered both phones: verified .1352 in-place release updates only. No OS security/volume/SD-mount changes. User source music was tagged only for the single specifically authorized track; private tag backup and unchanged PCM were verified. This is evidence, not standing device permission for the next conversation.
+
+#646's historical failure remains unconfirmed after user Clear data. The factory-reset/card-files explanation is being tested as a hypothesis, not an SSAID finding. Existing approved performance/notification-cover/SD lifecycle/dependency provenance deferrals remain deferred. Separate future drafts #641–#644 stay outside the RC.
 
 ## Resume order
 

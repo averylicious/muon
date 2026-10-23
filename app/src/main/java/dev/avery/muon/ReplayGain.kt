@@ -120,9 +120,12 @@ internal class ReplayGainSettings(private val prefs: SharedPreferences) {
         prefs.getFloat(gainKey(mediaId), Float.NaN)
     } catch (_: ClassCastException) { Float.NaN }
 
+    /** Available even while the switch is off, so Settings can explain what enabling will do. */
+    fun effectiveGainFor(mediaId: String?): Float? = gainFor(mediaId) ?: typicalGain()
+
     /** The volume for a song: 1 when off; its own gain, or else the library's typical one, when on. */
     fun volumeFor(mediaId: String?): Float =
-        if (!enabled) 1f else (gainFor(mediaId) ?: typicalGain())?.let(::volumeForGain) ?: 1f
+        if (!enabled) 1f else effectiveGainFor(mediaId)?.let(::volumeForGain) ?: 1f
 
     companion object {
         const val FILE = "loudness"
@@ -137,5 +140,35 @@ internal fun rememberReplayGainSettings(): ReplayGainSettings {
     val context = androidx.compose.ui.platform.LocalContext.current
     return androidx.compose.runtime.remember(context) {
         ReplayGainSettings(context.getSharedPreferences(ReplayGainSettings.FILE, android.content.Context.MODE_PRIVATE))
+    }
+}
+
+/** Current selected audio only; no persistent per-song missing-tag index or metadata scan. */
+internal enum class LoudnessSource { Checking, Missing, Tagged, Estimated }
+internal data class LoudnessPlayback(val mediaId: String? = null, val source: LoudnessSource = LoudnessSource.Checking,
+    val playing: Boolean = false) {
+    val usable: Boolean get() = source == LoudnessSource.Tagged || source == LoudnessSource.Estimated
+    val missingTags: Boolean get() = source == LoudnessSource.Missing || source == LoudnessSource.Estimated
+}
+internal object PlaybackLoudness {
+    var current by mutableStateOf(LoudnessPlayback())
+}
+internal fun loudnessPlayback(mediaId: String?, checked: Boolean, tagged: Boolean, gain: Float?, playing: Boolean) =
+    LoudnessPlayback(mediaId, when {
+        mediaId == null || !checked -> LoudnessSource.Checking
+        tagged -> LoudnessSource.Tagged
+        gain != null -> LoudnessSource.Estimated
+        else -> LoudnessSource.Missing
+    }, playing)
+
+/** A bounded recent-song window, not a growing set of the whole library. Not persisted. */
+internal class LoudnessNoticeHistory(private val capacity: Int = 64) {
+    init { require(capacity > 0) }
+    private val recent = LinkedHashSet<String>()
+    fun shouldShow(state: LoudnessPlayback): Boolean {
+        val id = state.mediaId ?: return false
+        if (!state.playing || !state.missingTags || !recent.add(id)) return false
+        if (recent.size > capacity) recent.remove(recent.first())
+        return true
     }
 }

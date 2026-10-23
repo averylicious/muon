@@ -50,7 +50,7 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
         // title; the grid's gaps shrink to match, and the covers sit exactly where they did.
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 8.dp)) {
         items(albums, key = { it.key }, contentType = { "album" }) { album ->
-            Column(springyClick("Open album", RoundedCornerShape(24.dp)) { open(album) }.padding(8.dp)) {
+            Column(springyClick("Open album", RoundedCornerShape(24.dp)) { openWhole(state, album, open) }.padding(8.dp)) {
                 // The cover that grows into the album page's (motion pass 2).
                 Artwork(albumArt(endpoint, album), sharedPicture(albumPictureKey(album.key))
                     .fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)))
@@ -135,10 +135,20 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                 Text(formatTime(track.durationMs), style = MaterialTheme.typography.labelSmall,
                     color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant,
                     textAlign = TextAlign.End, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
-                DownloadBadge(downloadMark(endpoint, track))
             }
         }
     }
+}
+
+/**
+ * Bring a partly hidden tile fully into view before measuring its cover flight. Back then returns
+ * to that whole tile rather than painting over the view controls and snapping under the sort row.
+ * Ported from the experimental fix for Canary .344 (5f811461); no other list position is reset.
+ */
+private fun openWhole(state: LazyGridState, album: LibraryAlbum, open: (LibraryAlbum) -> Unit) {
+    val tile = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == album.key }
+    if (tile != null && tile.offset.y < 0) state.requestScrollToItem(tile.index)
+    open(album)
 }
 
 /** Play, filled, and Shuffle, tonal: the pair under an album's, an artist's or a playlist's header. */

@@ -2,6 +2,8 @@ package dev.avery.muon
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -11,6 +13,8 @@ import java.util.concurrent.TimeUnit
 object Transport {
     val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(5, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
+    // Whole-response bound for finite metadata and covers. Audio/download streams use client above.
+    internal val metadataClient = client.newBuilder().callTimeout(30, TimeUnit.SECONDS).build()
 }
 data class TauonPlaylist(val id: String, val name: String, val count: Int)
 data class TauonTrack(
@@ -19,8 +23,8 @@ data class TauonTrack(
     val albumArtist: String = artist, val trackNumber: String = "",
 )
 class TauonApi(val endpoint: ServerEndpoint) {
-    private suspend fun json(path: String): JSONObject = withContext(Dispatchers.IO) {
-        Transport.client.newCall(Request.Builder().url(endpoint.url(path)).build()).execute().use { response ->
+    private suspend fun text(path: String, maximumBytes:Int=16*1024*1024): String = withContext(Dispatchers.IO) {
+        val bytes = Transport.metadataClient.newCall(Request.Builder().url(endpoint.url(path)).build()).readCancellable { response ->
             if (!response.isSuccessful) throw IOException("Tauon returned HTTP ${response.code}")
             val body = response.body ?: throw IOException("Empty Tauon response")
             val output = java.io.ByteArrayOutputStream()
@@ -29,44 +33,47 @@ class TauonApi(val endpoint: ServerEndpoint) {
             while (true) {
                 val count = stream.read(buffer)
                 if (count == -1) break
-                if (output.size() + count > 16 * 1024 * 1024) throw IOException("Playlist response exceeds 16 MiB")
+                if (output.size() + count > maximumBytes) {
+                    if(maximumBytes==LYRICS_RESPONSE_BYTES) throw LyricsResourceLimit()
+                    throw IOException("Playlist response exceeds 16 MiB")
+                }
                 output.write(buffer, 0, count)
             }
-            val bytes = output.toByteArray()
-            JSONObject(bytes.toString(Charsets.UTF_8))
+            output.toByteArray()
         }
+        bytes.toString(Charsets.UTF_8)
+    }
+    private suspend fun json(path:String,maximumBytes:Int=16*1024*1024):JSONObject = withContext(Dispatchers.IO) {
+        val job=currentCoroutineContext()
+        parseTauonJson(text(path,maximumBytes),checkpoint={job.ensureActive()})
     }
     suspend fun connect() {
         require(json("/api1/version").getInt("version") == 1) { "Unsupported Tauon API version" }
     }
-    suspend fun playlists(): List<TauonPlaylist> {
+    suspend fun playlists(): List<TauonPlaylist> = withContext(Dispatchers.IO) {
         val a = json("/api1/playlists").getJSONArray("playlists")
+        requireLibraryPlaylistCount(a.length())
         val ids = HashSet<String>()
-        return List(a.length()) { i -> a.getJSONObject(i).let {
+        List(a.length()) { i -> a.getJSONObject(i).let {
             val id = it.getString("id")
+            val name = it.getString("name")
+            requirePlaylistLabelBudget(id,name)
             require(id.matches(Regex("[0-9]+"))) { "Invalid playlist identifier" }
             require(ids.add(id)) { "Tauon returned duplicate playlist identifiers. Refresh its playlists and retry." }
-            TauonPlaylist(id, it.getString("name"), it.getInt("count"))
+            TauonPlaylist(id, name, it.getInt("count"))
         } }
     }
-    suspend fun tracks(playlistId: String): List<TauonTrack> {
+    suspend fun tracks(playlistId: String): List<TauonTrack> = withContext(Dispatchers.IO) {
         require(playlistId.matches(Regex("[0-9]+")))
-        val a = json("/api1/tracklist/$playlistId").getJSONArray("tracks")
-        return List(a.length()) { i -> a.getJSONObject(i).let {
-            val id = it.getLong("id"); require(id >= 0)
-            val artist = it.optString("artist")
-            TauonTrack(id, trackDisplayTitle(it.opt("title") as? String, it.opt("path") as? String), artist,
-                it.optString("album"), it.optLong("duration"),
-                it.optBoolean("can_download", false), it.optBoolean("has_lyrics"),
-                albumArtist = albumArtistTag(it.opt("album_artist"), artist),
-                trackNumber = trackNumberTag(it.opt("track_number")))
-        } }
+        val job=currentCoroutineContext()
+        parseTauonTracklist(text("/api1/tracklist/$playlistId"),checkpoint={job.ensureActive()})
     }
+
     suspend fun lyrics(trackId: Long): String {
         require(trackId >= 0)
-        val text = json("/api1/lyrics/$trackId").opt("lyrics_text")
+        val text = json("/api1/lyrics/$trackId",LYRICS_RESPONSE_BYTES).opt("lyrics_text")
         if (text == null || text === JSONObject.NULL) return ""
         require(text is String) { "Tauon returned invalid lyrics text. Refresh its lyrics and retry." }
-        return text
+        return requireLyricsBudget(text)
     }
 }

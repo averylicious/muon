@@ -22,8 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * #253 inventory: which representations of accepted library metadata main keeps, through the actual
  * HTTP/platform-JSON path ([TauonApi]) and the existing load and projection helpers. Counts, equality
  * and object identity only. Not a heap or time measurement, an IPC failure, a phone result or a limit.
- * Two expressions are mirrored rather than called, because they live in the view model and composable:
- * `LibraryModel.allTracks` (flatten, then distinct by id) and `startQueue`/`playAll`'s queue mapping.
+ * The production libraryTracks helper is called; only startQueue/playAll's queue mapping is mirrored
+ * because it lives in the composable.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
@@ -66,12 +66,14 @@ class LibraryRetentionCharacterizationTest {
         assertEquals(0, first.failed)
         val occurrences = first.tracks.values.flatten().filter { it.id == 7L }
         assertEquals(4, occurrences.size)
-        // Equal, but each parse made its own track and its own tag strings.
+        // Every occurrence still owns a distinct track. The platform streaming reader may
+        // pool equal short immutable strings; unnecessary duplicate strings are not required.
         assertTrue(occurrences.all { it == occurrences[0] })
         assertEquals(4, identityCount(occurrences))
-        assertEquals(4, identityCount(occurrences.map { it.title }))
+        val titleObjects=identityCount(occurrences.map {it.title})
+        assertTrue(titleObjects in 1..occurrences.size)
         // LibraryModel.allTracks keeps the first occurrence; grouping keeps that same object.
-        val unique = first.tracks.values.flatten().distinctBy { it.id }
+        val unique = libraryTracks(first.tracks)
         assertEquals(listOf(7L, 8L, 9L), unique.map { it.id })
         assertSame(first.tracks.getValue("1")[0], unique[0])
         assertSame(unique[0], groupAlbums(unique).first { album -> album.tracks.any { it.id == 7L } }.tracks.single { it.id == 7L })
@@ -90,7 +92,7 @@ class LibraryRetentionCharacterizationTest {
         assertEquals(4, mixed.size)
         assertTrue(mixed.any { it === first.tracks.getValue("2")[1] })
         assertTrue(mixed.none { it === first.tracks.getValue("1")[0] })
-        println("MUON_RESOURCE_FIXTURE repeated playlists=3 occurrences=${occurrences.size} unique=${unique.size} keptAfterFailedRefresh=${refreshed.tracks.getValue("2").size}")
+        println("MUON_RESOURCE_FIXTURE repeated playlists=3 occurrences=${occurrences.size} titleObjects=$titleObjects unique=${unique.size} keptAfterFailedRefresh=${refreshed.tracks.getValue("2").size}")
     }
 
     @Test fun aLongAcceptedTagIsCopiedIntoEachRetainedRepresentation() {
@@ -106,13 +108,14 @@ class LibraryRetentionCharacterizationTest {
             "/api1/tracklist/2" to tracklist(members.take(2)),
         )
         Server(routes).use { server ->
-            val occurrences = load(server.api, null).tracks.values.flatten()
+            val loaded = load(server.api, null)
+            val occurrences = loaded.tracks.values.flatten()
             assertEquals(6, occurrences.size)
             assertTrue(occurrences.all { it.album == album })
             // One string per parsed occurrence, not one per song or per album.
             assertEquals(6, identityCount(occurrences.map { it.album }))
 
-            val unique = occurrences.distinctBy { it.id }
+            val unique = libraryTracks(loaded.tracks)
             val albums = groupAlbums(unique)
             assertEquals(1, albums.size)
             assertEquals(album, albums[0].title)

@@ -41,9 +41,9 @@ private class QueueEntry(val index: Int, val item: MediaItem, val key: String = 
 
 /** What the queue holds right now: the playing song and those after it, in playing order. */
 private class QueueSnapshot(val current: QueueEntry?, val upNext: List<QueueEntry>, val shuffle: Boolean = false,
-    val repeatAll: Boolean = false)
+    val repeatAll: Boolean = false, val stamp: QueueActionStamp? = null)
 
-private fun queueSnapshot(player: Player): QueueSnapshot {
+private fun queueSnapshot(player: Player, revision: Int): QueueSnapshot {
     val count = player.mediaItemCount
     val current = player.currentMediaItemIndex
     if (count == 0 || current !in 0 until count) return QueueSnapshot(null, emptyList())
@@ -55,10 +55,11 @@ private fun queueSnapshot(player: Player): QueueSnapshot {
         if (i >= timeline.windowCount) C.INDEX_UNSET else timeline.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, shuffle)
     }
     val items = order.map { player.getMediaItemAt(it) }
-    val keys = occurrenceKeys(items.map { it.mediaId })
+    val keys = queueRowKeys(items)
     return QueueSnapshot(QueueEntry(current, player.getMediaItemAt(current)),
         order.indices.map { QueueEntry(order[it], items[it], keys[it]) }, shuffle,
-        repeatAll = player.repeatMode == Player.REPEAT_MODE_ALL)
+        repeatAll = player.repeatMode == Player.REPEAT_MODE_ALL,
+        stamp = QueueActionStamp(revision, timeline, current, shuffle))
 }
 
 /**
@@ -73,9 +74,10 @@ private fun queueSnapshot(player: Player): QueueSnapshot {
 @Composable
 internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding: Boolean, back: () -> Unit) {
     val rev = revision()
-    val snapshot = remember(player, rev) { player?.let(::queueSnapshot) ?: QueueSnapshot(null, emptyList()) }
+    val snapshot = remember(player, rev) { player?.let { queueSnapshot(it, rev) } ?: QueueSnapshot(null, emptyList()) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val currentPlayer by rememberUpdatedState(player)
     val colors = MaterialTheme.colorScheme
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val editable = player?.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) == true
@@ -91,8 +93,13 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
     var dragKey by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var working by remember { mutableStateOf<List<QueueEntry>?>(null) }
+    var dragStamp by remember { mutableStateOf<QueueActionStamp?>(null) }
     // A new queue from the player ends any drag that began on the old one.
-    LaunchedEffect(snapshot) { if (dragKey == null) working = null }
+    LaunchedEffect(snapshot) {
+        if (dragStamp != snapshot.stamp) {
+            dragKey = null; dragStamp = null; dragOffset = 0f; working = null
+        }
+    }
     val rows = working ?: shown
 
     /** Swaps the held row past a neighbour once its centre has crossed the neighbour's centre. */
@@ -116,14 +123,15 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
     fun drop() {
         val key = dragKey
         val order = working
-        dragKey = null; dragOffset = 0f
+        val stamp = dragStamp
+        dragKey = null; dragStamp = null; dragOffset = 0f
         if (key == null || order == null) { working = null; return }
         val from = shown.indexOfFirst { it.key == key }
         val to = order.indexOfFirst { it.key == key }
         val move = queueMove(shown.map { it.index }, from, to)
         val p = player
-        if (move != null && p != null && move.first < p.mediaItemCount &&
-            p.getMediaItemAt(move.first).mediaId == shown[from].item.mediaId && !p.shuffleModeEnabled) {
+        if (move != null && p != null && !p.shuffleModeEnabled &&
+            queueEntryCurrent(p, stamp, revision(), move.first, shown[from].item)) {
             p.moveMediaItem(move.first, move.second)
         }
         working = null
@@ -134,7 +142,8 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
         val p = player ?: return
         val to = entry.index + by
         if (!reorderable || to !in (snapshot.current?.index ?: -1) + 1 until p.mediaItemCount) return
-        if (p.getMediaItemAt(entry.index).mediaId == entry.item.mediaId) p.moveMediaItem(entry.index, to)
+        if (queueEntryCurrent(p, snapshot.stamp, revision(), entry.index, entry.item))
+            p.moveMediaItem(entry.index, to)
     }
 
     // While a row is held near the top or bottom, scroll so it can travel past what is on screen.
@@ -158,23 +167,33 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
         }
     }
 
-    /** Removes the song if its position still holds it, and says whether it did. */
-    fun remove(entry: QueueEntry): Boolean {
-        val p = player ?: return false
-        // The list may be a frame behind the player: act only if that position still holds that song.
-        if (entry.index !in 0 until p.mediaItemCount || p.getMediaItemAt(entry.index).mediaId != entry.item.mediaId) return false
-        p.removeMediaItem(entry.index)
-        val restore = restoreUrl(entry.item.mediaId)?.let { entry.item.buildUpon().setUri(it).build() }
+    /**
+     * Asks the service to remove the song if its position still holds it. Nothing is reported until
+     * the service acknowledges; a refusal calls [refused] (a swiped row goes back) and says so.
+     */
+    fun remove(entry: QueueEntry, refused: () -> Unit = {}) {
+        val p = player
+        val title = entry.item.mediaMetadata.title ?: "song"
         scope.launch {
+            val removal = if (p != null && queueEntryCurrent(p, snapshot.stamp, revision(), entry.index, entry.item))
+                QueueRemovalUndo.removeAwait(p, entry.index, entry.item) else null
+            if (removal == null) {
+                refused()
+                snackbar.showSnackbar("Queue changed; “$title” wasn't removed.")
+                return@launch
+            }
             snackbar.currentSnackbarData?.dismiss()
-            val result = snackbar.showSnackbar("Removed “${entry.item.mediaMetadata.title ?: "song"}”",
-                actionLabel = if (restore != null) "Undo" else null, duration = SnackbarDuration.Short)
-            // Back where it was in the list. With shuffle on, the player chooses where it falls in
-            // the shuffled order, as it does for any song added to a shuffled queue.
-            if (result == SnackbarResult.ActionPerformed && restore != null)
-                p.addMediaItem(entry.index.coerceAtMost(p.mediaItemCount), restore)
+            try {
+                val result = snackbar.showSnackbar("Removed “$title”",
+                    actionLabel = if (removal.restorable) "Undo" else null, duration = SnackbarDuration.Short)
+                // The service restores the original shuffled slot as well as the playlist index,
+                // and acknowledges the mutation before we report success.
+                if (result == SnackbarResult.ActionPerformed &&
+                    (currentPlayer !== p || !removal.undoAwait())) {
+                    snackbar.showSnackbar("Queue changed; removal wasn't undone.")
+                }
+            } finally { removal.close() }
         }
-        return true
     }
 
     Scaffold(
@@ -235,7 +254,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                     } else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
                     gesturesEnabled = editable && dragKey == null,
                     // A refused removal (the queue changed under the finger) puts the row back.
-                    onDismiss = { if (!remove(entry)) scope.launch { state.reset() } },
+                    onDismiss = { remove(entry) { scope.launch { state.reset() } } },
                     backgroundContent = {
                         Box(Modifier.fillMaxSize().background(colors.errorContainer).padding(horizontal = 24.dp),
                             contentAlignment = if (state.dismissDirection == SwipeToDismissBoxValue.StartToEnd)
@@ -249,11 +268,18 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                     val position = rows.indexOf(entry)
                     // The drag detector outlives this composition (it is keyed on the row), so it reaches
                     // the current list and callbacks through these rather than the ones it began with.
-                    val startDrag by rememberUpdatedState { dragKey = entry.key; dragOffset = 0f; working = rows }
+                    val startDrag by rememberUpdatedState {
+                        dragKey = entry.key; dragStamp = snapshot.stamp; dragOffset = 0f; working = rows
+                    }
                     val dragBy by rememberUpdatedState { dy: Float -> dragOffset += dy; settleSwaps() }
                     val endDrag by rememberUpdatedState { drop() }
                     QueueRow(entry.item, playing = false,
-                        onClick = { player?.seekToDefaultPosition(entry.index); player?.play() },
+                        onClick = {
+                            val p = player
+                            if (p != null && queueEntryCurrent(p, snapshot.stamp, revision(), entry.index, entry.item)) {
+                                p.seekToDefaultPosition(entry.index); p.play()
+                            }
+                        },
                         // Swiping and dragging mean nothing to a screen reader; both stay one action away.
                         remove = if (editable) ({ remove(entry) }) else null,
                         moveUp = if (reorderable && position > 0) ({ step(entry, -1) }) else null,
@@ -263,7 +289,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                                 onDragStart = { startDrag() },
                                 onDragEnd = { endDrag() },
                                 // A cancelled drag changes nothing: the rows go back where the player has them.
-                                onDragCancel = { dragKey = null; dragOffset = 0f; working = null },
+                                onDragCancel = { dragKey = null; dragStamp = null; dragOffset = 0f; working = null },
                             ) { change, dy ->
                                 change.consume()
                                 dragBy(dy)
@@ -313,7 +339,7 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
         .heightIn(min = 64.dp)
         .then(if (onClick != null) Modifier.clickable(onClickLabel = "Play", onClick = onClick) else Modifier)
         .padding(horizontal = if (playing) 12.dp else 24.dp, vertical = 8.dp)
-        .semantics {
+        .semantics(mergeDescendants = true) {
             if (playing) stateDescription = "Now playing"
             customActions = listOfNotNull(
                 moveUp?.let { CustomAccessibilityAction("Move up") { it(); true } },
