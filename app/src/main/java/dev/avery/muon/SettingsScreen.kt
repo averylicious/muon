@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import android.content.pm.ApplicationInfo
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,17 +37,21 @@ private val GroupInnerCorner = 4.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings, disconnect: () -> Unit) {
+internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings, openSaved: () -> Unit = {},
+    disconnect: () -> Unit) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     // Survives rotation and process death: a half-answered destructive question should not vanish.
     var confirmDisconnect by rememberSaveable { mutableStateOf(false) }
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     // Flattening every playlist is O(library). Do it when the library changes, never while scrolling.
-    val trackCount = remember(model.tracksByPlaylist) { model.allTracks.size }
+    val trackCount = remember(model.playlists, model.tracksByPlaylist) { model.allTracks.size }
     // The expanded title is 36sp, so its bar has to grow with the user's font scale or it clips.
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 2f)
     val colors = MaterialTheme.colorScheme
+    val storageAvailability by OfflineStore.availability.collectAsState()
+    // The installed APK's own flag, not a build setting, so the banner cannot disagree with the app.
+    val debuggable = remember(context) { (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 }
     Column(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         // The Canary experiment: Material 3 Expressive's flexible bar, which carries a subtitle, closer
         // to Android 17's own Settings. The subtitle names the build, which is handy while testing.
@@ -72,6 +77,11 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // A failed refresh keeps the previous library on screen; this says why it is stale.
             model.error?.let { ErrorCard(it, "Retry", quiet = model.offline, modifier = Modifier) { model.connect() } }
+            if (debuggable) DiagnosticBuildBanner()
+            else if (BuildConfig.STORAGE_TIMINGS) StorageTimingBuildBanner()
+            if(storageAvailability==StorageAvailability.Ready) {
+                OfflineStore.current()?.takeIf {it.phone.partition!=null}?.let {PartitionStorageControls(it)}
+            }
 
             GroupLabel("Connection")
             SettingsGroup {
@@ -93,7 +103,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             PlaybackGroup()
 
             GroupLabel("Storage")
-            StorageGroup { confirmClear = true }
+            StorageGroup(openSaved) { confirmClear = true }
 
             GroupLabel("Appearance")
             AppearanceGroup(appearance)
@@ -105,8 +115,8 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
         }
     }
     if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false },
-        title = { Text("Remove all downloads?") },
-        text = { Text("Songs you downloaded will stream again, and need Tauon to play.") },
+        title = { Text("Remove all saved copies?") },
+        text = { Text("Every saved copy on the phone, and on the SD card if it's in, is removed. Songs in Tauon still stream.") },
         confirmButton = { TextButton(onClick = { confirmClear = false; OfflineStore.removeAll(context) }) { Text("Remove") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } })
     if (confirmDisconnect) DisconnectDialog(model.address, dismiss = { confirmDisconnect = false }) {
@@ -120,36 +130,55 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
  * Downloads are kept across disconnecting, since offline is exactly when they are wanted.
  */
 @Composable
-private fun StorageGroup(clear: () -> Unit) {
+private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val context = LocalContext.current
+    val availability by OfflineStore.availability.collectAsState()
+    if(PartitionSetupControls(OfflineStore.current(),availability)) return
+    if(availability!=StorageAvailability.Ready || OfflineStore.current()==null) {
+        SettingsGroup { SettingsRow(index = 0, count = 1,headline="Saved storage",
+            supporting=if(availability==StorageAvailability.Failed)
+                "Couldn't open saved copies. Existing files were kept; fully restart Muon before retrying."
+            else "Opening saved copies…") }
+        return
+    }
     val colors = MaterialTheme.colorScheme
-    val songs = DownloadMarks.marks.values.count { it == DownloadMark.Done }
+    val songs = DownloadMarks.done
     val used = PlayedCacheState.used
     val limit = PlayedCacheState.limit
     val full = cacheFull(used, limit)
     // Free space where the downloads live, read once per visit; it changes slowly.
     val free = remember { runCatching { android.os.StatFs(context.filesDir.path).availableBytes }.getOrDefault(0L) }
-    // Offered only while a removable card is in and was found when the store opened; with none, the row
-    // is simply not there (the user's decision).
-    val card = remember { OfflineStore.get(context).card?.let { cardFolder(context) } }
+    // Offered only while the card found when the store opened is still there; with no card at all, the
+    // row is simply not there (the user's decision). Refresh again at each storage-work boundary.
+    val store = remember { OfflineStore.get(context) }
+    val moving = DownloadMarks.moving
+    // An exclusive operation also refuses ordinary availability. Do not remember that busy
+    // observation forever or describe it as physical card loss; recheck when work drains.
+    val card = remember(store, moving != null) { store.cardFolder?.takeIf { OfflineStore.cardAvailable(context) } }
     var onCard by remember { mutableStateOf(OfflineStore.storeOnCard(context)) }
+    // That card gone, or the card chosen with none found: unavailable, not empty (#179 S1). The row
+    // stays so the choice can be turned off, and nothing is offered to move.
+    val cardUnavailable = card == null && (store.card != null || onCard)
     // Where to move, and how many: offered when the switch leaves downloads on the other side.
     var offerMove by remember { mutableStateOf<Pair<Boolean, Int>?>(null) }
-    val moving = DownloadMarks.moving
-    val rows = if (card != null) 5 else 4
+    val rows = if (card != null || cardUnavailable) 5 else 4
     // Free space where new downloads go: the card's when they go there (#16 QA).
     val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
-    StorageBar(DownloadMarks.bytes, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
+    StorageBar(if (DownloadMarks.bytesKnown && DownloadMarks.countsKnown && DownloadMarks.summary == DownloadSummaryStatus.Ready) DownloadMarks.bytes else 0L, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
-        SettingsRow(index = 0, count = rows, headline = "Downloads",
-            supporting = if (moving != null) "Moving ${moving.first} of ${moving.second}…"
-                else if (songs == 0) "None yet. Long-press a song, or use Download all on an album, artist or playlist."
-                else "$songs ${if (songs == 1) "song" else "songs"} · ${formatBytes(DownloadMarks.bytes)}",
-            trailing = { if (songs > 0) TextButton(onClick = clear) { Text("Clear") } })
+        // Opens Saved copies (#213), where each copy is listed, played and removed on its own.
+        SettingsRow(index = 0, count = rows, headline = "On this device",
+            supporting = if (moving != null) "Updating saved copies ${moving.first} of ${moving.second}…"
+                else if (DownloadMarks.summary == DownloadSummaryStatus.Loading) "Loading saved copy totals…"
+                else if (DownloadMarks.summary == DownloadSummaryStatus.Unavailable || !DownloadMarks.countsKnown) "Saved totals unavailable. Open to see your copies."
+                else if (songs == 0L) "No copies yet. Long-press a song to save it."
+                else "$songs ${if (songs == 1L) "copy" else "copies"} · ${if (DownloadMarks.bytesKnown) formatBytes(DownloadMarks.bytes) else "Size unavailable"}",
+            trailing = { if (DownloadMarks.countsKnown && songs > 0) TextButton(onClick = clear) { Text("Clear") } },
+            clickLabel = "Open copies on this device", onClick = openSaved)
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
         SettingsRow(index = 1, count = rows, headline = "Played-song cache",
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
-                if (full) " · full, oldest songs make room" else "",
+                if (full) { if(store.phone.partition==null) " · full, oldest songs make room" else " · full, existing copies kept" } else "",
             trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } })
         // The limit is chosen right here, from four sizes side by side, rather than in a dialog.
         Surface(shape = if (Expressive.motion) ListItemDefaults.segmentedShapes(2, rows).shape else rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
@@ -190,11 +219,21 @@ private fun StorageGroup(clear: () -> Unit) {
             val cardFree = remember(card) { runCatching { android.os.StatFs(card.path).availableBytes }.getOrDefault(0L) }
             SettingsRow(index = 4, count = rows, headline = "Store on SD card",
                 supporting = "$cardName · ${formatBytes(cardFree)} free",
-                trailing = { Switch(checked = onCard, onCheckedChange = null) },
+                enabled = moving == null,
+                trailing = { Switch(checked = onCard, onCheckedChange = null, enabled = moving == null) },
                 toggled = onCard, onToggle = {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
                     val left = OfflineStore.downloadsOn(context, card = !it)
-                    if (left > 0 && moving == null) offerMove = it to left
+                    if (left != null && left > 0 && moving == null) offerMove = it to left
+                })
+        } else if (cardUnavailable) {
+            SettingsRow(index = 4, count = rows, headline = "Store on SD card",
+                supporting = if (moving != null) "Saved storage work in progress. Card status will be checked when it finishes."
+                    else "SD card not available · its downloads aren't shown or changed",
+                enabled = moving == null,
+                trailing = { Switch(checked = onCard, onCheckedChange = null, enabled = moving == null) },
+                toggled = onCard, onToggle = {
+                    onCard = it; OfflineStore.setStoreOnCard(context, it)
                 })
         }
     }
@@ -207,7 +246,16 @@ private fun StorageGroup(clear: () -> Unit) {
             confirmButton = { TextButton(onClick = { offerMove = null; OfflineStore.move(context, toCard) }) { Text("Move") } },
             dismissButton = { TextButton(onClick = { offerMove = null }) { Text("Not now") } })
     }
-    if (card != null) Text("New downloads go to the card. Removing the card hides its downloads until it is back.",
+    if (moving != null && (card != null || cardUnavailable)) Text("Wait for saved storage work to finish before changing where new copies are saved.",
+        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp))
+    else if (card != null) Text(if (onCard) "New downloads go to the card. While it's out, its downloads aren't shown or used."
+        else "New downloads go to the phone. Songs already on the card stay there unless you move them.",
+        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp))
+    else if (cardUnavailable) Text(if (onCard) "Downloads to the card can't start right now and aren't saved for later. " +
+                "Try again when it's back, or turn off Store on SD card to download to the phone."
+            else "New downloads go to the phone. Songs on the card aren't shown while it's unavailable.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
     Text("The cache keeps Opus copies of songs you play, so they also play without Tauon. " +
@@ -259,6 +307,34 @@ private fun Legend(color: Color, label: String, outlined: Boolean = false) {
             .then(if (outlined) Modifier.border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(5.dp)) else Modifier))
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+@Composable
+private fun StorageTimingBuildBanner() {
+    val colors=MaterialTheme.colorScheme
+    Surface(color=colors.errorContainer,contentColor=colors.onErrorContainer,shape=RoundedCornerShape(20.dp),
+        modifier=Modifier.fillMaxWidth().semantics(mergeDescendants=true) {}) {
+        Column(Modifier.padding(horizontal=20.dp,vertical=14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+            Text("Storage timing test build",style=MaterialTheme.typography.titleMedium)
+            Text("Temporary, non-debuggable build for storage timing tests. Extra timing logs contain only " +
+                "counters and durations. Use ordinary Canary or Stable for normal listening.",style=MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticBuildBanner() {
+    // A temporary debuggable test build (docs/ci.md). Error colours make it hard to miss, and the
+    // words say what it is, so the warning never depends on colour; TalkBack reads it as one item.
+    val colors = MaterialTheme.colorScheme
+    Surface(color = colors.errorContainer, contentColor = colors.onErrorContainer, shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Diagnostic build — debugging enabled", style = MaterialTheme.typography.titleMedium)
+            Text("A temporary test build. Performance with debugging enabled is not representative. " +
+                "Use ordinary Canary or Stable for normal listening.", style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 
@@ -379,10 +455,19 @@ private fun ConnectedBadge(offline: Boolean = false) {
 @Composable
 private fun PlaybackGroup() {
     val loudness = rememberReplayGainSettings()
+    val data = PlaybackLoudness.current
+    // An already-on preference can always be switched off, even before any tags are available.
+    val canToggle = loudness.enabled || data.usable
+    val explanation = when (data.source) {
+        LoudnessSource.Checking -> if (data.mediaId == null) "Play a song to check its loudness data." else "Checking this song's loudness data…"
+        LoudnessSource.Missing -> "No loudness data yet. Play a song with ReplayGain tags."
+        LoudnessSource.Estimated -> "No ReplayGain tags for this song. Uses an estimate from other songs."
+        LoudnessSource.Tagged -> "Uses this song's ReplayGain loudness data."
+    }
     SettingsGroup {
         SettingsRow(index = 0, count = 1, headline = "Even out volume",
-            supporting = "Plays songs at a similar loudness, using the ReplayGain tags in your music files",
-            trailing = { Switch(checked = loudness.enabled, onCheckedChange = null) },
+            supporting = explanation, enabled = canToggle,
+            trailing = { Switch(checked = loudness.enabled, enabled = canToggle, onCheckedChange = null) },
             toggled = loudness.enabled, onToggle = { loudness.choose(it) })
     }
 }

@@ -1,0 +1,36 @@
+# Release plan
+
+Updated 2026-10-23. One published Stable, one accepted upcoming release, and a separate M3E experiment. Workstream names are not version numbers.
+
+## Current release: v0.2.0
+
+The user accepted RC .1352 plus the .1353 chevron/TalkBack-focus retest, then authorized merging/cleanup, main-to-M3E integration and delegated Stable version/publication. The accepted source is `f6d1be9591ca8e38bdc417906f75c3029c2e3e82`, merged through [#648](https://github.com/averylicious/muon/pull/648) as `8c456abe408ebd6fcaffe586bd9c6b73fa57ad18`.
+
+| Gate | Status |
+| --- | --- |
+| Locked engineering and actual-release acceptance | Complete within recorded scope; .1353 CI passed 1,821 cases per variant, lint 0 errors / 66 warnings. Both installed release APK hashes verified; user acceptance recorded on #648 |
+| Main integration | #648 merged with ancestry preserved; verify main's build and Canary publication before tagging |
+| Stable publication | User authorized v0.2.0; tag only a verified main commit, then check signed release artifacts, checksum, metadata and Latest status |
+| Experimental transfer | Separate merge-commit integration into `claude/m3-expressive-alpha`, with conflict review and its own CI. Preserve the owner's checkout and experimental dependencies/features |
+
+Real-user upgrade from an old saved-library state was unavailable. The user approved controlled compatibility instead; published v0.1.0 was streaming-only. Selected actual minified storage/Move/Delete/queue checks and memory/legacy fixtures passed. This evidence is not a universal memory guarantee, every filesystem-failure test, or proof of the lost reset-related refusal.
+
+## Open follow-ups, not fixed claims
+
+- **#646:** user explicitly keeps the historical post-reset/SD-card Delete refusal open and unresolved. Current-copy deletion passes; the original private state was cleared, and no historical fix is claimed. Retain exact-route evidence if it recurs.
+- **#401:** measured saved-card startup/Move delays accepted for this release; further performance work deferred.
+- **#207:** notification-only stale artwork after track-ID reuse explicitly deferred; in-app fix is in the candidate.
+- **#179:** deeper SD eject/live-process/restart recovery deferred.
+- Dependency verification and runner/SDK/cache provenance limits explicitly deferred, with no compromise demonstrated.
+- Missing-art placeholder mockups and animation/UI polish belong to the next design cycle.
+- CI suite reduction toward 100–500 actual cases requires an overlap review and meaningful retained coverage; keep this separate from the accepted RC's checks.
+
+Do not reopen a general audit for this release. A confirmed security/privacy/data-loss/crash defect or regression against accepted behavior can interrupt it; speculative hardening and ordinary polish go to maintenance. Keep deferred issues open instead of labelling them fixed.
+
+## Next cycle
+
+After this release, integrate its baseline into M3E, then continue experiments and maintenance. When the user freezes M3E, audit its delta and affected shared contracts against the released baseline; do not automatically restart the whole audit. Evaluate Material3 1.5.0 Beta separately with current compatibility research. Current Stable keeps its pinned stable dependencies.
+
+Follow [parallel tracks](parallel-tracks.md) for expected-head checks, isolated writers and owner-controlled experiment integration, and [release naming](release-naming.md) for version rules. Main/M3E Canary builds share a package; preserve the user's everyday Canary during agent testing by using Diagnostic when explicitly authorized.
+
+Earlier inventory and detailed evidence limits: [dated gate ledger](handoffs/2026-10-23-pre-release-gate-ledger.md), [issue state](audits/issues/README.md), [release-configuration acceptance](handoffs/2026-10-22-release-acceptance.md), and [the final RC checkpoint](handoffs/2026-10-23-saved-copies-ui.md).

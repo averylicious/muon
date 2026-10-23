@@ -18,16 +18,29 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # Execute policy/tests from the destination snapshot, never from the candidate under review.
+      # This stays a read-only pull_request job; workflow changes still require source review.
+      - name: Check out destination policy
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: policy
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Check out candidate history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify branch policy logic
-        run: python3 -m unittest discover -s tools -p test_ci_branch_policy.py
+      - name: Verify destination policy logic
+        working-directory: policy
+        run: python3 -I -m unittest discover -s tools -p test_ci_branch_policy.py
       - name: Check destination and ancestry
+        working-directory: candidate
         env:
           PR_BASE: ${{ github.event.pull_request.base.ref }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_SOURCE: ${{ github.event.pull_request.head.ref }}
-        run: python3 tools/check_branch_policy.py --base "$PR_BASE" --head "$PR_HEAD" --source "$PR_SOURCE"
+        run: python3 -I "$GITHUB_WORKSPACE/policy/tools/check_branch_policy.py" --base "$PR_BASE" --head "$PR_HEAD" --source "$PR_SOURCE"

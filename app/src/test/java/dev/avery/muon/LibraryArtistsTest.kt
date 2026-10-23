@@ -78,7 +78,7 @@ class LibraryArtistsTest {
 
     /** What the app derives from the model's playlists, as `LibraryModel.allTracks` does. */
     private fun snapshotOf(byPlaylist: Map<String, List<TauonTrack>>) =
-        LibrarySnapshot(byPlaylist.values.flatten().distinctBy { it.id })
+        LibrarySnapshot(libraryTracks(byPlaylist))
 
     /**
      * The grouping effect as Compose runs it: it restarts when any key is unequal (`!=`) to the one

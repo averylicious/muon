@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1340" height="1110" viewBox="0 0 1340 1110" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <title>Muon “On this device” (saved copies) proposal: list, row menu, delete confirmation</title>
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3D5A80"/><stop offset=".7" stop-color="#98C1D9"/><stop offset="1" stop-color="#E0FBFC"/></linearGradient>
+    <linearGradient id="g2" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#6D2E46"/><stop offset=".55" stop-color="#A26769"/><stop offset="1" stop-color="#D5B9B2"/></linearGradient>
+    <radialGradient id="g3" cx=".5" cy="1.2" r=".9"><stop offset=".6" stop-color="#95D5B2"/><stop offset=".61" stop-color="#2D6A4F"/></radialGradient>
+    <pattern id="g4" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="11" height="11" fill="#22223B"/><rect width="5.5" height="11" fill="#4A4E69"/></pattern>
+    <clipPath id="phoneClip"><rect width="380" height="820" rx="40"/></clipPath>
+    <path id="i-more" d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+    <path id="i-back" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+    <path id="i-refresh" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+    <path id="i-info" d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
+    <path id="i-chev" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+    <path id="i-expand" d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/>
+    <path id="i-sd" d="M18 2h-8L4.02 8 4 20c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 18H6V8.83L10.83 4H18v16zM9 7h2v4H9zm3 0h2v4h-2zm3 0h2v4h-2z"/>
+    <path id="i-play" d="M8 5v14l11-7z"/>
+    <path id="i-pause" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+    <path id="i-next" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+    <path id="i-details" d="M3 5h18v2H3zm0 6h18v2H3zm0 6h12v2H3z"/>
+    <path id="i-swap" d="M16 17.01V10h-2v7.01h-3L15 21l4-3.99h-3zM9 3L5 6.99h3V14h2V6.99h3L9 3z"/>
+    <path id="i-del" d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/>
+    <path id="i-lib" d="M3 3h8v8H3zm2 2v4h4V5zm8-2h8v8h-8zm2 2v4h4V5zM3 13h8v8H3zm2 2v4h4v-4zm8-2h8v8h-8zm2 2v4h4v-4z"/>
+    <path id="i-search" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+    <path id="i-tune" d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/>
+
+    <!-- Shared screen: app bar, info line, downloads, collapsed listening section, mini player, nav. -->
+    <g id="screen">
+      <rect width="380" height="820" fill="#FFF8F7"/>
+      <text x="22" y="22" font-size="13" font-weight="600" fill="#231919">4:07</text>
+      <rect x="318" y="13" width="14" height="9" rx="2" fill="#231919" opacity=".8"/><rect x="337" y="13" width="14" height="9" rx="2" fill="#231919" opacity=".8"/>
+      <use href="#i-back" x="16" y="48" fill="#544243"/>
+      <text x="56" y="68" font-size="22" fill="#231919">On this device</text>
+      <use href="#i-refresh" x="340" y="48" fill="#544243"/>
+      <!-- Compact info line: short sentence, Details action, chevron kept clear -->
+      <rect x="16" y="92" width="348" height="44" rx="16" fill="#FBEEED"/>
+      <g transform="translate(30,104) scale(.833)"><use href="#i-info" fill="#544243"/></g>
+      <text x="58" y="119" font-size="14" fill="#544243">Plays from this device</text>
+      <text x="326" y="119" font-size="14" font-weight="500" fill="#8B4A50" text-anchor="end">Details</text>
+      <g transform="translate(328,104) scale(.833)"><use href="#i-chev" fill="#8B4A50"/></g>
+      <text x="20" y="164" font-size="14" font-weight="600" fill="#8B4A50">Downloads</text>
+      <text x="96" y="164" font-size="13" fill="#544243">· 4</text>
+      <!-- Row 1, playing -->
+      <rect x="8" y="174" width="364" height="72" rx="18" fill="#F7D9DB"/>
+      <rect x="16" y="184" width="52" height="52" rx="12" fill="url(#g1)"/><circle cx="52" cy="200" r="9" fill="#F6C177"/>
+      <text x="82" y="202" font-size="16" font-weight="500" fill="#231919">Harbour Lights</text>
+      <text x="82" y="221" font-size="14" fill="#544243">Mara Ellis</text>
+      <rect x="82" y="229" width="3" height="7" fill="#8B4A50"/><rect x="87" y="224" width="3" height="12" fill="#8B4A50"/><rect x="92" y="227" width="3" height="9" fill="#8B4A50"/>
+      <text x="99" y="236" font-size="13" font-weight="500" fill="#231919">Playing</text>
+      <use href="#i-more" x="336" y="198" fill="#544243"/>
+      <!-- Row 2 -->
+      <rect x="16" y="256" width="52" height="52" rx="12" fill="url(#g2)"/>
+      <text x="82" y="280" font-size="16" font-weight="500" fill="#231919">Paper Satellites</text>
+      <text x="82" y="300" font-size="14" fill="#544243">The Glass Orchards</text>
+      <use href="#i-more" x="336" y="270" fill="#544243"/>
+      <!-- Row 3 -->
+      <rect x="16" y="328" width="52" height="52" rx="12" fill="url(#g3)"/><rect x="16" y="364" width="52" height="16" fill="#1B4332"/>
+      <text x="82" y="352" font-size="16" font-weight="500" fill="#231919">Slow Tide</text>
+      <text x="82" y="372" font-size="14" fill="#544243">Okonkwo &amp; June</text>
+      <use href="#i-more" x="336" y="342" fill="#544243"/>
+      <!-- Row 4, SD card -->
+      <rect x="16" y="400" width="52" height="52" rx="12" fill="url(#g4)"/><circle cx="42" cy="426" r="12" fill="#F2E9E4" opacity=".85"/>
+      <text x="82" y="416" font-size="16" font-weight="500" fill="#231919">Northbound (Live)</text>
+      <text x="82" y="435" font-size="14" fill="#544243">Hollis Reed</text>
+      <g transform="translate(82,439) scale(.667)"><use href="#i-sd" fill="#544243"/></g>
+      <text x="102" y="452" font-size="13" fill="#544243">SD card</text>
+      <use href="#i-more" x="336" y="414" fill="#544243"/>
+      <!-- Listening section, collapsed until chosen -->
+      <text x="20" y="492" font-size="14" font-weight="600" fill="#8B4A50">Kept from listening</text>
+      <text x="155" y="492" font-size="13" fill="#544243">· 2</text>
+      <text x="334" y="492" font-size="14" font-weight="500" fill="#8B4A50" text-anchor="end">Show</text>
+      <use href="#i-expand" x="336" y="476" fill="#8B4A50"/>
+      <text x="20" y="514" font-size="13" fill="#544243">Saved automatically while you listened. When</text>
+      <text x="20" y="532" font-size="13" fill="#544243">the listening cache is full, older ones make room.</text>
+      <text x="190" y="568" font-size="13" fill="#544243" text-anchor="middle">6 on this device</text>
+      <!-- Mini player and navigation (unchanged) -->
+      <rect y="662" width="380" height="64" fill="#EFDCDB"/><rect y="662" width="144" height="2" fill="#8B4A50"/>
+      <rect x="12" y="672" width="44" height="44" rx="8" fill="url(#g1)"/>
+      <text x="68" y="690" font-size="15" font-weight="500" fill="#231919">Harbour Lights</text>
+      <text x="68" y="708" font-size="13" fill="#544243">Mara Ellis</text>
+      <rect x="276" y="670" width="48" height="48" rx="16" fill="#8B4A50"/><use href="#i-pause" x="288" y="682" fill="#FFFFFF"/>
+      <use href="#i-next" x="340" y="682" fill="#544243"/>
+      <rect y="726" width="380" height="94" fill="#FBEEED"/>
+      <use href="#i-lib" x="51" y="739" fill="#544243"/><text x="63" y="781" font-size="12" font-weight="500" fill="#544243" text-anchor="middle">Library</text>
+      <use href="#i-search" x="178" y="739" fill="#544243"/><text x="190" y="781" font-size="12" font-weight="500" fill="#544243" text-anchor="middle">Search</text>
+      <rect x="289" y="736" width="56" height="30" rx="15" fill="#F7D9DB"/><use href="#i-tune" x="305" y="739" fill="#3B1D21"/>
+      <text x="317" y="781" font-size="12" font-weight="500" fill="#231919" text-anchor="middle">Settings</text>
+      <rect x="136" y="806" width="108" height="4" rx="2" fill="#231919" opacity=".6"/>
+    </g>
+  </defs>
+
+  <rect width="1340" height="1110" fill="#EEE6E5"/>
+  <text x="40" y="48" font-size="24" font-weight="600" fill="#231919">“On this device” (saved copies) · proposal mockup</text>
+  <text x="40" y="74" font-size="15" fill="#5d4b4c">Pending user approval. Fictional songs and abstract covers; not app screenshots or runtime evidence. Stable Material 3 1.4.0 components only.</text>
+
+  <!-- Phone 1: list -->
+  <g transform="translate(40,110)">
+    <rect x="-10" y="-10" width="400" height="840" rx="50" fill="#241a1b"/>
+    <g clip-path="url(#phoneClip)"><use href="#screen"/></g>
+  </g>
+
+  <!-- Phone 2: open row menu -->
+  <g transform="translate(480,110)">
+    <rect x="-10" y="-10" width="400" height="840" rx="50" fill="#241a1b"/>
+    <g clip-path="url(#phoneClip)">
+      <use href="#screen"/>
+      <rect x="324" y="330" width="48" height="48" rx="24" fill="#544243" opacity=".12"/>
+      <rect x="128" y="378" width="240" height="228" rx="8" fill="#F5E3E2"/>
+      <rect x="128" y="378" width="240" height="228" rx="8" fill="none" stroke="#000" stroke-opacity=".08"/>
+      <use href="#i-play" x="144" y="398" fill="#544243"/><text x="180" y="415" font-size="15" fill="#231919">Play</text>
+      <use href="#i-details" x="144" y="446" fill="#544243"/><text x="180" y="463" font-size="15" fill="#231919">Details</text>
+      <use href="#i-swap" x="144" y="494" fill="#544243"/><text x="180" y="511" font-size="15" fill="#231919">Update storage format</text>
+      <rect x="128" y="536" width="240" height="1" fill="#D8C1C2"/>
+      <use href="#i-del" x="144" y="554" fill="#544243"/><text x="180" y="571" font-size="15" fill="#231919">Delete download</text>
+    </g>
+  </g>
+
+  <!-- Phone 3: normal delete confirmation -->
+  <g transform="translate(920,110)">
+    <rect x="-10" y="-10" width="400" height="840" rx="50" fill="#241a1b"/>
+    <g clip-path="url(#phoneClip)">
+      <use href="#screen"/>
+      <rect width="380" height="820" fill="#231919" opacity=".38"/>
+      <rect x="28" y="306" width="324" height="208" rx="28" fill="#F5E3E2"/>
+      <text x="52" y="350" font-size="22" fill="#231919">Delete this download?</text>
+      <text x="52" y="382" font-size="14" fill="#544243">“Slow Tide” will be deleted from this</text>
+      <text x="52" y="402" font-size="14" fill="#544243">phone. Other copies here and your Tauon</text>
+      <text x="52" y="422" font-size="14" fill="#544243">library aren’t changed.</text>
+      <text x="252" y="478" font-size="14" font-weight="500" fill="#8B4A50" text-anchor="end">Cancel</text>
+      <text x="328" y="478" font-size="14" font-weight="500" fill="#8B4A50" text-anchor="end">Delete</text>
+    </g>
+  </g>
+
+  <!-- Captions, in their own band below the phones -->
+  <g font-size="13" fill="#5d4b4c" text-anchor="middle">
+    <text x="230" y="986" font-size="16" font-weight="600" fill="#231919">1 · Normal list</text>
+    <text x="230" y="1008">One ⋮ per row (48 dp). Downloads first; kept-from-</text>
+    <text x="230" y="1026">listening is collapsed (proposed source-aware paging).</text>
+    <text x="670" y="986" font-size="16" font-weight="600" fill="#231919">2 · Row menu open</text>
+    <text x="670" y="1008">Delete is always offered. “Update storage format”</text>
+    <text x="670" y="1026">appears only once eligibility is confirmed.</text>
+    <text x="1110" y="986" font-size="16" font-weight="600" fill="#231919">3 · Delete asks once</text>
+    <text x="1110" y="1008">Normal confirmation, then the copy is deleted.</text>
+    <text x="1110" y="1026">Other listed copies must stay intact.</text>
+  </g>
+
+  <text x="40" y="1078" font-size="13" fill="#5d4b4c">Proposal only · Icon + text statuses · Rationale: proposal.md · Interactive prototype source: proposal.html.txt</text>
+</svg>

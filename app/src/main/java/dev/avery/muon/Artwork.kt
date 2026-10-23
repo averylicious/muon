@@ -20,14 +20,40 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.Request
 
-private val artCache = object : LruCache<String, Bitmap>(12 * 1024 * 1024) {
-    override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+// Finished-cache size does not bound simultaneous encoded bodies or native decode/scale work.
+// Acquire before disk/HTTP bytes, retain through decode/publication/write, cancel queued requests.
+private val artworkLoads = Semaphore(2)
+
+internal const val ARTWORK_MEMORY_BYTES = 12 * 1024 * 1024
+private const val ARTWORK_MEMORY_ENTRY_FLOOR = 32 * 1024
+
+/** A bitmap-byte LRU alone can retain millions of tiny images' URL/identity keys. Charge
+ * their UTF-16 payload plus a conservative per-entry allowance, and at least32KiB per entry:
+ * at most384 keys in the production12MiB weighted cache. This is logical cache accounting,
+ * not an exact ART/native retained-byte measurement. Never recycle a bitmap on eviction: a
+ * visible/crossfading component may still hold it, including a value shared by several keys. */
+internal fun artworkMemoryCache(maxBytes: Int = ARTWORK_MEMORY_BYTES): LruCache<ArtworkMemoryKey, Bitmap> {
+    require(maxBytes in 1..ARTWORK_MEMORY_BYTES)
+    return object : LruCache<ArtworkMemoryKey, Bitmap>(maxBytes) {
+        override fun sizeOf(key: ArtworkMemoryKey, value: Bitmap): Int {
+            val weight = maxOf(value.byteCount, value.allocationByteCount).toLong() +
+                key.url.length.toLong() * 2 + (key.identity?.length ?: 0).toLong() * 2 + 128
+            // An over-budget value need only cost budget+1. Avoid overflowing LruCache's Int
+            // accounting when it adds this weight to the existing (at most budget) contents.
+            return weight.coerceAtLeast(ARTWORK_MEMORY_ENTRY_FLOOR.toLong()).coerceAtMost(maxBytes.toLong() + 1).toInt()
+        }
+    }
 }
+
+private val artCache = artworkMemoryCache()
 
 /**
  * The sizes a picture is decoded at, in pixels along its shorter side. A picture is decoded for the
@@ -83,23 +109,22 @@ private fun encodeArtwork(art: Bitmap): ByteArray = ByteArrayOutputStream().use 
     out.toByteArray()
 }
 
-private fun memoryKey(url: String, size: Int) = "$url#$size"
-
 /**
- * A small decode of [url] for reading colours from (Now Playing's theme): the mini player's size, so
+ * A small decode of [request] for reading colours from (Now Playing's theme): the mini player's size, so
  * it is usually already in memory. Null if it cannot be had.
  */
-internal suspend fun artworkBitmap(context: android.content.Context, url: String): Bitmap? =
-    artCache.get(memoryKey(url, 128)) ?: fetchArtwork(url, 128, ArtworkStore.disk(context))
+internal suspend fun artworkBitmap(context: android.content.Context, request: ArtworkRequest): Bitmap? =
+    ArtworkIdentities.ifCurrent(request) { artCache.get(request.memoryKey(128)) }
+        ?: fetchArtwork(request, 128, ArtworkStore.disk(context))
 
 /** A picture decoded for one of [ARTWORK_SIZES]. */
 private class LoadedArtwork(val bitmap: Bitmap, val size: Int)
 
-/** The largest decode of [url] already in memory, whatever size it was made for. */
-private fun cachedArtwork(url: String): LoadedArtwork? {
+/** The largest decode of [request] already in memory, whatever size it was made for. */
+private fun cachedArtwork(request: ArtworkRequest): LoadedArtwork? {
     for (i in ARTWORK_SIZES.indices.reversed()) {
         val size = ARTWORK_SIZES[i]
-        artCache.get(memoryKey(url, size))?.let { return LoadedArtwork(it, size) }
+        artCache.get(request.memoryKey(size))?.let { return LoadedArtwork(it, size) }
     }
     return null
 }
@@ -112,33 +137,41 @@ private fun cachedArtwork(url: String): LoadedArtwork? {
  * Each [size] is its own entry in memory and on disk: a list row keeps its small decode, the player
  * keeps the server's picture as it came.
  */
-private suspend fun fetchArtwork(url: String, size: Int, disk: ArtworkDiskCache): Bitmap? = withContext(Dispatchers.IO) {
-    val key = memoryKey(url, size)
-    val identity = ArtworkIdentities.of(url)
-    val diskKey = if (size >= ARTWORK_ORIGINAL_SIZE) url else key
-    if (identity != null) disk.read(diskKey, identity)?.let { decodeArtwork(it, size) }?.let { art ->
-        artCache.put(key, art)
-        return@withContext art
-    }
-    // A downloaded song's cover is kept with the download, so it shows offline and after Disconnect.
-    OfflineStore.current()?.art?.forArtwork(url)?.let { decodeArtwork(it, size) }?.let { art ->
-        artCache.put(key, art)
-        return@withContext art
-    }
-    runCatching {
-        Transport.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            if (!response.isSuccessful) return@use null
-            val body = response.body ?: return@use null
-            val source = body.source()
-            if (source.request(4 * 1024 * 1024 + 1L)) return@use null
-            val bytes = source.readByteArray()
-            decodeArtwork(bytes, size)?.also { art ->
-                artCache.put(key, art)
-                if (identity != null) disk.write(diskKey, identity,
-                    if (size >= ARTWORK_ORIGINAL_SIZE) bytes else encodeArtwork(art))
-            }
+private suspend fun fetchArtwork(request: ArtworkRequest, size: Int, disk: ArtworkDiskCache): Bitmap? = artworkLoads.withPermit {
+    withContext(Dispatchers.IO) {
+        val url = request.url
+        val key = request.memoryKey(size)
+        val identity = request.identity
+        // Preserve existing disk filenames while the memory key also includes identity.
+        val diskKey = if (size >= ARTWORK_ORIGINAL_SIZE) url else "$url#$size"
+        fun keep(art: Bitmap): Bitmap? = ArtworkIdentities.ifCurrent(request) { artCache.put(key, art); art }
+        // A saved copy's own cover is read from that entry's file and nowhere else, never fetched (#213).
+        // A live song's picture never comes from a saved copy: one kept under its number may be another song's.
+        savedArtRequest(url)?.let { requestId ->
+            return@withContext OfflineStore.current()?.art?.forEntry(requestId)?.let { decodeArtwork(it, size) }?.let(::keep)
         }
-    }.getOrNull()
+        if (url.startsWith("$SAVED_ART_SCHEME:")) return@withContext null
+        if (identity != null) disk.read(diskKey, identity)?.let { decodeArtwork(it, size) }?.let { art ->
+            return@withContext keep(art)
+        }
+        try {
+            val bytes = Transport.metadataClient.newCall(Request.Builder().url(url).build()).readCancellable { response ->
+                if (!response.isSuccessful) return@readCancellable null
+                val body = response.body ?: return@readCancellable null
+                val source = body.source()
+                if (source.request(4 * 1024 * 1024 + 1L)) return@readCancellable null
+                source.readByteArray()
+            } ?: return@withContext null
+            decodeArtwork(bytes, size)?.let { art ->
+                keep(art)?.also {
+                    // A late disk write uses its captured identity, never the replacement's.
+                    if (identity != null) disk.write(diskKey, identity,
+                        if (size >= ARTWORK_ORIGINAL_SIZE) bytes else encodeArtwork(art))
+                }
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
+    }
 }
 
 /**
@@ -159,20 +192,21 @@ internal fun forgetArtwork(disk: ArtworkDiskCache) {
 fun Artwork(url: String?, modifier: Modifier = Modifier) {
     // Seeded from the cache during composition so art already decoded draws in the same frame
     // instead of flashing the placeholder every time a row scrolls back into view.
-    var loaded by remember(url) { mutableStateOf(url?.let(::cachedArtwork)) }
+    val request = url?.let { ArtworkIdentities.request(it) }
+    var loaded by remember(request) { mutableStateOf(request?.let(::cachedArtwork)) }
     var side by remember { mutableIntStateOf(0) }
     val size = artworkSize(side)
     val context = LocalContext.current
     val disk = remember(context) { ArtworkStore.disk(context) }
     // Already in memory: it was drawn in this frame, so there is nothing to fade in.
-    val fromCache = remember(url) { loaded != null }
-    LaunchedEffect(url, size) {
+    val fromCache = remember(request) { loaded != null }
+    LaunchedEffect(request, size) {
         val shown = loaded
-        if (url == null || size == 0 || (shown != null && shown.size >= size)) return@LaunchedEffect
+        if (request == null || size == 0 || (shown != null && shown.size >= size)) return@LaunchedEffect
         // Something is already drawn, and a picture growing into a page passes through every size
         // on the way: only the size it settles at is worth decoding.
         if (shown != null) delay(ARTWORK_SETTLE_MS)
-        fetchArtwork(url, size, disk)?.let { loaded = LoadedArtwork(it, size) }
+        fetchArtwork(request, size, disk)?.let { loaded = LoadedArtwork(it, size) }
     }
     Box(modifier.onSizeChanged { side = minOf(it.width, it.height) }
         .background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {

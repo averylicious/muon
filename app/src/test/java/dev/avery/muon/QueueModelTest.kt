@@ -42,6 +42,21 @@ class QueueModelTest {
         assertEquals("3 songs", queueSummary(3, QueueLength(0, false)))
     }
 
+    @Test fun largePositiveLengthsSaturateWithoutHidingTheLowerBound() {
+        assertEquals(QueueLength(Long.MAX_VALUE, true), queueLength(listOf(Long.MAX_VALUE - 1, 1L)))
+        assertEquals(QueueLength(Long.MAX_VALUE, false), queueLength(listOf(Long.MAX_VALUE, 1L)))
+        assertEquals(QueueLength(Long.MAX_VALUE, false), queueLength(listOf(Long.MAX_VALUE, null, Long.MAX_VALUE)))
+        assertEquals("2 songs, at least 2562047788015 hours 13 min",
+            queueSummary(2, queueLength(listOf(Long.MAX_VALUE, 1L))))
+    }
+
+    @Test fun roundingLargeAcceptedLengthDoesNotWrapToOneMinute() {
+        assertEquals("1 song, 2562047788015 hours 13 min", queueSummary(1, QueueLength(Long.MAX_VALUE, true)))
+        assertEquals("1 song, 1 minute", queueSummary(1, QueueLength(89_999, true)))
+        assertEquals("1 song, 2 minutes", queueSummary(1, QueueLength(90_000, true)))
+        assertEquals("0 songs", queueSummary(0, QueueLength(Long.MAX_VALUE, true)))
+    }
+
     @Test fun undoRebuildsTheAddressMuonWouldHaveMade() {
         assertEquals("http://192.168.1.10:7814/api1/file/42", restoreUrl("http://192.168.1.10:7814/42"))
         // Not a media ID Muon makes: no address, so no Undo.

@@ -9,6 +9,9 @@ android {
     compileSdkMinor = 0
     buildToolsVersion = "37.0.0"
     defaultConfig {
+        // Off unless a build type offers it: Canary and Stable do, benchmark does not.
+        buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "false")
+        buildConfigField("boolean", "STORAGE_TIMINGS", "false")
         applicationId = "dev.avery.muon"
         minSdk = 28
         // At 37, reaching the LAN needs ACCESS_LOCAL_NETWORK, asked for before connecting (LocalNetwork.kt).
@@ -30,17 +33,40 @@ android {
             keyPassword = storePassword
         }
     }
+    // Opt-in diagnostic app (docs/ci.md): CI sets it only for a manual branch run that asked for
+    // one (tools/diagnostic_mode.py). Exactly "true" or "false"; anything else stops the build.
+    val diagnosticDebug = when (val value = providers.environmentVariable("MUON_DIAGNOSTIC_DEBUG").getOrElse("false")) {
+        "true" -> true
+        "false" -> false
+        else -> throw GradleException("MUON_DIAGNOSTIC_DEBUG must be true or false, not \"$value\"")
+    }
+    // Explicit manual test instrumentation, not debugging. Release/benchmark inherit false.
+    val storageTimings = when (val value = providers.environmentVariable("MUON_STORAGE_TIMINGS").getOrElse("false")) {
+        "true" -> true
+        "false" -> false
+        else -> throw GradleException("MUON_STORAGE_TIMINGS must be true or false")
+    }
     buildTypes {
         getByName("debug") {
+            // Explicit Canary preview; installing does not opt in or change saved storage.
+            buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "true")
+            buildConfigField("boolean", "STORAGE_TIMINGS", storageTimings.toString())
             // Canary is built like Stable in the one way that matters for QA: not debuggable, so
             // Compose runs at full speed and phone testing reflects real performance (#125). The
             // package, signing key and update path are unchanged. "Muon β" fits the launcher's
-            // one-line label, where "Muon Canary" was cut to "Muon Can…" (#29).
-            isDebuggable = false
-            resValue("string", "app_name", "Muon β")
-            versionNameSuffix = "-canary." + providers.environmentVariable("MUON_VERSION_CODE").getOrElse("local")
+            // one-line label, where "Muon Canary" was cut to "Muon Can…" (#29). A diagnostic build
+            // is the one exception: debuggable, and named so that it cannot pass for a normal one.
+            isDebuggable = diagnosticDebug
+            if (diagnosticDebug) applicationIdSuffix = ".diagnostic"
+            resValue("string", "app_name", if (diagnosticDebug) "Muon diag" else "Muon β")
+            versionNameSuffix = "-canary." + providers.environmentVariable("MUON_VERSION_CODE").getOrElse("local") +
+                if (diagnosticDebug) "-diagnostic" else if (storageTimings) "-timings" else ""
         }
         getByName("release") {
+            // Never debuggable, diagnostic build or not; the benchmark type inherits this.
+            isDebuggable = false
+            // Stable offers the same explicit opt-in; installing does not opt in or change saved storage.
+            buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "true")
             // Install beside the original milestone/debug app, preserving its settings.
             applicationIdSuffix = ".release"
             resValue("string", "app_name", "Muon")
@@ -55,6 +81,8 @@ android {
         // never touched. Signed with the debug key. Never published.
         create("benchmark") {
             initWith(getByName("release"))
+            // Profiling never offers the storage opt-in.
+            buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "false")
             applicationIdSuffix = ".benchmark"
             resValue("string", "app_name", "Muon Benchmark")
             isMinifyEnabled = false
@@ -68,7 +96,10 @@ android {
         compose = true
         // The launcher labels above are resValues, which AGP 9 no longer enables by default.
         resValues = true
+        buildConfig = true
     }
+    // Storage/service fixtures load real application resources.
+    testOptions { unitTests.isIncludeAndroidResources = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -90,8 +121,16 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")
+    // Deterministic cancellation/replacement ordering for the production library-load owner.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    // Real Media3 cache/index and controller callback tests on the JVM; not packaged in either APK.
+    testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
 }
 
+// Keep a failing assertion's source line visible even if report-artifact upload is unavailable.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+}

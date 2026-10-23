@@ -1,0 +1,21 @@
+# October 9: bounded completed-save index projection (#253)
+
+Cumulative successor of corrected OPEN #450 at `c876e5c56c49aa8a58c835a3fa89458d42bff166`, including #449 and main `602933e5ad1d8ecc65048e8a776488df6acec013`. #450 refreshed run37924743469 passed; actual report/APK receipts belong on its PR. Independent #451 addresses measured #401 startup and must also survive final acceptance integration. Continuing engineering/checkpoint policy applies.
+
+## Implemented
+
+`PartitionCompletionIndex` reads only one requested COMPLETED row from the pinned DefaultDownloadIndex schema. SQL CASE guards bound data, URI/id/custom-key/mime text, empty stream/DRM fields and numeric types BEFORE CursorWindow or Java copies. UTF-8 projection limits account for the supported UTF-16 budget, then the existing full progressive request/Parcel admission validates the transient reconstructed request. At most768KiB data plus bounded text is projected; only scalar completion identity and a fixed digest survive. No library-wide list, metadata/cover queue or additional native cache is retained.
+
+The adapter first checks the bounded version scalar (feature0/name, v3) and a bounded15-column schema projection. Unknown/uninitialized/malformed version/schema refuses without calling DefaultDownloadIndex initialization, migration or deletion. Provider lifetime and app-wide source/writer/removal/availability exclusion remain borrowed responsibilities. Invalid stop/failure Long values are checked before Int conversion, so overflow cannot become a valid zero. Adaptive MIME/custom-key collisions are rejected before DownloadRequest construction, which the pinned source shows can otherwise throw an unchecked argument error. It does not authenticate the database, support adaptive/ranged requests, repair old rows or bound OTHER manager/index APIs.
+
+The prepared completed-save reader now offers a constructor using the actual DatabaseProvider/name with this projection. Existing real native-cache/manager read tests use it; fixtures explicitly initialize their actual DefaultDownloadIndex. App services still do not select the partition backend. No schema write, dependency change, default storage switch or new public service.
+
+## Verification contract
+
+Checked pinned Media3 published DefaultDownloadIndex and VersionTable sources: TABLE_VERSION3, exact15-column layout, empty persisted keySetId, matching builder/request fields, FEATURE_OFFLINE0 and version-read initialization behavior. Maven source receipts: exoplayer SHA256 `2d583de9d39b48e45f9a29f1d94d23032c0642cfc7ca4bbe1967071d26a60ed6`; database SHA256 `1baca4ff0a32e76d08b92ed5d33e0278aa34a9e9c537edbc2fd39573e8ec46a3`. Recheck with any pinned library/schema upgrade; do not assume future versions preserve this internal layout. The app minSDK supports SQLite table-valued PRAGMA; actual native SQLite test/CI remains required, not a local Android build claim.
+
+Seven native SQLite/actual DefaultDownloadIndex tests: exact receipt/no row rewrite, SQL-generated8MiB BLOB/text refusal without large Java fixture values, valid large request/fixed digest versus total Parcel refusal, scalar type/Long overflow refusal, adaptive/stream/DRM refusal, unknown version/extra column preservation and uninitialized/invalid-name/budget refusal without table creation. Existing nine completed-audio integration tests use the bounded lookup. First Android compile/test/lint and final-head report/APK receipt are pending until recorded on PR/issues. No device test claimed for this component.
+
+## Remaining engineering / ownership
+
+Root GPT-6 / Codex desktop sole writer, exact variant/effort not exposed; author self-check not independent review. Audit Claude idle, dated quota not assumed reset. All cumulative app PRs OPEN/UAT pending; experiment unchanged. #253 still requires the actual coordinator/barrier, legacy+Ready+completed mixed routing, service command/manager/cover integration, bounded migration/recovery/opt-in controls and legacy full-index transition handling. Defined legacy #230 engineering and its UAT are separate; full #179 and provenance user-deferred. Continuous work proceeds after verified evidence while quota permits; no Stable/tag/auto-merge/bypass.
