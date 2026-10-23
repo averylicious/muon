@@ -90,7 +90,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val loudnessNotices = remember { LoudnessNoticeHistory() }
         var loudnessDetails by remember { mutableStateOf(false) }
         val loudnessPlayback = PlaybackLoudness.current
-        LaunchedEffect(loudnessPlayback) {
+        LaunchedEffect(loudnessPlayback, queueOpen, lyricsOpen) {
+            // Queue owns its Undo host; wait until overlays close before consuming this reminder.
+            if (queueOpen || lyricsOpen) return@LaunchedEffect
             if (!loudnessNotices.shouldShow(loudnessPlayback)) return@LaunchedEffect
             // Do not replace an Undo. Existing snackbars finish before this short, actionable notice.
             val result = snackbar.showSnackbar("No ReplayGain tags for this song.", actionLabel = "Details",
@@ -800,7 +802,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 QueueScreen(player, revision, ui.playing) { queueOpen = false }
             }
             // Overlay notices stay above the player instead of resizing artwork or hiding behind it.
-            if (playerShown || lyricsShown || queueShown) SnackbarHost(snackbar,
+            if (playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar,
                 Modifier.align(androidx.compose.ui.Alignment.BottomCenter).safeDrawingPadding().padding(12.dp))
             if (loudnessDetails) AlertDialog(onDismissRequest = { loudnessDetails = false },
                 title = { Text("Loudness tags missing") },
