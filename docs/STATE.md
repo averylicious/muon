@@ -1,55 +1,31 @@
-# Muon: current state
+# Muon current state
 
-A one-page snapshot for the next session, local or cloud. Update it whenever work merges. It records evidence and the user's standing decisions, but it is not a substitute for checking live state. GitHub is the truth: open PRs, `main`'s latest run, and the newest checkpoint on issue #40.
+Updated 2026-10-23. Read this short entry point, the relevant [current issue snapshot](audits/issues/README.md) and latest checkpoint; do not load the full historical chronology by default.
 
-_Last updated: 2026-09-28, after #184, with the experimental sync in progress, by GPT-6 Astra (Codex). See the [latest checkpoint](handoffs/2026-09-28-expressive-sync.md) for exact review/CI evidence._
+## Release generations
 
-## Where things are
+One published Stable is available through Obtainium. The current main-track audit candidate and the M3E experiment are separate development generations, not two additional released Stables. Follow the [agreed release sequence and finite gates](release-plan.md): audit → frozen RC/acceptance → explicitly approved Stable → checked M3E forward integration → next candidate and delta-focused audit.
 
-- **Audit:** #180 merged as `bdb2da0065e316533912269bf3a5addf7afaf617`, adding backup/transfer exclusions, subnet-safe discovery and conservative CI selection. Its exact head passed run 290. [#181](https://github.com/averylicious/muon/issues/181) tracks remaining coverage; see [the findings report](audits/2026-09-27-main.md).
-- **Landscape background:** #183 merged as `2211d275523856949efdf201610e51d4553ffe56` after independent Astra source review and successful exact-head run 303. Main-based light/Pure-black phone QA remains pending.
-- **Integration boundary:** main #184 merged as `831f5465b630343a4decdc1b4cbf46570801d753`. The user requested Astra integrate it into experimental head `117015a73efe166af9460cf22160fcbe8d5a8bc0`; inspect the sync PR/#181 for final checks and merge state before starting duplicate work.
-- **Parallel work:** [the track protocol](parallel-tracks.md) separates sessions/worktrees and defines checked forward-sync PRs. Experimental owners land those PRs; Astra does not move their active branch. Inspect live checks/protection and the checkpoint for deployment status.
-- **`main` features:** the Collection redesign and everything after it through #183. Feature by feature, [features.md](features.md) is the user-facing guide, and [design/current](design/current/README.md) has real screenshots of every screen. Recent work, newest first:
-  - matching landscape player background (#183);
-  - first audit fixes and portable audit plan (#180);
-  - README hero and CI test cleanup (#178);
-  - README simplified, and its technical parts moved into [features.md](features.md), [desktop-setup.md](desktop-setup.md) and [building.md](building.md) (#177);
-  - reference screenshots in `docs/design/current/` (#176);
-  - a Baseline Profile recorded on the Pixel, and the tools to re-record it (#175, [baseline-profile.md](baseline-profile.md));
-  - design pass (#169–#172): Play and Shuffle on playlists, artist pictures and playlist rows made of album covers, and Now Playing coloured from the cover;
-  - offline leftovers (#168): Download all on playlists, and moving downloads between the phone and the SD card;
-  - CI (#167): a docs-only merge right after an app merge can no longer skip a Canary;
-  - volume normalization (#163, #165) and landscape layouts (#157, #162, #164).
-- **Canary:** each `main` build that changes the app publishes `0.1.0-canary.<run>`. **Stable** has not been released since the redesign.
-- **Package IDs:** Canary is `dev.avery.muon`, Stable `dev.avery.muon.release`, and the Baseline Profile tool `dev.avery.muon.benchmark` (never published). Don't change them.
-- **Desktop:** all 962 songs in `~/Music/random playlist` carry ReplayGain tags (2026-09-27). `~/CHANGES.md` has the manual steps for tagging new songs.
+## Active work
 
-## The user's agreed roadmap
+- Current user UAT: release RC .1352 (`6228ea3f983705274a14602d049af39b02278bd6`) installed on both phones, with installed hashes verified. User reports the remaining focused checklist passed, except missing mockup chevrons and the TalkBack list/heading observation. [#648](https://github.com/averylicious/muon/pull/648) restores the decorative Details/Show/Hide chevrons; later-head CI and a focused visual retest remain separate. Heading/list semantics are preserved. Read [the current checkpoint](handoffs/2026-10-23-saved-copies-ui.md).
 
-1. ~~Polish, volume normalization, Baseline Profile~~: done.
-2. **Main audit, now authorized:** Astra reviews correctness, security, privacy, CI and general code quality. Follow [the audit map and continuation plan](audits/README.md). Agents may follow findings across components; the workstreams organize handoff rather than impose scope restrictions.
-3. **Parallel experimentation:** Claude and the user are developing experimental Material 3 libraries on `claude/m3-expressive-alpha`. This supersedes the earlier Stable-first sequence. That branch currently uses Actions artifacts and the existing Canary package/signing identity. Main still publishes the existing Canary feed. A newer main APK can replace experimental features, so identify the branch before recommending installation. Follow [parallel tracks](parallel-tracks.md); coordinate any future channel change explicitly.
-4. **Stable release:** only on the user's explicit request, after reviewing outstanding findings and QA. It also brings the redesign to the Stable app, which is still the pre-redesign 0.1.0.
+- [#253 memory/storage](audits/issues/253.md): cumulative redesign on open #636; focused source closure and final selected memory/minified-storage/legacy/queue automation passed. User-approved controlled compatibility replacement passed (no old Stable data exists); interaction and hardware/accessibility acceptance remain; no app merge/release yet.
+- [#401 startup/Move latency](audits/issues/401.md): selected data-preservation comparison passed; user accepted the measured delays for this release. Further performance work is deferred, not fixed.
+- User explicitly deferred #207's notification-only stale-cover case. In-app implementation still needs landing/acceptance. Existing storage/identity/hardware/accessibility acceptance remains in the [release gate list](release-plan.md).
+- Current app candidate: DRAFT/OPEN #648, successor to #636 and including its pending changes. Accepted source `6228ea3f983705274a14602d049af39b02278bd6` passed .1352, 1,821 cases per variant; the chevron follow-up requires its own exact-head checks. Main `c9f2345aa6729360d90ddc79197eb85ffa9bb171` contains approved docs #647, not this app work. No Stable release or experimental change.
+- [#645](audits/issues/645.md): first-song behavior traced to absent ReplayGain tags and no remembered fallback; one user-approved track was tagged, and immediate 0/−12/0 dB toggle was verified after another fresh Diagnostic reset. Readiness/reminder follow-up is implemented in #648; user reports the remaining .1352 focused checklist passed. See its maintained body for precise test coverage and later-head checks.
+- [#646](audits/issues/646.md): historical Delete refusal after reset/card survival is not reproduced on the now-cleared state. Fresh/cloned Diagnostic and one backed-up ordinary .1343 deletion passed. Controlled reset fixture and explicit final disposition remain; do not claim a backend fix.
 
-## Authorization
+- Separate next-point drafts #641–#644 preserve their own source/CI evidence and stay outside current RC acceptance. Their latest maintained PR/issue bodies may postdate committed snapshots; no future app branch is installed.
+- Full SD lifecycle #179 and dependency/tool/cache provenance retain user-approved release deferrals. Keep them unresolved follow-ups; do not automatically reopen the release scope.
 
-- **Standing since 2026-09-27:** merge any PR with no blockers without asking. The user's words: "You are authorized to merge PRs without any blockers without asking for permission in future sessions". Merge at the CI-verified head and record it on the PR as a self-review; Astra audits later. **Stable releases, release tags and anything with a blocker still need the user.**
-- **Parallel sessions, since 2026-09-28:** the user requested autonomous audit/experiment work with repository safeguards instead of routine live coordination. The user may allocate a separate audit Claude session; that does not authorize resuming their experimental session. Main-to-experiment syncs are separate PRs landed by the experimental owner at their own boundary.
-- **Device access over ADB needs the user's go-ahead in each new conversation.** Once given, it has covered:
-  - screenshots and UI automation;
-  - Canary updates with `adb install -r`;
-  - installing, then uninstalling, the two Baseline Profile tools.
-  Never uninstall Canary or Stable. Mute media volume before anything plays, and restore every setting you change (dark mode, rotation, font scale, volume).
-- **Devices:**
-  - Pixel 8 (Android 17): wireless ADB, and the port changes, so check `adb devices`.
-  - Poco X3 NFC (Android 16, custom ROM): USB, with a SanDisk SD card.
+## Working rules
 
-## Open items and known limits
+[AGENTS.md](../AGENTS.md), [parallel tracks](parallel-tracks.md) and [continuous engineering](continuous-engineering.md) apply. Each writer uses an isolated persistent worktree. The original checkout belongs to the experiment. Agents may merge their own blocker-free PRs at a verified current head under standing authorization; forward-sync PRs normally wait for the experimental owner. No auto-merge, Stable tag/publication or device access follows from this page.
 
-- **#83:** the Baseline Profile ships, but its before-and-after speed measurement hasn't been done.
-- **SD-card lifecycle (#179):** presence is captured at store creation, and deeper review found a possible stale-cache/index purge leading to lost downloads after removal/reinsertion. See [the source evidence and constraints](audits/2026-09-28-storage.md). A disposable reproduction and data-preserving fix are priorities; no device loss has been observed in this audit.
-- **Fresh-install discovery:** on 2026-09-27, a fresh install (Muon Benchmark) scanned the network and found no Tauon, although Tauon answered and the phone could reach port 7814. Typing the address worked. This is not investigated yet; check Canary on a fresh install before assuming it's fixed.
-- **Queue after process death:** the queue and position are not restored (see [roadmap](roadmap.md) 0.3).
-- **Down the line:** 128 kbps downloads need a Tauon change, and "Recently liked" sorting (#174, not planned) needs Tauon to expose `loved_timestamp`.
-- A new cloud session has no local context: hand it this file, [the audit map](audits/README.md) and [the coordinator runbook](coordinator-handoff.md). Verify actual heads and ownership; no local session ID is required.
+Main and experimental Canary builds share `dev.avery.muon`; one replaces the other. Authorized agent automation uses the separate `dev.avery.muon.diagnostic` app to preserve everyday Canary. Actual Stable configuration/upgrade acceptance remains necessary. Package/signing/feed changes are not authorized here.
+
+## Resume and history
+
+[Coordinator entry point](coordinator-handoff.md) records the latest execution boundary. [Features](features.md), [roadmap](roadmap.md) and [design references](design/current/README.md) describe product behavior; they are not audit acceptance receipts. The [historical STATE archive](handoffs/2026-10-21-status-archive/STATE.md) preserves earlier decisions and evidence; consult a specific entry only when needed. Maintain current issue files in place and keep GitHub comments for meaningful changes.

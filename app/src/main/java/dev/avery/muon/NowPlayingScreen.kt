@@ -18,13 +18,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.C
@@ -312,7 +320,20 @@ internal fun SwipeableArtwork(p: PlaybackUi, player: MediaController?, revision:
     // scope, and it returns centred with fresh covers — even if the finger never moved. A finger
     // still down cannot resume, because a new detector waits for a new press.
     val shown = revision()
-    key(player, shown) { ArtworkGesture(p, player, shown, revision, modifier) }
+    val accessible = modifier.semantics(mergeDescendants = true) {
+        contentDescription = listOfNotNull("Album artwork",
+            p.item?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() },
+            p.item?.mediaMetadata?.artist?.toString()?.takeIf { it.isNotBlank() }).joinToString(", ")
+        customActions = listOfNotNull(
+            if (player != null && p.previous) CustomAccessibilityAction("Previous track") {
+                player.seekToPreviousMediaItem(); true
+            } else null,
+            if (player != null && p.next) CustomAccessibilityAction("Next track") {
+                player.seekToNextMediaItem(); true
+            } else null,
+        )
+    }
+    key(player, shown) { ArtworkGesture(p, player, shown, revision, accessible) }
 }
 
 /**
@@ -531,20 +552,37 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
     var scrub by remember(mediaId) { mutableStateOf<Float?>(null) }
     val range = duration.coerceAtLeast(1).toFloat()
     val elapsed = scrub ?: position().toFloat().coerceIn(0f, range)
-    var stalled by remember { mutableStateOf(false) }
-    LaunchedEffect(buffering) {
-        if (buffering) { delay(BUFFERING_SHOW_DELAY_MS); stalled = true } else stalled = false
+    var stalled by remember(mediaId) { mutableStateOf(false) }
+    LaunchedEffect(mediaId, buffering) {
+        stalled = false
+        if (buffering) { delay(BUFFERING_SHOW_DELAY_MS); stalled = true }
     }
-    val waiting = stalled && scrub == null
+    val waiting = buffering && stalled && scrub == null
     val shown by animateFloatAsState(if (waiting) 1f else 0f, motionMedium(), label = "buffering")
+    val seekPaint = remember { Paint() }
     Column {
-        Box(contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
                 onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
                 enabled = seekable && player != null,
-                modifier = Modifier.graphicsLayer { alpha = 1f - shown }
-                    .semantics { contentDescription = if (waiting) "Seek position, buffering" else "Seek position" })
-            if (waiting || shown > 0f) Box(Modifier.matchParentSize().graphicsLayer { alpha = shown }.clearAndSetSemantics {},
+                modifier = Modifier.drawWithContent {
+                    // Fade only pixels. An alpha-zero layout layer would also hide the native
+                    // SeekBar from TalkBack during sustained buffering.
+                    if (shown <= 0f) drawContent()
+                    else if (shown < 1f) {
+                        seekPaint.alpha = 1f - shown
+                        drawContext.canvas.saveLayer(Rect(0f, 0f, size.width, size.height), seekPaint)
+                        try { drawContent() } finally { drawContext.canvas.restore() }
+                    }
+                }.semantics {
+                    // Keep the purpose on the native SeekBar, including merged slider nodes.
+                    text = AnnotatedString("Playback position")
+                    stateDescription = "${formatTime(elapsed.toLong())} of ${formatTime(duration)}"
+                })
+            // Decorative only; native seek actions stay on the slider underneath. Scrubbing
+            // immediately restores its thumb, and the times keep the same measured positions.
+            if (waiting || shown > 0f) Box(Modifier.matchParentSize()
+                .graphicsLayer { alpha = shown }.clearAndSetSemantics {},
                 contentAlignment = Alignment.Center) {
                 if (Expressive.motion) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
                 else LinearProgressIndicator(Modifier.fillMaxWidth())

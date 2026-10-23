@@ -2,6 +2,8 @@
 
 **Your Tauon library, on your phone.** Muon is an Android player for [Tauon Music Box](https://tauonmusicbox.rocks/). It streams the music from your desktop over your home network, and keeps copies on the phone for when you're away. It's written in Kotlin with Jetpack Compose and Media3.
 
+> **Hobby project, provided as-is.** Muon is a personal, vibe-coded project developed with AI coding assistants and human testing. It is still being audited and may contain bugs, security issues or breaking changes. There is no warranty, guaranteed support or promise that it is suitable for your needs; use it at your own discretion. See the [MIT license](LICENSE).
+
 ![The library, an artist page, and Now Playing coloured from two different covers](docs/design/current/hero.jpg)
 
 ## What it does
@@ -27,7 +29,7 @@ What each screen shows: [reference screens](docs/design/current/README.md).
 
 ## Get it
 
-Muon is private. Two versions install side by side and update through [Obtainium](https://github.com/ImranR98/Obtainium):
+Two versions install side by side and update through [Obtainium](https://github.com/ImranR98/Obtainium):
 
 | | Channel | Updates |
 |---|---|---|
@@ -61,3 +63,9 @@ If it can't find Tauon, see **[Desktop setup and troubleshooting](docs/desktop-s
 | Working on Muon with coding agents | [AGENTS.md](AGENTS.md) · [Agent workflow](docs/agent-workflow.md) |
 | Startup performance | [Baseline Profile](docs/baseline-profile.md) |
 | Background and history | [Feasibility](docs/feasibility.md) · [First validation](docs/validation.md) · [Fonts](docs/fonts.md) |
+
+## License and third-party content
+
+Muon's original source code is licensed under [MIT](LICENSE), including its warranty and liability disclaimer. Making the repository private again does not revoke permission already granted for copies distributed under that license.
+
+Fonts, icons, dependencies and other third-party material retain their own licenses. See [third-party notices](docs/licenses/README.md). Album artwork, music and lyrics visible in example screenshots belong to their respective owners; the project license grants no rights to that content. Muon is an independent hobby client and is not an official Tauon or Google product.

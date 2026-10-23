@@ -1,0 +1,148 @@
+name: Dependency inventory
+
+on:
+  workflow_dispatch:
+    inputs:
+      verification_candidate:
+        description: 'Generate unsigned checksum candidate for review (does not enable trust enforcement)'
+        type: boolean
+        required: false
+        default: false
+      runtime_inventory:
+        description: 'Observe cold Robolectric runtime artifacts without signing (not publisher authentication)'
+        type: boolean
+        required: false
+        default: false
+  push:
+    paths:
+      - '.github/workflows/dependency-audit.yml'
+      - 'tools/dependency-inventory.init.gradle.kts'
+      - 'tools/dependency_inventory.py'
+      - 'tools/test_dependency_inventory.py'
+      - 'tools/verification_candidate.py'
+      - 'tools/test_verification_candidate.py'
+      - 'tools/runtime_inventory.py'
+      - 'tools/test_runtime_inventory.py'
+      - 'tools/robolectric-runtime.init.gradle.kts'
+      - 'tools/sdk_tool_inventory.py'
+      - 'tools/test_sdk_tool_inventory.py'
+      - 'tools/ApkSignerProviderProbe.java'
+      - 'tools/verify_gradle_wrapper.py'
+      - 'tools/test_ci_wrapper.py'
+      - 'tools/isolate_java_toolcache.py'
+      - 'tools/isolate_gradle_distribution.py'
+      - 'tools/test_ci_distribution.py'
+      - '**/*.gradle.kts'
+      - 'gradle/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-inventory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    name: Resolve dependency inventory without signing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate inventory parser
+        run: |
+          python3 -m unittest discover -s tools -p 'test_dependency_inventory.py'
+          python3 -m unittest discover -s tools -p 'test_sdk_tool_inventory.py'
+          python3 -m unittest discover -s tools -p 'test_verification_candidate.py'
+          python3 -m unittest discover -s tools -p 'test_runtime_inventory.py'
+      # The action verifies archives only when it downloads, not when the runner cache wins.
+      - name: Isolate preinstalled Temurin cache before verification
+        env:
+          MUON_TOOL_CACHE_ROOT: ${{ runner.tool_cache }}
+          MUON_JDK_QUARANTINE: ${{ runner.temp }}/muon-preinstalled-temurin
+        run: python3 -I tools/isolate_java_toolcache.py "$MUON_TOOL_CACHE_ROOT" "$MUON_JDK_QUARANTINE"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          verify-signature: true
+      - name: Verify wrapper before Gradle cache restore
+        run: python3 tools/verify_gradle_wrapper.py
+
+      - name: Set up Gradle and validate wrapper
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+        with:
+          # Avoid a post-action fallback Gradle execution if our guard fails.
+          cache-cleanup: never
+
+      - name: Isolate restored Gradle distributions before execution
+        run: python3 -I tools/isolate_gradle_distribution.py "$GRADLE_USER_HOME" "$HOME" "$RUNNER_TEMP"
+      - name: Install Android SDK packages
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
+      - name: Record public SDK verifier identity without execution
+        run: python3 tools/sdk_tool_inventory.py "$ANDROID_HOME/build-tools/37.0.0" --commit "$GITHUB_SHA"
+      # Unlike the static inventory above, this runs code: after a hash match it calls apksigner's
+      # provider bootstrap, which may load Conscrypt's native library. No signing, APKs or real keys:
+      # only disposable in-memory test keys, to see which provider a verifying Signature settles on.
+      - name: Observe apksigner provider bootstrap (runs reviewed SDK code; native code may load)
+        run: timeout 60s env -u JAVA_TOOL_OPTIONS -u _JAVA_OPTIONS -u JDK_JAVA_OPTIONS java tools/ApkSignerProviderProbe.java "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" "$GITHUB_SHA"
+      - name: Resolve and record selected versions
+        run: ./gradlew --no-daemon --no-configuration-cache --console=plain --init-script tools/dependency-inventory.init.gradle.kts :app:auditDependencyInventory
+      - name: Verify inventory provenance and scopes
+        run: python3 tools/dependency_inventory.py app/build/reports/dependency-inventory.json --commit "$GITHUB_SHA"
+      # Public coordinates/edges/file names/sizes/hashes only, after exact-head schema validation.
+      # Preserve portable evidence when very long structured log lines are unavailable.
+      - name: Upload public dependency inventory
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dependency-inventory-${{ github.sha }}
+          path: app/build/reports/dependency-inventory.json
+          if-no-files-found: error
+          retention-days: 14
+
+      # Explicit dispatch only. No real signing keys, APK publication or approved verification policy.
+      # Execute actual unsigned tasks to capture task-time/detached resolutions; no --dry-run.
+      - name: Generate untrusted dependency checksum candidate
+        if: github.event_name == 'workflow_dispatch' && inputs.verification_candidate == true
+        run: |
+          set -euo pipefail
+          test ! -e gradle/verification-metadata.xml
+          ./gradlew --no-daemon --no-configuration-cache --no-build-cache --rerun-tasks --console=plain --write-verification-metadata sha256 :app:compileDebugKotlin :app:compileReleaseKotlin :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease :baselineprofile:compileBenchmarkKotlin
+          python3 -I tools/verification_candidate.py gradle/verification-metadata.xml --commit "$GITHUB_SHA" --out "$RUNNER_TEMP/muon-verification-candidate"
+
+      - name: Upload untrusted public verification candidate for review
+        if: github.event_name == 'workflow_dispatch' && inputs.verification_candidate == true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: untrusted-verification-candidate-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/muon-verification-candidate/verification-metadata.xml
+            ${{ runner.temp }}/muon-verification-candidate/RECEIPT.json
+          if-no-files-found: error
+          retention-days: 14
+
+      # Runtime framework jars bypass Gradle dependency verification. Isolate only this manual
+      # audit's test JVM repository; normal builds and shared runner repositories are unchanged.
+      - name: Observe cold Robolectric runtime artifacts
+        if: github.event_name == 'workflow_dispatch' && inputs.runtime_inventory == true
+        run: |
+          set -euo pipefail
+          MUON_ROBO_RUNTIME_REPOSITORY=$(mktemp -d "$RUNNER_TEMP/muon-robo-runtime.XXXXXX")
+          export MUON_ROBO_RUNTIME_REPOSITORY
+          test -z "$(find "$MUON_ROBO_RUNTIME_REPOSITORY" -mindepth 1 -print -quit)"
+          ./gradlew --no-daemon --no-configuration-cache --no-build-cache --rerun-tasks --console=plain --init-script tools/robolectric-runtime.init.gradle.kts :app:testDebugUnitTest :app:testReleaseUnitTest
+          python3 -I tools/runtime_inventory.py "$MUON_ROBO_RUNTIME_REPOSITORY" --commit "$GITHUB_SHA" --out "$RUNNER_TEMP/muon-runtime-inventory.json"
+
+      - name: Upload public runtime artifact receipt
+        if: github.event_name == 'workflow_dispatch' && inputs.runtime_inventory == true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-inventory-${{ github.sha }}
+          path: ${{ runner.temp }}/muon-runtime-inventory.json
+          if-no-files-found: error
+          retention-days: 14

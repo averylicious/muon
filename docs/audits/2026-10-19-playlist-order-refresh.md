@@ -1,0 +1,15 @@
+# Reordered playlists must update the first duplicate winner
+
+GPT-6 / Codex desktop, exact variant/effort not reported; implementation/source self-check, no Claude or independent review. Cumulative #615 3be6b662a7ba22e51d247ab5ac5f3d743b8ca512; main audit correctness follow-up found while checking #253 projections.
+
+## Reproduced defect
+
+On selected ordinary .1251, a private phone-loopback fixture exposed two playlists containing the same ID but different titles. Initial order1,2 displayed title1. Refresh returned the same track lists but playlist order2,1. Playlists visibly reordered correctly, yet Songs still displayed title1. The accepted rule is first occurrence in Tauon's current playlist/list order, so title2 should win. This fixture establishes the narrow ordering defect, not that ordinary Tauon commonly returns conflicting metadata for the same ID. No playback/audio request, download, Move or deletion; full saved/native/private/card preservation passed on both installed apps, exact original connection and music11 restored, own fixture/listener removed, apps stopped. Private snapshots are not uploaded.
+
+## Cause and fix
+
+LibraryModel's default Compose state policy treats maps with equal entries as equivalent, independent of insertion order. It can therefore retain the old map instance on that refresh. Merely switching to referential state would not suffice: MuonApp's remember key also used map equality alone. Pinned BOM2025.10.00 selects runtime1.9.3; official [runtime sources](https://dl.google.com/dl/android/maven2/androidx/compose/runtime/runtime/1.9.3/runtime-1.9.3-sources.jar), SHA256 a8af436829e801385e2e52e00e13283bcb1cdb1799e76beb5c9498b1955afd46, SnapshotMutationPolicy.kt confirms structural equivalence is a==b; Composables.kt keys remember with composer.changed(key).
+
+The lazy projection now accepts explicit playlist IDs. Production allTracks traverses the published playlist list and looks up each existing map value, preserving the first current occurrence without allocating an occurrence list. MuonApp and Settings include the ordered playlist list in their remember keys. Default map traversal remains available to the existing helper callers. No new retention cache/state policy, copied occurrence list, budget/queue/storage format or data mutation. Initial load, failed-playlist fallback and disconnect/offline clearing keep their existing validated playlist/map publication.
+
+One focused regression uses actual mutableStateOf to reproduce the equal-map assignment being suppressed, then verifies the explicit order picks the right object/title/playable flag, fallback refresh and subset behavior. Existing duplicate/refresh/artist/retention controls stay intact. CI is the first Android compile/tests; no Compose UI test or runtime success for the fixed head claimed yet. Device acceptance should replay the same two-playlist case, then compare ordinary refresh/fallback/artist/album browsing. Keep app stack OPEN; no Stable/activation/experimental merge. #253 broader memory and #401 latency remain unresolved.

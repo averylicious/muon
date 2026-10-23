@@ -69,6 +69,12 @@ internal class QueueShuffleOrder private constructor(private val shuffled: IntAr
     private fun next() = Random(random.nextLong())
 
     companion object {
+        /** Exact Undo order, already checked against the surviving occurrence snapshot. */
+        fun restored(order: List<Int>): QueueShuffleOrder {
+            require(order.toSet() == order.indices.toSet())
+            return QueueShuffleOrder(order.toIntArray(), Random())
+        }
+
         /** A fresh shuffle of [length] songs, with [startIndex] first when it is one of them. */
         fun startingWith(length: Int, startIndex: Int, random: Random = Random()): QueueShuffleOrder {
             val shuffled = IntArray(length)

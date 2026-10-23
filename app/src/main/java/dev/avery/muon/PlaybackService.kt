@@ -11,15 +11,12 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.ListenableFuture
 
 @androidx.annotation.OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
@@ -33,7 +30,7 @@ class PlaybackService : MediaSessionService() {
             setSmallIcon(R.drawable.ic_notification)
         })
         val player = ExoPlayer.Builder(this)
-            // A downloaded song plays its copy from the phone; everything else streams as before (#112).
+            // A live song streams; a saved copy plays from its own shelf, cache-only (#112, #213).
             .setMediaSourceFactory(DefaultMediaSourceFactory(
                 OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client))))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
@@ -44,9 +41,10 @@ class PlaybackService : MediaSessionService() {
         // everything else is still to come rather than wherever an old shuffle had left it.
         player.setShuffleOrder(QueueShuffleOrder())
         player.addListener(object : Player.Listener {
-            // Each song that starts playing is copied for offline listening (#112), behind playback.
+            // Each live song that starts playing is copied for offline listening (#112), behind playback.
+            // A saved copy is never copied again (#213).
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                if (mediaItem == null || OfflineStore.offline) return
+                if (mediaItem == null || OfflineStore.offline || isSavedHandle(mediaItem.mediaId)) return
                 OfflineStore.copyPlayed(this@PlaybackService, mediaItem.mediaId, mediaItem.mediaMetadata.extras?.getByteArray(SONG_EXTRA))
             }
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -54,20 +52,52 @@ class PlaybackService : MediaSessionService() {
                     player.setShuffleOrder(QueueShuffleOrder.startingWith(player.mediaItemCount, player.currentMediaItemIndex))
             }
         })
+        val diagnosticTiming = SavedStartupTiming.forContext(this)
+        var savedReady: SavedStartupTiming.Token? = null
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                diagnosticTiming.end(savedReady, SavedStartupTiming.Outcome.CANCELLED)
+                savedReady = if (mediaItem != null && isSavedHandle(mediaItem.mediaId))
+                    diagnosticTiming.begin(SavedStartupTiming.Phase.READY) else null
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) { diagnosticTiming.end(savedReady); savedReady = null }
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                diagnosticTiming.end(savedReady, SavedStartupTiming.Outcome.FAILED); savedReady = null
+            }
+        })
         // Volume normalization (#97): each song at its ReplayGain level, set as the player's volume.
         val loudnessPrefs = getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
         val loudness = ReplayGainSettings(loudnessPrefs)
-        fun applyLoudness() { player.volume = loudness.volumeFor(player.currentMediaItem?.mediaId) }
+        var checkedLoudnessId: String? = null
+        var currentHasLoudnessTags = false
+        fun applyLoudness() {
+            val id = player.currentMediaItem?.mediaId
+            val gain = loudness.effectiveGainFor(id)
+            player.volume = if (loudness.enabled && gain != null) volumeForGain(gain) else 1f
+            PlaybackLoudness.current = loudnessPlayback(id, id != null && id == checkedLoudnessId,
+                currentHasLoudnessTags, gain, player.isPlaying)
+        }
         player.addListener(object : Player.Listener {
             // A song already heard starts at its level; one not yet heard plays unchanged until its
             // tags are read, rather than at the previous song's gain.
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = applyLoudness()
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                checkedLoudnessId = null
+                currentHasLoudnessTags = false
+                applyLoudness()
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) = applyLoudness()
             override fun onTracksChanged(tracks: Tracks) {
                 val id = player.currentMediaItem?.mediaId
                 val found = tracks.groups.asSequence().filter { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
                     .flatMap { group -> (0 until group.length).asSequence().filter(group::isTrackSelected)
                         .map { group.getTrackFormat(it) } }
                     .firstNotNullOfOrNull { trackLoudness(it.metadata) }
+                // An empty/unselected track list is still loading, not evidence of missing tags.
+                val selectedAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+                checkedLoudnessId = id.takeIf { selectedAudio }
+                currentHasLoudnessTags = found != null
                 if (id != null && found != null) loudness.remember(id, appliedGainDb(found))
                 applyLoudness()
             }
@@ -94,43 +124,30 @@ class PlaybackService : MediaSessionService() {
                     })
                 }
             })
-        session = MediaSession.Builder(this, player)
-            .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader(
-                DataSourceBitmapLoader.DEFAULT_EXECUTOR_SERVICE.get(), OkHttpDataSource.Factory(Transport.client))))
+        session = MediaSession.Builder(this, PlaybackQueuePlayer(player, refused = {
+            android.widget.Toast.makeText(this, "The queue is full. Choose fewer songs or remove some queued songs.",
+                android.widget.Toast.LENGTH_LONG).show()
+        }))
+            .setBitmapLoader(CacheBitmapLoader(notificationBitmapLoader(this,
+                OkHttpDataSource.Factory(Transport.metadataClient))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            .setCallback(object : MediaSession.Callback {
-                override fun onConnect(s: MediaSession, c: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-                    return if (c.packageName == packageName || c.isTrusted)
-                        super.onConnect(s, c) else MediaSession.ConnectionResult.reject()
-                }
-                override fun onAddMediaItems(s: MediaSession, c: MediaSession.ControllerInfo,
-                    items: MutableList<MediaItem>): ListenableFuture<MutableList<MediaItem>> {
-                    // Only our UI supplies queue URLs. External system controllers keep transport controls.
-                    if (c.packageName != packageName) return Futures.immediateFuture(mutableListOf())
-                    return try {
-                        items.forEach { item ->
-                            val uri = requireNotNull(item.localConfiguration?.uri)
-                            val endpoint = ServerEndpoint.parse("${uri.scheme}://${uri.encodedAuthority}")
-                            require(uri.toString().startsWith(endpoint.origin + "/api1/file/"))
-                            require(uri.path.orEmpty().matches(Regex("/api1/file/[0-9]+")))
-                            require(uri.query == null && uri.fragment == null)
-                        }
-                        Futures.immediateFuture(items)
-                    } catch (e: Exception) { Futures.immediateFailedFuture(e) }
-                }
-            }).build()
+            .setCallback(PlaybackSessionCallback({ OfflineStore.admitsSaved(this, it) }, admission, diagnosticTiming, player)).build()
     }
+    // Saved-copy admission reads an index row, so it is kept off the session's main thread (#213).
+    private val admission = java.util.concurrent.Executors.newSingleThreadExecutor()
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
     override fun onDestroy() {
         loudnessListener?.let { getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
             .unregisterOnSharedPreferenceChangeListener(it) }; loudnessListener = null
         session?.run { player.release(); release() }; session = null
+        PlaybackLoudness.current = LoudnessPlayback()
+        admission.shutdown()
         super.onDestroy()
     }
 }
 fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builder()
-    .setMediaId("${endpoint.origin}/$id")
+    .setMediaId(downloadId(endpoint.origin, id))
     .setUri(endpoint.url("/api1/file/$id"))
     .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(displayCredits(artist)).setAlbumTitle(album)
         .setAlbumArtist(displayCredits(albumArtist))
@@ -139,4 +156,4 @@ fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builde
         .setArtworkUri(android.net.Uri.parse(endpoint.url("/api1/pic/medium/$id")))
         // The song's own record, so the service can keep a played copy the offline library can list.
         .setExtras(android.os.Bundle().apply { putByteArray(SONG_EXTRA, encodeSong(this@mediaItem)) }).build())
-    .build()
+    .build().let(::queueOccurrence)

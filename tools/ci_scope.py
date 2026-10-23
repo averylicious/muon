@@ -32,10 +32,51 @@ def changed_paths(base, head):
                .decode('utf-8').rstrip('\0').split('\0')) - {''}
 
 
+def published_canaries():
+    """Map complete published Canary tags to the immutable commit recorded by our publisher."""
+    repo = os.environ.get('GITHUB_REPOSITORY', '')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo):
+        raise ValueError('Unknown repository for publication lookup')
+    pages = json.loads(subprocess.check_output(
+        ['gh', 'api', '--paginate', '--slurp', f'repos/{repo}/releases?per_page=100'],
+        stderr=subprocess.PIPE, text=True, timeout=30))
+    if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+        raise ValueError('Invalid release-list response')
+    published = {}
+    for page in pages:
+        for release in page:
+            if not isinstance(release, dict):
+                raise ValueError('Invalid release entry')
+            tag = release.get('tag_name')
+            target = release.get('target_commitish')
+            if (not isinstance(tag, str) or not CANARY.fullmatch(tag)
+                    or not isinstance(target, str) or not SHA.fullmatch(target)
+                    or release.get('draft') is not False
+                    or release.get('prerelease') is not True
+                    or not release.get('published_at')):
+                continue
+            assets = release.get('assets')
+            if not isinstance(assets, list):
+                continue
+            uploaded = {asset['name'] for asset in assets if isinstance(asset, dict)
+                        and isinstance(asset.get('name'), str) and asset.get('state') == 'uploaded'
+                        and type(asset.get('size')) is int and asset['size'] > 0}
+            required = {f'muon-canary-{tag}.apk', 'SHA256SUMS', 'BUILD.txt'}
+            if required <= uploaded:
+                published[tag] = target
+    return published
+
+
 def last_canary(head):
-    """The newest Canary tag in head's history, by run number, or None when there is none."""
+    """Newest reachable tag with a complete published release at the same commit, or None."""
     tags = git('tag', '--merged', head, '--list', '*-canary.*').decode('utf-8').split()
-    numbered = [(int(m.group(1)), tag) for tag in tags if (m := CANARY.fullmatch(tag))]
+    published = published_canaries()
+    numbered = []
+    for tag in tags:
+        match = CANARY.fullmatch(tag)
+        if (match and tag in published
+                and git('rev-parse', tag + '^{commit}').decode().strip() == published[tag]):
+            numbered.append((int(match.group(1)), tag))
     return max(numbered)[1] if numbered else None
 
 
@@ -65,13 +106,30 @@ def classify(event_name, ref, head, event):
             paths.update(changed_paths(tag, head))
         if ref != 'refs/heads/main':
             # Include all unmerged feature work even when the last push only edits docs.
-            base = git('merge-base', head, 'refs/remotes/origin/main').decode().strip()
-            paths.update(changed_paths(base, head))
+            main = git('rev-parse', 'refs/remotes/origin/main').decode().strip()
+            base = git('merge-base', head, main).decode().strip()
+            branch_paths = changed_paths(base, head)
+            paths.update(branch_paths)
+            if (paths and any(not is_documentation(p) for p in paths)
+                    and branch_paths and all(is_documentation(p) for p in branch_paths)
+                    and base == main and before and before != '0' * 40):
+                # A docs branch can inherit already-built app changes when it merges main.
+                # Do not erase the push comparison for force pushes or previous feature work.
+                git('merge-base', '--is-ancestor', before, head)
+                previous_base = git('merge-base', before, main).decode().strip()
+                previous_paths = changed_paths(previous_base, before)
+                if all(is_documentation(p) for p in previous_paths):
+                    tag = last_canary(base)
+                    if tag is not None and all(is_documentation(p)
+                                               for p in changed_paths(tag, base)):
+                        return False, ('Only documentation branch changes; inherited main '
+                                       'code already published in a verified Canary.'), {
+                                           p for p in paths if is_documentation(p)}
         if paths and all(is_documentation(p) for p in paths):
             return False, 'Only documentation paths changed.', paths
         return True, 'Code/build/unknown paths or empty comparison: full build.', paths
-    except (subprocess.CalledProcessError, UnicodeError, ValueError, OSError):
-        return True, 'Comparison unavailable: full build.', set()
+    except (subprocess.SubprocessError, UnicodeError, ValueError, OSError):
+        return True, 'Comparison or publication evidence unavailable: full build.', set()
 
 
 def check_documents(paths):

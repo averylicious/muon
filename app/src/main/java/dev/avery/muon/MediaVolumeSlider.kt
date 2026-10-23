@@ -24,8 +24,10 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -95,7 +97,11 @@ internal fun MediaVolumeSlider(state: MediaVolumeState, setVolume: (Int) -> Unit
                     slider.place(0, 0)
                 }
             }
-            .semantics { contentDescription = "Media volume level" },
+            .semantics {
+                // Native text labels this SeekBar without replacing Material's progress actions.
+                text = AnnotatedString("Media volume")
+                stateDescription = "${state.percent} percent"
+            },
         thumb = {
             Layout(content = {
                 // Slimmer than the seek bar's, so volume reads as the secondary control it is.

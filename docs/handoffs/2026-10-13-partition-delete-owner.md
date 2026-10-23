@@ -1,0 +1,11 @@
+# Actual partition saved Delete owner — 2026-10-13
+
+Cumulative successor to #536 692092e59219a6565be09257c8158166abba8236; includes main 5a2c47f8c21517de7801ccadfe108c9ea6206dbf. GPT-6 / Codex desktop implementation/source self-check, exact variant/effort not reported. No Claude, phones or independent review.
+
+The real shelf startup now registers/opens the distinct Delete journal before exposure and pins its actual file identity with the other owned journals. Missing/replaced Resume journals refuse instead of creating repairs. Existing prepared test roots from earlier heads lack this new required journal; do not point a new build at them or auto-adopt them. Production partition selection remains disabled.
+
+Actual explicit Delete preparation acquires the shared app's exclusive gate, proves a clean Closed allocation and scalar completed row, refuses aliases/other claims, closes known-idle native pools, cancels queued own-cover work, captures the bounded actual tree and own-cover identity, rechecks source and commits exact Pending. No audio, terminal row or own cover is removed by preparation. Pending/Complete names suppress mixed reads and competing new-save, Move, migration and immediate Delete routes. Unknown tree/cover/SQLite children retain real owners and quarantine admission. The original completed record remains available to the future cleanup controller without reopening a partially deleted native cache.
+
+Four added actual composed-shelf tests cover preserved files/row/cover plus read suppression/restart, consent and actual EOF-reader exclusion, actual alias/other-shelf claim refusal and replaced Delete journal identity. Test-only teardown accounts for the new journal; no production reset/unsafe teardown API added. Local diff passed; Actions supplies first Android compile and must verify exact-head reports/APK.
+
+Next: complete actual Delete tree/terminal-row/own-cover disposition and renewed exact-token recovery, wire app/bulk/UI without the old immediate native Delete path, then production persisted opt-in/startup/recovery and final lifecycle. Original nonterminal disposition remains engineering; full supported legacy Delete/Move required before activation. All app PRs OPEN for inherited acceptance, no Stable release/tag/device requirement at this preparation boundary.

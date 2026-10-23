@@ -21,6 +21,9 @@ def publish():
     sha = os.environ['GITHUB_SHA']
     if channel not in ('canary', 'stable') or not re.fullmatch(r'\d+\.\d+\.\d+', version) or not run.isdigit():
         raise SystemExit('Invalid publication metadata')
+    # A diagnostic (debuggable) build is never published, even by hand (docs/ci.md).
+    if os.environ.get('MUON_DIAGNOSTIC_DEBUG', 'false') != 'false':
+        raise SystemExit('Diagnostic builds are never published')
     canary = channel == 'canary'
     tag = f'{version}-canary.{run}' if canary else f'v{version}'
     display_version = f'{version}-canary.{run}' if canary else version
@@ -31,9 +34,12 @@ def publish():
     checksum = (source / 'SHA256SUMS').read_text().split()[0]
     if hashlib.sha256(apk.read_bytes()).hexdigest() != checksum:
         raise SystemExit('Downloaded artifact checksum mismatch')
-    if any(line not in (source / 'BUILD.txt').read_text().splitlines() for line in
-           [f'Commit: {sha}', f'Run: {run}', f'Version: {display_version}']):
+    build = (source / 'BUILD.txt').read_text().splitlines()
+    if any(line not in build for line in [f'Commit: {sha}', f'Run: {run}', f'Version: {display_version}']):
         raise SystemExit('Artifact does not belong to this commit/run')
+    # Standard artifacts carry no Mode line; only a diagnostic one does.
+    if any(line.startswith('Mode:') for line in build):
+        raise SystemExit('Diagnostic builds are never published')
     output = Path('release-output')
     output.mkdir(exist_ok=True)
     name = f'muon-{channel}-{display_version}.apk'
@@ -49,7 +55,7 @@ def publish():
         + f'Commit: `{sha}`\nBuild and checks: https://github.com/{repo}/actions/runs/{os.environ["GITHUB_RUN_ID"]}\n\n'
         + 'Download the APK directly or follow the [Obtainium setup guide]'
         + f'(https://github.com/{repo}/blob/{sha}/docs/obtainium.md). '
-        + 'This is a private repository; an authorized GitHub token is needed for Obtainium.\n\n'
+        + 'Repository access follows its current GitHub visibility; see the guide for token requirements.\n\n'
         + 'Tauon remains trusted-LAN-only. No server exposure or Internet streaming is configured.\n'
     )
     # A failed listing must fail publication rather than being mistaken for "not found".
