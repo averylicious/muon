@@ -118,7 +118,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                     .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
                     .combinedClickable(enabled = track.playable && ready, onClickLabel = "Play",
                         onLongClickLabel = "Song actions", onLongClick = { actions(track) }) { play(track) }
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(start = 12.dp, end = 0.dp, top = 8.dp, bottom = 8.dp)
                     .semantics { if (current) stateDescription = "Now playing" },
                     verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.widthIn(min = 28.dp), contentAlignment = Alignment.CenterStart) {
@@ -142,6 +142,8 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                     Text(formatTime(track.durationMs), style = MaterialTheme.typography.labelSmall,
                         color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant,
                         textAlign = TextAlign.End, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
+                    SongMenuButton(track.title, track.artist,
+                        if (current) colors.onSecondaryContainer else colors.onSurfaceVariant) { actions(track) }
                 }
             }
         }

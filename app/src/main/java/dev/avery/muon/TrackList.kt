@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -90,7 +91,7 @@ internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean
         // A long press opens the song's actions (#46).
         .combinedClickable(enabled = t.playable && ready, onLongClickLabel = if (actions != null) "Song actions" else null,
             onLongClick = actions, onClick = play)
-        .padding(horizontal = 12.dp, vertical = 8.dp)
+        .padding(start = 12.dp, end = if (actions != null) 0.dp else 12.dp, top = 8.dp, bottom = 8.dp)
         .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
         verticalAlignment = Alignment.CenterVertically) {
         TrackCover(t, endpoint, current, playing)
@@ -110,7 +111,21 @@ internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean
             color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant, textAlign = TextAlign.End,
             maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
         // No saved-copy badge on a live song (#213): a copy kept under its number may be another song.
+        actions?.let { SongMenuButton(t.title, t.artist, if (current) colors.onSecondaryContainer else colors.onSurfaceVariant, it) }
     }
+}
+
+/**
+ * The ⋮ at the end of a song row, in every list that has a song panel: it opens the same panel as a
+ * long press, so the panel is one tap away as well as one hold (the user's request, 2026-10-23).
+ */
+@Composable
+internal fun SongMenuButton(title: String, artist: String, tint: Color, open: () -> Unit) {
+    val who = displayCredits(artist)
+    IconButton(onClick = open, colors = IconButtonDefaults.iconButtonColors(contentColor = tint),
+        modifier = Modifier.size(48.dp).semantics {
+            contentDescription = "More options for ${title.ifBlank { "Untitled" }}" + if (who.isNotBlank()) ", $who" else ""
+        }) { MuonIcon("more") }
 }
 
 /** A song's cover, with the equalizer over it while it is the current song. */
@@ -150,7 +165,7 @@ private fun ExpressiveTrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current
             disabledContainerColor = ground, disabledContentColor = ink,
             disabledSupportingContentColor = quiet, disabledTrailingContentColor = quiet,
             disabledLeadingContentColor = ink),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = if (actions != null) 0.dp else 12.dp, top = 8.dp, bottom = 8.dp),
         leadingContent = { TrackCover(t, endpoint, current, playing) },
         // An untagged file has nothing to say here, so the line is left out.
         supportingContent = if (subtitle.isEmpty()) null else {
@@ -160,6 +175,7 @@ private fun ExpressiveTrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.End,
                     maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
+                actions?.let { SongMenuButton(t.title, t.artist, quiet, it) }
             }
         }) {
         Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
