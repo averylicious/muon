@@ -1,6 +1,6 @@
 # Saved copies → “On this device”: UI/UX proposal
 
-**Status: proposal pending user approval.** This is a mockup and rationale only. Nothing here is implemented, runtime-verified or a statement of current backend behaviour. No app implementation or backend-guard bypass is authorized by this document. Fictional songs and abstract covers; no device, network or personal data.
+**Status: layout and direction approved by the user on 2026-10-23; refine spacing during implementation.** This is a mockup and rationale only. Nothing here is implemented, runtime-verified or a statement of current backend behaviour. The user authorized implementing this frontend direction while preserving current playback-cache/artwork behavior. This document does not authorize bypassing backend guards or upgrading dependencies. Fictional songs and abstract covers; no device, network or personal data.
 
 - Interactive prototype source: [proposal.html.txt](proposal.html.txt) (save as `proposal.html` to open locally; demo-state controls sit outside the phone). The static review image below is directly viewable. Keeping source as documentation avoids producing an unrelated APK for this design-only proposal.
 - Review image: [overview.svg](overview.svg) (list, open row menu, delete confirmation).
@@ -99,7 +99,7 @@ Actions: filled Play, tonal Update format (only when confirmed), outlined Delete
 6. **Size.** Confirm the size shown is the copy’s own bytes, not a shared total.
 7. **Icon asset.** `MuonIcons` has no vertical three-dot icon; one vector drawable is needed. No new dependency.
 
-## Implementation acceptance checklist (for a later, approved slice)
+## Implementation acceptance checklist
 
 - [ ] Stable Material3 1.4.0 only (`TopAppBar`, `ListItem`, `IconButton`, `DropdownMenu`/`DropdownMenuItem`, `ModalBottomSheet`, `AlertDialog`, `Snackbar`); no glass, blur or alpha APIs.
 - [ ] Every row has exactly one trailing three-dot button, far right, with a 48 dp target and a title-specific label; title and artist keep the remaining width.
@@ -114,3 +114,9 @@ Actions: filled Play, tonal Update format (only when confirmed), outlined Delete
 - [ ] SD card unavailable, empty, loading and error states match the copy list.
 - [ ] Mini player, navigation, queue Undo and the queue rows’ no-blink behaviour are unchanged.
 - [ ] Phone UAT in light and dark, with large text, before any claim of completion.
+
+## Approval boundaries and post-RC work
+
+The user approved the name/layout/idea and wants spacing refined in actual Compose. Keep the current backend policy: played copies do not gain automatic artwork downloads in this RC; manual downloads and kept-from-listening remain distinct. This does not cancel the separately required normalization and Delete bug fixes (#645/#646). Keep bounded paging and preserve existing saved bytes/identities.
+
+After the current RC ships, evaluate Compose Material3 1.5.0 Beta on the separate M3E experimental track. Current RC stays on stable 1.4.0. This is a future experiment, not a dependency upgrade or new current release blocker. See [release sequence](../../../release-plan.md#post-release-material3-beta-experiment).
