@@ -150,14 +150,14 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     StorageBar(if (DownloadMarks.bytesKnown && DownloadMarks.countsKnown && DownloadMarks.summary == DownloadSummaryStatus.Ready) DownloadMarks.bytes else 0L, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
         // Opens Saved copies (#213), where each copy is listed, played and removed on its own.
-        SettingsRow(shape = rowShape(0, rows), headline = "Saved copies",
+        SettingsRow(shape = rowShape(0, rows), headline = "On this device",
             supporting = if (moving != null) "Updating saved copies ${moving.first} of ${moving.second}…"
                 else if (DownloadMarks.summary == DownloadSummaryStatus.Loading) "Loading saved copy totals…"
-                else if (DownloadMarks.summary == DownloadSummaryStatus.Unavailable || !DownloadMarks.countsKnown) "Saved copy totals unavailable. Open to see your copies."
-                else if (songs == 0L) "None yet. Long-press a song, or use Save copies on an album, artist or playlist."
-                else "$songs ${if (songs == 1L) "copy" else "copies"} · ${if (DownloadMarks.bytesKnown) formatBytes(DownloadMarks.bytes) else "Size unavailable"} · $UNVERIFIED",
+                else if (DownloadMarks.summary == DownloadSummaryStatus.Unavailable || !DownloadMarks.countsKnown) "Saved totals unavailable. Open to see your copies."
+                else if (songs == 0L) "No copies yet. Long-press a song to save it."
+                else "$songs ${if (songs == 1L) "copy" else "copies"} · ${if (DownloadMarks.bytesKnown) formatBytes(DownloadMarks.bytes) else "Size unavailable"}",
             trailing = { if (DownloadMarks.countsKnown && songs > 0) TextButton(onClick = clear) { Text("Clear") } },
-            modifier = Modifier.clickable(onClickLabel = "Open saved copies", onClick = openSaved))
+            modifier = Modifier.clickable(onClickLabel = "Open copies on this device", onClick = openSaved))
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
         SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +

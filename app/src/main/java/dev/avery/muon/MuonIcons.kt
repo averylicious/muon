@@ -10,7 +10,8 @@ import androidx.annotation.DrawableRes
  *
  * The geometry is the mockups' own: paths come from `docs/design/2.0/generate.py`, so an icon here
  * and the same icon on a mockup screen are the same path. `repeat-one` and `check` are not in the
- * generator and were drawn to the same rule.
+ * generator and were drawn to the same rule, as were `more`, `info`, `sd-card`, `history`,
+ * `storage-update` and `refresh` for the On this device screen (saved copies).
  */
 @DrawableRes
 internal fun iconRes(kind: String): Int = when (kind) {
@@ -39,6 +40,12 @@ internal fun iconRes(kind: String): Int = when (kind) {
     "delete" -> R.drawable.ic_delete
     "drag-handle" -> R.drawable.ic_drag_handle
     "download" -> R.drawable.ic_download
+    "more" -> R.drawable.ic_more_vert
+    "info" -> R.drawable.ic_info
+    "sd-card" -> R.drawable.ic_sd_card
+    "history" -> R.drawable.ic_history
+    "storage-update" -> R.drawable.ic_storage_update
+    "refresh" -> R.drawable.ic_refresh
     else -> R.drawable.ic_settings
 }
 
@@ -56,4 +63,5 @@ internal val ICON_KINDS = listOf(
     "volume", "volume-low", "search", "library", "music", "check", "settings",
     "back", "collapse", "close", "queue", "lyrics",
     "play-next", "add-queue", "album", "artist", "delete", "drag-handle", "download",
+    "more", "info", "sd-card", "history", "storage-update", "refresh",
 )
