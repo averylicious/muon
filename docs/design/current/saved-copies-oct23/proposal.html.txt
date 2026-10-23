@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Muon · On this device (saved copies) · proposal mockup</title>
+<style>
+  :root {
+    --bg: #FFF8F7; --cont: #FBEEED; --contHigh: #F5E3E2; --contHighest: #EFDCDB;
+    --primary: #8B4A50; --onPrimary: #FFFFFF; --secCont: #F7D9DB; --onSecCont: #3B1D21;
+    --onSurface: #231919; --onVar: #544243; --outline: #857374; --outlineVar: #D8C1C2;
+    --scrim: rgba(35, 25, 25, .38);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #EEE6E5; color: var(--onSurface);
+    display: flex; gap: 40px; justify-content: center; align-items: flex-start; padding: 32px 24px; flex-wrap: wrap; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  svg { width: 24px; height: 24px; fill: currentColor; flex: none; }
+
+  /* Outside the phone: review controls only. */
+  .controls { width: 300px; font-size: 14px; line-height: 1.45; }
+  .controls h1 { font-size: 18px; margin: 0 0 4px; }
+  .controls p { margin: 0 0 12px; color: #5d4b4c; }
+  .controls .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: #3B1D21; color: #fff; margin-bottom: 10px; }
+  .controls fieldset { border: 1px solid #cdb6b7; border-radius: 12px; padding: 10px 12px; margin: 0 0 12px; }
+  .controls legend { font-weight: 600; padding: 0 4px; }
+  .controls label { display: flex; gap: 8px; align-items: center; padding: 4px 0; cursor: pointer; }
+  .controls .note { background: #fff; border-radius: 10px; padding: 10px 12px; min-height: 44px; border: 1px dashed #b89c9e; }
+
+  /* The phone. */
+  .phone { width: 380px; height: 820px; border-radius: 40px; background: var(--bg); position: relative; overflow: hidden;
+    box-shadow: 0 0 0 10px #241a1b, 0 18px 50px rgba(0,0,0,.25); display: flex; flex-direction: column; }
+  .status { height: 32px; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; font-size: 13px; font-weight: 600; flex: none; }
+  .status .dots { display: flex; gap: 6px; align-items: center; }
+  .status .dots i { display: block; width: 14px; height: 9px; border-radius: 2px; background: var(--onSurface); opacity: .8; }
+
+  .appbar { height: 56px; display: flex; align-items: center; padding: 0 4px; flex: none; }
+  .appbar h2 { font-size: 22px; font-weight: 400; margin: 0 0 0 4px; flex: 1; }
+  .icon-btn { width: 48px; height: 48px; border-radius: 24px; display: grid; place-items: center; color: var(--onVar); flex: none; }
+  .icon-btn:hover { background: rgba(83, 66, 67, .08); }
+  .icon-btn:focus-visible, .chiprow:focus-visible, .menu button:focus-visible, .section-head:focus-visible, .banner button:focus-visible { outline: 3px solid var(--primary); outline-offset: -3px; }
+
+  .scroll { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+  .chiprow { margin: 2px 16px 10px; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 8px 0 14px; border-radius: 16px;
+    background: var(--cont); color: var(--onVar); font-size: 14px; width: calc(100% - 32px); text-align: left; }
+  .chiprow svg { width: 20px; height: 20px; }
+  .chiprow span { flex: 1; }
+  .chiprow b { font-weight: 500; color: var(--primary); display: flex; align-items: center; }
+  .banner { margin: 0 16px 10px; display: flex; gap: 12px; padding: 12px 8px 8px 14px; border-radius: 16px; background: var(--contHighest); font-size: 14px; color: var(--onSurface); }
+  .banner svg { width: 20px; height: 20px; margin-top: 1px; }
+  .banner > div { flex: 1; }
+  .banner b { display: block; font-weight: 600; margin-bottom: 2px; }
+  .banner button { display: block; margin: 6px 0 0 -12px; padding: 8px 12px; border-radius: 20px; color: var(--primary); font-weight: 500; }
+
+  .section-head { display: flex; align-items: center; width: 100%; padding: 14px 20px 6px; text-align: left; gap: 8px; }
+  .section-head .label { font-size: 14px; font-weight: 600; color: var(--primary); }
+  .section-head .count { font-size: 13px; color: var(--onVar); }
+  .section-head .spacer { flex: 1; }
+  .section-head .toggle { display: flex; align-items: center; gap: 2px; font-size: 14px; font-weight: 500; color: var(--primary); }
+  .section-sub { margin: 0 20px 6px; font-size: 13px; line-height: 1.4; color: var(--onVar); }
+
+  .row { display: flex; align-items: center; min-height: 72px; padding: 6px 4px 6px 16px; width: 100%; }
+  .row.current { background: var(--secCont); border-radius: 18px; margin: 0 8px; width: calc(100% - 16px); padding-left: 8px; }
+  .row:hover:not(.current) { background: rgba(83, 66, 67, .05); }
+  .art { width: 52px; height: 52px; border-radius: 12px; flex: none; position: relative; overflow: hidden; }
+  .text { flex: 1; min-width: 0; padding: 0 4px 0 14px; }
+  .title { font-size: 16px; line-height: 22px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .artist { font-size: 14px; line-height: 20px; color: var(--onVar); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { display: flex; align-items: center; gap: 4px; font-size: 13px; line-height: 18px; color: var(--onVar); margin-top: 1px; }
+  .meta svg { width: 16px; height: 16px; }
+  .meta.strong { color: var(--onSurface); font-weight: 500; }
+  .bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; margin-right: 2px; }
+  .bars i { width: 3px; background: var(--primary); border-radius: 1px; }
+  .bars i:nth-child(1) { height: 7px; } .bars i:nth-child(2) { height: 12px; } .bars i:nth-child(3) { height: 9px; }
+
+  /* Artwork: abstract covers, and a quiet placeholder for copies kept without one. */
+  .art.a1 { background: radial-gradient(circle at 70% 30%, #F6C177 0 18%, transparent 19%), linear-gradient(160deg, #3D5A80, #98C1D9 70%, #E0FBFC); }
+  .art.a2 { background: conic-gradient(from 210deg at 35% 65%, #6D2E46, #A26769, #D5B9B2, #6D2E46); }
+  .art.a3 { background: linear-gradient(0deg, #1B4332 0 30%, transparent 30%), radial-gradient(circle at 50% 120%, #95D5B2 0 60%, #2D6A4F 61%); }
+  .art.a4 { background: repeating-linear-gradient(135deg, #22223B 0 8px, #4A4E69 8px 16px), #22223B; }
+  .art.a4::after { content: ""; position: absolute; inset: 14px; border-radius: 50%; background: #F2E9E4; opacity: .85; }
+  .art.none { background: var(--contHighest); }
+  .art.none::before { content: ""; position: absolute; inset: 9px; border-radius: 50%;
+    background: repeating-radial-gradient(circle, transparent 0 3px, rgba(139, 74, 80, .22) 3px 4px); }
+  .art.none::after { content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--primary); opacity: .7; }
+
+  .pager { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 16px 4px; font-size: 13px; color: var(--onVar); }
+
+  /* Menu (Material DropdownMenu). Every item is enabled; there is no permanently disabled Delete. */
+  .menu { position: absolute; right: 12px; z-index: 30; min-width: 224px; max-width: 260px; background: var(--contHigh); border-radius: 8px; padding: 8px 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,.18), 0 6px 18px rgba(0,0,0,.12); }
+  .menu button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 16px; text-align: left; font-size: 15px; }
+  .menu button:hover { background: rgba(83, 66, 67, .08); }
+  .menu svg { width: 22px; height: 22px; color: var(--onVar); }
+  .menu hr { border: 0; border-top: 1px solid var(--outlineVar); margin: 6px 0; }
+
+  .empty { padding: 56px 32px 24px; text-align: center; color: var(--onVar); }
+  .empty .shape { width: 112px; height: 112px; margin: 0 auto 20px; border-radius: 32px; background: var(--contHighest); position: relative; }
+  .empty .shape::before { content: ""; position: absolute; inset: 18px; border-radius: 50%; background: repeating-radial-gradient(circle, transparent 0 5px, rgba(139,74,80,.2) 5px 6px); }
+  .empty .shape::after { content: ""; position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--primary); opacity: .7; }
+  .empty h3 { font-size: 20px; font-weight: 400; color: var(--onSurface); margin: 0 0 8px; }
+  .empty p { margin: 0; font-size: 14px; line-height: 1.5; }
+
+  /* Mini player and navigation, unchanged from the app. */
+  .mini { flex: none; height: 64px; background: var(--contHighest); display: flex; align-items: center; padding: 0 8px 0 12px; gap: 12px; position: relative; }
+  .mini::before { content: ""; position: absolute; top: 0; left: 0; height: 2px; width: 38%; background: var(--primary); }
+  .mini .art { width: 44px; height: 44px; border-radius: 8px; }
+  .mini .text { padding: 0; }
+  .mini .title { font-size: 15px; } .mini .artist { font-size: 13px; }
+  .mini .play { width: 48px; height: 48px; border-radius: 16px; background: var(--primary); color: var(--onPrimary); display: grid; place-items: center; flex: none; }
+  .nav { flex: none; height: 76px; background: var(--cont); display: flex; padding-top: 10px; }
+  .nav div { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--onVar); }
+  .nav .pill { width: 56px; height: 30px; border-radius: 15px; display: grid; place-items: center; }
+  .nav .on .pill { background: var(--secCont); color: var(--onSecCont); }
+  .nav .on { color: var(--onSurface); }
+  .gesture { flex: none; height: 18px; background: var(--cont); display: grid; place-items: center; }
+  .gesture i { width: 108px; height: 4px; border-radius: 2px; background: var(--onSurface); opacity: .6; }
+
+  /* Sheet, dialog and snackbar. */
+  .scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 40; display: none; }
+  .scrim.show { display: block; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 50; background: var(--cont); border-radius: 28px 28px 0 0; padding: 10px 0 20px; display: none; max-height: 86%; overflow-y: auto; }
+  .sheet.show { display: block; }
+  .sheet .handle { width: 32px; height: 4px; border-radius: 2px; background: var(--outline); opacity: .5; margin: 4px auto 14px; }
+  .sheet .head { display: flex; gap: 14px; align-items: center; padding: 0 24px 14px; }
+  .sheet .head .art { width: 64px; height: 64px; border-radius: 14px; }
+  .sheet .head .title { font-size: 18px; white-space: normal; }
+  .sheet dl { margin: 0; padding: 4px 24px 0; border-top: 1px solid var(--outlineVar); }
+  .sheet dt { font-size: 12px; font-weight: 600; color: var(--onVar); margin-top: 14px; letter-spacing: .2px; }
+  .sheet dd { margin: 2px 0 0; font-size: 15px; line-height: 1.45; display: flex; gap: 8px; }
+  .sheet dd svg { width: 18px; height: 18px; margin-top: 2px; color: var(--onVar); }
+  .sheet dd small { display: block; font-size: 13px; color: var(--onVar); }
+  .sheet .actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 20px 24px 0; }
+  .btn { height: 40px; padding: 0 20px; border-radius: 20px; font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; }
+  .btn svg { width: 18px; height: 18px; }
+  .btn.filled { background: var(--primary); color: var(--onPrimary); }
+  .btn.tonal { background: var(--secCont); color: var(--onSecCont); }
+  .btn.outlined { border: 1px solid var(--outline); color: var(--primary); }
+  .sheet .prose { padding: 0 24px; font-size: 15px; line-height: 1.5; }
+  .sheet .prose p { margin: 0 0 12px; }
+  .sheet h3 { font-size: 22px; font-weight: 400; margin: 0 24px 12px; }
+
+  .dialog { position: absolute; left: 28px; right: 28px; top: 50%; transform: translateY(-50%); z-index: 60; background: var(--contHigh); border-radius: 28px; padding: 24px; display: none; }
+  .dialog.show { display: block; }
+  .dialog h3 { font-size: 22px; font-weight: 400; margin: 0 0 14px; }
+  .dialog p { margin: 0 0 22px; font-size: 14px; line-height: 1.5; color: var(--onVar); }
+  .dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+  .dialog .buttons button { padding: 10px 12px; color: var(--primary); font-weight: 500; font-size: 14px; border-radius: 20px; }
+
+  .snack { position: absolute; left: 12px; right: 12px; bottom: 166px; z-index: 35; background: #3A2E2E; color: #FFEDEC; border-radius: 6px; padding: 6px 8px 6px 16px;
+    display: none; align-items: center; gap: 8px; font-size: 14px; line-height: 1.4; min-height: 48px; }
+  .snack.show { display: flex; }
+  .snack span { flex: 1; }
+  .snack button { color: #FFB2B8; font-weight: 600; padding: 10px; }
+</style>
+</head>
+<body>
+
+<aside class="controls" aria-label="Review controls (outside the app)">
+  <span class="tag">Preview · proposal pending user approval</span>
+  <h1>“On this device” (saved copies)</h1>
+  <p>Interactive mockup. Nothing here changes data: Delete, Retry and Update only close the preview. Stable Material 3 components; no blur or alpha APIs.</p>
+  <fieldset>
+    <legend>Demo state</legend>
+    <label><input type="radio" name="state" value="normal" checked> Normal</label>
+    <label><input type="radio" name="state" value="copies"> Download + kept from listening</label>
+    <label><input type="radio" name="state" value="current"> Current format (no storage update)</label>
+    <label><input type="radio" name="state" value="confirm"> Delete confirmation</label>
+    <label><input type="radio" name="state" value="failed"> Delete didn’t finish (SD card removed)</label>
+    <label><input type="radio" name="state" value="card"> SD card unavailable</label>
+    <label><input type="radio" name="state" value="empty"> Empty</label>
+  </fieldset>
+  <fieldset>
+    <legend>Try</legend>
+    <p style="margin:0">Each row’s ⋮ (48&nbsp;dp target) opens Play, Details, Update storage format (only when confirmed) and Delete. Delete is always offered for a listed copy and asks once. The two sections assume proposed source-aware paging and counts (see proposal.md).</p>
+  </fieldset>
+  <div class="note" id="note" aria-live="polite">Preview notes appear here.</div>
+</aside>
+
+<div class="phone" id="phone">
+  <div class="status" aria-hidden="true"><span>4:07</span><span class="dots"><i></i><i></i><i></i></span></div>
+  <div class="appbar">
+    <button class="icon-btn" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <h2>On this device</h2>
+    <button class="icon-btn" aria-label="Refresh list" id="refresh"><svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+  </div>
+  <div class="scroll" id="scroll"></div>
+  <div class="snack" id="snack" role="status"><span id="snacktext"></span><button id="snackaction">Retry</button></div>
+  <div class="mini">
+    <div class="art a1"></div>
+    <div class="text"><div class="title">Harbour Lights</div><div class="artist">Mara Ellis</div></div>
+    <button class="play" aria-label="Pause"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></button>
+    <button class="icon-btn" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+  </div>
+  <nav class="nav" aria-label="Main">
+    <div><span class="pill"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zm2 2v4h4V5zm8-2h8v8h-8zm2 2v4h4V5zM3 13h8v8H3zm2 2v4h4v-4zm8-2h8v8h-8zm2 2v4h4v-4z"/></svg></span>Library</div>
+    <div><span class="pill"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></span>Search</div>
+    <div class="on"><span class="pill"><svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg></span>Settings</div>
+  </nav>
+  <div class="gesture" aria-hidden="true"><i></i></div>
+
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+  <div class="dialog" id="dialog" role="alertdialog" aria-modal="true"></div>
+</div>
+
+<script>
+const I = {
+  more: 'M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
+  play: 'M8 5v14l11-7z',
+  info: 'M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z',
+  done: 'M5 18h14v2H5v-2zm4.6-2.7L5 10.7l2-1.9 2.6 2.6L17 4l2 2-9.4 9.3z',
+  history: 'M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z',
+  sd: 'M18 2h-8L4.02 8 4 20c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 18H6V8.83L10.83 4H18v16zM9 7h2v4H9zm3 0h2v4h-2zm3 0h2v4h-2z',
+  chevron: 'M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
+  expand: 'M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z',
+  collapse: 'M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z',
+  del: 'M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z',
+  swap: 'M16 17.01V10h-2v7.01h-3L15 21l4-3.99h-3zM9 3L5 6.99h3V14h2V6.99h3L9 3z',
+  details: 'M3 5h18v2H3zm0 6h18v2H3zm0 6h12v2H3z',
+  phone: 'M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14z',
+  warn: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
+};
+const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+
+// Fictional songs. Each row is one listed copy; equal tags never merge rows.
+function song(id, title, artist, art, extra = {}) {
+  return Object.assign({ id, title, artist, art, source: 'download', shelf: 'phone', size: '8.4 MB',
+    update: 'eligible', failed: false, playing: false }, extra);
+}
+function base() {
+  return { downloads: [
+      song('h', 'Harbour Lights', 'Mara Ellis', 'a1', { playing: true, size: '9.1 MB' }),
+      song('p', 'Paper Satellites', 'The Glass Orchards', 'a2', { update: 'current', size: '7.6 MB' }),
+      song('s', 'Slow Tide', 'Okonkwo & June', 'a3', { size: '11.2 MB' }),
+      song('n', 'Northbound (Live)', 'Hollis Reed', 'a4', { shelf: 'card', update: 'current', size: '12.8 MB' }),
+    ], listening: [
+      song('p2', 'Paper Satellites', 'The Glass Orchards', 'none', { source: 'played', update: 'none', size: '7.5 MB' }),
+      song('b', 'Static Bloom', 'Neon Parish', 'none', { source: 'played', update: 'none', size: '6.3 MB' }),
+    ], listeningOpen: false };
+}
+const STATES = {
+  normal: base,
+  copies: () => Object.assign(base(), { listeningOpen: true }),
+  current: () => { const s = base(); s.downloads.forEach(x => x.update = 'current'); return s; },
+  confirm: base,
+  failed: () => { const s = base(); s.downloads[3].failed = true; return s; },
+  card: () => { const s = base(); s.downloads = s.downloads.filter(x => x.shelf !== 'card'); s.card = true; return s; },
+  empty: () => ({ downloads: [], listening: [], listeningOpen: false }),
+};
+let state = base();
+const scroll = document.getElementById('scroll');
+const note = document.getElementById('note');
+const all = () => [...state.downloads, ...state.listening];
+
+function metaLine(s) {
+  if (s.failed) return `<div class="meta strong">${svg(I.warn)}Not deleted · SD card not found</div>`;
+  if (s.playing) return `<div class="meta strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>Playing</div>`;
+  if (s.shelf === 'card') return `<div class="meta">${svg(I.sd)}SD card</div>`;
+  return '';
+}
+function row(s) {
+  return `<div class="row ${s.playing ? 'current' : ''}" data-id="${s.id}">
+    <div class="art ${s.art}" aria-hidden="true"></div>
+    <div class="text"><div class="title">${s.title}</div><div class="artist">${s.artist}</div>${metaLine(s)}</div>
+    <button class="icon-btn" aria-haspopup="menu" aria-label="More options for ${s.title}, ${s.artist}" data-menu="${s.id}">${svg(I.more)}</button>
+  </div>`;
+}
+function render() {
+  closeMenu(); hideSnack();
+  let h = '';
+  if (state.card) h += `<div class="banner" role="status">${svg(I.sd)}<div><b>SD card not found</b>Copies on it are hidden and stay on the card. Put the same card back, then try again.<button id="cardretry">Try again</button></div></div>`;
+  if (!all().length) {
+    h += `<div class="empty"><div class="shape" aria-hidden="true"></div><h3>Nothing on this device yet</h3>
+      <p>Long-press a song and choose Download to keep a copy here. Songs you listen to may also be kept for a while.</p></div>`;
+    scroll.innerHTML = h; return;
+  }
+  h += `<button class="chiprow" id="why">${svg(I.info)}<span>Plays from this device</span><b>Details${svg(I.chevron)}</b></button>`;
+  h += `<div class="section-head"><span class="label">Downloads</span><span class="count">· ${state.downloads.length}</span></div>`;
+  h += state.downloads.map(row).join('');
+  if (state.listening.length) {
+    h += `<button class="section-head" id="toggle" aria-expanded="${state.listeningOpen}">
+      <span class="label">Kept from listening</span><span class="count">· ${state.listening.length}</span><span class="spacer"></span>
+      <span class="toggle">${state.listeningOpen ? 'Hide' : 'Show'}${svg(state.listeningOpen ? I.collapse : I.expand)}</span></button>`;
+    h += `<p class="section-sub">Saved automatically while you listened. When the listening cache is full, older ones make room.</p>`;
+    if (state.listeningOpen) h += state.listening.map(row).join('');
+  }
+  h += `<div class="pager">${all().length} on this device</div>`;
+  scroll.innerHTML = h;
+}
+
+// Row menu: no disabled items. Delete is always offered for a listed copy.
+let menuEl = null, menuFor = null;
+function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; menuFor = null; } }
+function openMenu(id, btn) {
+  closeMenu();
+  const s = all().find(x => x.id === id);
+  const m = document.createElement('div');
+  m.className = 'menu'; m.setAttribute('role', 'menu'); m.setAttribute('aria-label', `Options for ${s.title}`);
+  let h = `<button role="menuitem" data-act="play">${svg(I.play)}Play</button>
+    <button role="menuitem" data-act="details">${svg(I.details)}Details</button>`;
+  if (s.update === 'eligible') h += `<button role="menuitem" data-act="update">${svg(I.swap)}Update storage format</button>`;
+  h += `<hr><button role="menuitem" data-act="delete">${svg(I.del)}${s.failed ? 'Try delete again' : s.source === 'played' ? 'Delete from device' : 'Delete download'}</button>`;
+  m.innerHTML = h;
+  const phone = document.getElementById('phone');
+  phone.appendChild(m);
+  const r = btn.getBoundingClientRect(), p = phone.getBoundingClientRect();
+  let top = r.bottom - p.top - 6;
+  if (top + m.offsetHeight > p.height - 150) top = r.top - p.top - m.offsetHeight + 6;
+  m.style.top = top + 'px';
+  menuEl = m; menuFor = id;
+  m.querySelector('button').focus();
+  m.addEventListener('click', e => {
+    const act = e.target.closest('button')?.dataset.act; if (!act) return;
+    closeMenu();
+    if (act === 'play') note.textContent = `Preview: “${s.title}” would play from this device.`;
+    if (act === 'details') details(s);
+    if (act === 'update') updateDialog(s);
+    if (act === 'delete') deleteDialog(s);
+  });
+}
+
+const scrim = document.getElementById('scrim'), sheet = document.getElementById('sheet'), dialog = document.getElementById('dialog');
+const snack = document.getElementById('snack');
+function hideAll() { scrim.classList.remove('show'); sheet.classList.remove('show'); dialog.classList.remove('show'); }
+function hideSnack() { snack.classList.remove('show'); }
+scrim.onclick = hideAll;
+function details(s) {
+  const kept = s.source === 'played'
+    ? `${svg(I.history)}<span>Kept from listening<small>Saved automatically. It can make room for newer songs.</small></span>`
+    : `${svg(I.done)}<span>Download<small>You chose to keep this.</small></span>`;
+  const where = s.shelf === 'card' ? `${svg(I.sd)}<span>SD card · ${s.size}</span>` : `${svg(I.phone)}<span>Phone · ${s.size}</span>`;
+  const fmt = s.source === 'played' ? '' :
+    `<dt>STORAGE FORMAT</dt><dd>${svg(I.swap)}<span>${s.update === 'eligible' ? 'Older format · update available<small>Needs temporary free space for a second copy while it’s checked.</small>' : 'Current'}</span></dd>`;
+  const last = s.failed ? `<dt>LAST DELETE</dt><dd>${svg(I.warn)}<span>Didn’t finish<small>The SD card was removed. Put it back and try again.</small></span></dd>` : '';
+  sheet.innerHTML = `<div class="handle"></div>
+    <div class="head"><div class="art ${s.art}" aria-hidden="true"></div><div><div class="title">${s.title}</div><div class="artist">${s.artist}</div></div></div>
+    <dl><dt>KEPT AS</dt><dd>${kept}</dd><dt>STORED ON</dt><dd>${where}</dd>
+    <dt>PLAYS FROM</dt><dd>${svg(I.info)}<span>This device only<small>Muon can’t confirm it still matches the song in Tauon.</small></span></dd>
+    ${fmt}${last}</dl>
+    <div class="actions"><button class="btn filled" data-a="play">${svg(I.play)}Play</button>
+    ${s.update === 'eligible' ? `<button class="btn tonal" data-a="update">${svg(I.swap)}Update format</button>` : ''}
+    <button class="btn outlined" data-a="delete">${svg(I.del)}${s.failed ? 'Try again' : 'Delete'}</button></div>`;
+  scrim.classList.add('show'); sheet.classList.add('show');
+  sheet.onclick = e => { const a = e.target.closest('button')?.dataset.a; if (!a) return;
+    if (a === 'play') { hideAll(); note.textContent = `Preview: “${s.title}” would play from this device.`; }
+    if (a === 'update') updateDialog(s); if (a === 'delete') deleteDialog(s); };
+}
+function why() {
+  sheet.innerHTML = `<div class="handle"></div><h3>Why these play from here</h3><div class="prose">
+    <p>Tauon can give a song’s number to a different song after its library changes. Muon can’t confirm that a copy here still matches what Tauon has now.</p>
+    <p>So these play only from this device, and your Tauon library never uses them in its place. You can still play or delete any of them.</p></div>
+    <div class="actions"><button class="btn tonal">Got it</button></div>`;
+  scrim.classList.add('show'); sheet.classList.add('show');
+  sheet.onclick = e => { if (e.target.closest('button')) hideAll(); };
+}
+function showDialog(title, body, confirm, onConfirm) {
+  dialog.innerHTML = `<h3>${title}</h3><p>${body}</p><div class="buttons"><button data-b="cancel">Cancel</button><button data-b="ok">${confirm}</button></div>`;
+  sheet.classList.remove('show'); scrim.classList.add('show'); dialog.classList.add('show');
+  dialog.querySelector('[data-b=ok]').focus();
+  dialog.onclick = e => { const b = e.target.closest('button')?.dataset.b; if (!b) return; hideAll(); if (b === 'ok') onConfirm(); };
+}
+function deleteDialog(s) {
+  const where = s.shelf === 'card' ? 'SD card' : 'phone';
+  showDialog(s.source === 'played' ? 'Delete from this device?' : 'Delete this download?',
+    `“${s.title}” will be deleted from this ${where}. Other copies here and your Tauon library aren’t changed.`,
+    'Delete', () => { note.textContent = 'Preview only: nothing was deleted. In the app the row would disappear once the delete finishes.'; });
+}
+function updateDialog(s) {
+  showDialog('Update storage format?',
+    `Muon makes a new copy of “${s.title}” in the current format and checks it before replacing this one. It needs temporary space for a second copy. You can follow or cancel it in Settings.`,
+    'Update', () => { note.textContent = 'Preview only: no storage was changed.'; });
+}
+
+scroll.addEventListener('click', e => {
+  const k = e.target.closest('[data-menu]');
+  if (k) { e.stopPropagation(); if (menuFor === k.dataset.menu) closeMenu(); else openMenu(k.dataset.menu, k); return; }
+  if (e.target.closest('#why')) { why(); return; }
+  if (e.target.closest('#toggle')) { state.listeningOpen = !state.listeningOpen; render(); return; }
+  if (e.target.closest('#cardretry')) { note.textContent = 'Preview: Muon would check for the card again.'; }
+});
+document.addEventListener('click', e => { if (menuEl && !menuEl.contains(e.target)) closeMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeMenu(); hideAll(); } });
+scroll.addEventListener('scroll', closeMenu);
+document.getElementById('refresh').onclick = () => { note.textContent = 'Preview: the list would reload this page.'; };
+document.getElementById('snackaction').onclick = () => { hideSnack(); note.textContent = 'Preview: Muon would try the delete again.'; };
+document.querySelectorAll('input[name=state]').forEach(r => r.onchange = () => {
+  state = STATES[r.value](); hideAll(); render();
+  note.textContent = { normal: 'Normal: downloads shown, kept-from-listening collapsed.',
+    copies: 'The same song as a download (with cover) and as a separate copy kept from listening (no cover). Rows stay separate; nothing is merged or assumed identical.',
+    current: 'Every download already uses the current format, so no row offers Update storage format.',
+    confirm: 'Delete asks once, then deletes. Deleting one copy must keep any other listed copy intact.',
+    failed: 'A real failure: the SD card was removed while deleting. The row says so in words, and Retry is offered.',
+    card: 'SD card missing: its copies are hidden and left on the card.', empty: 'Nothing stored yet.' }[r.value];
+  if (r.value === 'confirm') deleteDialog(state.downloads[2]);
+  if (r.value === 'failed') { document.getElementById('snacktext').textContent = 'Couldn’t delete “Northbound (Live)”. The SD card isn’t available.'; snack.classList.add('show'); }
+});
+render();
+</script>
+</body>
+</html>
