@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
@@ -69,8 +70,13 @@ internal fun peekShiftDp(widthDp: Float): Float = maxOf(0f, widthDp / 20f - 8f)
 internal fun peekTransform(): ContentTransform =
     ContentTransform(EnterTransition.None, ExitTransition.None, targetContentZIndex = -1f, sizeTransform = null)
 
-/** The page on show as a card following the finger, then fading on commit. */
-internal fun Modifier.peekCard(peek: BackPeek): Modifier = graphicsLayer {
+/**
+ * The page on show as a card following the finger, then fading on commit. Library pages draw no
+ * ground of their own (the scaffold does), so the card gets [ground] inside its rounded clip; without
+ * it the page underneath showed through and only the header seemed to shrink (the user's recordings
+ * on the POCO and the Pixel 8, .1376).
+ */
+internal fun Modifier.peekCard(peek: BackPeek, ground: Color): Modifier = graphicsLayer {
     val p = peekEased(peek.progress.value)
     val c = peek.commit.value
     val sign = if (peek.edge == BackEventCompat.EDGE_RIGHT) -1f else 1f
@@ -82,7 +88,7 @@ internal fun Modifier.peekCard(peek: BackPeek): Modifier = graphicsLayer {
     shape = RoundedCornerShape(lerp(0f, 32f, p).dp)
     clip = true
     shadowElevation = lerp(0f, 8f, p).dp.toPx()
-}
+}.background(ground)
 
 /** The page Back leads to, dimmed a little while the card is over it. */
 internal fun Modifier.peekParent(peek: BackPeek): Modifier = drawWithContent {

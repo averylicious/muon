@@ -719,7 +719,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                         // and would come apart from the card as it shrinks.
                                         CompositionLocalProvider(LocalSharedMotion provides if (peek.active) null else SharedMotion(shared, this)) {
                                         Box(Modifier.fillMaxSize().leaving(leaving)
-                                            .then(if (!peek.active) Modifier else if (leaving) Modifier.peekCard(peek) else Modifier.peekParent(peek))) {
+                                            .then(if (!peek.active) Modifier else if (leaving) Modifier.peekCard(peek, colors.background) else Modifier.peekParent(peek))) {
                                             when (shown) {
                                                 is LibraryPage.Album -> {
                                                     val album = keptWhileLeaving(leaving,
