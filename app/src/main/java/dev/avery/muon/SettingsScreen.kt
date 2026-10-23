@@ -400,7 +400,7 @@ private fun SettingsRow(index: Int, count: Int, headline: String, supporting: St
         onClick != null -> Modifier.clickable(enabled = enabled, onClickLabel = clickLabel, onClick = onClick)
         else -> Modifier
     }
-    Surface(index = index, count = count, color = colors.surfaceContainerHigh,
+    Surface(shape = rowShape(index, count), color = colors.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth().then(action)) {
         ListItem(
             // No fixed height: a long title or a large font scale grows the row instead of clipping.

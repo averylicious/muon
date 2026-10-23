@@ -43,16 +43,21 @@ private const val BACKDROP_PASSES = 3
 @Composable
 internal fun CoverBackdrop(url: String?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val request = url?.let { ArtworkIdentities.request(it) }
     var backdrop by remember { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(url) {
-        // Kept while the next one is worked out, so a skip crossfades instead of flashing.
-        if (url == null) { backdrop = null; return@LaunchedEffect }
-        blurredCover(context, url)?.let { backdrop = it }
+    var backdropRequest by remember { mutableStateOf<ArtworkRequest?>(null) }
+    LaunchedEffect(request) {
+        // Crossfade between different covers, but never reuse a changed song's old URL identity.
+        if (request == null) { backdrop = null; backdropRequest = null; return@LaunchedEffect }
+        blurredCover(context, request)?.let { image ->
+            ArtworkIdentities.ifCurrent(request) { backdrop = image; backdropRequest = request }
+        }
     }
+    val usableBackdrop = backdrop.takeUnless { backdropRequest?.url == url && backdropRequest != request }
     val colors = MaterialTheme.colorScheme
     val dark = colors.background.luminance() < 0.5f
     Box(modifier.fillMaxSize().clearAndSetSemantics {}) {
-        Crossfade(backdrop, animationSpec = motionMedium(), label = "cover backdrop") { image ->
+        Crossfade(usableBackdrop, animationSpec = motionMedium(), label = "cover backdrop") { image ->
             if (image != null) Image(image, contentDescription = null, contentScale = ContentScale.Crop,
                 filterQuality = FilterQuality.High, modifier = Modifier.fillMaxSize())
         }
@@ -61,9 +66,9 @@ internal fun CoverBackdrop(url: String?, modifier: Modifier = Modifier) {
     }
 }
 
-private suspend fun blurredCover(context: android.content.Context, url: String): ImageBitmap? =
+private suspend fun blurredCover(context: android.content.Context, request: ArtworkRequest): ImageBitmap? =
     withContext(Dispatchers.Default) {
-        val cover = artworkBitmap(context, url) ?: return@withContext null
+        val cover = artworkBitmap(context, request) ?: return@withContext null
         runCatching {
             val small = Bitmap.createScaledBitmap(cover, BACKDROP_SIDE, BACKDROP_SIDE, true)
             val pixels = IntArray(BACKDROP_SIDE * BACKDROP_SIDE)

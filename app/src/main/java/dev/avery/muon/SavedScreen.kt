@@ -86,7 +86,7 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
             }
         }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Loading" })
-        LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(bottom = 24.dp + LocalUnderBars.current)) {
             if (preparing) item(key = "preparing") {
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically) {
