@@ -14,6 +14,7 @@ import java.net.SocketException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.SocketFactory
 
 /** Real public API/OkHttp/Android JSON projection over loopback; no phone or performance assertion. */
 @RunWith(RobolectricTestRunner::class)
@@ -89,7 +90,9 @@ class TauonApiProjectionTest {
     @Test fun actualDiscoveryRequestAcceptsNormalVersionAndRejectsSmallDeepBody() {
         Response("{\"version\":1}").use { server ->
             val origin = server.api.endpoint.origin
-            val found = runBlocking { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { LanProbe.answer(origin) } }
+            val found = LanProbeRound(SocketFactory.getDefault(), { true }).use { round ->
+                runBlocking { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { round.answer(origin) } }
+            }
             assertEquals(DiscoveredServer("Tauon", origin), found)
             assertEquals("GET /api1/version HTTP/1.1", server.requestLine)
         }
@@ -97,7 +100,9 @@ class TauonApiProjectionTest {
         val body = "{\"version\":1,\"ignored\":$nested}"
         assertTrue(body.toByteArray().size < 4096)
         Response(body).use { server ->
-            val found = runBlocking { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { LanProbe.answer(server.api.endpoint.origin) } }
+            val found = LanProbeRound(SocketFactory.getDefault(), { true }).use { round ->
+                runBlocking { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { round.answer(server.api.endpoint.origin) } }
+            }
             assertNull(found)
         }
     }
