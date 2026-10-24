@@ -15,6 +15,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Live ReplayGain ID reuse — post-RC implementation | [#695](695.md) | [Issue #695](https://github.com/averylicious/muon/issues/695) |
 | ReplayGain container metadata — post-RC implementation | [#702](702.md) | [Issue #702](https://github.com/averylicious/muon/issues/702) |
 | Initial ID3 allocation admission — post-RC implementation | [#704](704.md) | [Issue #704](https://github.com/averylicious/muon/issues/704) |
+| Saved-admission lifecycle — post-RC implementation | [#708](708.md) | [Issue #708](https://github.com/averylicious/muon/issues/708) |
 | Notification artwork queue — post-RC implementation | [#697](697.md) | [Issue #697](https://github.com/averylicious/muon/issues/697) |
 | Published Gradle advisories — main/experimental tool updates | [#693](693.md) | [Issue #693](https://github.com/averylicious/muon/issues/693) |
 | Selected-network discovery — post-RC acceptance | [#638](638.md) | [Issue #638](https://github.com/averylicious/muon/issues/638) |
