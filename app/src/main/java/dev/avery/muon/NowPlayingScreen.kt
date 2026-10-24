@@ -173,7 +173,7 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
     // Buffering shows in the seek bar's own place (SeekControls), not as a bar above it: inserting one
     // pushed everything up and shrank the cover each time a track buffered.
-    SeekControls(item.mediaId, position, p.duration, p.seekable, p.buffering, player)
+    SeekControls(item.mediaId, position, p.duration, p.seekable, p.buffering, player, p.playing)
     if (Expressive.motion) ExpressiveTransport(p, player, toggles = !narrow)
     else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically) {
@@ -562,7 +562,7 @@ private const val BUFFERING_SHOW_DELAY_MS = 300L
  */
 @Composable
 private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, seekable: Boolean,
-    buffering: Boolean, player: MediaController?) {
+    buffering: Boolean, player: MediaController?, playing: Boolean = false) {
     var scrub by remember(mediaId) { mutableStateOf<Float?>(null) }
     val range = duration.coerceAtLeast(1).toFloat()
     val elapsed = scrub ?: position().toFloat().coerceIn(0f, range)
@@ -576,9 +576,17 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
     val seekPaint = remember { Paint() }
     Column {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
+            // With Expressive motion the track is wavy (WavySeekTrack); the slider itself is the stock one.
+            val state = remember(range) { SliderState(elapsed, 0, 0f..range) }
+            state.value = elapsed
+            val canSeek = seekable && player != null
+            Slider(state = state, onValueChange = { scrub = it },
                 onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
-                enabled = seekable && player != null,
+                enabled = canSeek,
+                track = { sliderState ->
+                    if (Expressive.motion) WavySeekTrack(sliderState, moving = playing && scrub == null && !waiting, enabled = canSeek)
+                    else SliderDefaults.Track(sliderState = sliderState, enabled = canSeek)
+                },
                 modifier = Modifier.drawWithContent {
                     // Fade only pixels. An alpha-zero layout layer would also hide the native
                     // SeekBar from TalkBack during sustained buffering.
