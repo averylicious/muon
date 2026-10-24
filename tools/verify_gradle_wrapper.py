@@ -4,10 +4,10 @@ from pathlib import Path
 import sys
 
 
-# Official Gradle 8.13 wrapper checksum, independently compared on 2026-10-03:
-# https://services.gradle.org/distributions/gradle-8.13-wrapper.jar.sha256
+# Official Gradle 9.8.2 wrapper checksum, independently compared on 2026-10-24:
+# https://services.gradle.org/distributions/gradle-9.8.2-wrapper.jar.sha256
 # Review and update this pin when intentionally replacing the wrapper; never read a cache allowlist.
-APPROVED_WRAPPER_SHA256 = '81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f'
+APPROVED_WRAPPER_SHA256 = '3b8a25775a69158b5ad2b1d17a80a88dc7b40a352a73eb27d06c612a7ce68e98'
 ROOT = Path(__file__).resolve().parents[1]
 
 

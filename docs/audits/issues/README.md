@@ -8,6 +8,15 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Saved-card startup and Move latency — explicitly deferred post-release | [#401](401.md) | [Issue #401](https://github.com/averylicious/muon/issues/401) |
 | Saved-copy Delete refusal and reset compatibility | [#646](646.md) | [Issue #646](https://github.com/averylicious/muon/issues/646) |
 | First-song normalization and missing-tags reminder — implemented/accepted/released | [#645](645.md) | [Issue #645](https://github.com/averylicious/muon/issues/645) |
+| CI signing / Benchmark boundary — completed | [#640 / #685](685.md) | [Issue #640](https://github.com/averylicious/muon/issues/640) |
+| Notification artwork revision — post-RC acceptance | [#207](207.md) | [Issue #207](https://github.com/averylicious/muon/issues/207) |
+| Initial connection cancellation — post-RC acceptance | [#690](690.md) | [Issue #690](https://github.com/averylicious/muon/issues/690) |
+| Live ReplayGain ID reuse — post-RC implementation | [#695](695.md) | [Issue #695](https://github.com/averylicious/muon/issues/695) |
+| Notification artwork queue — post-RC implementation | [#697](697.md) | [Issue #697](https://github.com/averylicious/muon/issues/697) |
+| Published Gradle advisories — main/experimental tool updates | [#693](693.md) | [Issue #693](https://github.com/averylicious/muon/issues/693) |
+| Selected-network discovery — post-RC acceptance | [#638](638.md) | [Issue #638](https://github.com/averylicious/muon/issues/638) |
+| Collection worker projections — post-RC acceptance | [#639](639.md) | [Issue #639](https://github.com/averylicious/muon/issues/639) |
+| Measured Baseline Profile benefit — post-RC assessment / engineering next | [#83](83.md) | [Issue #83](https://github.com/averylicious/muon/issues/83) |
 | Refined M3E candidate / finite next-RC delta audit | [#661](661.md) | [Issue #661](https://github.com/averylicious/muon/issues/661) |
 | M3E predictive Back lifecycle | [#658](658.md) | [Issue #658](https://github.com/averylicious/muon/issues/658) |
 | Intermittent M3E stream buffering | [#671](671.md) | [Issue #671](https://github.com/averylicious/muon/issues/671) |
