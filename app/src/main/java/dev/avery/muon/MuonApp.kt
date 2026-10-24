@@ -686,6 +686,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     PredictiveBackHandler(savedOpen && tab == Tab.Settings && !overlayOpen && !sheet.previewing) { events ->
                                         val gesture = savedPeek.begin()
                                         try {
+                                            savedPeek.commit.snapTo(0f)
                                             savedState.seekTo(0f, false)
                                             events.collect { event -> savedPeek.edge = event.swipeEdge; savedPeek.progress.snapTo(event.progress) }
                                             savedPeek.commit.animateTo(1f, motionShort())
@@ -753,6 +754,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                         val to = backTo ?: return@PredictiveBackHandler
                                         val gesture = peek.begin()
                                         try {
+                                            peek.commit.snapTo(0f)
                                             pageState.seekTo(0f, to)
                                             events.collect { event -> peek.edge = event.swipeEdge; peek.progress.snapTo(event.progress) }
                                             // Let go: the card fades away, and the page it covered is already there.
@@ -1110,6 +1112,7 @@ private fun FullScreenOverlay(state: MutableTransitionState<Boolean>, peeking: (
             val gesture = peek.begin()
             currentPeeking(true)
             try {
+                peek.commit.snapTo(0f)
                 events.collect { event -> peek.edge = event.swipeEdge; peek.progress.snapTo(event.progress) }
                 peek.commit.animateTo(1f, motionShort())
                 if (peek.owns(gesture)) currentClose()
