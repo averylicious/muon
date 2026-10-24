@@ -845,8 +845,12 @@ class DownloadMoveCharacterizationTest {
         // A failed read is unavailable storage, not evidence of shared ownership (#646).
         assertEquals(OfflineStore.SavedRemoval.Unavailable, OfflineStore.removeSavedNow(app,
             requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
-        assertEquals("The card's census still runs; the phone's sends nothing", OfflineStore.RemoveAllPlan(0, 0),
+        assertEquals("The card's census still runs; the phone's sends nothing", OfflineStore.RemoveAllPlan(0, 0, unreadableShelves = 1),
             OfflineStore.removeAllNow(app))
+        OfflineStore.removeAll(app)
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertEquals("Couldn't check all saved copies. Check storage and retry.", ShadowToast.getTextOfLatestToast())
         val namingFailure = assertThrows(java.util.concurrent.ExecutionException::class.java) {
             (saverField.get(null) as ExecutorService).submit {
                 OfflineStore.takenNames(app, OfflineStore.get(app)).use { }
@@ -877,11 +881,32 @@ class DownloadMoveCharacterizationTest {
         assertEquals(request, sourceIndex.getDownload(id)?.request)
         assertEquals(request, targetIndex.getDownload(id)?.request)
         // Removal, Remove all, names, claims, move and completion: each failed read closed its cursor.
-        assertEquals(6, phoneIndex.failing.size)
+        assertEquals(7, phoneIndex.failing.size)
         assertTrue(phoneIndex.failing.all { it.isClosed })
         phoneIndex.failAtRow = 0
         claims.read(phoneIndex)
         assertTrue("Read whole, the claims are known", claims.known)
+    }
+
+    @Test fun bulkRemovalReportsUnreadablePhoneWithoutSuppressingTheReadableCardSelection() {
+        completeSource(bytes)
+        seed(card.cache, 0, bytes); setLength(card.cache, bytes.size.toLong())
+        targetIndex.putDownload(Download(request, Download.STATE_COMPLETED, 1, 1, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        phoneIndex.failAtRow = 1
+        OfflineStore.removeAll(app)
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        val removal = startedCommands().single { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD }
+        assertEquals(MuonCardDownloadService::class.java.name, removal.component?.className)
+        assertEquals(id, removal.getStringExtra(DownloadService.KEY_CONTENT_ID))
+        assertEquals("Couldn't check all saved copies. Check storage and retry.", ShadowToast.getTextOfLatestToast())
+        assertEquals(request, sourceIndex.getDownload(id)?.request)
+        assertArrayEquals(bytes, keyedBytes(phone.cache, id))
+        // Delivery is captured, not run by a service: the selected card copy also remains unchanged.
+        assertEquals(request, targetIndex.getDownload(id)?.request)
+        assertArrayEquals(bytes, targetBytes())
+        assertEquals(1, phoneIndex.failing.size)
+        assertTrue(phoneIndex.failing.single().isClosed)
     }
 
     // ---- #253: a batch copies no more than its free move receipts can hand over ----

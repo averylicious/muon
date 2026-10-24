@@ -32,6 +32,8 @@ import java.util.concurrent.atomic.AtomicReference
 import okhttp3.Call
 import okhttp3.Request
 
+private const val BULK_REMOVAL_UNREADABLE = "Couldn't check all saved copies. Check storage and retry."
+
 /**
  * Where downloads are kept: the phone's own storage, or a removable SD card (#112, mockup 01). Each has
  * its own cache, its own download index and its own service. A card that is unavailable is skipped by
@@ -1886,7 +1888,9 @@ internal object OfflineStore {
         saver.execute {
             val plan = removeAllNow(context)
             if (plan.busy) notice(context, "Saved storage is busy, so some copies could not be removed. Try again later.")
-            if (store.shelves.any { !it.available() })
+            if (!store.phone.available())
+                notice(context, "Saved copies couldn't be read. Try again or restart Muon.")
+            else if (store.card?.available() == false)
                 notice(context, "The SD card isn't available, so its saved copies weren't removed.")
             if (plan.kept > 0) notice(context, "${plan.kept} saved ${if (plan.kept == 1) "copy was" else "copies were"} kept: " +
                 "Muon can't safely remove them in their current state.")
@@ -1895,6 +1899,7 @@ internal object OfflineStore {
             if (plan.later > 0 && plan.sent == 0) notice(context, "${plan.later} saved " +
                 "${if (plan.later == 1) "copy wasn't" else "copies weren't"} removed and " +
                 "${if (plan.later == 1) "is" else "are"} unchanged. Try again later.")
+            if (plan.unreadableShelves > 0) notice(context, BULK_REMOVAL_UNREADABLE)
         }
     }
 
@@ -1903,10 +1908,11 @@ internal object OfflineStore {
      * removed; [kept]: rows not the sole owner of their bytes; [later]: sole owners beyond the batch's bounds,
      * unchanged and left for another Remove all; [busy]: storage/another removal was busy. [removed]:
      * partition copies whose actual bytes and row were already removed; [unconfirmed]: attempted partition
-     * removals with unknown outcome. An unknown mutation is never reported as unchanged.
+     * removals with unknown outcome. [unreadableShelves] counts failed whole censuses, not guessed
+     * copy counts: those shelves sent no removals. An unknown mutation is never reported as unchanged.
      */
     internal data class RemoveAllPlan(val sent: Int, val kept: Int, val later: Int = 0, val busy: Boolean = false,
-        val removed:Int=0,val unconfirmed:Int=0)
+        val removed:Int=0,val unconfirmed:Int=0,val unreadableShelves:Int=0)
 
     /**
      * [removeAll]'s commands, on the calling thread: every row on each available shelf that a census finds
@@ -1920,6 +1926,7 @@ internal object OfflineStore {
         val selection = RemovalSelection()
         var kept = 0
         var later = 0
+        var unreadable = 0
         for (shelf in availableShelves(store.shelves)) {
             // A whole, closed disk census is required; a partial read/close sends nothing from this shelf.
             val local = RemovalSelection()
@@ -1936,7 +1943,7 @@ internal object OfflineStore {
                     }
                 }
             }.isSuccess
-            if (!complete) continue
+            if (!complete) { unreadable++; continue }
             kept += localKept
             later += localLater
             for (target in local.targets) if (!selection.take(target.shelf, target.id)) later++
@@ -1960,15 +1967,17 @@ internal object OfflineStore {
                 SavedRemoval.Failed -> {unconfirmed++; stopped=true}
             }
         }
-        if(stopped) {later+=legacy.size; return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed)}
-        if(legacy.isEmpty()) return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed)
+        if(stopped) {later+=legacy.size; return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed,unreadable)}
+        if(legacy.isEmpty()) return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed,unreadable)
         val app = context.applicationContext
         val count = legacy.size
         val begun = store.removalDelivery.begin(legacy, sendRemoval(context)) { result ->
-            removalDeliveryMessage(result, single = false, later = later)?.let { notice(app, it) }
+            removalDeliveryMessage(result, single = false, later = later)?.let {
+                notice(app, it + if (unreadable > 0) " $BULK_REMOVAL_UNREADABLE" else "")
+            }
         }
-        return if (begun) RemoveAllPlan(count,kept,later,busy,removed,unconfirmed)
-            else RemoveAllPlan(0,kept,later+count,true,removed,unconfirmed)
+        return if (begun) RemoveAllPlan(count,kept,later,busy,removed,unconfirmed,unreadable)
+            else RemoveAllPlan(0,kept,later+count,true,removed,unconfirmed,unreadable)
     }
 }
 
