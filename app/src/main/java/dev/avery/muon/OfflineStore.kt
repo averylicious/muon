@@ -890,19 +890,13 @@ internal object OfflineStore {
         }
     }.getOrDefault(false)
 
-    /**
-     * Removes one saved copy, and only it (#213). A download row goes only when its shelf is available and
-     * a census of that shelf's index finds it the sole owner of its bytes ([soleOwner]); a played copy only
-     * when no download row names its key ([PlayedClaims]). Otherwise nothing is changed, the copy still
-     * plays, and the refusal is said. A played copy being made is under its own fresh key and is not listed,
-     * so removing a listed one cannot cut into it. The census is a snapshot; why it holds until Media3
-     * removes the bytes is set out at [soleOwner].
-     */
     /** The fixed saver rejects before accepting work. Do not release admission merely because the
      * UI closes; it covers the pending task and its actual exit, before bounded service delivery.
      */
     private fun prepareRemoval(app: Context, store: Store, work: () -> Unit) {
-        if (store.removalDelivery.busy || !store.removalPreparation.compareAndSet(false, true)) {
+        // Delivery keeps its existing route-specific checks below: played/partition copies do not
+        // need a legacy service batch, so do not add a blanket refusal for those routes here.
+        if (!store.removalPreparation.compareAndSet(false, true)) {
             notice(app, "A removal is already pending. Try again when it finishes.")
             return
         }
@@ -917,6 +911,14 @@ internal object OfflineStore {
         }
     }
 
+    /**
+     * Removes one saved copy, and only it (#213). A download row goes only when its shelf is available and
+     * a census of that shelf's index finds it the sole owner of its bytes ([soleOwner]); a played copy only
+     * when no download row names its key ([PlayedClaims]). Otherwise nothing is changed, the copy still
+     * plays, and the refusal is said. A played copy being made is under its own fresh key and is not listed,
+     * so removing a listed one cannot cut into it. The census is a snapshot; why it holds until Media3
+     * removes the bytes is set out at [soleOwner].
+     */
     fun removeSaved(context: Context, ref: SavedRef) {
         val store = commandStore(context) ?: return
         val app = context.applicationContext
