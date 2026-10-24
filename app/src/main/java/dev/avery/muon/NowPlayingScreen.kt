@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: () -> Int,
     player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, queue: () -> Unit,
-    morph: PlayerMorph? = null, lyrics: () -> Unit) {
+    morph: PlayerMorph? = null, lyricsAvailable: Boolean = false, lyrics: () -> Unit) {
     if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
@@ -85,7 +85,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                             }
                         }) { away() }
                         PlayerTitles(p)
-                        PlayerControls(p, position, player, narrow, queue, lyrics, actions = false)
+                        PlayerControls(p, position, player, narrow, queue, lyrics, actions = false, lyricsAvailable = lyricsAvailable)
                     }
                 }
             }
@@ -108,7 +108,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                         .then(morph?.coverModifier() ?: Modifier))
                 }
                 PlayerTitles(p)
-                PlayerControls(p, position, player, narrow, queue, lyrics)
+                PlayerControls(p, position, player, narrow, queue, lyrics, lyricsAvailable = lyricsAvailable)
             }
         }
     }
@@ -161,7 +161,7 @@ private fun PlayerTitles(p: PlaybackUi) {
 /** Everything under the titles: seek, transport, volume, then Lyrics and Queue unless [actions] is false. */
 @Composable
 private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, player: MediaController?,
-    narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit, actions: Boolean = true) {
+    narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit, actions: Boolean = true, lyricsAvailable: Boolean = false) {
     val item = p.item ?: return
     if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
     // Buffering shows in the seek bar's own place (SeekControls), not as a bar above it: inserting one
@@ -191,7 +191,14 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     // Wrapping preserves readable labels at large font/display sizes. Lyrics sits at the start
     // and Queue at the end, as in the mockup; on a narrow width they wrap rather than clip.
     if (actions) FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        TextButton(onClick = lyrics) {
+        // When Tauon has lyrics for the song, the button says so before it is opened (issue #661): a
+        // tonal pill rather than plain text. Synced or not, as most of the user's lyrics are plain.
+        if (lyricsAvailable && Expressive.motion) FilledTonalButton(onClick = lyrics,
+            modifier = Modifier.semantics { stateDescription = "Lyrics available" }) {
+            MuonIcon("lyrics", Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Lyrics")
+        } else TextButton(onClick = lyrics) {
             MuonIcon("lyrics", Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Lyrics")

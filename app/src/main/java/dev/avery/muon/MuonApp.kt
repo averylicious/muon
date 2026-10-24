@@ -217,6 +217,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val sortedAlbums = remember(albums, library.albumOrder) { albums?.let { sortAlbums(it, library.albumOrder) } }
         // Jump back in: each album is remembered as a song from it starts, for the server it came from.
         val playingId = trackIdOf(ui.item?.mediaId, origin)
+        // Whether Tauon has lyrics for the song on show, for Now Playing's hint; the player's item
+        // doesn't carry it, the library does.
+        val playingLyrics = remember(playingId, snapshot) { playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id }?.hasLyrics } == true }
         LaunchedEffect(playingId, origin, snapshot) {
             val server = origin ?: return@LaunchedEffect
             val track = playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id } } ?: return@LaunchedEffect
@@ -822,7 +825,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                 // (#112 for the download).
                                                                 header = {
                                                                     item(key = "actions", contentType = "actions") {
-                                                                        PlayAllButtons(player != null && tracks.any { it.playable }) { playAll(tracks, it) }
+                                                                        PlayAllButtons(player != null && tracks.any { it.playable }, { playAll(tracks, it) }, tracks, model.endpoint)
                                                                     }
                                                                     item(key = "download", contentType = "download") { DownloadAll(tracks, model.endpoint) }
                                                                 },
@@ -929,6 +932,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 // Only a player that is actually on screen carries the drag: an outgoing one hands
                 // nothing down, so its detector goes with it rather than moving what comes next.
                 NowPlayingOverlay(ui, position, revision, player, sheet.takeIf { playerShown },
+                    lyricsAvailable = playingLyrics,
                     // Guarded, so a drag that ends after Lyrics opened over the player, or after
                     // the player has gone, cannot put away whatever took its place.
                     collapse = { if (playerShown) playerOpen = false },

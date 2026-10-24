@@ -59,7 +59,7 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
                     }
                 }
             }
-            item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll) }
+            item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll, artist?.tracks.orEmpty(), endpoint) }
             if (artist != null) item(key = "download", contentType = "download") { DownloadAll(artist.tracks, endpoint) }
             if (artist == null) {
                 item(key = "waiting", contentType = "waiting") {
