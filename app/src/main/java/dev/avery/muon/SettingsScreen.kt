@@ -3,6 +3,7 @@ package dev.avery.muon
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,6 +27,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
@@ -88,16 +90,16 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             GroupLabel("Connection")
             SettingsGroup {
                 SettingsRow(index = 0, count = 3, headline = "Tauon desktop", supporting = model.address.removePrefix("http://"),
-                    trailing = { ConnectedBadge(model.offline) })
+                    leading = rowIcon("desktop"), trailing = { ConnectedBadge(model.offline) })
                 SettingsRow(index = 1, count = 3, headline = "Refresh library",
                     supporting = if (model.busy) model.progress.ifBlank { "Refreshing…" }
                         else if (model.offline) model.progress
                         else "$trackCount ${if (trackCount == 1) "track" else "tracks"} loaded",
-                    enabled = !model.busy,
+                    enabled = !model.busy, leading = rowIcon("refresh"),
                     clickLabel = "Refresh library", onClick = { model.connect() })
                 SettingsRow(index = 2, count = 3, headline = "Disconnect",
                     supporting = "Stops playback and forgets this server",
-                    headlineColor = colors.error,
+                    headlineColor = colors.error, leading = rowIcon("close"),
                     clickLabel = "Disconnect", onClick = { confirmDisconnect = true })
             }
 
@@ -175,10 +177,17 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
                 else if (DownloadMarks.summary == DownloadSummaryStatus.Unavailable || !DownloadMarks.countsKnown) "Saved totals unavailable. Open to see your copies."
                 else if (songs == 0L) "No copies yet. Long-press a song to save it."
                 else "$songs ${if (songs == 1L) "copy" else "copies"} · ${if (DownloadMarks.bytesKnown) formatBytes(DownloadMarks.bytes) else "Size unavailable"}",
-            trailing = { if (DownloadMarks.countsKnown && songs > 0) TextButton(onClick = clear) { Text("Clear") } },
+            leading = rowIcon("phone"),
+            // The chevron says the row opens a page (the Refined mockup).
+            trailing = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (DownloadMarks.countsKnown && songs > 0) TextButton(onClick = clear) { Text("Clear") }
+                    if (Expressive.motion) MuonIcon("forward")
+                }
+            },
             clickLabel = "Open copies on this device", onClick = openSaved)
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
-        SettingsRow(index = 1, count = rows, headline = "Played-song cache",
+        SettingsRow(index = 1, count = rows, headline = "Played-song cache", leading = rowIcon("history"),
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
                 if (full) { if(store.phone.partition==null) " · full, oldest songs make room" else " · full, existing copies kept" } else "",
             trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } },
@@ -217,11 +226,12 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
                 }
             }
         }
-        SettingsRow(index = 3, count = rows, headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
+        SettingsRow(index = 3, count = rows, headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now",
+            leading = rowIcon("download"))
         if (card != null) {
             val cardName = remember(card) { cardDescription(context, card) }
             val cardFree = remember(card) { runCatching { android.os.StatFs(card.path).availableBytes }.getOrDefault(0L) }
-            SettingsRow(index = 4, count = rows, headline = "Store on SD card",
+            SettingsRow(index = 4, count = rows, headline = "Store on SD card", leading = rowIcon("sd-card"),
                 supporting = "$cardName · ${formatBytes(cardFree)} free",
                 enabled = moving == null,
                 trailing = { Switch(checked = onCard, onCheckedChange = null, enabled = moving == null) },
@@ -231,7 +241,7 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
                     if (left != null && left > 0 && moving == null) offerMove = it to left
                 })
         } else if (cardUnavailable) {
-            SettingsRow(index = 4, count = rows, headline = "Store on SD card",
+            SettingsRow(index = 4, count = rows, headline = "Store on SD card", leading = rowIcon("sd-card"),
                 supporting = if (moving != null) "Saved storage work in progress. Card status will be checked when it finishes."
                     else "SD card not available · its downloads aren't shown or changed",
                 enabled = moving == null,
@@ -267,6 +277,9 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
 }
+
+/** A row's leading icon, which the Refined mockup gives every Settings row; only with Expressive motion. */
+private fun rowIcon(kind: String): (@Composable () -> Unit)? = if (Expressive.motion) ({ MuonIcon(kind) }) else null
 
 /** The played-song cache's fill as a still wavy meter, as on On this device (the Refined mockup). */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -366,8 +379,10 @@ private fun CollapsingTitle(text: String) {
 
 @Composable
 private fun GroupLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 16.dp, top = 8.dp))
+    // In the accent colour with Expressive motion, as the Refined mockup's section headings are.
+    Text(text, style = MaterialTheme.typography.titleSmall,
+        color = if (Expressive.motion) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp).semantics { heading() })
 }
 
 /** A hairline between rows, so the group reads as one block of related settings. */
@@ -468,8 +483,14 @@ private fun ConnectedBadge(offline: Boolean = false) {
     Surface(color = if (offline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.secondaryContainer,
         contentColor = if (offline) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSecondaryContainer,
         shape = RoundedCornerShape(50)) {
-        Text(if (offline) "Offline" else "Connected", style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            // The Refined mockup's status dot, in the text's colour: a word and a mark, never colour alone.
+            if (Expressive.motion) {
+                Box(Modifier.size(7.dp).background(LocalContentColor.current, CircleShape))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(if (offline) "Offline" else "Connected", style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
@@ -488,7 +509,7 @@ private fun PlaybackGroup() {
     }
     SettingsGroup {
         SettingsRow(index = 0, count = 1, headline = "Even out volume",
-            supporting = explanation, enabled = canToggle,
+            supporting = explanation, enabled = canToggle, leading = rowIcon("loudness"),
             trailing = { Switch(checked = loudness.enabled, enabled = canToggle, onCheckedChange = null) },
             toggled = loudness.enabled, onToggle = { loudness.choose(it) })
     }
@@ -504,12 +525,13 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
             val enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable
             SettingsRow(index = index, count = PaletteChoice.entries.size + 1,
                 headline = paletteLabel(choice), supporting = paletteDescription(choice), enabled = enabled,
+                leading = rowIcon(if (choice == PaletteChoice.MaterialYou) "palette" else "music"),
                 // A radio mark, not a tint, so the choice is readable without relying on colour.
                 trailing = { RadioButton(selected = shown == choice, onClick = null, enabled = enabled) },
                 selected = shown == choice, onClick = { appearance.choose(choice) })
         }
         SettingsRow(index = PaletteChoice.entries.size, count = PaletteChoice.entries.size + 1,
-            headline = "Pure black", supporting = "Black backgrounds in dark mode",
+            headline = "Pure black", supporting = "Black backgrounds in dark mode", leading = rowIcon("contrast"),
             trailing = { Switch(checked = appearance.amoled, onCheckedChange = null) },
             toggled = appearance.amoled, onToggle = {
                 appearance.chooseAmoled(it)
@@ -526,13 +548,13 @@ private fun ExpressiveGroup(appearance: AppearanceSettings) {
     // Compose applies blur from Android 12; older phones keep the dimming alone.
     val blurAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     SettingsGroup {
-        SettingsRow(index = 0, count = 2, headline = "Expressive motion",
+        SettingsRow(index = 0, count = 2, headline = "Expressive motion", leading = rowIcon("motion"),
             supporting = "Springy transitions, and Material's expressive motion for its own controls",
             trailing = { Switch(checked = Expressive.motion, onCheckedChange = null) },
             toggled = Expressive.motion, onToggle = {
                 appearance.chooseExpressiveMotion(it)
             })
-        SettingsRow(index = 1, count = 2, headline = "Blur",
+        SettingsRow(index = 1, count = 2, headline = "Blur", leading = rowIcon("blur"),
             supporting = if (blurAvailable) "Now Playing on a blurred cover, and the library blurred behind the player and the song menu"
                 else "Now Playing on a blurred cover. Blurring the library behind the player needs Android 12 or newer",
             trailing = { Switch(checked = Expressive.blur, onCheckedChange = null) },

@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.session.MediaController
@@ -220,7 +221,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val playingId = trackIdOf(ui.item?.mediaId, origin)
         // Whether Tauon has lyrics for the song on show, for Now Playing's hint; the player's item
         // doesn't carry it, the library does.
-        val playingLyrics = remember(playingId, snapshot) { playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id }?.hasLyrics } == true }
+        val playingTrack = remember(playingId, snapshot) { playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id } } }
+        val playingLyrics = playingTrack?.hasLyrics == true
         LaunchedEffect(playingId, origin, snapshot) {
             val server = origin ?: return@LaunchedEffect
             val track = playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id } } ?: return@LaunchedEffect
@@ -437,6 +439,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // The song a long press chose (#46), while its actions sheet is open. Not saved: a sheet is a
         // passing choice, and a rotation that closes it loses nothing.
         var actionTrack by remember { mutableStateOf<TauonTrack?>(null) }
+        // The list the panel's song was opened from, so its Play starts that list as a tap on the row does.
+        var actionList by remember { mutableStateOf<List<TauonTrack>>(emptyList()) }
+        // Opened from Now Playing's ⋮: going to an album or artist closes the player first.
+        var actionFromPlayer by remember { mutableStateOf(false) }
         // Android 17's local network permission (LocalNetwork.kt): asked for in context, from Connect or
         // the library's card. Once Android stops showing the prompt, the same button opens Settings;
         // coming back with access granted connects.
@@ -782,7 +788,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                 fromSearch -> "Back to search"
                                                                 else -> "Back to albums"
                                                             },
-                                                            actions = { actionTrack = it }, back = { closePage() },
+                                                            actions = { actionTrack = it; actionList = album?.tracks.orEmpty() }, back = { closePage() },
                                                             playAll = { shuffle -> album?.let { playAll(it.tracks, shuffle) } }) {
                                                             startQueue(album?.tracks.orEmpty(), it)
                                                         }
@@ -799,7 +805,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                         ArtistPage(artist, name, appearsOn, model.endpoint, ui.item?.mediaId, ui.playing,
                                                             player != null, keptWhileLeaving(leaving, artistPageList),
                                                             backLabel = if (fromSearch) "Back to search" else "Back to artists",
-                                                            actions = { actionTrack = it }, back = { closePage() },
+                                                            actions = { actionTrack = it; actionList = artist?.tracks.orEmpty() }, back = { closePage() },
                                                             playAll = { shuffle -> artist?.let { playAll(it.tracks, shuffle) } },
                                                             // Opened over this page, so Back returns here.
                                                             openAlbum = { albumOrigin = origin; albumKey = it.key; albumTitle = it.title }) {
@@ -822,7 +828,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     library.chooseSongOrder(it); songList = LazyListState()
                                                                 }
                                                                 // Plays on in the order shown.
-                                                                TrackList(songs, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
+                                                                TrackList(songs, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it; actionList = songs },
                                                                     emptyText = "No music yet. Add local music in Tauon, then refresh.",
                                                                     loading = model.busy, state = songList,
                                                                     // A–Z only: in Recently added there are no letters to jump to.
@@ -831,13 +837,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     } else null) { startQueue(songs, it) }
                                                             }
                                                             LibraryView.Albums -> Column {
-                                                                if (!sortedAlbums.isNullOrEmpty()) SortBar(
-                                                                    "${sortedAlbums.size} ${if (sortedAlbums.size == 1) "album" else "albums"}",
-                                                                    AlbumOrder.entries, library.albumOrder, { it.label }) {
-                                                                    library.chooseAlbumOrder(it); albumGrid = LazyGridState()
+                                                                val albumSort: @Composable (Dp) -> Unit = { inset ->
+                                                                    if (!sortedAlbums.isNullOrEmpty()) SortBar(
+                                                                        "${sortedAlbums.size} ${if (sortedAlbums.size == 1) "album" else "albums"}",
+                                                                        AlbumOrder.entries, library.albumOrder, { it.label }, inset) {
+                                                                        library.chooseAlbumOrder(it); albumGrid = LazyGridState()
+                                                                    }
                                                                 }
+                                                                // With Expressive motion the order sits under Jump back in, inside the grid.
+                                                                if (!Expressive.motion) albumSort(0.dp)
                                                                 AlbumGrid(sortedAlbums, model.busy, model.endpoint, albumGrid,
-                                                                    recent = if (Expressive.motion) recent else emptyList()) {
+                                                                    recent = if (Expressive.motion) recent else emptyList(),
+                                                                    sortBar = if (Expressive.motion) ({ albumSort(12.dp) }) else null) {
                                                                     albumOrigin = origin; albumKey = it.key; albumTitle = it.title
                                                                 }
                                                             }
@@ -866,7 +877,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                         PlaylistBar(open.name, open.count) { closePage() }
                                                         LibraryPane(model.busy, { model.connect() }) {
                                                             val tracks = model.tracksByPlaylist[open.id].orEmpty()
-                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
+                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it; actionList = tracks },
                                                                 emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
                                                                 // Play, Shuffle and Download all, as on an album or an artist
                                                                 // (#112 for the download).
@@ -892,7 +903,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     val keyboard = LocalSoftwareKeyboardController.current
                                     SearchScreen(query, { query = it }, searchOpen, { searchOpen = it }, search.searching,
                                         browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage) {
-                                        TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
+                                        TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it; actionList = songs },
                                             emptyText = searchEmptyText(query, search.searching, search.completed), state = searchList,
                                             header = { searchCollection(foundArtists, foundAlbums, model.endpoint, openArtistPage, openAlbumPage) }) {
                                             // A search finds where to start, not what to play: the song plays on
@@ -930,13 +941,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }
             }
             actionTrack?.let { track ->
+                // Read now: the panel is dismissed before its chosen action runs.
+                val fromPlayer = actionFromPlayer
                 // What the page on show already is, it does not offer to go to.
-                val here = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey).takeIf { tab == Tab.Library }
+                val here = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey).takeIf { tab == Tab.Library && !fromPlayer }
                 SongActionsSheet(track, model.endpoint, canQueue = player != null && track.playable,
                     album = songAlbum(track, albums)?.takeIf { !(here is LibraryPage.Album && here.albumKey == it.key) },
                     artists = songArtists(track, artists).filter { !(here is LibraryPage.Artist && here.artistKey == it.key) },
-                    dismiss = { actionTrack = null }, queue = { next -> queueSong(track, next) },
-                    goToAlbum = ::goToAlbum, goToArtist = ::goToArtist,
+                    dismiss = { actionTrack = null; actionFromPlayer = false }, queue = { next -> queueSong(track, next) },
+                    // The playing song has nothing to start, so its panel offers only the queue actions.
+                    play = if (fromPlayer) null else ({ startQueue(actionList.ifEmpty { listOf(track) }, track) }),
+                    goToAlbum = { if (fromPlayer) playerOpen = false; goToAlbum(it) },
+                    goToArtist = { if (fromPlayer) playerOpen = false; goToArtist(it) },
                     canSave = model.endpoint != null && track.playable && !model.offline,
                     save = { model.endpoint?.let { endpoint -> OfflineStore.add(context, endpoint, listOf(track)) } })
             }
@@ -980,6 +996,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 // nothing down, so its detector goes with it rather than moving what comes next.
                 NowPlayingOverlay(ui, position, revision, player, sheet.takeIf { playerShown },
                     lyricsAvailable = playingLyrics,
+                    more = playingTrack?.let { track -> { actionTrack = track; actionList = emptyList(); actionFromPlayer = true } },
                     // Guarded, so a drag that ends after Lyrics opened over the player, or after
                     // the player has gone, cannot put away whatever took its place.
                     collapse = { if (playerShown) playerOpen = false },

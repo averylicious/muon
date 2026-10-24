@@ -1,5 +1,10 @@
 package dev.avery.muon
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.Color
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -83,7 +88,9 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
             if (back != null) IconButton(onClick = back, modifier = Modifier.semantics { contentDescription = "Back" }) {
                 MuonIcon("back")
             }
-            Text("On this device", style = MaterialTheme.typography.headlineSmall,
+            // With Expressive motion the title is large, under the bar, with a summary (the Refined mockup).
+            if (Expressive.motion) Spacer(Modifier.weight(1f))
+            else Text("On this device", style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.weight(1f).padding(start = if (back != null) 4.dp else 0.dp).semantics { heading() })
             IconButton(enabled = !busy, onClick = refresh, modifier = Modifier.semantics { contentDescription = "Refresh list" }) {
                 MuonIcon("refresh")
@@ -92,6 +99,10 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Loading" })
         Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(bottom = 24.dp + LocalUnderBars.current)) {
+            if (Expressive.motion) item(key = "title") {
+                SavedTitle(savedSummary(count, DownloadMarks.bytes.takeIf { DownloadMarks.bytesKnown }, PlayedCacheState.used,
+                    onCard = store?.card != null))
+            }
             if (cardUnavailable) item(key = "card") {
                 Notice("sd-card", "SD card not found", "Copies on it are hidden and stay on the card.")
             }
@@ -193,6 +204,42 @@ private fun PreparingPill(preparing: Boolean, cancel: () -> Unit, modifier: Modi
     }
 }
 
+/**
+ * Text whose numbers change in place: the new value rolls up as the old one rolls away, as the Refined
+ * mockup's counts do when a copy is deleted. Plain text with Expressive motion off.
+ */
+@Composable
+private fun RollingText(text: String, style: TextStyle, color: Color) {
+    if (!Expressive.motion) { Text(text, style = style, color = color); return }
+    AnimatedContent(text, transitionSpec = {
+        (slideInVertically(motionSpatial()) { it / 2 } + fadeIn(motionMedium()))
+            .togetherWith(slideOutVertically(motionSpatial()) { -it / 2 } + fadeOut(motionShort()))
+            .using(SizeTransform(clip = false))
+    }, label = "rolling text") { shown -> Text(shown, style = style, color = color) }
+}
+
+/** The page's large title and the summary under it: how many songs, how much space, and where. */
+@Composable
+private fun SavedTitle(summary: String) {
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 14.dp)) {
+        Text("On this device", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.semantics { heading() })
+        RollingText(summary, MaterialTheme.typography.bodyMedium, MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+internal fun savedSummary(count: Long, downloadBytes: Long?, cacheBytes: Long, onCard: Boolean): String {
+    val songs = "$count ${if (count == 1L) "song" else "songs"}"
+    val size = downloadBytes?.let { " · ${formatBytes(it + cacheBytes)}" } ?: ""
+    return songs + size + if (onCard) " · phone and SD card" else " · this phone"
+}
+
+/** A song's size on a row: one decimal, as in "9.4 MB", since most songs are a few megabytes. */
+internal fun songSize(bytes: Long): String = when {
+    bytes >= 100_000_000 -> formatBytes(bytes)
+    bytes >= 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1f MB", bytes / 1e6)
+    else -> formatBytes(bytes)
+}
+
 /** How long preparing must last before the pill shows, as the seek bar waits before showing buffering. */
 internal const val PREPARING_SHOWN_AFTER_MS = 300L
 
@@ -229,6 +276,8 @@ private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, place:
                 Text(artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = quiet)
                 status?.let { StatusLine(statusIcon(entry, current), it, strong = current || !entry.complete) }
             }
+            if (Expressive.motion && entry.bytes > 0) Text(songSize(entry.bytes), style = MaterialTheme.typography.labelSmall,
+                color = quiet, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
             IconButton(onClick = open, modifier = Modifier.size(48.dp).semantics { contentDescription = "More options for $title, $artist" }) {
                 MuonIcon("more")
             }
@@ -278,7 +327,11 @@ private fun StorageCard(why: () -> Unit) {
     Surface(shape = RoundedCornerShape(26.dp), color = colors.surfaceContainer,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            CardLine("download", "Downloads", "Stay until you delete them.")
+            // Counts and sizes in the card's titles where they are known (the Refined mockup).
+            val downloads = DownloadMarks.done.takeIf { Expressive.motion && DownloadMarks.countsKnown }
+            CardLine("download", downloads?.let { "Downloads · $it" } ?: "Downloads",
+                if (Expressive.motion && DownloadMarks.bytesKnown && DownloadMarks.bytes > 0) "Stay until you delete them. ${formatBytes(DownloadMarks.bytes)}."
+                else "Stay until you delete them.")
             CardLine("history", "Kept from listening",
                 "${formatBytes(used)} of ${formatBytes(limit)}. When it's full, the oldest make room.") {
                 // Still: the wave shows the fill, and nothing on this page moves on its own.
@@ -304,8 +357,8 @@ private fun CardLine(icon: String, title: String, body: String, extra: @Composab
             MuonIcon(icon, Modifier.size(18.dp))
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(body, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            RollingText(title, MaterialTheme.typography.titleSmall, colors.onSurface)
+            RollingText(body, MaterialTheme.typography.bodySmall, colors.onSurfaceVariant)
             extra()
         }
     }

@@ -1,6 +1,11 @@
 package dev.avery.muon
 
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.ui.Modifier
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,3 +44,17 @@ internal fun groupShape(place: GroupPlace, current: Boolean): RoundedCornerShape
     val bottom by animateDpAsState(corner(place.endsGroup), motionSpatial(), label = "row bottom")
     return RoundedCornerShape(top, top, bottom, bottom)
 }
+
+/**
+ * A connected group's button widening while pressed, as the Refined mockup's groups do (and as
+ * Material's own `ButtonGroup` does with `animateWidth`): its weight grows by a quarter and its
+ * neighbours give way, on Muon's spatial spring.
+ */
+@Composable
+internal fun RowScope.pressedWeight(source: MutableInteractionSource, weight: Float): Modifier {
+    val pressed by source.collectIsPressedAsState()
+    val grown by animateFloatAsState(if (pressed) weight * PRESSED_GROWTH else weight, motionSpatial(), label = "pressed width")
+    return Modifier.weight(grown)
+}
+
+internal const val PRESSED_GROWTH = 1.25f

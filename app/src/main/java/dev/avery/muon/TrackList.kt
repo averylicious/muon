@@ -1,6 +1,10 @@
 package dev.avery.muon
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -168,9 +172,24 @@ private fun ExpressiveTrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current
         .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier)
     val padding = PaddingValues(start = 12.dp, end = if (actions != null) 0.dp else 12.dp, top = 8.dp, bottom = 8.dp)
     val leading: @Composable () -> Unit = { TrackCover(t, endpoint, current, playing) }
-    // An untagged file has nothing to say here, so the line is left out.
-    val supporting: (@Composable () -> Unit)? = if (subtitle.isEmpty()) null else {
-        { Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }
+    // An untagged file has nothing to say here, so the line is left out. A joined row that is the
+    // current song adds "Playing" or "Paused" under it, in words as well as the cover's bars (the
+    // Refined mockup), changing in place.
+    val status = group != null && current
+    val supporting: (@Composable () -> Unit)? = if (subtitle.isEmpty() && !status) null else {
+        {
+            Column {
+                if (subtitle.isNotEmpty()) Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                if (status) AnimatedContent(playing, transitionSpec = { fadeIn(motionMedium()) togetherWith fadeOut(motionShort()) },
+                    label = "playing state") { on ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                        MuonIcon(if (on) "pause" else "play", Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (on) "Playing" else "Paused", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+        }
     }
     val trailing: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {

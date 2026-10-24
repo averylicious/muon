@@ -244,9 +244,12 @@ internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
  * marked by a check, not by colour alone.
  */
 @Composable
-internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T) -> String, choose: (T) -> Unit) {
+internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T) -> String, inset: Dp = 0.dp,
+    choose: (T) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    // [inset]: room the container already leaves, as the album grid's padding does.
+    Row(Modifier.fillMaxWidth().padding(start = 24.dp - inset, end = (12.dp - inset).coerceAtLeast(0.dp)),
+        verticalAlignment = Alignment.CenterVertically) {
         // No count where something above already gives it, as the Songs greeting does (#122).
         if (count != null) Text(count, style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

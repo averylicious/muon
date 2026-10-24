@@ -1,6 +1,13 @@
 package dev.avery.muon
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -46,6 +53,13 @@ internal fun recentAlbums(keys: List<String>, albums: List<LibraryAlbum>): List<
     return keys.mapNotNull(byKey::get)
 }
 
+/** How much of a carousel cover's label shows: none until the cover is past halfway to its largest. */
+internal fun carouselLabelAlpha(size: Float, minSize: Float, maxSize: Float): Float {
+    if (maxSize <= minSize) return 1f
+    val grown = (size - minSize) / (maxSize - minSize)
+    return ((grown - 0.5f) * 2f).coerceIn(0f, 1f)
+}
+
 /**
  * The Canary experiment's Jump back in: the albums played lately, most recent first, as Material 3's
  * multi-browse carousel across the top of the Albums grid. A large cover or two with smaller ones
@@ -67,6 +81,19 @@ internal fun LazyGridScope.jumpBackIn(albums: List<LibraryAlbum>, endpoint: Serv
                     .clickable(onClickLabel = "Open album") { open(album) }
                     .semantics { contentDescription = "${albumLabel(album.title)}, ${artistLabel(displayCredits(album.artist))}" }) {
                     Artwork(albumArt(endpoint, album), Modifier.fillMaxSize())
+                    // The album's name over a large cover (the Refined mockup): it fades out as the cover
+                    // narrows towards the edge, and keeps to the part of the cover the mask leaves on show.
+                    val info = carouselItemDrawInfo
+                    fun shown(): Float = carouselLabelAlpha(info.size, info.minSize, info.maxSize)
+                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                        .graphicsLayer { alpha = shown() }
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))))
+                        .clearAndSetSemantics {}) {
+                        Text(albumLabel(album.title), color = Color.White, style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.graphicsLayer { translationX = info.maskRect.left }
+                                .padding(start = 14.dp, end = 14.dp, top = 24.dp, bottom = 12.dp))
+                    }
                 }
             }
         }
