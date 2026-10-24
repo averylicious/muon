@@ -153,6 +153,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
         }
         var query by rememberSaveable { mutableStateOf("") }
+        val recentSearches = rememberRecentSearches()
         // Whether the open library page was opened from Search, which Back then returns to.
         var fromSearch by rememberSaveable { mutableStateOf(false) }
         // Whether the search bar is expanded over the Search tab; kept here so a page opened from the
@@ -898,11 +899,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     }
                                 }
                                 Tab.Search -> {
-                                    val openArtistPage = { a: LibraryArtist -> openFromSearch { artistOrigin = origin; artistKey = a.key; artistName = a.name } }
-                                    val openAlbumPage = { a: LibraryAlbum -> openFromSearch { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } }
+                                    // A search whose result is opened is one worth offering again.
+                                    val openArtistPage = { a: LibraryArtist -> recentSearches.remember(query); openFromSearch { artistOrigin = origin; artistKey = a.key; artistName = a.name } }
+                                    val openAlbumPage = { a: LibraryAlbum -> recentSearches.remember(query); openFromSearch { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } }
                                     val keyboard = LocalSoftwareKeyboardController.current
                                     SearchScreen(query, { query = it }, searchOpen, { searchOpen = it }, search.searching,
-                                        browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage) {
+                                        browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage,
+                                        recent = recentSearches.items, submit = { recentSearches.remember(it) }, clearRecent = { recentSearches.clear() }) {
                                         TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it; actionList = songs },
                                             emptyText = searchEmptyText(query, search.searching, search.completed), state = searchList,
                                             header = { searchCollection(foundArtists, foundAlbums, model.endpoint, openArtistPage, openAlbumPage) }) {
@@ -911,6 +914,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                             // reach every song rather than only the few that matched.
                                             // The keyboard goes, so the mini player shows what started.
                                             keyboard?.hide()
+                                            recentSearches.remember(query)
                                             startQueue(songs, it)
                                         }
                                     }
