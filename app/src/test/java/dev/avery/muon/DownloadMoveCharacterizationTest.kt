@@ -1228,6 +1228,28 @@ class DownloadMoveCharacterizationTest {
         assertArrayEquals(encodeSong(track.copy(id = 43)), retried.single().data)
     }
 
+    @Test fun failedRemovalPreparationPreservesBytesAndReleasesTheSlotForRetry() {
+        val (request, payload) = completeKeyed("saved/removal-check")
+        val ref = SavedRef.download(SavedShelf.Phone, request.id, request.customCacheKey!!)!!
+        val store = OfflineStore.get(app)
+        phoneIndex.failAtRow = 1
+        OfflineStore.removeSaved(app, ref)
+        awaitSaver()
+        assertFalse(store.removalPreparation.get())
+        assertTrue(startedCommands().isEmpty())
+        assertEquals(request, sourceIndex.getDownload(request.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, ref.key))
+        phoneIndex.failAtRow = 0
+        OfflineStore.removeSaved(app, ref)
+        awaitSaver()
+        assertFalse(store.removalPreparation.get())
+        val command = startedCommands().single { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD }
+        assertEquals(request.id, command.getStringExtra(DownloadService.KEY_CONTENT_ID))
+        // This fixture captures delivery only; no service has removed the bytes.
+        assertEquals(request, sourceIndex.getDownload(request.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, ref.key))
+    }
+
     @Test fun failedPreparationReleasesTheSlotAndLeavesOriginalsForAValidRetry() {
         val (old, payload) = completeKeyed("saved/original")
         phoneIndex.failAtRow = 1

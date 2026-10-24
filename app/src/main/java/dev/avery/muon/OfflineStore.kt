@@ -150,6 +150,8 @@ internal object OfflineStore {
         val moveCommandEpoch = java.util.concurrent.atomic.AtomicLong()
         /** Only one bounded new-save preparation may wait on/run in the saver at a time. */
         val savePreparation = java.util.concurrent.atomic.AtomicBoolean()
+        /** One user removal check may wait on/run in saver, shared by single and Remove all. */
+        val removalPreparation = java.util.concurrent.atomic.AtomicBoolean()
         /** At most one bounded new-save batch awaiting exact service delivery. */
         val saveDelivery = DownloadSaveDelivery()
         /** At most one bounded batch of checked removals awaiting exact service delivery (#253). */
@@ -888,6 +890,27 @@ internal object OfflineStore {
         }
     }.getOrDefault(false)
 
+    /** The fixed saver rejects before accepting work. Do not release admission merely because the
+     * UI closes; it covers the pending task and its actual exit, before bounded service delivery.
+     */
+    private fun prepareRemoval(app: Context, store: Store, work: () -> Unit) {
+        // Delivery keeps its existing route-specific checks below: played/partition copies do not
+        // need a legacy service batch, so do not add a blanket refusal for those routes here.
+        if (!store.removalPreparation.compareAndSet(false, true)) {
+            notice(app, "A removal is already pending. Try again when it finishes.")
+            return
+        }
+        try {
+            saver.execute {
+                try { work() }
+                finally { store.removalPreparation.set(false) }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            store.removalPreparation.set(false)
+            notice(app, "Muon couldn't queue that removal. Try again.")
+        }
+    }
+
     /**
      * Removes one saved copy, and only it (#213). A download row goes only when its shelf is available and
      * a census of that shelf's index finds it the sole owner of its bytes ([soleOwner]); a played copy only
@@ -897,22 +920,23 @@ internal object OfflineStore {
      * removes the bytes is set out at [soleOwner].
      */
     fun removeSaved(context: Context, ref: SavedRef) {
-        if(commandStore(context)==null) return
-        saver.execute {
-            when (removeSavedNow(context, ref)) {
+        val store = commandStore(context) ?: return
+        val app = context.applicationContext
+        prepareRemoval(app, store) {
+            when (removeSavedNow(app, ref)) {
                 // Its outcome is said once the service has answered ([removalDeliveryMessage]).
                 SavedRemoval.Sent -> Unit
                 SavedRemoval.Waiting ->
-                    notice(context, "Saved copies are still being removed, so that copy wasn't. " +
+                    notice(app, "Saved copies are still being removed, so that copy wasn't. " +
                         "Try again when that finishes.")
                 SavedRemoval.Unavailable ->
-                    notice(context, "That copy is on the SD card, which isn't available, so it wasn't removed.")
+                    notice(app, "That copy is on the SD card, which isn't available, so it wasn't removed.")
                 SavedRemoval.NotOwned ->
-                    notice(context, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
+                    notice(app, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
                 SavedRemoval.Busy ->
-                    notice(context, "Saved storage is busy, so that copy wasn't removed. Try again later.")
+                    notice(app, "Saved storage is busy, so that copy wasn't removed. Try again later.")
                 SavedRemoval.Failed ->
-                    notice(context, "Muon couldn't confirm that saved copy was removed. Restart Muon before retrying.")
+                    notice(app, "Muon couldn't confirm that saved copy was removed. Restart Muon before retrying.")
             }
         }
     }
@@ -1872,16 +1896,17 @@ internal object OfflineStore {
                 "Remove all again when the move finishes.")
             return
         }
-        saver.execute {
-            val plan = removeAllNow(context)
-            if (plan.busy) notice(context, "Saved storage is busy, so some copies could not be removed. Try again later.")
+        val app = context.applicationContext
+        prepareRemoval(app, store) {
+            val plan = removeAllNow(app)
+            if (plan.busy) notice(app, "Saved storage is busy, so some copies could not be removed. Try again later.")
             if (store.shelves.any { !it.available() })
-                notice(context, "The SD card isn't available, so its saved copies weren't removed.")
-            if (plan.kept > 0) notice(context, "${plan.kept} saved ${if (plan.kept == 1) "copy was" else "copies were"} kept: " +
+                notice(app, "The SD card isn't available, so its saved copies weren't removed.")
+            if (plan.kept > 0) notice(app, "${plan.kept} saved ${if (plan.kept == 1) "copy was" else "copies were"} kept: " +
                 "Muon can't safely remove them in their current state.")
-            if(plan.removed>0) notice(context,"${plan.removed} saved ${if(plan.removed==1) "copy was" else "copies were"} removed.")
-            if(plan.unconfirmed>0) notice(context,"Muon couldn't confirm a saved-copy removal. Restart Muon before retrying; remaining copies were not sent for removal.")
-            if (plan.later > 0 && plan.sent == 0) notice(context, "${plan.later} saved " +
+            if(plan.removed>0) notice(app,"${plan.removed} saved ${if(plan.removed==1) "copy was" else "copies were"} removed.")
+            if(plan.unconfirmed>0) notice(app,"Muon couldn't confirm a saved-copy removal. Restart Muon before retrying; remaining copies were not sent for removal.")
+            if (plan.later > 0 && plan.sent == 0) notice(app, "${plan.later} saved " +
                 "${if (plan.later == 1) "copy wasn't" else "copies weren't"} removed and " +
                 "${if (plan.later == 1) "is" else "are"} unchanged. Try again later.")
         }
