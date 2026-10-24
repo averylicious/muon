@@ -1,16 +1,16 @@
 # Coordinator handoff
 
-Updated 2026-10-23. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-24. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
 **Stable v0.2.0 is published and verified.** The user accepted .1352/.1353 UAT, authorized landing/cleanup, delegated version/publication and requested M3E synchronization. Accepted #648 and documentation #649 landed; final tag79b5e70e / release1358 APK hash/signature/manifest/metadata and1,821 cases/variant verified. [Current release and cleanup checkpoint](handoffs/2026-10-23-stable-020-release.md) holds exact evidence/limits, retained issues, cleanup counts and owners.
 
-M3E integration #651 landed as4750c876 from verified5c1be7a6 / .1360 (1,853 cases/variant; existing32experimental cases retained). Combined visuals/gestures remain user UAT. Post-merge branch and final documentation-sync checks must be verified live; those docs change no app behavior. Original experimental checkout stays untouched; its owner should fetch/fast-forward before continuing. No phone state was changed in this integration/release task.
+M3E includes the final main integration at `2ad986d5`; the user/Claude subsequently advanced it to `1ba260fb01151a3a4cd4e0810a20cfe9f3352c74` and the user requested next-RC delta audit. [Current finite audit/results](audits/2026-10-24-m3e-delta.md), [candidate state #661](audits/issues/661.md), [Back state #658](audits/issues/658.md). #674 prepares a separate Diagnostic observer for unexplained #671 buffering; #675 fixes stale animation ownership, wrong page origin and system motion scaling. Current heads passed required checks; combined Diagnostic `209247be` / .1415 passed 1,883 tests per variant, actual identity/install hash and observer smoke verified on POCO. [Exact receipts and remaining acceptance](audits/2026-10-24-m3e-delta.md#current-verification--recovery); physical gesture/actual-release UAT remains pending. Recheck live heads before landing. Original user/Claude checkout remains untouched.
 
-The current audit/design scope is closed, with #646 explicitly open/unresolved and other agreed deferrals intact. Four next-point drafts #641–#644 and #638/#639/#640 remain outside v0.2.0. #650 test-overlap review is assigned by the user to another auditing agent; no cases were removed here. Animation, placeholder and Beta exploration remain a later M3E cycle.
+#650 is closed not planned at user request; no numerical test-reduction target remains. Existing release deferrals and #646 unresolved status remain intact. Source inspection is not device acceptance, and the current alpha-ancestry guard requires a separately reviewed promotion change before M3E can enter main.
 
-Resume from this checkpoint and live GitHub heads, not old .1343 pending paragraphs. GPT-6 owns the isolated release-record/docs-sync work; no new Claude or subagent session was used. Preserve active/uncertain work and recheck actual permissions before any phone or future publication action.
+GPT-6 owns the isolated audit/diagnostics/navigation/documentation worktrees. The allocated audit Claude session finished its read-only Opus 5.5 High navigation reviews and is idle; no further work assigned this window. Rooted POCO USB access was renewed for this task; only separate Diagnostic was updated/launched, with no song/volume/settings/data-clear operation. No permission follows for another cycle or new Stable publication.
 
 ## Resume order
 
