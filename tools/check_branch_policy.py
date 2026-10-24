@@ -11,11 +11,12 @@ EXPERIMENT_REF = 'refs/remotes/origin/' + EXPERIMENT
 EXPERIMENT_START = '454350a058fc4e272731afd0fff23bd9cd22e0f3'
 # The one approved promotion of the experiment into main (user UAT passed 2026-10-24): this exact
 # accepted commit, merged (never squashed or rebased) from this source branch, with its tree
-# unchanged outside docs/ and the policy files below, which must be main's own.
+# unchanged outside docs/ and the policy/workflow files below, which must be main's own.
 PROMOTION_SOURCE = 'codex/promote-m3e-rc-oct24'
 PROMOTION_COMMIT = '6b1a767c180a8b9e531bf1468c9e72e348635b74'
 POLICY_FILES = ('tools/check_branch_policy.py', 'tools/check_release_policy.py',
-                'tools/test_ci_branch_policy.py', 'tools/test_ci_release_policy.py')
+                'tools/test_ci_branch_policy.py', 'tools/test_ci_release_policy.py',
+                '.github/workflows/branch-policy.yml')
 
 
 def git(*args):

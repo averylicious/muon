@@ -106,6 +106,14 @@ class BranchPolicyTest(unittest.TestCase):
         self.assertIn('contains the alpha experiment', checked.stderr)
         self.assertNotIn('false pass from candidate', checked.stdout)
 
+    def test_workflow_checks_only_open_prs_using_destination_policy(self):
+        workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/branch-policy.yml').read_text()
+        direction = workflow.split('  direction:\n', 1)[1]
+        before_steps = direction.split('    steps:', 1)[0]
+        self.assertIn("if: github.event.pull_request.state == 'open'", before_steps)
+        self.assertIn('ref: ${{ github.event.pull_request.base.sha }}', direction)
+        self.assertIn('"$GITHUB_WORKSPACE/policy/tools/check_branch_policy.py"', direction)
+
     def test_unknown_history_fails_instead_of_passing(self):
         with patch.object(policy, 'EXPERIMENT_START', 'f' * 40):
             with self.assertRaises(subprocess.CalledProcessError):
