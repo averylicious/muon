@@ -905,8 +905,9 @@ internal object OfflineStore {
                 SavedRemoval.Waiting ->
                     notice(context, "Saved copies are still being removed, so that copy wasn't. " +
                         "Try again when that finishes.")
-                SavedRemoval.Unavailable ->
-                    notice(context, "That copy is on the SD card, which isn't available, so it wasn't removed.")
+                SavedRemoval.Unavailable -> notice(context, if (ref.shelf == SavedShelf.Card)
+                    "SD card unavailable or unreadable. Check the card and try again."
+                    else "Saved copies couldn't be read. Try again or restart Muon.")
                 SavedRemoval.NotOwned ->
                     notice(context, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
                 SavedRemoval.Busy ->
@@ -997,11 +998,7 @@ internal object OfflineStore {
             }
             return outcome
         }
-        // One candidate, every index row: do not retain unrelated names just to remove this copy (#253).
-        val owner = runCatching { IndexNameProbe.read(shelf.manager.downloadIndex, ref.requestId) }
-            .getOrNull() ?: return SavedRemoval.NotOwned
-        val row = owner.row
-        if (row == null || row.key != ref.key || !owner.soleOwner) return SavedRemoval.NotOwned
+        legacyRemovalRefusal(shelf.manager.downloadIndex, ref)?.let { return it }
         if (store.removalDelivery.busy) return SavedRemoval.Waiting
         // Its own move, if one is under way, loses its hand-over too (#234).
         moveOwnership.remove(listOf(ref.requestId))
@@ -1010,6 +1007,20 @@ internal object OfflineStore {
             removalDeliveryMessage(result, single = true)?.let { notice(app, it) }
         }
         return if (begun) SavedRemoval.Sent else SavedRemoval.Waiting
+    }
+
+    /**
+     * [removeSavedNow]'s ownership check for a legacy shelf: null only when [ref]'s own row is the sole owner
+     * of its bytes. A missing, mismatched or shared row is [SavedRemoval.NotOwned]. A census that could not be
+     * read or closed says nothing about ownership, so it is [SavedRemoval.Unavailable] (#646): refused just
+     * the same, but not reported as shared bytes. Reads only; no row or byte is changed.
+     */
+    internal fun legacyRemovalRefusal(index: androidx.media3.exoplayer.offline.DownloadIndex, ref: SavedRef): SavedRemoval? {
+        // One candidate, every index row: do not retain unrelated names just to remove this copy (#253).
+        val owner = runCatching { IndexNameProbe.read(index, ref.requestId) }
+            .getOrElse { return SavedRemoval.Unavailable }
+        val row = owner.row
+        return if (row == null || row.key != ref.key || !owner.soleOwner) SavedRemoval.NotOwned else null
     }
 
     /** One tagged removal for the delivery batch; true only when Android accepted the start request. */
