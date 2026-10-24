@@ -437,6 +437,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // The song a long press chose (#46), while its actions sheet is open. Not saved: a sheet is a
         // passing choice, and a rotation that closes it loses nothing.
         var actionTrack by remember { mutableStateOf<TauonTrack?>(null) }
+        // The list the panel's song was opened from, so its Play starts that list as a tap on the row does.
+        var actionList by remember { mutableStateOf<List<TauonTrack>>(emptyList()) }
         // Android 17's local network permission (LocalNetwork.kt): asked for in context, from Connect or
         // the library's card. Once Android stops showing the prompt, the same button opens Settings;
         // coming back with access granted connects.
@@ -782,7 +784,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                 fromSearch -> "Back to search"
                                                                 else -> "Back to albums"
                                                             },
-                                                            actions = { actionTrack = it }, back = { closePage() },
+                                                            actions = { actionTrack = it; actionList = album?.tracks.orEmpty() }, back = { closePage() },
                                                             playAll = { shuffle -> album?.let { playAll(it.tracks, shuffle) } }) {
                                                             startQueue(album?.tracks.orEmpty(), it)
                                                         }
@@ -799,7 +801,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                         ArtistPage(artist, name, appearsOn, model.endpoint, ui.item?.mediaId, ui.playing,
                                                             player != null, keptWhileLeaving(leaving, artistPageList),
                                                             backLabel = if (fromSearch) "Back to search" else "Back to artists",
-                                                            actions = { actionTrack = it }, back = { closePage() },
+                                                            actions = { actionTrack = it; actionList = artist?.tracks.orEmpty() }, back = { closePage() },
                                                             playAll = { shuffle -> artist?.let { playAll(it.tracks, shuffle) } },
                                                             // Opened over this page, so Back returns here.
                                                             openAlbum = { albumOrigin = origin; albumKey = it.key; albumTitle = it.title }) {
@@ -822,7 +824,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     library.chooseSongOrder(it); songList = LazyListState()
                                                                 }
                                                                 // Plays on in the order shown.
-                                                                TrackList(songs, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
+                                                                TrackList(songs, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it; actionList = songs },
                                                                     emptyText = "No music yet. Add local music in Tauon, then refresh.",
                                                                     loading = model.busy, state = songList,
                                                                     // A–Z only: in Recently added there are no letters to jump to.
@@ -866,7 +868,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                         PlaylistBar(open.name, open.count) { closePage() }
                                                         LibraryPane(model.busy, { model.connect() }) {
                                                             val tracks = model.tracksByPlaylist[open.id].orEmpty()
-                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
+                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it; actionList = tracks },
                                                                 emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
                                                                 // Play, Shuffle and Download all, as on an album or an artist
                                                                 // (#112 for the download).
@@ -892,7 +894,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     val keyboard = LocalSoftwareKeyboardController.current
                                     SearchScreen(query, { query = it }, searchOpen, { searchOpen = it }, search.searching,
                                         browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage) {
-                                        TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
+                                        TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it; actionList = songs },
                                             emptyText = searchEmptyText(query, search.searching, search.completed), state = searchList,
                                             header = { searchCollection(foundArtists, foundAlbums, model.endpoint, openArtistPage, openAlbumPage) }) {
                                             // A search finds where to start, not what to play: the song plays on
@@ -936,6 +938,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     album = songAlbum(track, albums)?.takeIf { !(here is LibraryPage.Album && here.albumKey == it.key) },
                     artists = songArtists(track, artists).filter { !(here is LibraryPage.Artist && here.artistKey == it.key) },
                     dismiss = { actionTrack = null }, queue = { next -> queueSong(track, next) },
+                    play = { startQueue(actionList.ifEmpty { listOf(track) }, track) },
                     goToAlbum = ::goToAlbum, goToArtist = ::goToArtist,
                     canSave = model.endpoint != null && track.playable && !model.offline,
                     save = { model.endpoint?.let { endpoint -> OfflineStore.add(context, endpoint, listOf(track)) } })

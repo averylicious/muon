@@ -44,7 +44,7 @@ internal fun queuedMessage(title: String, next: Boolean): String {
 internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQueue: Boolean,
     album: LibraryAlbum?, artists: List<LibraryArtist>, dismiss: () -> Unit,
     queue: (next: Boolean) -> Unit, goToAlbum: (LibraryAlbum) -> Unit, goToArtist: (LibraryArtist) -> Unit,
-    canSave: Boolean = false, save: () -> Unit = {}) {
+    canSave: Boolean = false, save: () -> Unit = {}, play: (() -> Unit)? = null) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
@@ -73,22 +73,33 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
                 }
             }
         }
-        // The Canary experiment: the two queue actions lead the panel as one connected pair, as the
-        // Refined design has them (issue #661); the rest stay a list below.
-        val paired = canQueue && Expressive.motion
-        if (paired) QueuePair({ choose { queue(true) } }, { choose { queue(false) } })
-        HorizontalDivider(Modifier.padding(horizontal = 24.dp))
-        Column(Modifier.padding(vertical = 8.dp)) {
-            if (canQueue && !paired) {
-                SheetAction("play-next", "Play next") { choose { queue(true) } }
-                SheetAction("add-queue", "Add to queue") { choose { queue(false) } }
+        // The Canary experiment, as the Refined design has it (issue #661): Play, Play next and Add to
+        // queue lead the panel as one connected group, and the rest follow as one joined group of rows.
+        val grouped = canQueue && Expressive.motion
+        if (grouped) PlayGroup(play?.let { p -> { choose(p) } }, { choose { queue(true) } }, { choose { queue(false) } })
+        // Keeps a new copy on the phone (#112). A live song never removes or claims a copy saved
+        // earlier under its track number (#213): those are managed in Saved copies.
+        val rows = buildList<Triple<String, String, Pair<String?, () -> Unit>>> {
+            if (canQueue && !grouped) {
+                add(Triple("play-next", "Play next", null to { choose { queue(true) } }))
+                add(Triple("add-queue", "Add to queue", null to { choose { queue(false) } }))
             }
-            // Keeps a new copy on the phone (#112). A live song never removes or claims a copy saved
-            // earlier under its track number (#213): those are managed in Saved copies.
-            if (canSave) SheetAction("download", "Save a copy") { choose(save) }
-            album?.let { a -> SheetAction("album", "Go to album") { choose { goToAlbum(a) } } }
-            artists.forEach { a ->
-                SheetAction("artist", "Go to artist", if (artists.size > 1) artistLabel(a.name) else null) { choose { goToArtist(a) } }
+            album?.let { a -> add(Triple("album", "Go to album", a.title.ifBlank { null } to { choose { goToAlbum(a) } })) }
+            artists.forEach { a -> add(Triple("artist", "Go to artist", artistLabel(a.name) to { choose { goToArtist(a) } })) }
+            if (canSave) add(Triple("download", "Save a copy", null to { choose(save) }))
+        }
+        if (Expressive.motion) Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(GROUP_GAP)) {
+            rows.forEachIndexed { i, (icon, label, rest) ->
+                GroupedSheetAction(icon, label, rest.first, groupPlace(i, rows.size), rest.second)
+            }
+        } else {
+            HorizontalDivider(Modifier.padding(horizontal = 24.dp))
+            Column(Modifier.padding(vertical = 8.dp)) {
+                // Without the group, an album or a single artist needs no second line.
+                rows.forEach { (icon, label, rest) ->
+                    SheetAction(icon, label, rest.first.takeIf { icon == "artist" && artists.size > 1 }, rest.second)
+                }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -96,26 +107,54 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
 }
 
 /**
- * Play next and Add to queue as one connected pair: round outer ends, tight inner corners, each fully
- * round while pressed, as Material 3 Expressive's connected button group draws them.
+ * Play, Play next and Add to queue as one connected group: round outer ends, tight inner corners, each
+ * fully round while pressed, as Material 3 Expressive's connected button group draws them. Play is
+ * filled, the queue actions tonal. Each label sits under its icon, so all three fit a phone's width.
+ * Without [play] (no list to play from), the queue pair alone.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun QueuePair(playNext: () -> Unit, addToQueue: () -> Unit) {
+private fun PlayGroup(play: (() -> Unit)?, playNext: () -> Unit, addToQueue: () -> Unit) {
     val outer = 24.dp
     val inner = 8.dp
     val pressed = RoundedCornerShape(50)
     val gap = ButtonGroupDefaults.ConnectedSpaceBetween
-    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(gap)) {
-        FilledTonalButton(onClick = playNext, modifier = Modifier.weight(1f).heightIn(min = 56.dp),
-            shapes = ButtonDefaults.shapes(RoundedCornerShape(outer, inner, inner, outer), pressed)) {
-            MuonIcon("play-next", Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Play next", maxLines = 1)
-        }
-        FilledTonalButton(onClick = addToQueue, modifier = Modifier.weight(1f).heightIn(min = 56.dp),
-            shapes = ButtonDefaults.shapes(RoundedCornerShape(inner, outer, outer, inner), pressed)) {
-            MuonIcon("add-queue", Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Add to queue", maxLines = 1)
+    val count = if (play != null) 3 else 2
+    fun shape(i: Int) = RoundedCornerShape(if (i == 0) outer else inner, if (i == count - 1) outer else inner,
+        if (i == count - 1) outer else inner, if (i == 0) outer else inner)
+    @Composable
+    fun Label(icon: String, text: String) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            MuonIcon(icon, Modifier.size(20.dp))
+            Spacer(Modifier.height(6.dp))
+            Text(text, maxLines = 1, style = MaterialTheme.typography.labelLarge)
         }
     }
+    val padding = PaddingValues(horizontal = 6.dp, vertical = 12.dp)
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(gap)) {
+        var i = 0
+        if (play != null) {
+            val at = i++
+            Button(onClick = play, modifier = Modifier.weight(1f).heightIn(min = 72.dp), contentPadding = padding,
+                shapes = ButtonDefaults.shapes(shape(at), pressed)) { Label("play", "Play") }
+        }
+        val next = i++
+        FilledTonalButton(onClick = playNext, modifier = Modifier.weight(1f).heightIn(min = 72.dp), contentPadding = padding,
+            shapes = ButtonDefaults.shapes(shape(next), pressed)) { Label("play-next", "Play next") }
+        val add = i
+        FilledTonalButton(onClick = addToQueue, modifier = Modifier.weight(1f).heightIn(min = 72.dp), contentPadding = padding,
+            shapes = ButtonDefaults.shapes(shape(add), pressed)) { Label("add-queue", "Add to queue") }
+    }
+}
+
+/** One of the panel's rows in a joined group, with a second line naming where it goes. */
+@Composable
+private fun GroupedSheetAction(icon: String, label: String, detail: String?, place: GroupPlace, onClick: () -> Unit) {
+    SegmentedListItem(onClick = onClick, shapes = ListItemDefaults.shapes(shape = groupShape(place, false)),
+        colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        leadingContent = { MuonIcon(icon) },
+        supportingContent = detail?.let { { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) } },
+        modifier = Modifier.fillMaxWidth()) { Text(label) }
 }
 
 @Composable

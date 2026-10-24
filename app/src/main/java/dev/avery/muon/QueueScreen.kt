@@ -366,7 +366,8 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
         })
         .heightIn(min = 64.dp)
         .then(if (onClick != null) Modifier.clickable(onClickLabel = "Play", onClick = onClick) else Modifier)
-        .padding(start = if (playing || shape != null) 12.dp else 24.dp, end = if (playing) 12.dp else if (shape != null) { if (handle != null) 4.dp else 12.dp } else 24.dp,
+        .padding(start = if (playing) 12.dp else if (shape != null) { if (handle != null) 4.dp else 12.dp } else 24.dp,
+            end = if (playing) 12.dp else if (shape != null) { if (remove != null) 0.dp else 12.dp } else 24.dp,
             top = 8.dp, bottom = 8.dp)
         .semantics(mergeDescendants = true) {
             if (playing) stateDescription = "Now playing"
@@ -377,6 +378,11 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
             )
         },
         verticalAlignment = Alignment.CenterVertically) {
+        // In a joined group the handle leads and a ⋮ ends the row (the Refined mockup).
+        val joined = shape != null
+        if (joined && handle != null) Box(handle.padding(end = 6.dp).size(40.dp), contentAlignment = Alignment.Center) {
+            CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) { MuonIcon("drag-handle") }
+        }
         Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
             Artwork(meta.artworkUri?.toString(), Modifier.fillMaxSize())
             if (playing) {
@@ -398,8 +404,20 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
                 textAlign = TextAlign.End, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
         }
         // Only the handle starts a drag, so scrolling and swiping the row keep working as before.
-        if (handle != null) Box(handle.padding(start = 4.dp).size(40.dp), contentAlignment = Alignment.Center) {
+        if (!joined && handle != null) Box(handle.padding(start = 4.dp).size(40.dp), contentAlignment = Alignment.Center) {
             CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) { MuonIcon("drag-handle") }
+        }
+        if (joined && remove != null) {
+            var menu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { menu = true }, modifier = Modifier.size(48.dp).semantics {
+                    contentDescription = "More options for ${meta.title?.toString().orEmpty().ifBlank { "Untitled" }}"
+                }) { CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) { MuonIcon("more") } }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("Remove from queue") }, leadingIcon = { MuonIcon("delete") },
+                        onClick = { menu = false; remove() })
+                }
+            }
         }
     }
 }
