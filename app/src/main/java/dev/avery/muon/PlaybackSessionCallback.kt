@@ -35,13 +35,13 @@ internal class PlaybackSessionCallback(
         controller: MediaSession.ControllerInfo,
     ): ListenableFuture<MediaSession.ConnectionResult> {
         val result = when {
-            // Includes Media3's in-process notification controller. Package names are not identity.
-            controller.uid == Process.myUid() -> MediaSession.ConnectionResult.accept(
+            // The UI owns content edits; Media3 publishes notification grants to platform controls.
+            ownsQueue(session, controller) -> MediaSession.ConnectionResult.accept(
                 MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                     .add(REMOVE_QUEUE_ITEM).add(RESTORE_QUEUE_REMOVAL).build(),
                 MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
             )
-            controller.isTrusted -> MediaSession.ConnectionResult.accept(
+            controller.uid == Process.myUid() || controller.isTrusted -> MediaSession.ConnectionResult.accept(
                 SessionCommands.EMPTY, externalCommands,
             )
             else -> MediaSession.ConnectionResult.reject()
@@ -54,7 +54,7 @@ internal class PlaybackSessionCallback(
         val action = customCommand.customAction
         if (action != REMOVE_QUEUE_ITEM.customAction && action != RESTORE_QUEUE_REMOVAL.customAction)
             return super.onCustomCommand(session, controller, customCommand, args)
-        if (controller.uid != Process.myUid()) return Futures.immediateFuture(
+        if (!ownsQueue(session, controller)) return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_PERMISSION_DENIED))
         if (action == REMOVE_QUEUE_ITEM.customAction) {
             // Removal and the order Undo needs come from the actual player in this one operation, on
@@ -91,7 +91,7 @@ internal class PlaybackSessionCallback(
     ): ListenableFuture<MutableList<MediaItem>> {
         // A successful empty list means replace the queue with nothing in default onSetMediaItems.
         // Fail instead, including legacy play/prepare-from requests delegated through that callback.
-        if (controller.uid != Process.myUid()) return Futures.immediateFailedFuture(
+        if (!ownsQueue(session, controller)) return Futures.immediateFailedFuture(
             UnsupportedOperationException("Only Muon can supply queue items"),
         )
         return try {
@@ -141,6 +141,13 @@ internal class PlaybackSessionCallback(
         } catch (e: Exception) { Futures.immediateFailedFuture(e) }
     }
 
+    /** A notification controller runs under our UID, but its grants also describe platform controls.
+     * Keep content edits with the UI, including after Media3 resolves System UI to that controller.
+     * UID remains the identity check; the supported notification classifier only narrows our grant.
+     */
+    private fun ownsQueue(session: MediaSession, controller: MediaSession.ControllerInfo): Boolean =
+        controller.uid == Process.myUid() && !session.isMediaNotificationController(controller)
+
     private companion object {
         // Service replacement must not bypass the pending-work bound: its old executor shuts down
         // gracefully, so cancelled/queued/running work can outlive that callback. Release only on
@@ -149,7 +156,7 @@ internal class PlaybackSessionCallback(
         // An allowlist also keeps future Media3 commands from expanding external capabilities.
         // Read access supplies system metadata/position; transport includes shuffle/repeat and
         // selecting an entry already in the queue. Volume/gain, configuration and queue edits stay
-        // with Muon. System media-volume buttons do not need these session player-volume setters.
+        // with Muon's UI. System media-volume buttons do not need these session player-volume setters.
         val externalCommands = Player.Commands.Builder().addAll(
             Player.COMMAND_PLAY_PAUSE,
             Player.COMMAND_PREPARE,

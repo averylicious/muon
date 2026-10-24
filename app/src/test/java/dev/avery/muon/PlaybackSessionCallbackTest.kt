@@ -4,9 +4,11 @@ import android.os.Bundle
 import android.os.Process
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaLibraryInfo
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommands
 import com.google.common.util.concurrent.ListenableFuture
 import org.junit.After
@@ -27,6 +29,7 @@ class PlaybackSessionCallbackTest {
     private lateinit var player: ExoPlayer
     private lateinit var session: MediaSession
     private val callback = PlaybackSessionCallback()
+    private val connected = mutableListOf<MediaController>()
 
     @Before fun setUp() {
         val context = RuntimeEnvironment.getApplication()
@@ -35,8 +38,66 @@ class PlaybackSessionCallbackTest {
     }
 
     @After fun tearDown() {
+        connected.asReversed().forEach { it.release() }
         if (::session.isInitialized) session.release()
         if (::player.isInitialized) player.release()
+    }
+
+    @Test fun realNotificationConnectionRestrictsThePlatformBridgeWhileTheUiKeepsQueueEdits() {
+        // Command availability is intersected with the actual player state. Supply a timeline,
+        // without prepare/play/network, before comparing transport and content-edit capabilities.
+        player.setMediaItems(listOf(item(1), item(2)))
+        val context = RuntimeEnvironment.getApplication()
+        val hints = Bundle().apply { putBoolean(MediaController.KEY_MEDIA_NOTIFICATION_CONTROLLER_FLAG, true) }
+        fun connect(hints: Bundle): MediaController {
+            val future = MediaController.Builder(context, session.token).setConnectionHints(hints).buildAsync()
+            try {
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                while (!future.isDone) {
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                    check(System.nanoTime() < deadline) { "The real controller did not connect" }
+                    Thread.sleep(1) // Yield to Media3's handler; not a latency assertion.
+                }
+                return future.get().also {
+                    connected += it
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                }
+            } finally { if (!future.isDone) future.cancel(false) }
+        }
+        val ui = connect(Bundle.EMPTY)
+        val notification = connect(hints)
+        assertTrue(ui.availableCommands.contains(Player.COMMAND_SET_MEDIA_ITEM))
+        assertTrue(ui.availableCommands.contains(Player.COMMAND_CHANGE_MEDIA_ITEMS))
+        assertTrue(ui.availableCommands.contains(Player.COMMAND_SET_VOLUME))
+        for (command in listOf(Player.COMMAND_SET_MEDIA_ITEM, Player.COMMAND_CHANGE_MEDIA_ITEMS,
+            Player.COMMAND_SET_VOLUME, Player.COMMAND_SET_SPEED_AND_PITCH)) {
+            assertFalse(notification.availableCommands.contains(command))
+        }
+        assertTrue("Notification lost play/pause on the seeded timeline",
+            notification.availableCommands.contains(Player.COMMAND_PLAY_PAUSE))
+        val internal = MediaSession.ControllerInfo.createTestOnlyControllerInfo(context.packageName,
+            Process.myPid(), Process.myUid(), MediaLibraryInfo.VERSION_INT, 0, true, hints, true)
+        assertTrue(session.isMediaNotificationController(internal))
+        val grant = callback.onConnectAsync(session, internal).get()
+        assertEquals(SessionCommands.EMPTY, grant.availableSessionCommands)
+        assertFailure(callback.onAddMediaItems(session, internal, mutableListOf(item(1))), UnsupportedOperationException::class.java)
+        for (command in listOf(REMOVE_QUEUE_ITEM, RESTORE_QUEUE_REMOVAL))
+            assertEquals(androidx.media3.session.SessionError.ERROR_PERMISSION_DENIED,
+                callback.onCustomCommand(session, internal, command, Bundle.EMPTY).get().resultCode)
+        // Exercise the pinned framework path after its real notification connection. Synthetic
+        // ControllerInfo does NOT prove external token access, package visibility or impersonation.
+        val impl = MediaSession::class.java.getDeclaredField("impl").apply { isAccessible = true }.get(session)
+        val onConnect = impl.javaClass.getDeclaredMethod("onConnectOnHandler", MediaSession.ControllerInfo::class.java)
+            .apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val platform = (onConnect.invoke(impl, controller(trusted = false, packageName = "com.android.systemui"))
+            as ListenableFuture<MediaSession.ConnectionResult>).get(1, TimeUnit.SECONDS)
+        assertTrue(platform.isAccepted)
+        assertEquals(grant.availablePlayerCommands, platform.availablePlayerCommands)
+        assertEquals(SessionCommands.EMPTY, platform.availableSessionCommands)
+        assertFalse(platform.availablePlayerCommands.contains(Player.COMMAND_SET_MEDIA_ITEM))
+        assertTrue(callback.onConnectAsync(session, controller(uid = Process.myUid())).get()
+            .availableSessionCommands.contains(RESTORE_QUEUE_REMOVAL))
     }
 
     @Test fun ownUidKeepsFullCommandsEvenWithDifferentPackageLabel() {
