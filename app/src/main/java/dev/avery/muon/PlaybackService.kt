@@ -72,19 +72,21 @@ class PlaybackService : MediaSessionService() {
         val loudness = ReplayGainSettings(loudnessPrefs)
         var checkedLoudnessId: String? = null
         var currentHasLoudnessTags = false
+        var selectedGainDb: Float? = null
         fun applyLoudness() {
             val id = player.currentMediaItem?.mediaId
-            val gain = loudness.effectiveGainFor(id)
+            val gain = loudness.playbackGainFor(id, selectedGainDb)
             player.volume = if (loudness.enabled && gain != null) volumeForGain(gain) else 1f
             PlaybackLoudness.current = loudnessPlayback(id, id != null && id == checkedLoudnessId,
                 currentHasLoudnessTags, gain, player.isPlaying)
         }
         player.addListener(object : Player.Listener {
-            // A song already heard starts at its level; one not yet heard plays unchanged until its
-            // tags are read, rather than at the previous song's gain.
+            // Reset current tags at every transition. A reusable live ID only gets the library
+            // estimate until this audio supplies its own tags; saved copies keep their stored hint.
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 checkedLoudnessId = null
                 currentHasLoudnessTags = false
+                selectedGainDb = null
                 applyLoudness()
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) = applyLoudness()
@@ -98,7 +100,9 @@ class PlaybackService : MediaSessionService() {
                 val selectedAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
                 checkedLoudnessId = id.takeIf { selectedAudio }
                 currentHasLoudnessTags = found != null
-                if (id != null && found != null) loudness.remember(id, appliedGainDb(found))
+                val applied = found?.let(::appliedGainDb)
+                selectedGainDb = applied
+                if (id != null && applied != null) loudness.remember(id, applied)
                 applyLoudness()
             }
         })

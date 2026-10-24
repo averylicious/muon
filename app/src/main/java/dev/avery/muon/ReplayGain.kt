@@ -74,12 +74,11 @@ internal fun volumeForGain(gainDb: Float): Float = 10f.pow(gainDb / 20f).coerceI
 /**
  * Whether normalization is on, and the gain last read for each song.
  *
- * Remembering the gain means a song already heard is set right the moment it starts, before its
- * stream's tags are read, and a download made before the library was tagged still plays at its
- * level. A song with no tag and no remembered gain, such as one added to the library and not yet
- * tagged, is turned down by the library's typical gain, so it lands near its neighbours rather than
- * standing out; it never inherits the previous song's gain. Off by default: turning it on makes most
- * modern songs quieter.
+ * Remembered gains provide a library estimate and continuity for saved-copy playback. A live
+ * Tauon ID can be reused for different audio, so its old exact gain is not proof of the current
+ * song's level. Live playback uses current tags, or the library's typical gain while tags are absent.
+ * An untagged song therefore gets an estimate rather than the previous song's exact gain. Off by
+ * default: turning it on makes most modern songs quieter.
  */
 internal class ReplayGainSettings(private val prefs: SharedPreferences) {
     var enabled by mutableStateOf(enabledFromPreferences())
@@ -122,6 +121,15 @@ internal class ReplayGainSettings(private val prefs: SharedPreferences) {
 
     /** Available even while the switch is off, so Settings can explain what enabling will do. */
     fun effectiveGainFor(mediaId: String?): Float? = gainFor(mediaId) ?: typicalGain()
+
+    /**
+     * Current selected tags take priority. Only a canonical saved-copy handle may reuse its exact
+     * stored hint; a live numeric Tauon ID is not a durable audio identity. History stays untouched
+     * and still contributes to the same library estimate. This returns a gain even when disabled,
+     * so the playback notice can explain what the switch would do.
+     */
+    fun playbackGainFor(mediaId: String?, selectedGainDb: Float?): Float? =
+        selectedGainDb ?: effectiveGainFor(mediaId?.takeIf { SavedRef.parse(it) != null })
 
     /** The volume for a song: 1 when off; its own gain, or else the library's typical one, when on. */
     fun volumeFor(mediaId: String?): Float =

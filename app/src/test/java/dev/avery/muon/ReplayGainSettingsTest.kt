@@ -124,6 +124,43 @@ class ReplayGainSettingsTest {
         assertEquals("kept", prefs.getString("unrelated", null))
     }
 
+    @Test fun liveIdReuseUsesTheLibraryEstimateUntilCurrentAudioSuppliesTags() {
+        val original = ReplayGainSettings(prefs)
+        original.remember(A, -30f)
+        original.remember(B, -6f)
+        original.choose(true)
+        val restored = ReplayGainSettings(prefs)
+        // A later untagged song at A must not inherit that old song's -30 dB attenuation.
+        assertEquals(-18f, restored.playbackGainFor(A, null)!!, 0f)
+        assertEquals(-18f, restored.playbackGainFor("new-live-id", null)!!, 0f)
+        assertEquals(-9f, restored.playbackGainFor(A, -9f)!!, 0f)
+        // Re-evaluating after leaving the tagged song must not retain its selected value.
+        assertEquals(-18f, restored.playbackGainFor(A, null)!!, 0f)
+        assertEquals(-30f, restored.gainFor(A)!!, 0f)
+        assertEquals(-6f, restored.gainFor(B)!!, 0f)
+        assertTrue(restored.enabled)
+    }
+
+    @Test fun savedCopyHintsRemainAvailableButOnlyCurrentTagsOverrideThem() {
+        val saved = SavedRef.download(SavedShelf.Phone, "saved-request", "saved-key")!!.handle
+        val malformed = "muon-saved:not-a-canonical-handle"
+        val settings = ReplayGainSettings(prefs)
+        settings.remember(saved, -24f)
+        settings.remember(A, -6f)
+        settings.remember(malformed, -12f)
+        assertEquals(-24f, settings.playbackGainFor(saved, null)!!, 0f)
+        assertEquals(-3f, settings.playbackGainFor(saved, -3f)!!, 0f)
+        assertEquals(-12f, settings.playbackGainFor(malformed, null)!!, 0f)
+        // A malformed prefix has an old exact hint, so distinguish it from the median below.
+        settings.remember(malformed, -40f)
+        assertEquals(-24f, settings.playbackGainFor(malformed, null)!!, 0f)
+        assertEquals(-40f, settings.gainFor(malformed)!!, 0f)
+        // Gain selection also works while off; the service still chooses unity when disabled.
+        assertFalse(settings.enabled)
+        assertEquals(1f, settings.volumeFor(saved), 0f)
+        assertEquals(-24f, settings.playbackGainFor(saved, null)!!, 0f)
+    }
+
     private companion object {
         const val A = "http://192.168.1.20:7814/7"
         const val B = "http://192.168.1.21:7814/7"
