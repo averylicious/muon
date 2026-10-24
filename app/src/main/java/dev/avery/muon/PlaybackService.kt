@@ -21,6 +21,7 @@ import androidx.media3.session.MediaSessionService
 @androidx.annotation.OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
+    private var playbackDiagnostics: AutoCloseable? = null
     // Held here: SharedPreferences keeps its listeners only weakly.
     private var loudnessListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     override fun onCreate() {
@@ -40,6 +41,7 @@ class PlaybackService : MediaSessionService() {
         // were put (see QueueShuffleOrder). Turning shuffle on reshuffles from the playing song, so
         // everything else is still to come rather than wherever an old shuffle had left it.
         player.setShuffleOrder(QueueShuffleOrder())
+        playbackDiagnostics = observePlaybackDiagnostics(this, player)
         player.addListener(object : Player.Listener {
             // Each live song that starts playing is copied for offline listening (#112), behind playback.
             // A saved copy is never copied again (#213).
@@ -138,6 +140,7 @@ class PlaybackService : MediaSessionService() {
     private val admission = java.util.concurrent.Executors.newSingleThreadExecutor()
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
     override fun onDestroy() {
+        playbackDiagnostics?.close(); playbackDiagnostics = null
         loudnessListener?.let { getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
             .unregisterOnSharedPreferenceChangeListener(it) }; loudnessListener = null
         session?.run { player.release(); release() }; session = null
