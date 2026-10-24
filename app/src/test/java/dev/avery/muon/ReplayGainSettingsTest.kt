@@ -2,6 +2,13 @@ package dev.avery.muon
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.Metadata
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.Tracks
+import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -133,9 +140,17 @@ class ReplayGainSettingsTest {
         // A later untagged song at A must not inherit that old song's -30 dB attenuation.
         assertEquals(-18f, restored.playbackGainFor(A, null)!!, 0f)
         assertEquals(-18f, restored.playbackGainFor("new-live-id", null)!!, 0f)
-        assertEquals(-9f, restored.playbackGainFor(A, -9f)!!, 0f)
-        // Re-evaluating after leaving the tagged song must not retain its selected value.
-        assertEquals(-18f, restored.playbackGainFor(A, null)!!, 0f)
+        val tagged = Tracks(listOf(audioGroup("-9 dB", true), audioGroup("-40 dB", false)))
+        repeat(2) {
+            // The same current Tracks can serve repeat-one without another tracks-change callback.
+            val current = selectedTrackLoudness(tagged)?.let(::appliedGainDb)
+            assertEquals(-9f, restored.playbackGainFor(A, current)!!, 0f)
+        }
+        // Re-evaluating empty/unselected or untagged audio must not retain that selected value.
+        for (current in listOf(Tracks.EMPTY, Tracks(listOf(audioGroup(null, true))),
+                Tracks(listOf(audioGroup("-9 dB", false))))) {
+            assertEquals(-18f, restored.playbackGainFor(A, selectedTrackLoudness(current)?.let(::appliedGainDb))!!, 0f)
+        }
         assertEquals(-30f, restored.gainFor(A)!!, 0f)
         assertEquals(-6f, restored.gainFor(B)!!, 0f)
         assertTrue(restored.enabled)
@@ -159,6 +174,12 @@ class ReplayGainSettingsTest {
         assertFalse(settings.enabled)
         assertEquals(1f, settings.volumeFor(saved), 0f)
         assertEquals(-24f, settings.playbackGainFor(saved, null)!!, 0f)
+    }
+
+    private fun audioGroup(tag: String?, selected: Boolean): Tracks.Group {
+        val format = Format.Builder().setSampleMimeType(MimeTypes.AUDIO_FLAC)
+            .setMetadata(tag?.let { Metadata(VorbisComment("REPLAYGAIN_TRACK_GAIN", it)) }).build()
+        return Tracks.Group(TrackGroup(format), false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(selected))
     }
 
     private companion object {

@@ -4,7 +4,9 @@ import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.media3.common.C
 import androidx.media3.common.Metadata
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import kotlin.math.log10
@@ -50,6 +52,14 @@ internal fun trackLoudness(metadata: Metadata?): TrackLoudness? {
         .associate { it.key to it.value }
     return trackLoudness(tags)
 }
+
+/** Current selected audio only; no remembered ID or listener-order cache. */
+@androidx.annotation.OptIn(UnstableApi::class)
+internal fun selectedTrackLoudness(tracks: Tracks): TrackLoudness? =
+    tracks.groups.asSequence().filter { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+        .flatMap { group -> (0 until group.length).asSequence().filter(group::isTrackSelected)
+            .map { group.getTrackFormat(it) } }
+        .firstNotNullOfOrNull { trackLoudness(it.metadata) }
 
 /**
  * The gain actually applied, in dB: the track gain, kept low enough that the peak stays under full
