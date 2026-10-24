@@ -14,7 +14,7 @@ Later audits/RCs may use separate branches and Diagnostic builds while the user 
 
 **Broader post-RC work is now authorized on separate branches**, while installed RC .1420 stays frozen. CI-only #685 landed at `7eca9e54`; app/tool follow-ups #682/#683/#684/#686 remain draft/open with their own acceptance. Old #641–#644 closed as superseded. [Current continuation](handoffs/2026-10-24-post-rc-continuation.md) links maintained issue files, exact heads/checks and pending work. Main app source still matches v0.2.0; no new Stable tag/publication or phone action.
 
-GPT-6 owns the isolated audit/policy/receipt worktrees. The allocated audit Claude completed Opus 5.5 High coding/source reviews and is idle; refresh live quota before reuse. Reviews of code it originally authored are not wholly independent. The original experimental checkout is preserved. Historical phone permission does not extend to this maintenance task. The user requested ending after current verification/handoff; **next cycle has no phone access** while they use both devices. Resume only when prompted, without ADB.
+GPT-6 owns the isolated audit/policy/receipt worktrees. The allocated audit Claude completed Opus 5.5 High coding/source reviews and is idle; refresh live quota before reuse. Reviews of code it originally authored are not wholly independent. The original experimental checkout is preserved. Historical phone permission does not extend to this maintenance task. The user resumed broader audits after that handoff, accepting scope expansion. **This cycle has no phone access** while they use both devices. Continue source/CI engineering without installing over RC .1420; save verified boundaries while working. The previous stop request is no longer active.
 
 ## Resume order
 
