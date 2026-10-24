@@ -23,6 +23,7 @@ Phone QA needs current explicit authorization. Preserve originals, app identitie
 
 - [Initial repository map and audit](2026-09-27-main.md).
 - [Network/controller source findings](2026-09-30-network-entry-points.md).
+- [Latest selected dependency advisory refresh](2026-10-25-dependency-advisory-refresh.md).
 - [Build/dependency trust disposition](2026-10-07-build-trust-disposition.md); later user decisions in the release plan control the current gate.
 - [Current post-RC checkpoint](../handoffs/2026-10-24-post-rc-continuation.md); older execution receipts remain linked from the issue files and archive.
 - [Archived detailed audit index and workstream map](../handoffs/2026-10-21-status-archive/audit-index.md). It preserves all older report links; inspect only the relevant entry, with its dated commit and limitations.
