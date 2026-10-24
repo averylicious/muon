@@ -5,6 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Handler
 import android.os.Looper
+import java.lang.ref.WeakReference
 
 /** Optional, bounded Tauon DNS-SD discovery. Manual numeric LAN entry remains available. */
 class ServerDiscovery(
@@ -60,20 +61,26 @@ class ServerDiscovery(
         resolving = request
         // A platform callback may never arrive. Do not let one request lock every later scan.
         resolutionTimeout = Runnable { resolved(request, null) }.also { handler.postDelayed(it, 5_000) }
+        // A legacy platform resolve may outlive our 5s timer and disposed screen. Its listener
+        // must not retain this owner/UI callbacks until an eventual system completion. Capture
+        // only a weak owner plus the owner-independent main Handler and request.
+        val owner = WeakReference(this)
+        val delivery = handler
         try {
             @Suppress("DEPRECATION")
             manager.resolveService(request.value, object : NsdManager.ResolveListener {
-                override fun onResolveFailed(service: NsdServiceInfo, code: Int) { handler.post {
-                    resolved(request, null)
+                override fun onResolveFailed(service: NsdServiceInfo, code: Int) { delivery.post {
+                    owner.get()?.resolved(request, null)
                 } }
-                override fun onServiceResolved(service: NsdServiceInfo) { handler.post {
+                override fun onServiceResolved(service: NsdServiceInfo) { delivery.post {
+                    val current = owner.get() ?: return@post
                     val host = service.host?.hostAddress
                     val server = host?.let {
                         val literal = if (':' in it) "[$it]" else it
                         runCatching { ServerEndpoint.parse("http://$literal:${service.port}") }
                             .getOrNull()?.let { endpoint -> DiscoveredServer(service.serviceName, endpoint.origin) }
                     }
-                    resolved(request, server)
+                    current.resolved(request, server)
                 } }
             })
         } catch (_: RuntimeException) {
