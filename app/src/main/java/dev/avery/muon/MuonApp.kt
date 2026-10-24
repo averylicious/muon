@@ -1,6 +1,7 @@
 package dev.avery.muon
 
 import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.animation.core.rememberTransition
 import android.os.Build
@@ -275,10 +276,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val lyricsShown = overlayOpen && lyricsOpen
         val queueShown = overlayOpen && queueOpen && !lyricsShown
         val playerShown = overlayOpen && !lyricsShown && !queueShown
+        // Queue and Lyrics cover the player rather than putting it away, so a held Back gesture on
+        // either can show Now Playing underneath (issue #658). Once one has fully covered it, the
+        // player leaves composition until that overlay closes or previews going back.
+        val lyricsCover = remember { MutableTransitionState(false) }.apply { targetState = lyricsShown }
+        val queueCover = remember { MutableTransitionState(false) }.apply { targetState = queueShown }
+        var overlayPeeking by remember { mutableStateOf(false) }
+        val playerCovered = !overlayPeeking &&
+            ((lyricsCover.isIdle && lyricsCover.currentState) || (queueCover.isIdle && queueCover.currentState))
         // The player's one vertical position, held outside its composition so it outlives the
         // closing animation. Opening and closing drive it from the logical state; progress never
         // decides where Back goes.
-        val sheet = rememberPlayerSheet(openAtStart = playerShown)
+        val sheet = rememberPlayerSheet(openAtStart = overlayOpen)
         // With Expressive motion the player grows out of the mini player rather than rising from
         // below the screen (PlayerMorph), which changes how far its edge travels.
         val morph = remember(sheet) { PlayerMorph(sheet).also { m -> sheet.morphTravel = { m.travel() } } }
@@ -292,8 +301,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // previews as well, because a preview can begin and end before any frame sees it running,
         // and a flag that flipped and flipped back would leave the keys unchanged.
         val turn = sheet.turn
-        LaunchedEffect(playerShown, turn.previewing, turn.completions) {
-            if (!turn.previewing) sheet.present(playerShown)
+        LaunchedEffect(overlayOpen, turn.previewing, turn.completions) {
+            if (!turn.previewing) sheet.present(overlayOpen)
         }
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
@@ -939,7 +948,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // it; a finger already down keeps its own stream, so the drag itself carries on.
             // With Expressive motion it deepens with the player's growth instead (PlayerMorph), so a drag
             // that has barely begun, or has come back down, dims nothing, the mini player included.
-            AnimatedVisibility(visible = playerShown || sheet.previewing, enter = fadeIn(motionMedium()),
+            AnimatedVisibility(visible = (overlayOpen && !playerCovered) || sheet.previewing, enter = fadeIn(motionMedium()),
                 exit = fadeOut(motionMedium())) {
                 PlayerScrim { morph.scrimFactor() }
             }
@@ -949,7 +958,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             ArtworkTheme(ui.item) {
             // Captured here, where the cover's scheme is in force, for the mini player's face below.
             val tinted = MaterialTheme.colorScheme
-            PlayerHost(sheet, open = playerShown, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph,
+            PlayerHost(sheet, open = playerShown, covered = playerCovered, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph,
                 // The mini player as the panel starts: its colour and content, in the cover's colours
                 // exactly as the mini player draws them. Under glass that is its translucent tint, over
                 // the same blurred library the mini player shows (frostedPanel), thickening to Now
@@ -979,11 +988,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
             // The cover flying between the mini player and Now Playing while the player grows or
             // shrinks, over both (PlayerMorph). Only while any of the player is on screen.
-            if (playerSheetPresent(playerShown, sheet.onScreen)) MorphingCover(morph, ui.item?.mediaMetadata?.artworkUri?.toString())
-            FullScreenOverlay(visible = lyricsShown) {
+            if (!playerCovered && playerSheetPresent(playerShown, sheet.onScreen)) MorphingCover(morph, ui.item?.mediaMetadata?.artworkUri?.toString())
+            FullScreenOverlay(lyricsCover, { overlayPeeking = it }, close = { lyricsOpen = false }) {
                 LyricsScreen(ui.item) { lyricsOpen = false }
             }
-            FullScreenOverlay(visible = queueShown) {
+            FullScreenOverlay(queueCover, { overlayPeeking = it }, close = { queueOpen = false }) {
                 QueueScreen(player, revision, ui.playing) { queueOpen = false }
             }
             // Overlay notices stay above the player instead of resizing artwork or hiding behind it.
@@ -1056,11 +1065,38 @@ private fun PlayerScrim(amount: () -> Float) {
  * own stream, and hardware keyboard focus is not changed by this.
  */
 @Composable
-private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
-    AnimatedVisibility(visible = visible,
+private fun FullScreenOverlay(state: MutableTransitionState<Boolean>, peeking: (Boolean) -> Unit, close: () -> Unit,
+    content: @Composable () -> Unit) {
+    val visible = state.targetState
+    AnimatedVisibility(visibleState = state,
         enter = slideInVertically(motionSpatialFull()) { it } + fadeIn(motionShort()),
         exit = slideOutVertically(motionSpatialFull()) { it } + fadeOut(motionShort())) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        // A held Back gesture shrinks the overlay to a card over Now Playing, like a Library page
+        // (issue #658). After a commit the card has already faded, so the slide out shows nothing.
+        val peek = remember { BackPeek() }
+        val peekScope = rememberCoroutineScope()
+        val currentClose by rememberUpdatedState(close)
+        val currentPeeking by rememberUpdatedState(peeking)
+        DisposableEffect(Unit) { onDispose { currentPeeking(false) } }
+        // Composed after the app's own handlers and the player's, so it takes Back while on show.
+        PredictiveBackHandler(visible) { events ->
+            peek.active = true
+            currentPeeking(true)
+            try {
+                events.collect { event -> peek.edge = event.swipeEdge; peek.progress.snapTo(event.progress) }
+                peek.commit.animateTo(1f, motionShort())
+                currentClose()
+            } catch (cancelled: CancellationException) {
+                peekScope.launch {
+                    peek.progress.animateTo(0f, motionSpatial())
+                    peek.reset()
+                    currentPeeking(false)
+                }
+                throw cancelled
+            }
+        }
+        val ground = MaterialTheme.colorScheme.background
+        Surface(Modifier.fillMaxSize().then(if (peek.active) Modifier.peekCard(peek, ground) else Modifier), color = ground) {
             Box(Modifier.safeDrawingPadding()) {
                 Box(if (visible) Modifier else Modifier.clearAndSetSemantics {}) { content() }
                 if (!visible) Box(Modifier.matchParentSize().pointerInput(Unit) {})
@@ -1082,10 +1118,11 @@ private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit)
  * focused while they slide away.
  */
 @Composable
-private fun PlayerHost(sheet: PlayerSheet, open: Boolean, backdrop: String?, morph: PlayerMorph,
+private fun PlayerHost(sheet: PlayerSheet, open: Boolean, covered: Boolean, backdrop: String?, morph: PlayerMorph,
     miniColor: Color, frost: Frost?, libraryGround: Color, face: @Composable () -> Unit,
     preview: @Composable () -> PlayerBackPreview?, content: @Composable () -> Unit) {
-    if (!playerSheetPresent(open, sheet.onScreen)) return
+    // Under a Queue or Lyrics that has fully covered it, nothing of the player would show.
+    if (covered || !playerSheetPresent(open, sheet.onScreen)) return
     // Two layers, each owning its own properties: the sheet moves the surface, the Back preview
     // scales and drifts it, and neither writes what the other reads. On pure black the sheet also
     // outlines its top edge, since nothing else can show where the player ends.
