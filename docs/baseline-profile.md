@@ -40,7 +40,7 @@ those paths change a lot. Recording never touches Canary or Stable.
    change `baselineprofile/`. It uploads `baseline-profile-tools-<sha>` with two debug-signed APKs:
    - `app-benchmark.apk`: **Muon Benchmark** (`dev.avery.muon.benchmark`), Stable's code, unminified and profileable, in its own package;
    - `baselineprofile-benchmark.apk`: the generator (`dev.avery.muon.baselineprofile`), the journeys in `BaselineProfileGenerator.kt`.
-2. On an Android 13+ phone on the same network as Tauon, with the user's go-ahead for device access.
+2. On an Android 14+ (API34+) phone on the same network as Tauon, with the user's go-ahead for device access.
    Install Muon Benchmark, open it once and connect it to Tauon, typing the address if the scan finds
    nothing (it didn't on 2026-09-27). The recording starts from the library, not the Connect screen.
    On Android 17 the generator grants Muon Benchmark local network access itself, and stops if the
@@ -120,3 +120,5 @@ both APK signatures, target mode, package identities and self-instrumentation be
 Recorder Queue lookup checks the landscape icon/portrait button, then tries at most four upward content swipes inside Benchmark's visible default-display window. It uses observed package-window bounds and refuses a detected foreground/default-display mismatch, instead of whole-display coordinates. A missing control still fails the journey; short-window/large-font traversal remains device acceptance, not a source/compile claim.
 
 Install the two tool APKs from the same source-labelled artifact. CI embeds its full commit in both manifests and the helper; the upload gate checks it against the workflow source. Recording and measurement verify the installed target's matching commit and signing identity **before** changing Benchmark permissions or clearing its data. An old/mixed pair is refused. Local tools require an explicit `MUON_BENCHMARK_COMMIT` full40-character Git commit; the default `local` marker cannot authorize a run. This label prevents accidental source mixing, not independent authentication of compiler/dependency provenance.
+
+Recording tools require API34+ as well: pinned Macrobenchmark1.5.0 can reinstall the target on older APIs during compilation reset, losing a manually seeded connection. The helper install floor and pre-grant recorder guard refuse that older route. This does not raise Muon's Stable/Canary device floor. Measurement remains API37+ under the separate controlled protocol.

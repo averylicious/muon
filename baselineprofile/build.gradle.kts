@@ -12,8 +12,9 @@ android {
     compileSdkMinor = 0
     buildToolsVersion = "37.0.0"
     defaultConfig {
-        // Recording without root needs Android 13; the app's own floor is lower.
-        minSdk = 33
+        // API33 collection can reinstall/erase the manually seeded Benchmark app.
+        // Require API34+ for these tools; Stable/Canary keep their existing floor.
+        minSdk = 34
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

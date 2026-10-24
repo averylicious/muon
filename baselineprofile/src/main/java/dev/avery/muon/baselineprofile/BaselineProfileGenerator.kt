@@ -48,6 +48,9 @@ class BaselineProfileGenerator {
 
     @Test fun generate() {
         check(!BuildConfig.BENCHMARK_MINIFIED) { "Use recording-mode tools to generate source profile rules" }
+        check(Build.VERSION.SDK_INT >= 34) {
+            "Recording needs API34+: older Macrobenchmark compilation can erase the seeded Benchmark connection"
+        }
         val packages = InstrumentationRegistry.getInstrumentation().context.packageManager
         val app = packages.getApplicationInfo(TARGET, PackageManager.GET_META_DATA)
         checkBenchmarkIdentity(packages, app)

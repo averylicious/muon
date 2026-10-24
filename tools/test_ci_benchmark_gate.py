@@ -135,10 +135,6 @@ class BenchmarkGateWorkflowTest(unittest.TestCase):
         self.assertEqual('contents: read', WORKFLOW.split('\npermissions:', 1)[1].split('\njobs:', 1)[0].strip())
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 class BenchmarkModeBoundaryTest(unittest.TestCase):
     def test_manual_measurement_keeps_recording_default_and_never_changes_release_identity(self):
         self.assertIn("MUON_BENCHMARK_MINIFIED: ${{ github.event_name == 'workflow_dispatch' && inputs.measurement && 'true' || 'false' }}", WORKFLOW)
@@ -160,3 +156,7 @@ class BenchmarkModeBoundaryTest(unittest.TestCase):
         self.assertIn('private const val MEASUREMENT_TARGET = "dev.avery.muon.benchmark"', harness)
         self.assertNotIn('dev.avery.muon.release', harness)
         self.assertIn('BaselineProfileMode.Require, warmupIterations = 0', harness)
+
+
+if __name__ == '__main__':
+    unittest.main()
