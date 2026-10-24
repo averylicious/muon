@@ -1,5 +1,7 @@
 package dev.avery.muon
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -14,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
@@ -112,12 +115,22 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                 Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
             } else itemsIndexed(album.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { i, track ->
                 val current = currentId == "${endpoint?.origin}/${track.id}"
+                // With Expressive motion the tracks are one joined group, numbered (the Refined mockup).
+                val place = if (Expressive.motion) groupPlace(i, album.tracks.size) else null
+                val shape = place?.let { groupShape(it, current) } ?: RoundedCornerShape(16.dp)
+                val ground by animateColorAsState(when {
+                    current -> colors.secondaryContainer
+                    place != null -> colors.surfaceContainerLow
+                    else -> Color.Transparent
+                }, motionMedium(), label = "track ground")
                 // The playing song sits on its own tonal surface, its number replaced by the moving
                 // equalizer, so it stands out from the list rather than only changing colour.
-                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                    .padding(horizontal = 12.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
+                Row(Modifier.fillMaxWidth()
+                    .padding(start = place?.let { GROUP_INSET } ?: 12.dp, end = place?.let { GROUP_INSET } ?: 12.dp,
+                        top = if (place == null || place.startsGroup) 0.dp else GROUP_GAP)
+                    .heightIn(min = 56.dp)
+                    .clip(shape)
+                    .background(ground)
                     .combinedClickable(enabled = track.playable && ready, onClickLabel = "Play",
                         onLongClickLabel = "Song actions", onLongClick = { actions(track) }) { play(track) }
                     .padding(start = 12.dp, end = 0.dp, top = 8.dp, bottom = 8.dp)

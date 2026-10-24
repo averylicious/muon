@@ -14,6 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -179,7 +181,9 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
         SettingsRow(index = 1, count = rows, headline = "Played-song cache",
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
                 if (full) { if(store.phone.partition==null) " · full, oldest songs make room" else " · full, existing copies kept" } else "",
-            trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } })
+            trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } },
+            // With Expressive motion, the same still wavy meter as On this device's storage card.
+            below = if (Expressive.motion) ({ CacheMeter(used, limit) }) else null)
         // The limit is chosen right here, from four sizes side by side, rather than in a dialog.
         Surface(shape = if (Expressive.motion) ListItemDefaults.segmentedShapes(2, rows).shape else rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)) {
@@ -262,6 +266,16 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
         "Downloaded songs stay until you remove them. Lossless streams play from memory and never touch storage.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
+}
+
+/** The played-song cache's fill as a still wavy meter, as on On this device (the Refined mockup). */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CacheMeter(used: Long, limit: Long) {
+    val share by animateFloatAsState(if (limit > 0) (used.toFloat() / limit).coerceIn(0f, 1f) else 0f, motionSpatial(), label = "cache share")
+    // Still: the wave shows the fill, and nothing in Settings moves on its own.
+    LinearWavyProgressIndicator(progress = { share }, waveSpeed = 0.dp,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp).clearAndSetSemantics {})
 }
 
 /**
@@ -381,12 +395,20 @@ private fun SettingsRow(index: Int, count: Int, headline: String, supporting: St
     enabled: Boolean = true, headlineColor: Color = Color.Unspecified,
     trailing: @Composable (() -> Unit)? = null, leading: @Composable (() -> Unit)? = null,
     onClick: (() -> Unit)? = null, clickLabel: String? = null,
-    toggled: Boolean? = null, onToggle: ((Boolean) -> Unit)? = null, selected: Boolean? = null) {
+    toggled: Boolean? = null, onToggle: ((Boolean) -> Unit)? = null, selected: Boolean? = null,
+    below: (@Composable () -> Unit)? = null) {
     val colors = MaterialTheme.colorScheme
     val faded = colors.onSurface.copy(alpha = 0.38f)
     val headlineText: @Composable () -> Unit = { Text(headline, color = if (!enabled) faded else headlineColor) }
-    val supportingText: (@Composable () -> Unit)? =
-        supporting?.let { { Text(it, color = if (!enabled) faded else Color.Unspecified) } }
+    // [below] goes under the supporting line, such as the cache's meter.
+    val supportingText: (@Composable () -> Unit)? = if (supporting == null && below == null) null else {
+        {
+            Column {
+                supporting?.let { Text(it, color = if (!enabled) faded else Color.Unspecified) }
+                below?.invoke()
+            }
+        }
+    }
     if (Expressive.motion) {
         ExpressiveSettingsRow(index, count, enabled, headlineText, supportingText, trailing, leading,
             onClick, toggled, onToggle, selected)
