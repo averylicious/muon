@@ -37,6 +37,10 @@ Current thirteen-input app integration `96ebeebcad799900c4b5411979934b2e256f7e89
 
 Local128CI-policy and9release-policy cases passed on the integration. These are lightweight checks, not an Android build. Existing test methods are retained. The new total is expected to be1,864executions/variant; only downloaded final-head XML can confirm that.
 
+## Derived-cache review follow-up
+
+`ArtworkDiskCache.write` previously removed its temporary only on a failed rename; a write/close exception after creation escaped through runCatching without cleanup. Root now attempts deletion of that operation's temporary in finally, including nonlocal return. A successful renamed cover and all saved audio stay untouched. Existing expiry/replacement/cap/unusable-directory cases remain; no test-only fault injector or duplicate trivial case was added. Partial-write/ENOSPC fault injection and actual deletion under a failed filesystem are not claimed. This is cleanup of derived artwork, not a fix for saved-audio ownership or the old #646 report. It needs the next combined compile.
+
 ## Remaining acceptance / limitations
 
 Run final-head Android CI and inspect both variants/new cases. Later, with new phone authorization: selected-network discovery, slow Connect cancellation, collection search/sort/Back scroll, accurate single/bulk deletion feedback and no delayed extra removal, notification covers during refresh/skips, tagged/untagged and saved ReplayGain, normal/oversized-tag MP3 plus FLAC/Ogg and seek, saved/live service reopen/cancel/retry, disposable Move/recovery. No speedup, sound-level, physical handover or total-memory guarantee. The4MiB ID3 prefix policy deliberately refuses unusually large valid tags/padding; this tradeoff needs acceptance. Historical #401 latency, #646 reset refusal and #671 intermittent buffering remain unresolved, not diagnosed by these source fixes.

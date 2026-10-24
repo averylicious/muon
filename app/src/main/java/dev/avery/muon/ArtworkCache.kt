@@ -119,14 +119,20 @@ internal class ArtworkDiskCache(private val dir: File, private val maxBytes: Lon
             val target = file(url, identity)
             // A name of its own, so two loads of the same picture never write into one temporary file.
             val temp = File.createTempFile(target.name, ".tmp", dir)
-            temp.writeBytes(bytes)
-            synchronized(lock) {
-                val existed = target.isFile
-                val replaced = if (existed) target.length() else 0L
-                if (!temp.renameTo(target)) { temp.delete(); return }
-                if (total >= 0) total += bytes.size - replaced
-                if (entries >= 0 && !existed) entries++
-                if (total < 0 || entries < 0 || total > maxBytes || entries > maxEntries) trim()
+            try {
+                temp.writeBytes(bytes)
+                synchronized(lock) {
+                    val existed = target.isFile
+                    val replaced = if (existed) target.length() else 0L
+                    if (!temp.renameTo(target)) return
+                    if (total >= 0) total += bytes.size - replaced
+                    if (entries >= 0 && !existed) entries++
+                    if (total < 0 || entries < 0 || total > maxBytes || entries > maxEntries) trim()
+                }
+            } finally {
+                // Also clean a partial write/close failure. After rename this path no longer exists;
+                // only this operation's temporary is attempted, never the published cover/audio.
+                temp.delete()
             }
         }
     }
