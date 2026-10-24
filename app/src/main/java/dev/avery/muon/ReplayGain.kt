@@ -4,7 +4,9 @@ import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.media3.common.C
 import androidx.media3.common.Metadata
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import kotlin.math.log10
@@ -51,6 +53,14 @@ internal fun trackLoudness(metadata: Metadata?): TrackLoudness? {
     return trackLoudness(tags)
 }
 
+/** Current selected audio only; no remembered ID or listener-order cache. */
+@androidx.annotation.OptIn(UnstableApi::class)
+internal fun selectedTrackLoudness(tracks: Tracks): TrackLoudness? =
+    tracks.groups.asSequence().filter { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+        .flatMap { group -> (0 until group.length).asSequence().filter(group::isTrackSelected)
+            .map { group.getTrackFormat(it) } }
+        .firstNotNullOfOrNull { trackLoudness(it.metadata) }
+
 /**
  * The gain actually applied, in dB: the track gain, kept low enough that the peak stays under full
  * scale, and never above 0 dB since the player's volume cannot raise a song.
@@ -74,12 +84,11 @@ internal fun volumeForGain(gainDb: Float): Float = 10f.pow(gainDb / 20f).coerceI
 /**
  * Whether normalization is on, and the gain last read for each song.
  *
- * Remembering the gain means a song already heard is set right the moment it starts, before its
- * stream's tags are read, and a download made before the library was tagged still plays at its
- * level. A song with no tag and no remembered gain, such as one added to the library and not yet
- * tagged, is turned down by the library's typical gain, so it lands near its neighbours rather than
- * standing out; it never inherits the previous song's gain. Off by default: turning it on makes most
- * modern songs quieter.
+ * Remembered gains provide a library estimate and continuity for saved-copy playback. A live
+ * Tauon ID can be reused for different audio, so its old exact gain is not proof of the current
+ * song's level. Live playback uses current tags, or the library's typical gain while tags are absent.
+ * An untagged song therefore gets an estimate rather than the previous song's exact gain. Off by
+ * default: turning it on makes most modern songs quieter.
  */
 internal class ReplayGainSettings(private val prefs: SharedPreferences) {
     var enabled by mutableStateOf(enabledFromPreferences())
@@ -120,12 +129,21 @@ internal class ReplayGainSettings(private val prefs: SharedPreferences) {
         prefs.getFloat(gainKey(mediaId), Float.NaN)
     } catch (_: ClassCastException) { Float.NaN }
 
-    /** Available even while the switch is off, so Settings can explain what enabling will do. */
-    fun effectiveGainFor(mediaId: String?): Float? = gainFor(mediaId) ?: typicalGain()
+    /** Stored exact hints are used only after playbackGainFor validates a saved-copy handle. */
+    private fun effectiveGainFor(mediaId: String?): Float? = gainFor(mediaId) ?: typicalGain()
 
-    /** The volume for a song: 1 when off; its own gain, or else the library's typical one, when on. */
-    fun volumeFor(mediaId: String?): Float =
-        if (!enabled) 1f else effectiveGainFor(mediaId)?.let(::volumeForGain) ?: 1f
+    /**
+     * Current selected tags take priority. Only a canonical saved-copy handle may reuse its exact
+     * stored hint; a live numeric Tauon ID is not a durable audio identity. History stays untouched
+     * and still contributes to the same library estimate. This returns a gain even when disabled,
+     * so the playback notice can explain what the switch would do.
+     */
+    fun playbackGainFor(mediaId: String?, selectedGainDb: Float?): Float? =
+        selectedGainDb ?: effectiveGainFor(mediaId?.takeIf { SavedRef.parse(it) != null })
+
+    /** Same selected-audio policy as the notice; disabled always returns unity. */
+    fun volumeFor(mediaId: String?, selectedGainDb: Float? = null): Float =
+        if (!enabled) 1f else playbackGainFor(mediaId, selectedGainDb)?.let(::volumeForGain) ?: 1f
 
     companion object {
         const val FILE = "loudness"
