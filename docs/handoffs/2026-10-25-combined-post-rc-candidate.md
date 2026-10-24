@@ -19,8 +19,9 @@ Updated2026-10-25. [Draft #701](https://github.com/averylicious/muon/pull/701), 
 | #707 | Removal preparation admission | `d53a67cad01afa6a30a50c884d1d423bbb7f1af6` | [.1481](https://github.com/averylicious/muon/actions/runs/40123985161) |
 | #709 | Cross-service saved admission | `857e11e1b95a04a3d7c72d8e3521a792c72f9d70` | [.1480](https://github.com/averylicious/muon/actions/runs/40123460530) |
 | #710 | Coalesced legacy Move checks | `836acfe9ba0dbf6f5dc07c7bfdc8cc24785a3536` | [.1485](https://github.com/averylicious/muon/actions/runs/40126060599) |
+| #712 | Notification/platform grants | `e68b7b8a63d07e0d2f83c13f475e1781f2e6831c` | [.1491](https://github.com/averylicious/muon/actions/runs/40129516260) |
 
-Excluded: #712 notification/platform grant candidate (still building), #679 promotion policy, #683 Benchmark tools, #692 forward sync and all alpha/M3E commits. Every input's downloaded test/lint reports passed with zero test failures/errors/skips and zero lint errors. Separate input builds do not validate the combination.
+Excluded: #679 promotion policy, #683 Benchmark tools, #692 forward sync and all alpha/M3E commits. Every input's downloaded test/lint reports passed with zero test failures/errors/skips and zero lint errors. Separate input builds do not validate the combination.
 
 ## Current integration / review
 
@@ -28,14 +29,16 @@ The first eight-fix head `101508d12b9e45e41e9046a700141f8a17a32b54` passed [comb
 
 The earlier twelve-input head `75eafaab2747464acfe052a5dbbd4da127245336` passed [combined .1484](https://github.com/averylicious/muon/actions/runs/40125355737):1,863executions/variant, zero failures/errors/skips, lint0errors/65warnings. Actual release APK source/BUILD/checksum, single pinned signer, package/version/non-debug/export/profile checks passed, SHA256 `b03e7a5312e7798087266c0cce0f52e8fba495bcded669353aec7c2d9d689272`; uninstalled.
 
-Current thirteen-input app integration `96ebeebcad799900c4b5411979934b2e256f7e89` adds #710. Its final PR head needs fresh combined CI. The new field conflict preserves all three purposes: new-save preparation, user-removal preparation and coalesced Move completion. #401 uses its newer maintained snapshot. Source review preserved:
+The thirteen-input head `d6243b253933e5e490003f0f59f666ae75b2672d` passed [combined .1487](https://github.com/averylicious/muon/actions/runs/40127957065): downloaded1,864executions/variant, zero failures/errors/skips, lint0errors/65warnings.
+
+Current fourteen-input app integration `79e6b361ae7de27c9425723b5e963682a1723177` adds #712 plus the derived-cache cleanup below. The final PR head needs fresh combined CI. Callback merge review retains both supported notification classification/content denials and the process-wide saved-admission flag; neither replaces the other. The new field conflict preserves all three purposes: new-save preparation, user-removal preparation and coalesced Move completion. #401 uses its newer maintained snapshot. Source review preserved:
 
 - Connect cancellation's `autoTried` and selected-network/stale-owner checks.
 - PlaybackService's current-selected-Tracks gain policy, revised notification artwork URI and new bounded extractor factory. ReplayGain keeps both current-audio identity rules and ID3 TXXX parsing.
 - Both OfflineStore conflict resolutions retain application-context capture plus pre-enqueue removal admission **and** phone/card-aware Unavailable/bulk-unreadable notices. Actual ownership/byte/move/delivery checks remain. The merged native fixtures exercise both paths together.
-- Issue-index conflicts retain all independent rows; no state file was discarded. Main's build/dependency files, manifest, workflows, `tools/`, signer pins and baseline profile are unchanged. No conflict markers/whitespace errors; main/all thirteen inputs are ancestors and the alpha anchor is absent.
+- Issue-index conflicts retain all independent rows; no state file was discarded. Main's build/dependency files, manifest, workflows, `tools/`, signer pins and baseline profile are unchanged. No conflict markers/whitespace errors; main/all fourteen inputs are ancestors and the alpha anchor is absent.
 
-Local128CI-policy and9release-policy cases passed on the integration. These are lightweight checks, not an Android build. Existing test methods are retained. The new total is expected to be1,864executions/variant; only downloaded final-head XML can confirm that.
+Local128CI-policy and9release-policy cases passed on the integration. These are lightweight checks, not an Android build. Existing test methods are retained. The new total is expected to be1,865executions/variant; only downloaded final-head XML can confirm that.
 
 ## Derived-cache review follow-up
 
@@ -43,8 +46,8 @@ Local128CI-policy and9release-policy cases passed on the integration. These are 
 
 ## Remaining acceptance / limitations
 
-Run final-head Android CI and inspect both variants/new cases. Later, with new phone authorization: selected-network discovery, slow Connect cancellation, collection search/sort/Back scroll, accurate single/bulk deletion feedback and no delayed extra removal, notification covers during refresh/skips, tagged/untagged and saved ReplayGain, normal/oversized-tag MP3 plus FLAC/Ogg and seek, saved/live service reopen/cancel/retry, disposable Move/recovery. No speedup, sound-level, physical handover or total-memory guarantee. The4MiB ID3 prefix policy deliberately refuses unusually large valid tags/padding; this tradeoff needs acceptance. Historical #401 latency, #646 reset refusal and #671 intermittent buffering remain unresolved, not diagnosed by these source fixes.
+Run final-head Android CI and inspect both variants/new cases. Later, with new phone authorization: selected-network discovery, slow Connect cancellation, collection search/sort/Back scroll, accurate single/bulk deletion feedback and no delayed extra removal, notification covers during refresh/skips, tagged/untagged and saved ReplayGain, normal/oversized-tag MP3 plus FLAC/Ogg and seek, saved/live service reopen/cancel/retry, platform/notification/Bluetooth controls with UI queue/Undo intact, disposable Move/recovery. No speedup, sound-level, physical handover or total-memory guarantee. The4MiB ID3 prefix policy deliberately refuses unusually large valid tags/padding; this tradeoff needs acceptance. Historical #401 latency, #646 reset refusal and #671 intermittent buffering remain unresolved, not diagnosed by these source fixes.
 
 ## Attribution / ownership
 
-Allocated Claude Opus5.5 (`claude-opus-5-5`) / Claude Code / High explicitly selected integrated the original eight fixes and added the saved-hint median assertion/read-only Move callback KDoc at `40448dd01a4adec736473c4de298266fa2729849`; the runtime reports model, not effort telemetry. GPT-6 / Codex desktop checked that integration and owns the thirteen-input refresh, new code/document conflict resolutions, report/APK verification and CI. Exact GPT-6 variant/effort not reported. Each topic retains its PR attribution; reviewing work partly authored by the reviewer is not independent review of every fix. Claude is idle. No phone action, alpha landing or Stable publication/tag.
+Allocated Claude Opus5.5 (`claude-opus-5-5`) / Claude Code / High explicitly selected integrated the original eight fixes and added the saved-hint median assertion/read-only Move callback KDoc at `40448dd01a4adec736473c4de298266fa2729849`; the runtime reports model, not effort telemetry. GPT-6 / Codex desktop checked that integration and owns the fourteen-input refresh, new code/document conflict resolutions, report/APK verification and CI. Exact GPT-6 variant/effort not reported. Each topic retains its PR attribution; reviewing work partly authored by the reviewer is not independent review of every fix. Claude is idle. No phone action, alpha landing or Stable publication/tag.
