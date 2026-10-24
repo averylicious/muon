@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -104,7 +106,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                     }
                 }
             }
-            item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll) }
+            item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll, album?.tracks.orEmpty(), endpoint) }
             if (album != null) item(key = "download", contentType = "download") { DownloadAll(album.tracks, endpoint) }
             if (album == null) item(key = "waiting", contentType = "waiting") {
                 Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
@@ -170,21 +172,46 @@ internal fun tileHiddenAbove(offsetY: Int): Boolean = offsetY < 0
 
 /** Play, filled, and Shuffle, tonal: the pair under an album's, an artist's or a playlist's header. */
 @Composable
-internal fun PlayAllButtons(enabled: Boolean, playAll: (shuffle: Boolean) -> Unit) {
+internal fun PlayAllButtons(enabled: Boolean, playAll: (shuffle: Boolean) -> Unit,
+    saveTracks: List<TauonTrack> = emptyList(), endpoint: ServerEndpoint? = null) {
+    // The Canary experiment: Play, Shuffle and Save copies as one connected group (issue #661), round
+    // at the outer ends and tight between, each fully round while pressed.
+    if (Expressive.motion) { ConnectedPageActions(enabled, playAll, saveTracks, endpoint); return }
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        // The Canary experiment: Expressive buttons, which squash towards a square while pressed.
-        val shapes = if (Expressive.motion) ButtonDefaults.shapes() else null
-        if (shapes != null) Button(onClick = { playAll(false) }, shapes = shapes, enabled = enabled,
-            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-            MuonIcon("play", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
-        } else Button(onClick = { playAll(false) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+        Button(onClick = { playAll(false) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
             MuonIcon("play", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
         }
-        if (shapes != null) FilledTonalButton(onClick = { playAll(true) }, shapes = shapes, enabled = enabled,
-            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+        FilledTonalButton(onClick = { playAll(true) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
             MuonIcon("shuffle", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
-        } else FilledTonalButton(onClick = { playAll(true) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-            MuonIcon("shuffle", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ConnectedPageActions(enabled: Boolean, playAll: (shuffle: Boolean) -> Unit,
+    saveTracks: List<TauonTrack>, endpoint: ServerEndpoint?) {
+    val context = LocalContext.current
+    val saveable = remember(saveTracks) { saveTracks.filter { it.playable } }
+    val canSave = endpoint != null && saveable.isNotEmpty()
+    val outer = 26.dp
+    val inner = 8.dp
+    val pressed = RoundedCornerShape(50)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+        Button(onClick = { playAll(false) }, enabled = enabled, modifier = Modifier.weight(1.3f).heightIn(min = 56.dp),
+            shapes = ButtonDefaults.shapes(RoundedCornerShape(outer, inner, inner, outer), pressed)) {
+            MuonIcon("play", Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
+        }
+        FilledTonalButton(onClick = { playAll(true) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+            shapes = ButtonDefaults.shapes(if (canSave) RoundedCornerShape(inner) else RoundedCornerShape(inner, outer, outer, inner), pressed)) {
+            MuonIcon("shuffle", Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
+        }
+        if (canSave) FilledTonalButton(onClick = { endpoint?.let { OfflineStore.add(context, it, saveable) } },
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier.width(60.dp).heightIn(min = 56.dp).semantics { contentDescription = "Save copies" },
+            shapes = ButtonDefaults.shapes(RoundedCornerShape(inner, outer, outer, inner), pressed)) {
+            MuonIcon("download", Modifier.size(22.dp))
         }
     }
 }

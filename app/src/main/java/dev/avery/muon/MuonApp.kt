@@ -822,7 +822,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                 // (#112 for the download).
                                                                 header = {
                                                                     item(key = "actions", contentType = "actions") {
-                                                                        PlayAllButtons(player != null && tracks.any { it.playable }) { playAll(tracks, it) }
+                                                                        PlayAllButtons(player != null && tracks.any { it.playable }, { playAll(tracks, it) }, tracks, model.endpoint)
                                                                     }
                                                                     item(key = "download", contentType = "download") { DownloadAll(tracks, model.endpoint) }
                                                                 },
