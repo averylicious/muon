@@ -197,6 +197,51 @@ class PlaybackSessionCallbackTest {
         worker.next(); assertEquals(1, retry.get().size); assertEquals(1, reads)
     }
 
+    @Test fun replacementCallbacksShareAdmissionUntilCancelledAndActiveWorkersReallyExit() {
+        val oldWorker = HeldAdmission()
+        val newWorker = HeldAdmission()
+        val own = controller(uid = Process.myUid())
+        val futures = mutableListOf<ListenableFuture<MutableList<MediaItem>>>()
+        var oldReads = 0; var newReads = 0
+        val old = PlaybackSessionCallback({ oldReads++; true }, oldWorker)
+        fun savedRequest(callback: PlaybackSessionCallback, name: String) =
+            callback.onAddMediaItems(session, own, mutableListOf(saved(name))).also(futures::add)
+        val replacement = PlaybackSessionCallback({
+            newReads++
+            // A different callback may not steal the shared slot even while this one is active.
+            assertFailure(savedRequest(old, "during-active-read"), IllegalStateException::class.java)
+            assertTrue(oldWorker.tasks.isEmpty())
+            true
+        }, newWorker)
+        try {
+            val abandoned = savedRequest(old, "old-owner")
+            assertTrue(abandoned.cancel(false))
+            assertFailure(savedRequest(old, "same-owner"), IllegalStateException::class.java)
+            assertFailure(savedRequest(replacement, "new-owner"), IllegalStateException::class.java)
+            assertEquals(1, oldWorker.tasks.size)
+            assertTrue(newWorker.tasks.isEmpty())
+            // An old saved-source check must not prevent a live-only queue from being admitted.
+            assertEquals(1, replacement.onAddMediaItems(session, own, mutableListOf(item(7))).get().size)
+            oldWorker.next()
+            assertEquals(0, oldReads) // Cancellation was observed before touching storage.
+            val next = savedRequest(replacement, "after-old-exit")
+            assertEquals(1, newWorker.tasks.size)
+            newWorker.next()
+            assertEquals(1, next.get().size)
+            assertEquals(1, newReads)
+            val retry = savedRequest(old, "after-replacement-exit")
+            oldWorker.next()
+            assertEquals(1, retry.get().size)
+            assertEquals(1, oldReads)
+        } finally {
+            // Cancel before draining controlled workers even on assertion failure: no fake pending
+            // task may leave the process admission held for another test. No production reset hook.
+            futures.forEach { it.cancel(false) }
+            while (oldWorker.tasks.isNotEmpty()) oldWorker.next()
+            while (newWorker.tasks.isNotEmpty()) newWorker.next()
+        }
+    }
+
     @Test fun callerMutationCannotChangeTheHeldQueueOrderOrDropItsCheckedCopies() {
         val worker = HeldAdmission(); val checked = ArrayList<String>()
         val bounded = PlaybackSessionCallback({ checked += it.requestId; true }, worker)
