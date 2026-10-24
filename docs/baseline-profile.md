@@ -116,3 +116,7 @@ authorized testing, preserve any needed exported results first and remove only t
 `dev.avery.muon.baselineprofile` helper before installing the new pair. Never remove Stable/Canary
 or change their signing identities to work around a tool installation error. The workflow verifies
 both APK signatures, target mode, package identities and self-instrumentation before upload.
+
+Recorder Queue lookup checks the landscape icon/portrait button, then tries at most four upward content swipes inside Benchmark's visible default-display window. It uses observed package-window bounds and refuses a detected foreground/default-display mismatch, instead of whole-display coordinates. A missing control still fails the journey; short-window/large-font traversal remains device acceptance, not a source/compile claim.
+
+Install the two tool APKs from the same source-labelled artifact. CI embeds its full commit in both manifests and the helper; the upload gate checks it against the workflow source. Recording and measurement verify the installed target's matching commit and signing identity **before** changing Benchmark permissions or clearing its data. An old/mixed pair is refused. Local tools require an explicit `MUON_BENCHMARK_COMMIT` full40-character Git commit; the default `local` marker cannot authorize a run. This label prevents accidental source mixing, not independent authentication of compiler/dependency provenance.

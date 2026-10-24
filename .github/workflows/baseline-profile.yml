@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 30
     env:
       # Push builds stay recording-mode; only a manual dispatch can request the minified target.
+      MUON_BENCHMARK_COMMIT: ${{ github.sha }}
       MUON_BENCHMARK_MINIFIED: ${{ github.event_name == 'workflow_dispatch' && inputs.measurement && 'true' || 'false' }}
     steps:
       - name: Check out source

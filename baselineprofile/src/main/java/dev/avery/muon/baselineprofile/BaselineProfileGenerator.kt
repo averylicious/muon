@@ -3,6 +3,7 @@ package dev.avery.muon.baselineprofile
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Build
+import android.view.Display
 import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -47,8 +48,9 @@ class BaselineProfileGenerator {
 
     @Test fun generate() {
         check(!BuildConfig.BENCHMARK_MINIFIED) { "Use recording-mode tools to generate source profile rules" }
-        val app = InstrumentationRegistry.getInstrumentation().context.packageManager
-            .getApplicationInfo(TARGET, PackageManager.GET_META_DATA)
+        val packages = InstrumentationRegistry.getInstrumentation().context.packageManager
+        val app = packages.getApplicationInfo(TARGET, PackageManager.GET_META_DATA)
+        checkBenchmarkIdentity(packages, app)
         check(app.metaData?.getString("dev.avery.muon.benchmark.mode") == "recording") {
             "Install the matching unminified recording target before generating a profile"
         }
@@ -82,7 +84,7 @@ class BaselineProfileGenerator {
         device.click(mini.left + mini.width() / 3, mini.centerY())
         need(By.desc("Collapse the player"), "Now Playing")
         // An icon beside Collapse on a phone on its side, a text button under the controls upright.
-        (device.findObject(By.pkg(TARGET).desc("Queue")) ?: need(By.text("Queue"), "Now Playing's Queue button")).click()
+        openQueue()
         need(By.desc("Back to Now Playing"), "The Queue")
         device.pressBack()
         gone(By.desc("Back to Now Playing"), "The Queue")
@@ -91,6 +93,42 @@ class BaselineProfileGenerator {
         gone(By.desc("Pause"), "Pause, after pausing,")
         device.pressBack()
         gone(By.desc("Collapse the player"), "Now Playing")
+    }
+
+    /** Portrait's Queue can be below the fold. Never use whole-display coordinates in split screen
+     * or silently skip the journey: gestures stay within Benchmark's visible default-display window.
+     * Initial Now Playing was verified above; upward content swipes do not dismiss its sheet.
+     */
+    private fun openQueue() {
+        fun foreground() = check(device.currentPackageName == TARGET) {
+            "Benchmark left the foreground while finding Queue"
+        }
+        fun button(): UiObject2? = listOfNotNull(
+            device.findObject(By.pkg(TARGET).desc("Queue").enabled(true)),
+            device.findObject(By.pkg(TARGET).text("Queue").enabled(true)),
+        ).firstOrNull { !it.visibleBounds.isEmpty }
+        foreground()
+        button()?.let { it.click(); return }
+        repeat(4) {
+            foreground()
+            val root = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow) {
+                "Benchmark has no active accessibility window for finding Queue"
+            }
+            val window = checkNotNull(root.window) { "Benchmark window bounds are unavailable" }
+            check(root.packageName?.toString() == TARGET && window.displayId == Display.DEFAULT_DISPLAY) {
+                "Queue scroll requires Benchmark's active default-display window"
+            }
+            val bounds = Rect().also(window::getBoundsInScreen)
+            check(bounds.intersect(Rect(0, 0, device.displayWidth, device.displayHeight))) {
+                "Benchmark window is outside the visible display"
+            }
+            check(bounds.height() >= 4 && device.swipe(bounds.centerX(), bounds.top + bounds.height() * 3 / 4,
+                bounds.centerX(), bounds.top + bounds.height() / 4, 20)) { "Benchmark Queue scroll failed" }
+            device.waitForIdle(WAIT)
+            foreground()
+            button()?.let { it.click(); return }
+        }
+        error("Now Playing's Queue button was not reachable after four bounded scrolls")
     }
 
     /** Android 17 asks for local network access before Muon can reach Tauon; earlier versions have no such permission. */

@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <meta-data android:name="dev.avery.muon.benchmark.commit" android:value="${muonBenchmarkCommit}" />
         <meta-data android:name="dev.avery.muon.benchmark.mode" android:value="${muonBenchmarkMode}" />
     </application>
 </manifest>

@@ -17,13 +17,21 @@ android {
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    val benchmarkCommit = providers.environmentVariable("MUON_BENCHMARK_COMMIT").getOrElse("local")
+    require(benchmarkCommit == "local" || benchmarkCommit.matches(Regex("[0-9a-f]{40}"))) {
+        "MUON_BENCHMARK_COMMIT must be a full Git commit or local"
+    }
     val benchmarkMinified = when (providers.environmentVariable("MUON_BENCHMARK_MINIFIED").getOrElse("false")) {
         "true" -> true
         "false" -> false
         else -> throw GradleException("MUON_BENCHMARK_MINIFIED must be true or false")
     }
     buildFeatures { buildConfig = true }
-    defaultConfig { buildConfigField("boolean", "BENCHMARK_MINIFIED", benchmarkMinified.toString()) }
+    defaultConfig {
+        buildConfigField("boolean", "BENCHMARK_MINIFIED", benchmarkMinified.toString())
+        buildConfigField("String", "BENCHMARK_COMMIT", "\"$benchmarkCommit\"")
+        manifestPlaceholders["muonBenchmarkCommit"] = "git:$benchmarkCommit"
+    }
     // The helper must update across recording/measurement builds, like its Benchmark target.
     // A runner-generated default key changes identity on every CI run.
     signingConfigs.getByName("debug") {

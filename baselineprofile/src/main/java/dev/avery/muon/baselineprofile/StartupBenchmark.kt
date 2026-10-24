@@ -43,6 +43,7 @@ class StartupBenchmark {
         }
         val packages = instrumentation.context.packageManager
         val app = packages.getApplicationInfo(MEASUREMENT_TARGET, PackageManager.GET_META_DATA)
+        checkBenchmarkIdentity(packages, app)
         check(app.targetSdkVersion >= 37 && app.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0 &&
             app.metaData?.getString("dev.avery.muon.benchmark.mode") == "measurement") {
             "The target must be the matching API37+, non-debuggable, minified measurement APK"
