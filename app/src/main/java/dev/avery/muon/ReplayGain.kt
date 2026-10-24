@@ -33,7 +33,7 @@ internal fun parseGainDb(text: String?): Float? =
         ?.takeIf { it.isFinite() && it in -GAIN_LIMIT_DB..GAIN_LIMIT_DB }
 
 /**
- * The track gain from a song's tags, normalized to upper-case keys by the metadata adapter.
+ * The track gain from a song's tags, keyed in upper case (Media3 does this for Vorbis comments).
  * REPLAYGAIN_TRACK_GAIN wins; an Opus R128_TRACK_GAIN (Q7.8, relative to -23 LUFS) is moved to
  * ReplayGain's -18 LUFS reference by adding 5 dB.
  */
@@ -51,8 +51,8 @@ internal fun trackLoudness(metadata: Metadata?): TrackLoudness? {
     val tags = buildMap<String, String> {
         for (i in 0 until metadata.length()) when (val entry = metadata.get(i)) {
             is VorbisComment -> {
-                // Xiph keys are case-insensitive; Media3 preserves their original spelling.
-                val key = entry.key.uppercase(Locale.ROOT)
+                // Media3 already normalizes Xiph keys to ASCII upper case.
+                val key = entry.key
                 if (key == "REPLAYGAIN_TRACK_GAIN" || key == "REPLAYGAIN_TRACK_PEAK" || key == "R128_TRACK_GAIN")
                     put(key, entry.value)
             }
