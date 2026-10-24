@@ -29,6 +29,10 @@ Do not reopen a general audit for this release. A confirmed security/privacy/dat
 
 Latest publication/integration/cleanup receipts: [release checkpoint](handoffs/2026-10-23-stable-020-release.md). The original audit/design umbrella is closed; retained maintenance issues remain open.
 
+## M3E RC preparation — 2026-10-24
+
+The user reports all [focused M3E UAT](handoffs/2026-10-24-m3e-focused-acceptance.md) passed and requests an RC for the next Stable. Accepted combined source: `209247be9634cd60145525ed15a98af46b5f47fc` / Diagnostic .1415, containing #674 and #675. Integrate without app changes, produce the signed non-Diagnostic candidate, and prepare reviewed promotion policy/integration. Distribute the RC through existing Canary artifacts; no new RC channel/tag or Stable publication is implied. #671 has not recurred and stays open/unresolved as a non-blocking follow-up. #646, #83 and all other recorded deferrals stay outside this finite RC gate. Do not resume maintenance drafts as a prerequisite.
+
 ## Next cycle
 
 The released baseline is integrated into M3E. The user now considers its design mature; audit candidate `1ba260fb` and affected shared contracts against v0.2.0 using the [finite M3E delta gates](audits/2026-10-24-m3e-delta.md). #674/#675 prepare diagnostics and focused lifecycle fixes; #671 remains unexplained. No wholesale re-audit, numerical test-reduction gate, promotion-policy bypass or new Stable publication is implied. Current Stable keeps its pinned dependencies.
