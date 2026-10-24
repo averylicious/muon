@@ -405,7 +405,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
     }
     private var retainedSavedMoveCleanup:Any?=null
     /** Renewed, exact Pending recovery; no automatic replay or generic Delete delegation. Actual
-     * target bytes/metadata/row/cover are revalidated before each source tree mutation. */
+     * target bytes/metadata/row/cover are revalidated before each source tree mutation.
+     * checkpoint is only a cancellation/availability probe, not content I/O or a shelf writer. */
     internal fun completeCoveredSavedMove(destination:OwnedPartitionShelf,expected:PartitionSavedMoveRecord,
         explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
         unclaimedElsewhere:(String)->Boolean,checkpoint:()->Unit={}):OfflineStore.SavedRemoval {
@@ -558,7 +559,9 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         }
     }
     /** Dispatch by the actual bounded save journal, not key-prefix guesses: an older original
-     * may already have a saved/ ID. Existing Pending/Complete intents require explicit recovery. */
+     * may already have a saved/ ID. Existing Pending/Complete intents require explicit recovery.
+     * checkpoint is only a cancellation/availability probe, not content I/O or a shelf writer; it
+     * runs inside digests whose journals are fully rechecked after it returns. */
     internal fun moveCompletedTo(destination:OwnedPartitionShelf,key:String,newKey:String,
         explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,unclaimedElsewhere:(String)->Boolean,
         checkpoint:()->Unit={},boundary:(PartitionOriginalMoveStage)->Unit={}):PartitionOriginalMoveResult {

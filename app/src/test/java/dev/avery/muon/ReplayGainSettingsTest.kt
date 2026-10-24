@@ -179,6 +179,16 @@ class ReplayGainSettingsTest {
         assertFalse(settings.enabled)
         assertEquals(1f, settings.volumeFor(saved), 0f)
         assertEquals(-24f, settings.playbackGainFor(saved, null)!!, 0f)
+        // On, the saved handle's exact hint sets the volume, not the library median: one more live
+        // gain moves the median of {-40, -24, -6, -2} to -15, which a live ID gets instead.
+        settings.remember(B, -2f)
+        settings.choose(true)
+        assertEquals(volumeForGain(-24f), settings.volumeFor(saved), 0.00001f)
+        assertEquals(volumeForGain(-15f), settings.volumeFor(A), 0.00001f)
+        assertNotEquals(settings.volumeFor(A), settings.volumeFor(saved), 0.00001f)
+        settings.choose(false)
+        assertEquals(1f, settings.volumeFor(saved), 0f)
+        assertEquals(-24f, settings.gainFor(saved)!!, 0f)
     }
 
     private fun audioGroup(tag: String?, selected: Boolean): Tracks.Group {
