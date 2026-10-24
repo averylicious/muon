@@ -7,13 +7,15 @@ import androidx.compose.runtime.setValue
 import androidx.media3.common.Metadata
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
+import androidx.media3.extractor.metadata.id3.TextInformationFrame
+import java.util.Locale
 import kotlin.math.log10
 import kotlin.math.pow
 
 /**
  * Volume normalization (#97): a song's ReplayGain track gain, as `rsgain` wrote it into the FLAC on the
- * desktop. Tauon streams the file's own bytes and copies the tags into its Opus downloads, so Media3
- * finds them in both as Vorbis comments.
+ * desktop. Tauon streams the file's own bytes and copies tags into its Opus downloads. Media3 exposes
+ * FLAC/Ogg/Opus comments as VorbisComment and MP3 ID3 user text as TextInformationFrame.
  *
  * The gain is applied as the player's own volume, never the phone's media volume, and that volume can
  * only lower a song. So a song is turned down by its gain, never up: a quiet song keeps its level
@@ -31,7 +33,7 @@ internal fun parseGainDb(text: String?): Float? =
         ?.takeIf { it.isFinite() && it in -GAIN_LIMIT_DB..GAIN_LIMIT_DB }
 
 /**
- * The track gain from a song's tags, keyed in upper case as Media3's [VorbisComment] keys are.
+ * The track gain from a song's tags, normalized to upper-case keys by the metadata adapter.
  * REPLAYGAIN_TRACK_GAIN wins; an Opus R128_TRACK_GAIN (Q7.8, relative to -23 LUFS) is moved to
  * ReplayGain's -18 LUFS reference by adding 5 dB.
  */
@@ -46,8 +48,23 @@ internal fun trackLoudness(tags: Map<String, String>): TrackLoudness? {
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun trackLoudness(metadata: Metadata?): TrackLoudness? {
     metadata ?: return null
-    val tags = (0 until metadata.length()).mapNotNull { metadata.get(it) as? VorbisComment }
-        .associate { it.key to it.value }
+    val tags = buildMap<String, String> {
+        for (i in 0 until metadata.length()) when (val entry = metadata.get(i)) {
+            is VorbisComment -> {
+                // Xiph keys are case-insensitive; Media3 preserves their original spelling.
+                val key = entry.key.uppercase(Locale.ROOT)
+                if (key == "REPLAYGAIN_TRACK_GAIN" || key == "REPLAYGAIN_TRACK_PEAK" || key == "R128_TRACK_GAIN")
+                    put(key, entry.value)
+            }
+            is TextInformationFrame -> if (entry.id == "TXXX") {
+                val key = entry.description?.uppercase(Locale.ROOT)
+                // rsgain ID3 uses scalar user-text values. Never interpret a title, album gain,
+                // ambiguous multi-value frame or an Opus-only R128 field as an MP3 track gain.
+                if (key == "REPLAYGAIN_TRACK_GAIN" || key == "REPLAYGAIN_TRACK_PEAK")
+                    entry.values.singleOrNull()?.let { put(key, it) }
+            }
+        }
+    }
     return trackLoudness(tags)
 }
 
