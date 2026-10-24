@@ -254,12 +254,16 @@ internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T
         else Spacer(Modifier.weight(1f))
         Box {
             // The chevron says this opens a menu; without it the order read as a label (#122).
-            TextButton(onClick = { open = true },
-                modifier = Modifier.semantics { contentDescription = "Order: ${label(current)}" }) {
+            val order: @Composable RowScope.() -> Unit = {
                 Text(label(current), maxLines = 1)
                 Spacer(Modifier.width(4.dp))
                 MuonIcon("collapse", Modifier.size(18.dp))
             }
+            val described = Modifier.semantics { contentDescription = "Order: ${label(current)}" }
+            // With Expressive motion, a tonal pill (the Refined mockup), so it reads as a control.
+            if (Expressive.motion) FilledTonalButton(onClick = { open = true }, modifier = described,
+                contentPadding = PaddingValues(start = 16.dp, end = 12.dp), content = order)
+            else TextButton(onClick = { open = true }, modifier = described, content = order)
             // The Canary experiment: Material 3 Expressive's menu, its choices in one rounded group,
             // the chosen one filled and marked with a check.
             if (Expressive.motion) DropdownMenuPopup(expanded = open, onDismissRequest = { open = false }) {
