@@ -1879,7 +1879,9 @@ class OwnedPartitionShelfTest {
     }
     @Test fun savedMoveIntentRejectsEitherJournalReplacementInsideNativeReadAndCanRetry() {
         for (destinationJournal in listOf(false,true)) {
-            val f=LocalPublicationFixture(); val back="saved/intent-journal-"+destinationJournal
+            // These scenarios share the provider's named index within this one test method.
+            val f=LocalPublicationFixture("saved/intent-source-"+destinationJournal)
+            val back="saved/intent-journal-"+destinationJournal
             val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
             val journal=File(if(destinationJournal) f.f.root else f.targetRoot,"partition-moves-v1.db")
             val held=File(folders.newFolder(),"held-move-journal"); var replaced=false; var changedInsideRead=false; var primary:Throwable?=null
