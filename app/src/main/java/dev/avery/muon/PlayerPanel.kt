@@ -1,5 +1,7 @@
 package dev.avery.muon
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -52,7 +54,7 @@ internal fun PlayerPanel(p: PlaybackUi, position: () -> Long, revision: () -> In
                 fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(item.mediaMetadata.artist?.toString().orEmpty(), color = colors.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            PanelProgress(position, p.duration)
+            PanelProgress(position, p.duration, p.playing)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically) {
                 Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
@@ -70,11 +72,18 @@ internal fun PlayerPanel(p: PlaybackUi, position: () -> Long, revision: () -> In
 }
 
 /** A thin bar with the times under it; only this reads the ticking position. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun PanelProgress(position: () -> Long, duration: Long) {
+private fun PanelProgress(position: () -> Long, duration: Long, playing: Boolean) {
     val at = position()
+    // The same wave as Now Playing's seek bar with Expressive motion: rolling while the song plays,
+    // eased flat when it pauses.
+    val wave by animateFloatAsState(if (playing) 1f else 0f, motionMedium(), label = "panel wave")
     Column {
-        LinearProgressIndicator(progress = { progressFraction(at, duration) },
+        if (Expressive.motion) LinearWavyProgressIndicator(progress = { progressFraction(at, duration) },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            trackColor = MaterialTheme.colorScheme.outlineVariant, stopSize = 0.dp, amplitude = { wave })
+        else LinearProgressIndicator(progress = { progressFraction(at, duration) },
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(4.dp),
             // The default track is the panel's own colour; a step darker keeps the bar readable.
             trackColor = MaterialTheme.colorScheme.outlineVariant, drawStopIndicator = {})
