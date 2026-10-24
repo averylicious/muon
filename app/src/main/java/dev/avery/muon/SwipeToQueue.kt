@@ -18,6 +18,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** Queues a song: next after the playing one, or at the end. Provided by the app, null where there is no player. */
@@ -84,6 +86,7 @@ internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifie
         motionShort(), label = "swipe action")
     val content2 = if (armed) colors.onPrimaryContainer else colors.onSurfaceVariant
     val scope = rememberCoroutineScope()
+    var returning by remember { mutableStateOf<Job?>(null) }
     val currentQueue by rememberUpdatedState(queue)
     val currentTrack by rememberUpdatedState(track)
     // Read in the Initial pass, before the row sees the touch: on the Pixel (Canary .348) a `draggable`
@@ -116,6 +119,10 @@ internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifie
                         dy += moved.y
                         if (abs(dy) > slop && abs(dy) >= abs(dx)) break
                         if (abs(dx) <= slop) continue
+                        // A new horizontal drag owns the row now. The prior return spring must
+                        // not keep writing offsets underneath this finger (animate is a separate job).
+                        returning?.cancel()
+                        returning = null
                         swiping = true
                         change.consume()
                         continue
@@ -128,7 +135,7 @@ internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifie
                         haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                 }
                 // However the swipe ended, lifted or interrupted, the row springs back.
-                if (swiping) scope.launch {
+                if (swiping) returning = scope.launch {
                     animate(offset, 0f, animationSpec = motionSpatial()) { value, _ -> offset = value }
                 }
             }
