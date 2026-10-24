@@ -8,11 +8,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -50,8 +55,7 @@ internal fun WavySeekTrack(state: SliderState, moving: Boolean, enabled: Boolean
     val phase = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(moving) {
         if (!moving) return@LaunchedEffect
-        val start = withFrameMillis { it } - (phase.floatValue * WAVE_PERIOD_MS).toLong()
-        while (true) withFrameMillis { now -> phase.floatValue = ((now - start) % WAVE_PERIOD_MS.toLong()) / WAVE_PERIOD_MS }
+        rollSeekWave(phase, currentCoroutineContext()[MotionDurationScale])
     }
     val path = remember { Path() }
     Canvas(Modifier.fillMaxWidth().height(20.dp)) {
@@ -81,6 +85,24 @@ internal fun WavySeekTrack(state: SliderState, moving: Boolean, enabled: Boolean
                 path.lineTo(x(at), mid + seekWaveY(at, wavelength, p, height))
             }
             drawPath(path, active, style = Stroke(width = stroke, cap = StrokeCap.Round))
+        }
+    }
+}
+
+/** The raw frame clock does not apply duration scaling. Suspend frame work while animations are
+ * disabled; a live scale change cancels the old loop, preserving phase on pause/resume. */
+internal suspend fun rollSeekWave(phase: MutableFloatState, scale: MotionDurationScale?) {
+    // Android's scale getter lazily starts its observer. Prime it outside snapshotFlow's read-only
+    // snapshot before observing subsequent changes to the scale's snapshot state.
+    val initial = scale?.scaleFactor ?: 1f
+    snapshotFlow { scale?.scaleFactor ?: initial }.collectLatest { factor ->
+        if (!factor.isFinite() || factor <= 0f) return@collectLatest
+        var previous: Long? = null
+        while (true) withFrameMillis { now ->
+            previous?.let { before ->
+                phase.floatValue = (phase.floatValue + (now - before).coerceAtLeast(0) / WAVE_PERIOD_MS / factor) % 1f
+            }
+            previous = now
         }
     }
 }
