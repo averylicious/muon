@@ -9,6 +9,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Saved-copy Delete refusal and reset compatibility | [#646](646.md) | [Issue #646](https://github.com/averylicious/muon/issues/646) |
 | First-song normalization and missing-tags reminder — implemented/accepted/released | [#645](645.md) | [Issue #645](https://github.com/averylicious/muon/issues/645) |
 | CI signing / Benchmark boundary — completed | [#640 / #685](685.md) | [Issue #640](https://github.com/averylicious/muon/issues/640) |
+| Initial connection cancellation — post-RC implementation | [#690](690.md) | [Issue #690](https://github.com/averylicious/muon/issues/690) |
 | Published Gradle advisories — main/experimental tool updates | [#693](693.md) | [Issue #693](https://github.com/averylicious/muon/issues/693) |
 | Selected-network discovery — post-RC acceptance | [#638](638.md) | [Issue #638](https://github.com/averylicious/muon/issues/638) |
 | Collection worker projections — post-RC acceptance | [#639](639.md) | [Issue #639](https://github.com/averylicious/muon/issues/639) |
