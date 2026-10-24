@@ -2,8 +2,8 @@
 
 A Baseline Profile lists the classes and methods Muon uses on its most common paths: startup, the
 library lists, an album and an artist page, and Now Playing. Android compiles those ahead of time
-when the app is installed, instead of interpreting them on first use, which makes launch and first
-scrolls smoother. Muon ships it in `app/src/main/baseline-prof.txt`. AGP packages it into every
+when its shipped profile is installed, reducing interpretation on first use. Whether this improves
+Muon startup or scrolling still needs matched measurements. Muon ships it in `app/src/main/baseline-prof.txt`. AGP packages it into every
 build, R8 rewrites it for the release build, and `androidx.profileinstaller` installs it on phones
 updated outside Play, such as through Obtainium.
 
@@ -35,7 +35,8 @@ and reports the original failure. A failed run must not replace the shipped prof
 The profile is recorded on a real phone, against the user's real Tauon library, and re-recorded when
 those paths change a lot. Recording never touches Canary or Stable.
 
-1. Run the **Baseline Profile tools** workflow (Actions → Run workflow). It also runs on pushes that
+1. Run the **Baseline Profile tools** workflow (Actions → Run workflow), leaving **measurement** off.
+   Check `Benchmark minified: false` in `BUILD.txt`. It also runs on pushes that
    change `baselineprofile/`. It uploads `baseline-profile-tools-<sha>` with two debug-signed APKs:
    - `app-benchmark.apk`: **Muon Benchmark** (`dev.avery.muon.benchmark`), Stable's code, unminified and profileable, in its own package;
    - `baselineprofile-benchmark.apk`: the generator (`dev.avery.muon.baselineprofile`), the journeys in `BaselineProfileGenerator.kt`.
@@ -61,3 +62,49 @@ those paths change a lot. Recording never touches Canary or Stable.
 4. Restore the volume, whether or not the run passed, then uninstall both tools:
    `adb uninstall dev.avery.muon.benchmark` and `adb uninstall dev.avery.muon.baselineprofile`.
    These are the only packages ever uninstalled; Canary and Stable are never touched.
+
+
+## Matched first-frame experiment
+
+This is a prepared experiment, not a measured speedup. It compares the **same APK** with
+`CompilationMode.None()` and `Partial(BaselineProfileMode.Require, warmupIterations = 0)` using
+`StartupTimingMetric`, cold process starts and ten iterations each. A missing shipped profile fails
+the required-profile mode. Both modes still use Android's compiled framework code.
+
+The controlled journey is fresh Connect-screen **first frame**, on API37+ with Benchmark's LAN
+permission denied. It excludes changing server responses/discovery and does not measure a loaded
+library, time to usable playback, scrolling or total app benefit. Benchmark storage opt-in stays
+disabled. Filesystem/OS caches are not flushed; document that state and counterbalance run order.
+No user Stable/Canary package or phone-wide network setting is changed.
+
+1. Obtain current authorization for device testing and for clearing the disposable **Muon Benchmark**
+   app's data. This deletes its connection/test downloads, not Stable/Canary data. Never target the
+   user's frozen RC. The instrumentation requires an explicit reset argument and has a fixed package.
+2. Dispatch **Baseline Profile tools** with **measurement** on. Download its two APKs together and
+   verify their checksums, commit and `Benchmark minified: true` in `BUILD.txt`. This build keeps the
+   existing Benchmark package, uses release minification/resource shrinking and is non-debuggable/
+   profileable. It replaces only an existing Benchmark install. Recording and measurement helpers
+   reject the opposite target mode. Keep one pair of APKs for the entire A/B comparison.
+3. Install that pair on a physical API37+ phone in its active owner user (work/secondary users are refused). Keep device/API, battery/charging, thermals, display
+   settings and background load controlled and recorded; use an idle phone. Do not suppress benchmark
+   configuration errors to obtain numbers. Run only this class, not the whole instrumentation APK:
+   ```bash
+   adb shell am instrument -w -e class dev.avery.muon.baselineprofile.StartupBenchmark \
+       -e muonAllowBenchmarkDataReset true \
+       dev.avery.muon.baselineprofile/androidx.test.runner.AndroidJUnitRunner
+   ```
+   Each test clears Benchmark data **before** the compilation mode is applied, denies only its LAN
+   permission, checks the Connect destination and stops only Benchmark afterward. No audio plays.
+   Do not grant its LAN permission or seed a library during this first-frame experiment.
+4. Repeat batches in both orders (select `StartupBenchmark#coldStartupWithRequiredShippedProfile`
+   and `StartupBenchmark#coldStartupWithoutAheadOfTimeCompilation` individually when counterbalancing).
+   Keep the APK hash unchanged. Review the generated JSON/trace results, individual samples,
+   medians/distributions and thermal warnings. Retain raw local results; inspect traces for private
+   host/device information before sharing. Neutral or negative results are valid.
+5. Keep results separate from recorder traversal and later seeded-library/frame experiments. Do not
+   replace `baseline-prof.txt` with measurement output. To record later, install recording-mode tools
+   and reconnect Benchmark; its previous setup was deliberately cleared. Remove only the two tool
+   packages after authorized testing if no longer needed.
+
+CI compilation and APK inspection do not prove profile application or runtime benefit. See the
+[maintained #83 state](audits/issues/83.md) for current heads and pending physical acceptance.

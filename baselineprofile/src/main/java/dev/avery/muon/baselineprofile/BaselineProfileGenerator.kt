@@ -46,6 +46,12 @@ class BaselineProfileGenerator {
     private val device: UiDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
 
     @Test fun generate() {
+        check(!BuildConfig.BENCHMARK_MINIFIED) { "Use recording-mode tools to generate source profile rules" }
+        val app = InstrumentationRegistry.getInstrumentation().context.packageManager
+            .getApplicationInfo(TARGET, PackageManager.GET_META_DATA)
+        check(app.metaData?.getString("dev.avery.muon.benchmark.mode") == "recording") {
+            "Install the matching unminified recording target before generating a profile"
+        }
         grantLocalNetwork()
         rule.collect(packageName = TARGET, includeInStartupProfile = true) {
             pressHome()

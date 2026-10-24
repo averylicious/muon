@@ -121,14 +121,38 @@ class BenchmarkGateWorkflowTest(unittest.TestCase):
 
     def test_optional_triggers_and_read_only_permissions_are_unchanged(self):
         triggers = WORKFLOW.split('\non:', 1)[1].split('\npermissions:', 1)[0]
-        self.assertEqual(['baselineprofile/**', '.github/workflows/baseline-profile.yml',
+        self.assertEqual(['baselineprofile/**', 'app/src/benchmark/**', 'app/build.gradle.kts', '.github/workflows/baseline-profile.yml',
                           'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py',
                           'tools/isolate_java_toolcache.py', 'tools/isolate_gradle_distribution.py',
                           'tools/test_ci_distribution.py', 'tools/verify_benchmark_gate_tests.py',
                           'tools/test_ci_benchmark_gate.py'], re.findall(r"'([^']+)'", triggers))
-        self.assertIn('  workflow_dispatch:\n  push:\n', triggers)
+        self.assertIn('  workflow_dispatch:\n    inputs:\n      measurement:\n', triggers)
+        self.assertIn('        type: boolean\n        default: false\n  push:\n', triggers)
         self.assertEqual('contents: read', WORKFLOW.split('\npermissions:', 1)[1].split('\njobs:', 1)[0].strip())
 
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BenchmarkModeBoundaryTest(unittest.TestCase):
+    def test_manual_measurement_keeps_recording_default_and_never_changes_release_identity(self):
+        self.assertIn("MUON_BENCHMARK_MINIFIED: ${{ github.event_name == 'workflow_dispatch' && inputs.measurement && 'true' || 'false' }}", WORKFLOW)
+        self.assertIn('Benchmark minified: %s', WORKFLOW)
+        app = (ROOT / 'app/build.gradle.kts').read_text()
+        ordinary, target = app.split('        create("benchmark") {', 1)
+        self.assertNotIn('isMinifyEnabled = benchmarkMinified', ordinary)
+        self.assertIn('isMinifyEnabled = benchmarkMinified', target)
+        self.assertIn('isShrinkResources = benchmarkMinified', target)
+        self.assertIn('applicationIdSuffix = ".benchmark"', target)
+        self.assertIn('isDebuggable = false', ordinary)
+        for source in (app, (ROOT / 'baselineprofile/build.gradle.kts').read_text()):
+            self.assertIn('environmentVariable("MUON_BENCHMARK_MINIFIED").getOrElse("false")', source)
+            self.assertIn('else -> throw GradleException("MUON_BENCHMARK_MINIFIED must be true or false")', source)
+        harness = (ROOT / 'baselineprofile/src/main/java/dev/avery/muon/baselineprofile/StartupBenchmark.kt').read_text()
+        # A wrong/default helper cannot clear data, and no user-controlled package enters shell text.
+        self.assertLess(harness.index('check(BuildConfig.BENCHMARK_MINIFIED)'), harness.index('pm clear'))
+        self.assertLess(harness.index('muonAllowBenchmarkDataReset'), harness.index('pm clear'))
+        self.assertIn('private const val MEASUREMENT_TARGET = "dev.avery.muon.benchmark"', harness)
+        self.assertNotIn('dev.avery.muon.release', harness)
+        self.assertIn('BaselineProfileMode.Require, warmupIterations = 0', harness)

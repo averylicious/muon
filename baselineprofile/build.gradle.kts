@@ -17,6 +17,13 @@ android {
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    val benchmarkMinified = when (providers.environmentVariable("MUON_BENCHMARK_MINIFIED").getOrElse("false")) {
+        "true" -> true
+        "false" -> false
+        else -> throw GradleException("MUON_BENCHMARK_MINIFIED must be true or false")
+    }
+    buildFeatures { buildConfig = true }
+    defaultConfig { buildConfigField("boolean", "BENCHMARK_MINIFIED", benchmarkMinified.toString()) }
     targetProjectPath = ":app"
     // The test drives another app, so it instruments itself rather than the target.
     experimentalProperties["android.experimental.self-instrumenting"] = true

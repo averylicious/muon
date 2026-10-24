@@ -6,8 +6,13 @@ name: Baseline Profile tools
 # generator itself changes.
 on:
   workflow_dispatch:
+    inputs:
+      measurement:
+        description: Build minified tools for matched startup measurement instead of profile recording
+        type: boolean
+        default: false
   push:
-    paths: ['baselineprofile/**', '.github/workflows/baseline-profile.yml', 'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py', 'tools/isolate_java_toolcache.py', 'tools/isolate_gradle_distribution.py', 'tools/test_ci_distribution.py', 'tools/verify_benchmark_gate_tests.py', 'tools/test_ci_benchmark_gate.py']
+    paths: ['baselineprofile/**', 'app/src/benchmark/**', 'app/build.gradle.kts', '.github/workflows/baseline-profile.yml', 'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py', 'tools/isolate_java_toolcache.py', 'tools/isolate_gradle_distribution.py', 'tools/test_ci_distribution.py', 'tools/verify_benchmark_gate_tests.py', 'tools/test_ci_benchmark_gate.py']
 
 permissions:
   contents: read
@@ -17,6 +22,9 @@ jobs:
     name: Build benchmark and generator APKs
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      # Push builds stay recording-mode; only a manual dispatch can request the minified target.
+      MUON_BENCHMARK_MINIFIED: ${{ github.event_name == 'workflow_dispatch' && inputs.measurement && 'true' || 'false' }}
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -85,7 +93,7 @@ jobs:
           cp app/build/outputs/apk/benchmark/app-benchmark.apk out/
           cp baselineprofile/build/outputs/apk/benchmark/baselineprofile-benchmark.apk out/
           (cd out && sha256sum *.apk > SHA256SUMS)
-          printf 'Commit: %s\nRun: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" > out/BUILD.txt
+          printf 'Commit: %s\nRun: %s\nBenchmark minified: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_BENCHMARK_MINIFIED" > out/BUILD.txt
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
