@@ -71,7 +71,7 @@ This is a prepared experiment, not a measured speedup. It compares the **same AP
 `StartupTimingMetric`, cold process starts and ten iterations each. A missing shipped profile fails
 the required-profile mode. Both modes still use Android's compiled framework code.
 
-The controlled journey is fresh Connect-screen **first frame**, on API37+ with Benchmark's LAN
+The controlled journey is fresh Connect-screen **first frame**, on API37+ with an API37+ target and Benchmark's LAN
 permission denied. It excludes changing server responses/discovery and does not measure a loaded
 library, time to usable playback, scrolling or total app benefit. Benchmark storage opt-in stays
 disabled. Filesystem/OS caches are not flushed; document that state and counterbalance run order.

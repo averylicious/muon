@@ -31,6 +31,11 @@ def verify_tool_manifest(xml, helper, measurement):
                 or instrumentation[0].get(ANDROID + 'name') != 'androidx.test.runner.AndroidJUnitRunner'):
             raise ValueError('Helper must instrument itself, never Stable or Canary')
     else:
+        if measurement:
+            sdk = root.find('uses-sdk')
+            target = sdk.get(ANDROID + 'targetSdkVersion') if sdk is not None else None
+            if int(target or '0') < 37:
+                raise ValueError('Measurement needs target API37+ for denied LAN permission to control discovery')
         verify_manifest(xml, TARGET)
         profiles = app.findall('profileable')
         if len(profiles) != 1 or profiles[0].get(ANDROID + 'shell') != 'true' or profiles[0].get(ANDROID + 'enabled', 'true') != 'true':

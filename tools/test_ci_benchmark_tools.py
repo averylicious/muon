@@ -13,6 +13,7 @@ OTHER = 'cd' * 32
 
 def manifest(helper=False, measurement=False):
     root = ET.Element('manifest', {'package': HELPER if helper else TARGET})
+    ET.SubElement(root, 'uses-sdk', {ANDROID + 'targetSdkVersion': '37'})
     app = ET.SubElement(root, 'application', {ANDROID + 'debuggable': 'true' if helper else 'false'})
     if helper:
         ET.SubElement(root, 'instrumentation', {ANDROID + 'targetPackage': HELPER,
@@ -73,3 +74,18 @@ class BenchmarkToolIdentityTest(unittest.TestCase):
                 root = manifest(helper); change(root)
                 with self.assertRaises(ValueError):
                     verify_tool_manifest(xml(root), helper, False)
+
+
+    def test_measurement_refuses_legacy_or_missing_target_sdk_permission_semantics(self):
+        for value in ('36', 'invalid', None):
+            root = manifest(measurement=True)
+            sdk = root.find('uses-sdk')
+            if value is None:
+                root.remove(sdk)
+            else:
+                sdk.set(ANDROID + 'targetSdkVersion', value)
+            with self.subTest(target=value), self.assertRaises(ValueError):
+                verify_tool_manifest(xml(root), False, True)
+        root = manifest(measurement=True)
+        root.find('uses-sdk').set(ANDROID + 'targetSdkVersion', '38')
+        verify_tool_manifest(xml(root), False, True)
