@@ -43,6 +43,9 @@ class PlaybackSessionCallbackTest {
     }
 
     @Test fun realNotificationConnectionRestrictsThePlatformBridgeWhileTheUiKeepsQueueEdits() {
+        // Command availability is intersected with the actual player state. Supply a timeline,
+        // without prepare/play/network, before comparing transport and content-edit capabilities.
+        player.setMediaItems(listOf(item(1), item(2)))
         val context = RuntimeEnvironment.getApplication()
         val hints = Bundle().apply { putBoolean(MediaController.KEY_MEDIA_NOTIFICATION_CONTROLLER_FLAG, true) }
         fun connect(hints: Bundle): MediaController {
@@ -54,7 +57,10 @@ class PlaybackSessionCallbackTest {
                     check(System.nanoTime() < deadline) { "The real controller did not connect" }
                     Thread.sleep(1) // Yield to Media3's handler; not a latency assertion.
                 }
-                return future.get().also { connected += it }
+                return future.get().also {
+                    connected += it
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                }
             } finally { if (!future.isDone) future.cancel(false) }
         }
         val ui = connect(Bundle.EMPTY)
@@ -66,7 +72,8 @@ class PlaybackSessionCallbackTest {
             Player.COMMAND_SET_VOLUME, Player.COMMAND_SET_SPEED_AND_PITCH)) {
             assertFalse(notification.availableCommands.contains(command))
         }
-        assertTrue(notification.availableCommands.contains(Player.COMMAND_PLAY_PAUSE))
+        assertTrue("Notification lost play/pause on the seeded timeline",
+            notification.availableCommands.contains(Player.COMMAND_PLAY_PAUSE))
         val internal = MediaSession.ControllerInfo.createTestOnlyControllerInfo(context.packageName,
             Process.myPid(), Process.myUid(), 0, 0, true, hints, true)
         assertTrue(session.isMediaNotificationController(internal))
