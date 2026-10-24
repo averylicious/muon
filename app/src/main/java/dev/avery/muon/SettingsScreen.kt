@@ -457,23 +457,30 @@ private fun ExpressiveSettingsRow(index: Int, count: Int, enabled: Boolean,
     trailing: @Composable (() -> Unit)?, leading: @Composable (() -> Unit)?,
     onClick: (() -> Unit)?, toggled: Boolean?, onToggle: ((Boolean) -> Unit)?, selected: Boolean?) {
     val shapes = ListItemDefaults.segmentedShapes(index, count)
-    val rowColors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+    val ground = MaterialTheme.colorScheme.surfaceContainerHigh
+    // A disabled row keeps its ground, or it came apart from its group (Even out volume before a
+    // song has played, POCO .1394): Material's segmented default for it is transparent.
+    val rowColors = ListItemDefaults.segmentedColors(containerColor = ground, disabledContainerColor = ground)
     val wide = Modifier.fillMaxWidth()
+    // Centred however many lines the row has, as the Refined mockup's rows are: Material puts a
+    // three-line row's icon and trailing control at the top, so the cache row's icon sat higher than
+    // its Clear and than the icons of the rows around it.
+    val centred = Alignment.CenterVertically
     when {
         // A switch keeps its switch semantics: the plain click overload adds none of its own, where
         // the checked overload would announce a checkbox.
         toggled != null && onToggle != null -> SegmentedListItem(onClick = { onToggle(!toggled) }, shapes = shapes,
             modifier = wide.semantics { role = Role.Switch; toggleableState = ToggleableState(toggled) },
             enabled = enabled, leadingContent = leading, trailingContent = trailing,
-            supportingContent = supporting, colors = rowColors, content = headline)
+            supportingContent = supporting, colors = rowColors, verticalAlignment = centred, content = headline)
         selected != null && onClick != null -> SegmentedListItem(selected = selected, onClick = onClick,
             shapes = shapes, modifier = wide, enabled = enabled, leadingContent = leading, trailingContent = trailing,
-            supportingContent = supporting, colors = rowColors, content = headline)
+            supportingContent = supporting, colors = rowColors, verticalAlignment = centred, content = headline)
         onClick != null -> SegmentedListItem(onClick = onClick, shapes = shapes, modifier = wide, enabled = enabled,
             leadingContent = leading, trailingContent = trailing, supportingContent = supporting,
-            colors = rowColors, content = headline)
+            colors = rowColors, verticalAlignment = centred, content = headline)
         else -> SegmentedListItem(shapes = shapes, modifier = wide, enabled = enabled, leadingContent = leading,
-            trailingContent = trailing, supportingContent = supporting, colors = rowColors, content = headline)
+            trailingContent = trailing, supportingContent = supporting, colors = rowColors, verticalAlignment = centred, content = headline)
     }
 }
 
