@@ -49,6 +49,8 @@ This keeps the keys and release password out of the explicit unit tests and full
 
 Three artifacts are retained for 14 days: `app-debug-<commit>`, `app-release-<commit>`, and `reports-<commit>`. Test builds use distinct names for the Canary APK: `app-diagnostic-<commit>` or `app-timings-<commit>` (below). APK archives include SHA256SUMS and commit/run/version information. Reports include unit tests, lint, and the release R8 mapping. Copy artifacts you want to keep permanently before expiry. Action dependencies are pinned to verified commit SHAs, the build token has only `contents: read`; a separate publishing job receives `contents: write`, and checkout credentials are not persisted. Gradle caching is enabled. See [GitHub's artifact documentation](https://docs.github.com/en/actions/tutorials/store-and-share-data).
 
+The optional **Baseline Profile tools** workflow also runs two existing storage-gate tests in the actual Benchmark variant before restoring its debug signing key. An XML evidence check requires both named tests exactly once, with no skips/failures/errors. This verifies Benchmark’s compiled opt-in boundary; it does not run a phone journey or add tests to the ordinary app suite. Failure reports are retained for seven days.
+
 Real Tauon/device instrumentation remains a manual LAN test (`tools/device-proof.sh`); hosted GitHub runners cannot reach the user's desktop or Pixel. CI never opens a tunnel to that LAN.
 
 ## Which APK to install
