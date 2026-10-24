@@ -91,9 +91,9 @@ internal fun observePlaybackDiagnostics(context: Context, player: ExoPlayer): Au
     }
     val listener = object : AnalyticsListener {
         override fun onEvents(p: Player, events: AnalyticsListener.Events) {
-            if (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED,
-                    Player.EVENT_IS_LOADING_CHANGED, Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED,
-                    Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_PLAYER_ERROR)) report(PlaybackDiagnosticEvent.STATE)
+            if (events.containsAny(AnalyticsListener.EVENT_PLAYBACK_STATE_CHANGED, AnalyticsListener.EVENT_PLAY_WHEN_READY_CHANGED,
+                    AnalyticsListener.EVENT_IS_LOADING_CHANGED, AnalyticsListener.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED,
+                    AnalyticsListener.EVENT_MEDIA_ITEM_TRANSITION, AnalyticsListener.EVENT_PLAYER_ERROR)) report(PlaybackDiagnosticEvent.STATE)
         }
         override fun onLoadStarted(time: AnalyticsListener.EventTime, info: LoadEventInfo, data: MediaLoadData, retryCount: Int) =
             report(PlaybackDiagnosticEvent.LOAD_START, info, retryCount)
