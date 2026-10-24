@@ -74,7 +74,7 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
                 }
             }
             item(key = "songs-label", contentType = "label") { SectionHeading("Songs") }
-            itemsIndexed(artist.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { _, track ->
+            itemsIndexed(artist.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { index, track ->
                 // Every song here is theirs, so the line under it says only where it comes from; a guest
                 // appearance still names the others credited.
                 val credits = displayCredits(track.artist)
@@ -84,7 +84,7 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
                 }
                 TrackRow(track, endpoint, currentId == "${endpoint?.origin}/${track.id}", playing, ready,
                     subtitle = if (track.playable) subtitle else trackSubtitle(track.artist, track.album, false),
-                    actions = { actions(track) }) { play(track) }
+                    actions = { actions(track) }, place = groupPlace(index, artist.tracks.size)) { play(track) }
             }
         }
         // Items: Back 0, header 1, then Play and Shuffle at 2.

@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -15,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
@@ -52,9 +54,10 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
                 minLength = if (grabbable) SCROLLER_MIN_LENGTH else INDICATOR_MIN_LENGTH, bottomInset = under),
                 state = state, contentPadding = PaddingValues(bottom = 12.dp + under)) {
                 header?.invoke(this)
-                itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
+                itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { i, t ->
                     TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", playing, ready,
-                        Modifier.animateItem(placementSpec = motionSpatial()), actions = actions?.let { { it(t) } }) { play(t) }
+                        Modifier.animateItem(placementSpec = motionSpatial()), actions = actions?.let { { it(t) } },
+                        place = groupPlace(i, tracks.size)) { play(t) }
                 }
             }
             if (sections != null) Box(Modifier.matchParentSize().padding(bottom = under)) {
@@ -68,16 +71,21 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
 
 /**
  * One song: cover, title, a line under it, and length. The current song sits on a tonal surface with
- * the equalizer over its cover. [subtitle] defaults to the credits and album.
+ * the equalizer over its cover. [subtitle] defaults to the credits and album. With Expressive motion
+ * and a [place], the song is a row of its list's joined group (the Refined mockup), like On this device.
  */
 @Composable
 internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean, ready: Boolean,
     modifier: Modifier = Modifier, subtitle: String = trackSubtitle(t.artist, t.album, t.playable),
-    actions: (() -> Unit)? = null, play: () -> Unit) {
+    actions: (() -> Unit)? = null, place: GroupPlace? = null, play: () -> Unit) {
     if (Expressive.motion) {
-        // The item's own modifier (its placement animation) goes on the outermost layout, the swipe's.
-        SwipeToQueue(t, t.playable && ready, modifier) {
-            ExpressiveTrackRow(t, endpoint, current, playing, ready, Modifier, subtitle, actions, play)
+        val group = place?.let { groupShape(it, current) }
+        // The item's own modifier (its placement animation) goes on the outermost layout, the swipe's,
+        // and so does the gap above a joined row, so the swipe's action fills only the row itself.
+        val outer = if (place == null || place.startsGroup) modifier else modifier.padding(top = GROUP_GAP)
+        SwipeToQueue(t, t.playable && ready, outer, shape = group ?: RoundedCornerShape(16.dp),
+            inset = if (group != null) GROUP_INSET else 12.dp) {
+            ExpressiveTrackRow(t, endpoint, current, playing, ready, Modifier, subtitle, actions, group, play)
         }
         return
     }
@@ -149,38 +157,53 @@ private fun TrackCover(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolea
  */
 @Composable
 private fun ExpressiveTrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean,
-    ready: Boolean, modifier: Modifier, subtitle: String, actions: (() -> Unit)?, play: () -> Unit) {
+    ready: Boolean, modifier: Modifier, subtitle: String, actions: (() -> Unit)?, group: Shape?, play: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    val ground = if (current) colors.secondaryContainer else Color.Transparent
+    // A joined row has its own tonal ground, as On this device's rows do; a lone row stays clear.
+    val rest = if (group != null) colors.surfaceContainerLow else Color.Transparent
+    val ground by animateColorAsState(if (current) colors.secondaryContainer else rest, motionMedium(), label = "row ground")
     val ink = if (current) colors.onSecondaryContainer else colors.onSurface
     val quiet = if (current) colors.onSecondaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant
-    ListItem(onClick = play, enabled = t.playable && ready,
-        // A long press opens the song's actions (#46).
-        onLongClick = actions, onLongClickLabel = if (actions != null) "Song actions" else null,
-        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp)
-            .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
+    val rowModifier = modifier.fillMaxWidth().padding(horizontal = if (group != null) GROUP_INSET else 12.dp)
+        .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier)
+    val padding = PaddingValues(start = 12.dp, end = if (actions != null) 0.dp else 12.dp, top = 8.dp, bottom = 8.dp)
+    val leading: @Composable () -> Unit = { TrackCover(t, endpoint, current, playing) }
+    // An untagged file has nothing to say here, so the line is left out.
+    val supporting: (@Composable () -> Unit)? = if (subtitle.isEmpty()) null else {
+        { Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }
+    }
+    val trailing: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.End,
+                maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
+            actions?.let { SongMenuButton(t.title, t.artist, quiet, it) }
+        }
+    }
+    val title: @Composable () -> Unit = {
+        Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
+    }
+    // A long press opens the song's actions (#46).
+    val longLabel = if (actions != null) "Song actions" else null
+    if (group != null) SegmentedListItem(onClick = play, shapes = ListItemDefaults.shapes(shape = group), modifier = rowModifier,
+        enabled = t.playable && ready, onLongClick = actions, onLongClickLabel = longLabel,
+        colors = ListItemDefaults.segmentedColors(containerColor = ground, contentColor = ink,
+            supportingContentColor = quiet, trailingContentColor = quiet,
+            disabledContainerColor = ground, disabledContentColor = ink,
+            disabledSupportingContentColor = quiet, disabledTrailingContentColor = quiet,
+            disabledLeadingContentColor = ink),
+        contentPadding = padding, leadingContent = leading, supportingContent = supporting, trailingContent = trailing,
+        content = title)
+    else ListItem(onClick = play, enabled = t.playable && ready, onLongClick = actions, onLongClickLabel = longLabel,
+        modifier = rowModifier,
         shapes = ListItemDefaults.shapes(shape = RoundedCornerShape(16.dp)),
         colors = ListItemDefaults.colors(containerColor = ground, contentColor = ink,
             supportingContentColor = quiet, trailingContentColor = quiet,
             disabledContainerColor = ground, disabledContentColor = ink,
             disabledSupportingContentColor = quiet, disabledTrailingContentColor = quiet,
             disabledLeadingContentColor = ink),
-        contentPadding = PaddingValues(start = 12.dp, end = if (actions != null) 0.dp else 12.dp, top = 8.dp, bottom = 8.dp),
-        leadingContent = { TrackCover(t, endpoint, current, playing) },
-        // An untagged file has nothing to say here, so the line is left out.
-        supportingContent = if (subtitle.isEmpty()) null else {
-            { Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }
-        },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.End,
-                    maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
-                actions?.let { SongMenuButton(t.title, t.artist, quiet, it) }
-            }
-        }) {
-        Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
-    }
+        contentPadding = padding, leadingContent = leading, supportingContent = supporting, trailingContent = trailing,
+        content = title)
 }
 
 /**

@@ -2,7 +2,6 @@ package dev.avery.muon
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -197,19 +196,6 @@ private fun PreparingPill(preparing: Boolean, cancel: () -> Unit, modifier: Modi
 /** How long preparing must last before the pill shows, as the seek bar waits before showing buffering. */
 internal const val PREPARING_SHOWN_AFTER_MS = 300L
 
-/** Where a row sits in its section's group: the group's ends are round and its joins tight. */
-internal enum class GroupPlace { Only, First, Middle, Last }
-
-internal fun groupPlace(index: Int, size: Int): GroupPlace = when {
-    size <= 1 -> GroupPlace.Only
-    index == 0 -> GroupPlace.First
-    index == size - 1 -> GroupPlace.Last
-    else -> GroupPlace.Middle
-}
-
-private val GROUP_END = 22.dp
-private val GROUP_JOIN = 6.dp
-
 /**
  * One saved copy in its section's group: cover, title, artist and a status line, and a ⋮ at the far
  * right, centred however many lines the row has. The ⋮ and a long press open the same panel (the
@@ -225,15 +211,13 @@ private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, place:
     val artist = entry.artistLine()
     val status = entry.statusText(current)
     val playable = ready && entry.complete
-    fun corner(end: Boolean) = if (current || end) GROUP_END else GROUP_JOIN
-    val top by animateDpAsState(corner(place == GroupPlace.First || place == GroupPlace.Only), motionSpatial(), label = "row top")
-    val bottom by animateDpAsState(corner(place == GroupPlace.Last || place == GroupPlace.Only), motionSpatial(), label = "row bottom")
+    val shape = groupShape(place, current)
     val ground by animateColorAsState(if (current) colors.secondaryContainer else colors.surfaceContainerLow, motionMedium(), label = "row ground")
     val ink = if (current) colors.onSecondaryContainer else colors.onSurface
     val quiet = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant
-    Surface(shape = RoundedCornerShape(top, top, bottom, bottom), color = ground, contentColor = ink,
-        modifier = modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp,
-            top = if (place == GroupPlace.First || place == GroupPlace.Only) 0.dp else 2.dp)) {
+    Surface(shape = shape, color = ground, contentColor = ink,
+        modifier = modifier.fillMaxWidth().padding(start = GROUP_INSET, end = GROUP_INSET,
+            top = if (place.startsGroup) 0.dp else GROUP_GAP)) {
         Row(Modifier.combinedClickable(onClickLabel = if (playable) "Play" else "Song options", onClick = if (playable) play else open,
                 onLongClickLabel = "Song options", onLongClick = open)
             .heightIn(min = 72.dp).padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),

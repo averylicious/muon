@@ -33,6 +33,8 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -68,7 +70,8 @@ internal fun swipeQueueOffset(offset: Float, delta: Float, width: Float): Float 
  * the song cannot be played or there is no player.
  */
 @Composable
-internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(16.dp), inset: Dp = 12.dp, content: @Composable () -> Unit) {
     val queue = LocalQueueSong.current
     if (queue == null || !enabled) { Box(modifier) { content() }; return }
     var width by remember { mutableFloatStateOf(0f) }
@@ -131,7 +134,7 @@ internal fun SwipeToQueue(track: TauonTrack, enabled: Boolean, modifier: Modifie
             }
         }) {
         // Shown only while the row is moved, behind it, on the side it uncovers.
-        if (offset != 0f) Row(Modifier.matchParentSize().padding(horizontal = 12.dp).clip(RoundedCornerShape(16.dp))
+        if (offset != 0f) Row(Modifier.matchParentSize().padding(horizontal = inset).clip(shape)
             .background(ground).padding(horizontal = 20.dp),
             horizontalArrangement = if (next) Arrangement.Start else Arrangement.End,
             verticalAlignment = Alignment.CenterVertically) {
