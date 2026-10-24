@@ -8,6 +8,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Saved-card startup and Move latency — explicitly deferred post-release | [#401](401.md) | [Issue #401](https://github.com/averylicious/muon/issues/401) |
 | Saved-copy Delete refusal and reset compatibility | [#646](646.md) | [Issue #646](https://github.com/averylicious/muon/issues/646) |
 | First-song normalization and missing-tags reminder — implemented/accepted/released | [#645](645.md) | [Issue #645](https://github.com/averylicious/muon/issues/645) |
+| Selected-network discovery ownership — post-RC port / acceptance pending | [#638](638.md) | [Issue #638](https://github.com/averylicious/muon/issues/638) |
 | Measured Baseline Profile benefit — post-RC assessment / engineering next | [#83](83.md) | [Issue #83](https://github.com/averylicious/muon/issues/83) |
 | Refined M3E candidate / finite next-RC delta audit | [#661](661.md) | [Issue #661](https://github.com/averylicious/muon/issues/661) |
 | M3E predictive Back lifecycle | [#658](658.md) | [Issue #658](https://github.com/averylicious/muon/issues/658) |
