@@ -15,6 +15,7 @@ import androidx.media3.extractor.MpegAudioUtil
 import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.mp3.Mp3Extractor
 import java.io.EOFException
+import java.io.InterruptedIOException
 
 /** Initial ID3 prefix admission, not a whole-decoder/heap bound. Covers already have a4MiB limit. */
 internal const val STREAM_ID3_BYTES = 4 * 1024 * 1024
@@ -61,6 +62,8 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         input.resetPeekPosition()
         try {
             while (true) {
+                // Already-buffered tiny tags can otherwise loop without another interruptible read.
+                if (Thread.interrupted()) throw InterruptedIOException("Embedded information read cancelled")
                 try {
                     if (fresh) {
                         if (!input.peekFully(header, 0, header.size, true)) return

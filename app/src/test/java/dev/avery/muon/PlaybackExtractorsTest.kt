@@ -18,6 +18,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.IOException
+import java.io.InterruptedIOException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
@@ -28,8 +29,11 @@ class PlaybackExtractorsTest {
         var allocated = 0
         val observing = object : ForwardingExtractorInput(actual) {
             override fun peekFully(target: ByteArray, offset: Int, length: Int) {
-                allocated = target.size
-                throw IOException("Probe stopped before reading any tag body")
+                if (offset == 10 && length == declared) {
+                    allocated = target.size
+                    throw IOException("Probe stopped before reading any tag body")
+                }
+                super.peekFully(target, offset, length)
             }
         }
         assertThrows(IOException::class.java) { Id3Peeker().peekId3Data(observing, null, 128 * 1024) }
@@ -54,6 +58,18 @@ class PlaybackExtractorsTest {
             assertFalse(error.message.contains("dataType"))
             val malformed = id3Header(0).also { it[9] = 0x80.toByte() }
             assertTrue(assertThrows(StreamMetadataRefusal::class.java) { wrapped.sniff(input(malformed)) }.contentIsMalformed)
+        }
+        val marker = MarkerExtractor()
+        val before = Thread.interrupted()
+        try {
+            Thread.currentThread().interrupt()
+            assertThrows(InterruptedIOException::class.java) {
+                MetadataBoundedExtractor(marker).sniff(input(id3Header(0)))
+            }
+            assertEquals(0, marker.entered)
+        } finally {
+            Thread.interrupted()
+            if (before) Thread.currentThread().interrupt()
         }
     }
 
