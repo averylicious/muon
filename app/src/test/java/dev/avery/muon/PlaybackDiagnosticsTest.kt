@@ -28,7 +28,19 @@ class PlaybackDiagnosticsTest {
         assertTrue(playbackDiagnosticsEnabled("dev.avery.muon.diagnostic", true))
         val app = RuntimeEnvironment.getApplication()
         val player = ExoPlayer.Builder(app).build()
-        try { assertNull(observePlaybackDiagnostics(app, player)) } finally { player.release() }
+        try {
+            for (name in listOf("dev.avery.muon", "dev.avery.muon.release", "dev.avery.muon.benchmark")) {
+                // The hosting test APK may itself be Diagnostic. Explicitly simulate each ordinary
+                // package, even with its debug flag set, rather than assuming the fixture's identity.
+                val context = object : ContextWrapper(app) {
+                    override fun getPackageName() = name
+                    override fun getApplicationInfo() = ApplicationInfo(app.applicationInfo).apply {
+                        flags = flags or ApplicationInfo.FLAG_DEBUGGABLE
+                    }
+                }
+                assertNull(observePlaybackDiagnostics(context, player))
+            }
+        } finally { player.release() }
     }
 
     @Test fun exhaustedBudgetStopsSamplingAndSinkFailureDoesNotEscape() {
