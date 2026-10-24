@@ -150,6 +150,9 @@ internal object OfflineStore {
         val moveCommandEpoch = java.util.concurrent.atomic.AtomicLong()
         /** Only one bounded new-save preparation may wait on/run in the saver at a time. */
         val savePreparation = java.util.concurrent.atomic.AtomicBoolean()
+        // Manager callbacks coalesce before reaching the saver; a slow check owns its slot until exit.
+        val moveCompletionPending = java.util.concurrent.atomic.AtomicBoolean()
+        val moveCompletionRequested = java.util.concurrent.atomic.AtomicBoolean()
         /** At most one bounded new-save batch awaiting exact service delivery. */
         val saveDelivery = DownloadSaveDelivery()
         /** At most one bounded batch of checked removals awaiting exact service delivery (#253). */
@@ -504,17 +507,39 @@ internal object OfflineStore {
         } finally { bootstrap.shutdown() }
     }
 
-    /** Serial cleanup starts after both managers settle, not during another target Add/source Remove. */
+    /** Serial cleanup starts after both managers settle. Coalesce callbacks before enqueue, retaining
+     * one pending/running sweep and a retry bit, never one queued closure per receipt per callback.
+     */
     private fun finishReadyMoves(context: Context, store: Store) {
-        if (!store.shelves.all { quiet(it.manager) }) return
-        for (receipt in store.moves.ready()) saver.execute {
-            val completed = runCatching { receipt.to.manager.downloadIndex.getDownload(receipt.request.id) }.getOrNull()
-            if (completed == null || completed.state != Download.STATE_COMPLETED) {
-                store.moves.finish(receipt)
-            } else if (!completeMovedCopyNow(context, store, receipt.to, completed) &&
-                store.moves.find(receipt.to, receipt.request.id) == null) {
-                notice(context, "The original copy was kept: Muon couldn't confirm the move finished safely.")
+        if (!store.shelves.all { quiet(it.manager) } || store.moves.ready().isEmpty()) return
+        store.moveCompletionRequested.set(true)
+        if (!store.moveCompletionPending.compareAndSet(false, true)) return
+        val app = context.applicationContext
+        try {
+            saver.execute {
+                try {
+                    store.moveCompletionRequested.set(false)
+                    for (receipt in store.moves.ready()) {
+                        val completed = runCatching { receipt.to.manager.downloadIndex.getDownload(receipt.request.id) }.getOrNull()
+                        if (completed == null || completed.state != Download.STATE_COMPLETED) {
+                            store.moves.finish(receipt)
+                        } else if (!completeMovedCopyNow(app, store, receipt.to, completed) &&
+                            store.moves.find(receipt.to, receipt.request.id) == null) {
+                            notice(app, "The original copy was kept: Muon couldn't confirm the move finished safely.")
+                        }
+                    }
+                } finally {
+                    store.moveCompletionPending.set(false)
+                    // A completion can arrive while this worker exits. Re-enter on main to recheck
+                    // manager quiet/receipt state. A concurrent new owner still keeps a single slot.
+                    if (store.moveCompletionRequested.get()) Handler(Looper.getMainLooper()).post {
+                        if (current() === store) finishReadyMoves(app, store)
+                    }
+                }
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            store.moveCompletionPending.set(false) // The fixed saver rejects before accepting work.
+            notice(app, "Move check couldn't be queued. The original copy was kept; try again later.")
         }
     }
 
