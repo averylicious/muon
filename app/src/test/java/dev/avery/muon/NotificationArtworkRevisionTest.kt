@@ -41,7 +41,7 @@ class NotificationArtworkRevisionTest {
     @After fun clearIdentity() { ArtworkIdentities.publish(emptyMap()) }
 
     @Test fun realProviderKeepsAPlainUriStaleButReloadsForARevisionAndThenCachesIt() {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         val red = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
         val blue = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
         val requests = ArrayList<Uri>()
