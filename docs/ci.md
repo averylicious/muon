@@ -33,14 +33,21 @@ All three Java/Gradle workflows verify the downloaded Temurin archive's detached
 
 All three workflows also preserve restored `GRADLE_USER_HOME/wrapper/dists` outside wrapper lookup before SDK setup, Gradle execution and signing restoration. The pinned wrapper then performs a fresh installation with the checked-in distribution checksum; a cached extracted home and `.ok` marker would otherwise bypass that ZIP check. The hosted-Linux-only guard rejects changed wrapper properties, unexpected paths and incomplete moves. Wrapper upgrades must refresh its source-review receipt. Ordinary dependency caches remain; optional post-action cleanup is disabled to avoid an alternate Gradle-provisioning fallback. This adds a download and can retain more cached bytes. It does not authenticate plugins, dependencies or arbitrary job code. See the [source and actual-run evidence](audits/2026-10-05-gradle-distribution-refresh.md).
 
-The Ubuntu 24.04 runner installs JDK 17 and Android SDK 37.0 / Build Tools 37.0.0, validates the Gradle wrapper, and runs:
+The Ubuntu 24.04 runner installs JDK 17 and Android SDK 37.0 / Build Tools 37.0.0, validates the Gradle wrapper, and runs the explicit checks before any signing material is restored:
 
 ```sh
-./gradlew --no-daemon :app:assembleDebug :app:assembleRelease \
-  :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease
+./gradlew --no-daemon :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease
 ```
 
-Three artifacts are retained for 14 days: `app-debug-<commit>`, `app-release-<commit>`, and `reports-<commit>`. APK archives include SHA256SUMS and commit/run/version information. Reports include unit tests, lint, and the release R8 mapping. Copy artifacts you want to keep permanently before expiry. Action dependencies are pinned to verified commit SHAs, the build token has only `contents: read`; a separate publishing job receives `contents: write`, and checkout credentials are not persisted. Gradle caching is enabled. See [GitHub's artifact documentation](https://docs.github.com/en/actions/tutorials/store-and-share-data).
+Only then does it restore the keys and build the signed APKs:
+
+```sh
+./gradlew --no-daemon :app:assembleDebug :app:assembleRelease
+```
+
+This keeps the keys and release password out of the explicit unit tests and full lint, including test-time framework downloads and library lint checks. It reduces direct exposure; it is not an isolation boundary. Code that ran earlier on the same runner can still leave changes in the workspace or Gradle home, and the signed assemble still runs AGP's own implicit checks (such as release vital lint) and all build plugins with the keys present. It does not authenticate any dependency.
+
+Three artifacts are retained for 14 days: `app-debug-<commit>`, `app-release-<commit>`, and `reports-<commit>`. Test builds use distinct names for the Canary APK: `app-diagnostic-<commit>` or `app-timings-<commit>` (below). APK archives include SHA256SUMS and commit/run/version information. Reports include unit tests, lint, and the release R8 mapping. Copy artifacts you want to keep permanently before expiry. Action dependencies are pinned to verified commit SHAs, the build token has only `contents: read`; a separate publishing job receives `contents: write`, and checkout credentials are not persisted. Gradle caching is enabled. See [GitHub's artifact documentation](https://docs.github.com/en/actions/tutorials/store-and-share-data).
 
 Real Tauon/device instrumentation remains a manual LAN test (`tools/device-proof.sh`); hosted GitHub runners cannot reach the user's desktop or Pixel. CI never opens a tunnel to that LAN.
 
@@ -54,6 +61,8 @@ Real Tauon/device instrumentation remains a manual LAN test (`tools/device-proof
 Release is non-debuggable, minified and resource-shrunk. Canary (the debug build type) is also non-debuggable, so phone QA reflects real performance (#125); it is not minified. `tools/verify-apks.py` rejects a debuggable APK of either variant, except the opt-in diagnostic app below. CI uses the workflow run number as Android versionCode and `0.1.0-canary.<run>` as Canary versionName. Stable versionName comes from the `vMAJOR.MINOR.PATCH` tag (without `v`); untagged release artifacts use `0.1.0`. Update the base version in the workflow when beginning a new development series. Older artifacts can be rejected as downgrades; use a newer run. Local builds default to versionCode 1; set `MUON_VERSION_CODE` higher than the installed version if needed. Each app controls its own Android player; audio focus coordinates them.
 
 CI debug signing is stable, but the debug variant is intended for development. Release uses a separate permanent identity; its alias is `muon-release`. Public certificate fingerprints are in [signing-certificates.txt](signing-certificates.txt). Verify APKs with SDK `apksigner verify --verbose --print-certs` and compare these fingerprints.
+
+The packaged APK gate requires exactly one app signer and the pinned certificate in every applicable signature-scheme record from Build Tools 37.0.0. A source-stamp certificate cannot satisfy the app identity, and extra signers are refused even when the expected certificate is also present. No key rotation or signing identity change is enabled by this check.
 
 ### Diagnostic build (opt-in, never published)
 
@@ -77,7 +86,7 @@ Performance is **not representative** with debugging enabled (#125). Do not use 
 
 ## Temporary non-debuggable storage timings
 
-For the preserved Canary legacy fixture, manually dispatch **Android APKs** on an isolated non-main branch with `storage_timings=true` and `diagnostic_debug=false`. This keeps the ordinary Canary package, signing identity and data, and remains **non-debuggable**. It adds a `-timings` version suffix, an explicit **Storage timing test build** Settings notice and a mode line in `BUILD.txt`. Installing it does not opt in, migrate, import or delete data. Return with a newer ordinary build; never uninstall or bypass version-code/signing protection.
+For the preserved Canary legacy fixture, manually dispatch **Android APKs** on an isolated non-main branch with `storage_timings=true` and `diagnostic_debug=false`. This keeps the ordinary Canary package, signing identity and data, and remains **non-debuggable**. It adds a `-timings` version suffix, an explicit **Storage timing test build** Settings notice and a mode line in `BUILD.txt`. Its artifact is named `app-timings-<full SHA>`, not `app-debug-<full SHA>`, though the APK inside is still `app-debug.apk`; with `diagnostic_debug=true` too, the artifact is `app-diagnostic-<full SHA>`. Installing it does not opt in, migrate, import or delete data. Return with a newer ordinary build; never uninstall or bypass version-code/signing protection.
 
 The mode is off by default and rejected on main/tags or non-manual events. Selection happens before SDK/signing and is independently checked against the raw input before APK upload. Both the channel and publication job refuse timing builds. Release/benchmark keep timing disabled. No secrets, triggers or fork access are added. Explicit `diagnostic_debug=true` still selects the separate debugging app and its existing notice; timing does not enable debugging.
 
