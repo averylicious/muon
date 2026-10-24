@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
 import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE)
 class PlaybackExtractorsTest {
     @Test fun pinnedPeekerSearchLimitDoesNotBoundItsDeclaredTagAllocation() {
         val declared = 1024 * 1024 // Controlled1MiB probe; no large payload or OOM attempt.
