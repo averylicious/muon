@@ -7,7 +7,7 @@ name: Baseline Profile tools
 on:
   workflow_dispatch:
   push:
-    paths: ['baselineprofile/**', '.github/workflows/baseline-profile.yml', 'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py', 'tools/isolate_java_toolcache.py', 'tools/isolate_gradle_distribution.py', 'tools/test_ci_distribution.py']
+    paths: ['baselineprofile/**', '.github/workflows/baseline-profile.yml', 'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py', 'tools/isolate_java_toolcache.py', 'tools/isolate_gradle_distribution.py', 'tools/test_ci_distribution.py', 'tools/verify_benchmark_gate_tests.py', 'tools/test_ci_benchmark_gate.py']
 
 permissions:
   contents: read
@@ -52,6 +52,18 @@ jobs:
       - name: Install Android SDK packages
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
 
+      # These two existing tests assert the compiled benchmark gate and exercise its default.
+      # Coverage belongs to this optional workflow's runs; selector changes do not trigger it.
+      - name: Test benchmark storage gate before signing
+        run: >-
+          ./gradlew --no-daemon --console=plain :app:testBenchmarkUnitTest
+          --tests 'dev.avery.muon.PartitionStorePreparationTest.disabledSelectedStartupRefusesPartitionBeforeAnyProviderOrLegacyNativeFallback'
+          --tests 'dev.avery.muon.PartitionStorePreparationTest.compiledDefaultSelectorHonorsChannelWithoutLegacyNativeFallback'
+
+      # Gradle's filters form a union: one renamed method must not leave a green one-test run.
+      - name: Verify both benchmark gate tests passed
+        run: python3 tools/verify_benchmark_gate_tests.py app/build/test-results/testBenchmarkUnitTest
+
       - name: Restore the debug signing key
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.MUON_DEBUG_KEYSTORE_BASE64 }}
@@ -82,6 +94,17 @@ jobs:
           path: out/
           if-no-files-found: error
           compression-level: 0
+          retention-days: 7
+
+      - name: Upload benchmark gate test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: benchmark-gate-reports-${{ github.sha }}
+          path: |
+            app/build/test-results/testBenchmarkUnitTest/
+            app/build/reports/tests/testBenchmarkUnitTest/
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Remove signing files

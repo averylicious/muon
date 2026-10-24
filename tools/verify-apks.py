@@ -41,14 +41,49 @@ def check_badging(variant, badging, package, label, version_code, version_name, 
         raise SystemExit(f'{variant}: APK must {"" if debuggable else "not "}be debuggable')
 
 
+
+def check_signing(variant, signing, expected):
+    """Pin every applicable scheme signer; source stamps cannot satisfy the app identity.
+
+    Build Tools 37.0.0 prints the count only with --verbose. Single signers are unnumbered;
+    v3 scheme records may carry SDK ranges. Rotation/new signature formats need explicit review.
+    """
+    if not re.fullmatch(r'[0-9a-fA-F]{64}', expected):
+        raise SystemExit(f'{variant}: invalid pinned signing certificate')
+    counts = [line for line in signing.splitlines() if line.startswith('Number of signers:')]
+    if counts != ['Number of signers: 1']:
+        raise SystemExit(f'{variant}: expected exactly one APK signer')
+    labels = set()
+    for line in signing.splitlines():
+        if 'certificate SHA-256' not in line:
+            continue
+        # A source stamp authenticates distribution, not the app's update identity.
+        if line.startswith('Source Stamp Signer: certificate SHA-256 digest: '):
+            continue
+        match = re.fullmatch(
+            r'(V[12]|V3\.[012](?: Hybrid (?:Classical|PQC))?) Signer(?: #1)?:'
+            r'(?: \(minSdkVersion=([0-9]+)( \(dev release=true\))?, maxSdkVersion=([0-9]+)\))?'
+            r' certificate SHA-256 digest: ([0-9a-fA-F]{64})', line)
+        if not match or match[5].lower() != expected.lower():
+            raise SystemExit(f'{variant}: unexpected signing certificate or signer record')
+        # Unnumbered and #1 mean the same signer. Normalize ranges too, rather than treating
+        # alternate renderings as separate certificates. Distinct applicable SDK ranges may exist.
+        identity = (match[1], int(match[2]) if match[2] else None,
+                    bool(match[3]), int(match[4]) if match[4] else None)
+        if identity in labels:
+            raise SystemExit(f'{variant}: duplicate APK signer record')
+        labels.add(identity)
+    if not labels:
+        raise SystemExit(f'{variant}: missing APK signer certificate')
+
+
 def main(build_tools, env=os.environ):
     fingerprints = Path('docs/signing-certificates.txt').read_text().splitlines()
     for variant, package, label, suffix, debuggable in expectations(env):
         apk = Path(f'app/build/outputs/apk/{variant}/app-{variant}.apk')
         cert = next(line.split(': ', 1)[1] for line in fingerprints if line.lower().startswith(variant))
-        signing = subprocess.check_output([str(build_tools / 'apksigner'), 'verify', '--print-certs', str(apk)], text=True)
-        if f'certificate SHA-256 digest: {cert}' not in signing:
-            raise SystemExit(f'{variant}: unexpected signing certificate')
+        signing = subprocess.check_output([str(build_tools / 'apksigner'), 'verify', '--verbose', '--print-certs', str(apk)], text=True)
+        check_signing(variant, signing, cert)
         # UTF-8 explicitly: Canary's label, "Muon β", is not ASCII, whatever the runner's locale.
         badging = subprocess.check_output([str(build_tools / 'aapt'), 'dump', 'badging', str(apk)], encoding='utf-8')
         check_badging(variant, badging, package, label, env['MUON_VERSION_CODE'],
