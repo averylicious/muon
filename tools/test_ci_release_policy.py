@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import check_branch_policy as branches
 import check_release_policy as release
+from test_ci_branch_policy import PromotionGraph
 
 
 class ReleasePolicyTest(unittest.TestCase):
@@ -109,6 +110,55 @@ class ReleasePolicyTest(unittest.TestCase):
     def test_branches_skip_the_tag_only_guard(self):
         self.assertIsNone(release.check('branch', branches.EXPERIMENT, self.alpha))
         self.assertIsNone(release.check('branch', 'main', self.main))
+
+
+class PromotedReleasePolicyTest(PromotionGraph):
+    """Stable tags once the approved promotion is on main, on the branch tests' graph."""
+    def setUp(self):
+        super().setUp()  # Pins the release checker's anchors too: it is the same module.
+        self.promoted = self.promote()
+        self.land(self.promoted)
+
+    def test_historical_pre_alpha_main_tag_stays_valid(self):
+        self.git('tag', 'v1.2.3', self.base)
+        self.assertEqual(self.promoted, release.check('tag', 'v1.2.3', self.base))
+
+    def test_promoted_main_and_later_fixes_can_be_tagged(self):
+        self.git('tag', 'v1.2.3', self.promoted)
+        self.assertEqual(self.promoted, release.check('tag', 'v1.2.3', self.promoted))
+        self.git('checkout', '-qb', 'codex/fix', self.promoted)
+        fix = self.change('fix.txt', 'fix')
+        self.git('update-ref', 'refs/remotes/origin/main', fix)
+        self.git('tag', 'v1.2.4', fix)
+        self.assertEqual(fix, release.check('tag', 'v1.2.4', fix))
+
+    def test_unmerged_experiment_commits_cannot_be_tagged(self):
+        self.git('checkout', '-q', '--detach', self.git('rev-parse', branches.EXPERIMENT_REF))
+        newer = self.change('next-experiment.txt', 'unreviewed')
+        self.git('tag', 'v1.2.3', newer)
+        with self.assertRaisesRegex(ValueError, 'already included'):
+            release.check('tag', 'v1.2.3', newer)
+
+    def test_alpha_reached_without_the_approved_promotion_cannot_be_tagged(self):
+        self.git('checkout', '-qb', 'polluted', self.main)
+        self.git('merge', '-q', '--no-edit', self.alpha)
+        polluted = self.git('rev-parse', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', polluted)
+        self.git('tag', 'v1.2.3', polluted)
+        with self.assertRaisesRegex(ValueError, 'without its approved promotion'):
+            release.check('tag', 'v1.2.3', polluted)
+        # Pre-promotion experiment history is in main after the promotion, but is not a release.
+        self.git('update-ref', 'refs/remotes/origin/main', self.promoted)
+        self.git('tag', 'v1.2.4', self.alpha)
+        with self.assertRaisesRegex(ValueError, 'without its approved promotion'):
+            release.check('tag', 'v1.2.4', self.alpha)
+
+    def test_canonical_names_and_exact_tag_resolution_still_apply(self):
+        self.git('tag', 'v1.2.3', self.base)
+        with self.assertRaisesRegex(ValueError, 'no longer resolves'):
+            release.check('tag', 'v1.2.3', self.promoted)
+        with self.assertRaises(ValueError):
+            release.check('tag', 'v01.2.3', self.promoted)
 
 
 class ReleaseWorkflowPlacementTest(unittest.TestCase):
