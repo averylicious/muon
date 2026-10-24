@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   push:
-    paths: ['baselineprofile/**', 'app/src/benchmark/**', 'app/build.gradle.kts', '.github/workflows/baseline-profile.yml', 'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py', 'tools/isolate_java_toolcache.py', 'tools/isolate_gradle_distribution.py', 'tools/test_ci_distribution.py', 'tools/verify_benchmark_gate_tests.py', 'tools/test_ci_benchmark_gate.py']
+    paths: ['baselineprofile/**', 'app/src/benchmark/**', 'app/build.gradle.kts', '.github/workflows/baseline-profile.yml', 'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py', 'tools/isolate_java_toolcache.py', 'tools/isolate_gradle_distribution.py', 'tools/test_ci_distribution.py', 'tools/verify_benchmark_gate_tests.py', 'tools/test_ci_benchmark_gate.py', 'tools/verify_benchmark_tools.py', 'tools/test_ci_benchmark_tools.py']
 
 permissions:
   contents: read
@@ -94,6 +94,9 @@ jobs:
           cp baselineprofile/build/outputs/apk/benchmark/baselineprofile-benchmark.apk out/
           (cd out && sha256sum *.apk > SHA256SUMS)
           printf 'Commit: %s\nRun: %s\nBenchmark minified: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_BENCHMARK_MINIFIED" > out/BUILD.txt
+
+      - name: Verify tool identities and mode
+        run: python3 tools/verify_benchmark_tools.py out
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

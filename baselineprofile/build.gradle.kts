@@ -24,6 +24,12 @@ android {
     }
     buildFeatures { buildConfig = true }
     defaultConfig { buildConfigField("boolean", "BENCHMARK_MINIFIED", benchmarkMinified.toString()) }
+    // The helper must update across recording/measurement builds, like its Benchmark target.
+    // A runner-generated default key changes identity on every CI run.
+    signingConfigs.getByName("debug") {
+        storeFile = file(providers.environmentVariable("MUON_DEBUG_KEYSTORE")
+            .getOrElse(rootProject.file(".local/debug.keystore").path))
+    }
     targetProjectPath = ":app"
     // The test drives another app, so it instruments itself rather than the target.
     experimentalProperties["android.experimental.self-instrumenting"] = true

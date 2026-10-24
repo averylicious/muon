@@ -117,6 +117,9 @@ class BenchmarkGateWorkflowTest(unittest.TestCase):
         cleanup = next(block for block in STEPS if block.startswith('Remove signing files\n'))
         self.assertIn('if: always()', cleanup)
         self.assertIn('run: rm -rf "$RUNNER_TEMP/muon-signing"', cleanup)
+        verify = next(block for block in STEPS if block.startswith('Verify tool identities and mode\n'))
+        self.assertLess(STEPS.index(verify), next(i for i, block in enumerate(STEPS) if block.startswith('Upload\n')))
+        self.assertIn('run: python3 tools/verify_benchmark_tools.py out', verify)
         self.assertNotIn('continue-on-error', WORKFLOW)
 
     def test_optional_triggers_and_read_only_permissions_are_unchanged(self):
@@ -125,7 +128,8 @@ class BenchmarkGateWorkflowTest(unittest.TestCase):
                           'tools/verify_gradle_wrapper.py', 'tools/test_ci_wrapper.py',
                           'tools/isolate_java_toolcache.py', 'tools/isolate_gradle_distribution.py',
                           'tools/test_ci_distribution.py', 'tools/verify_benchmark_gate_tests.py',
-                          'tools/test_ci_benchmark_gate.py'], re.findall(r"'([^']+)'", triggers))
+                          'tools/test_ci_benchmark_gate.py', 'tools/verify_benchmark_tools.py',
+                          'tools/test_ci_benchmark_tools.py'], re.findall(r"'([^']+)'", triggers))
         self.assertIn('  workflow_dispatch:\n    inputs:\n      measurement:\n', triggers)
         self.assertIn('        type: boolean\n        default: false\n  push:\n', triggers)
         self.assertEqual('contents: read', WORKFLOW.split('\npermissions:', 1)[1].split('\njobs:', 1)[0].strip())

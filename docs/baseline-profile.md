@@ -108,3 +108,11 @@ No user Stable/Canary package or phone-wide network setting is changed.
 
 CI compilation and APK inspection do not prove profile application or runtime benefit. See the
 [maintained #83 state](audits/issues/83.md) for current heads and pending physical acceptance.
+
+
+Both tool APKs now use the repository's pinned debug certificate. Earlier helper builds used a
+runner-generated default key and may refuse an update from a new tool build. If that happens during
+authorized testing, preserve any needed exported results first and remove only the old
+`dev.avery.muon.baselineprofile` helper before installing the new pair. Never remove Stable/Canary
+or change their signing identities to work around a tool installation error. The workflow verifies
+both APK signatures, target mode, package identities and self-instrumentation before upload.
