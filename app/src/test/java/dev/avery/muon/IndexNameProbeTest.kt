@@ -126,6 +126,61 @@ class IndexNameProbeTest {
         assertEquals(kept.request, index.getDownload(kept.request.id)?.request)
     }
 
+    /** #646: the real legacy Delete admission. Ownership refusals stay NotOwned; only its own sole row passes. */
+    @Test fun legacyDeleteAdmitsOnlyTheExactSoleRowAndRefusesAliasMissingAndMismatchedKeys() {
+        val rows = listOf(row("saved/sole"), row("saved/shared"),
+            row("hidden/" + "x".repeat(1500), "saved/shared", Download.STATE_FAILED),
+            row("saved/rekeyed", "different-key"))
+        rows.forEach(index::putDownload)
+        assertNull(OfflineStore.legacyRemovalRefusal(index, ref("saved/sole")))
+        assertNull(OfflineStore.legacyRemovalRefusal(index, ref("saved/sole", shelf = SavedShelf.Card)))
+        for (refused in listOf(ref("saved/shared"), ref("saved/missing"), ref("saved/sole", "saved/other"),
+            ref("saved/rekeyed", "different-key"))) {
+            assertEquals(refused.handle, OfflineStore.SavedRemoval.NotOwned, OfflineStore.legacyRemovalRefusal(index, refused))
+        }
+        rows.forEach { assertEquals(it.request, index.getDownload(it.request.id)?.request) }
+    }
+
+    /** #646: a census that cannot be opened, read or closed proves nothing about sharing; refuse as Unavailable. */
+    @Test fun legacyDeleteReportsAnUnreadableIndexAsUnavailableAndChangesNothing() {
+        val kept = row("saved/kept")
+        index.putDownload(kept); index.putDownload(row("last"))
+        val unopenable = object : DownloadIndex {
+            override fun getDownload(id: String): Download? = index.getDownload(id)
+            override fun getDownloads(vararg states: Int): DownloadCursor = throw IOException("Index unreadable")
+        }
+        assertEquals(OfflineStore.SavedRemoval.Unavailable, OfflineStore.legacyRemovalRefusal(unopenable, ref(kept.request.id)))
+        val readCursor = index.getDownloads()
+        var reads = 0
+        val unreadable = object : DownloadIndex {
+            override fun getDownload(id: String): Download? = index.getDownload(id)
+            override fun getDownloads(vararg states: Int): DownloadCursor = object : DownloadCursor by readCursor {
+                override fun getDownload(): Download {
+                    if (++reads == 2) throw IOException("Later row unreadable")
+                    return readCursor.download
+                }
+            }
+        }
+        assertEquals(OfflineStore.SavedRemoval.Unavailable, OfflineStore.legacyRemovalRefusal(unreadable, ref(kept.request.id)))
+        assertTrue(readCursor.isClosed)
+        val closeCursor = index.getDownloads()
+        val unclosable = object : DownloadIndex {
+            override fun getDownload(id: String): Download? = index.getDownload(id)
+            override fun getDownloads(vararg states: Int): DownloadCursor = object : DownloadCursor by closeCursor {
+                override fun close() { closeCursor.close(); throw IOException("Close failed") }
+            }
+        }
+        assertEquals(OfflineStore.SavedRemoval.Unavailable, OfflineStore.legacyRemovalRefusal(unclosable, ref(kept.request.id)))
+        assertTrue(closeCursor.isClosed)
+        // Nothing was written: the row is intact, and the same copy is still admitted once the index reads.
+        assertEquals(kept.request, index.getDownload(kept.request.id)?.request)
+        assertEquals(Download.STATE_COMPLETED, index.getDownload(kept.request.id)?.state)
+        assertNull(OfflineStore.legacyRemovalRefusal(index, ref(kept.request.id)))
+    }
+
+    private fun ref(id: String, key: String = id, shelf: SavedShelf = SavedShelf.Phone) =
+        requireNotNull(SavedRef.download(shelf, id, key))
+
     private fun row(id: String, key: String? = id, state: Int = Download.STATE_COMPLETED,
         data: ByteArray = byteArrayOf(1, 0, 2)): Download {
         val request = DownloadRequest.Builder(id, Uri.parse("http://127.0.0.1:7814/api1/file/9"))
