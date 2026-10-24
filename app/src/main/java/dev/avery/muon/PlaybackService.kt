@@ -32,7 +32,7 @@ class PlaybackService : MediaSessionService() {
         val player = ExoPlayer.Builder(this)
             // A live song streams; a saved copy plays from its own shelf, cache-only (#112, #213).
             .setMediaSourceFactory(DefaultMediaSourceFactory(
-                OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client))))
+                OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client)), PlaybackExtractors()))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK).build()
