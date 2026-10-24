@@ -47,6 +47,16 @@ android {
         "false" -> false
         else -> throw GradleException("MUON_STORAGE_TIMINGS must be true or false")
     }
+    // Only the separate Benchmark package changes mode; never Canary or Stable.
+    val benchmarkCommit = providers.environmentVariable("MUON_BENCHMARK_COMMIT").getOrElse("local")
+    require(benchmarkCommit == "local" || benchmarkCommit.matches(Regex("[0-9a-f]{40}"))) {
+        "MUON_BENCHMARK_COMMIT must be a full Git commit or local"
+    }
+    val benchmarkMinified = when (providers.environmentVariable("MUON_BENCHMARK_MINIFIED").getOrElse("false")) {
+        "true" -> true
+        "false" -> false
+        else -> throw GradleException("MUON_BENCHMARK_MINIFIED must be true or false")
+    }
     buildTypes {
         getByName("debug") {
             // Explicit Canary preview; installing does not opt in or change saved storage.
@@ -86,8 +96,10 @@ android {
             buildConfigField("boolean", "PARTITION_OPT_IN_AVAILABLE", "false")
             applicationIdSuffix = ".benchmark"
             resValue("string", "app_name", "Muon Benchmark")
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = benchmarkMinified
+            isShrinkResources = benchmarkMinified
+            manifestPlaceholders["muonBenchmarkMode"] = if (benchmarkMinified) "measurement" else "recording"
+            manifestPlaceholders["muonBenchmarkCommit"] = "git:$benchmarkCommit"
             isProfileable = true
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")

@@ -12,10 +12,32 @@ android {
     compileSdkMinor = 0
     buildToolsVersion = "37.0.0"
     defaultConfig {
-        // Recording without root needs Android 13; the app's own floor is lower.
-        minSdk = 33
+        // API33 collection can reinstall/erase the manually seeded Benchmark app.
+        // Require API34+ for these tools; Stable/Canary keep their existing floor.
+        minSdk = 34
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    val benchmarkCommit = providers.environmentVariable("MUON_BENCHMARK_COMMIT").getOrElse("local")
+    require(benchmarkCommit == "local" || benchmarkCommit.matches(Regex("[0-9a-f]{40}"))) {
+        "MUON_BENCHMARK_COMMIT must be a full Git commit or local"
+    }
+    val benchmarkMinified = when (providers.environmentVariable("MUON_BENCHMARK_MINIFIED").getOrElse("false")) {
+        "true" -> true
+        "false" -> false
+        else -> throw GradleException("MUON_BENCHMARK_MINIFIED must be true or false")
+    }
+    buildFeatures { buildConfig = true }
+    defaultConfig {
+        buildConfigField("boolean", "BENCHMARK_MINIFIED", benchmarkMinified.toString())
+        buildConfigField("String", "BENCHMARK_COMMIT", "\"$benchmarkCommit\"")
+        manifestPlaceholders["muonBenchmarkCommit"] = "git:$benchmarkCommit"
+    }
+    // The helper must update across recording/measurement builds, like its Benchmark target.
+    // A runner-generated default key changes identity on every CI run.
+    signingConfigs.getByName("debug") {
+        storeFile = file(providers.environmentVariable("MUON_DEBUG_KEYSTORE")
+            .getOrElse(rootProject.file(".local/debug.keystore").path))
     }
     targetProjectPath = ":app"
     // The test drives another app, so it instruments itself rather than the target.
