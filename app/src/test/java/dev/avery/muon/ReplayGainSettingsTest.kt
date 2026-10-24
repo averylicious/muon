@@ -31,14 +31,14 @@ class ReplayGainSettingsTest {
     @Test fun freshSettingsAreOffAndUnknownTracksStayAtUnityUntilAGainExists() {
         val settings = ReplayGainSettings(prefs)
         assertFalse(settings.enabled)
-        assertNull(settings.effectiveGainFor(A))
-        assertFalse(loudnessPlayback(A, true, false, settings.effectiveGainFor(A), true).usable)
+        assertNull(settings.playbackGainFor(A, null))
+        assertFalse(loudnessPlayback(A, true, false, settings.playbackGainFor(A, null), true).usable)
         assertEquals(1f, settings.volumeFor(A), 0f)
         settings.choose(true)
         assertEquals(1f, settings.volumeFor(A), 0f)
         settings.remember(A, -6f)
-        assertEquals(-6f, settings.effectiveGainFor(B)!!, 0f)
-        assertTrue(loudnessPlayback(B, true, false, settings.effectiveGainFor(B), true).usable)
+        assertEquals(-6f, settings.playbackGainFor(B, null)!!, 0f)
+        assertTrue(loudnessPlayback(B, true, false, settings.playbackGainFor(B, null), true).usable)
         assertEquals(volumeForGain(-6f), settings.volumeFor(A), 0.00001f)
         assertEquals(volumeForGain(-6f), settings.volumeFor(null), 0.00001f)
     }
@@ -53,8 +53,10 @@ class ReplayGainSettingsTest {
         assertTrue(restored.enabled)
         assertEquals(-6f, restored.gainFor(A)!!, 0f)
         assertEquals(-18f, restored.gainFor(B)!!, 0f)
-        assertEquals(volumeForGain(-6f), restored.volumeFor(A), 0.00001f)
-        assertEquals(volumeForGain(-18f), restored.volumeFor(B), 0.00001f)
+        assertEquals(volumeForGain(-12f), restored.volumeFor(A), 0.00001f)
+        assertEquals(volumeForGain(-12f), restored.volumeFor(B), 0.00001f)
+        assertEquals(volumeForGain(-6f), restored.volumeFor(A, -6f), 0.00001f)
+        assertEquals(volumeForGain(-18f), restored.volumeFor(B, -18f), 0.00001f)
         assertEquals("kept", prefs.getString("unrelated", null))
     }
 
@@ -67,7 +69,8 @@ class ReplayGainSettingsTest {
         assertEquals(volumeForGain(-10f), settings.volumeFor("unknown"), 0.00001f)
         settings.remember(B, -22f)
         assertEquals(volumeForGain(-14f), settings.volumeFor("unknown"), 0.00001f)
-        assertEquals(volumeForGain(-6f), settings.volumeFor(A), 0.00001f)
+        assertEquals(volumeForGain(-14f), settings.volumeFor(A), 0.00001f)
+        assertEquals(volumeForGain(-6f), settings.volumeFor(A, -6f), 0.00001f)
     }
 
     @Test fun aSeparateSettingsOwnerReloadsTheToggleAndRetainsRememberedGain() {
@@ -139,6 +142,8 @@ class ReplayGainSettingsTest {
         val restored = ReplayGainSettings(prefs)
         // A later untagged song at A must not inherit that old song's -30 dB attenuation.
         assertEquals(-18f, restored.playbackGainFor(A, null)!!, 0f)
+        assertEquals(volumeForGain(-18f), restored.volumeFor(A), 0.00001f)
+        assertEquals(volumeForGain(-9f), restored.volumeFor(A, -9f), 0.00001f)
         assertEquals(-18f, restored.playbackGainFor("new-live-id", null)!!, 0f)
         val tagged = Tracks(listOf(audioGroup("-9 dB", true), audioGroup("-40 dB", false)))
         repeat(2) {

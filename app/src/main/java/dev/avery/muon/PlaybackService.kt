@@ -79,7 +79,7 @@ class PlaybackService : MediaSessionService() {
             val applied = found?.let(::appliedGainDb)
             if (id != null && applied != null) loudness.remember(id, applied)
             val gain = loudness.playbackGainFor(id, applied)
-            player.volume = if (loudness.enabled && gain != null) volumeForGain(gain) else 1f
+            player.volume = loudness.volumeFor(id, applied)
             val selectedAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
             // Empty/unselected tracks still mean loading, not evidence of missing tags.
             PlaybackLoudness.current = loudnessPlayback(id, id != null && selectedAudio,

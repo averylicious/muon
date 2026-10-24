@@ -129,8 +129,8 @@ internal class ReplayGainSettings(private val prefs: SharedPreferences) {
         prefs.getFloat(gainKey(mediaId), Float.NaN)
     } catch (_: ClassCastException) { Float.NaN }
 
-    /** Available even while the switch is off, so Settings can explain what enabling will do. */
-    fun effectiveGainFor(mediaId: String?): Float? = gainFor(mediaId) ?: typicalGain()
+    /** Stored exact hints are used only after playbackGainFor validates a saved-copy handle. */
+    private fun effectiveGainFor(mediaId: String?): Float? = gainFor(mediaId) ?: typicalGain()
 
     /**
      * Current selected tags take priority. Only a canonical saved-copy handle may reuse its exact
@@ -141,9 +141,9 @@ internal class ReplayGainSettings(private val prefs: SharedPreferences) {
     fun playbackGainFor(mediaId: String?, selectedGainDb: Float?): Float? =
         selectedGainDb ?: effectiveGainFor(mediaId?.takeIf { SavedRef.parse(it) != null })
 
-    /** The volume for a song: 1 when off; its own gain, or else the library's typical one, when on. */
-    fun volumeFor(mediaId: String?): Float =
-        if (!enabled) 1f else effectiveGainFor(mediaId)?.let(::volumeForGain) ?: 1f
+    /** Same selected-audio policy as the notice; disabled always returns unity. */
+    fun volumeFor(mediaId: String?, selectedGainDb: Float? = null): Float =
+        if (!enabled) 1f else playbackGainFor(mediaId, selectedGainDb)?.let(::volumeForGain) ?: 1f
 
     companion object {
         const val FILE = "loudness"
