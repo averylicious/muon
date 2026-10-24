@@ -13,7 +13,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE)
 class ReplayGainMetadataTest {
     @Test fun pinnedId3DecoderExposesRsgainScalarTagsForBothSupportedId3Versions() {
         for (version in listOf(3, 4)) {
