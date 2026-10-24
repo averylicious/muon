@@ -18,21 +18,24 @@ Updated2026-10-25. [Draft #701](https://github.com/averylicious/muon/pull/701), 
 | #705 | Initial ID3 allocation admission | `9f4cc1cac3fa3c60a31a714a9a783b5f0ef5876c` | [.1478](https://github.com/averylicious/muon/actions/runs/40121809786) |
 | #707 | Removal preparation admission | `d53a67cad01afa6a30a50c884d1d423bbb7f1af6` | [.1481](https://github.com/averylicious/muon/actions/runs/40123985161) |
 | #709 | Cross-service saved admission | `857e11e1b95a04a3d7c72d8e3521a792c72f9d70` | [.1480](https://github.com/averylicious/muon/actions/runs/40123460530) |
+| #710 | Coalesced legacy Move checks | `836acfe9ba0dbf6f5dc07c7bfdc8cc24785a3536` | [.1485](https://github.com/averylicious/muon/actions/runs/40126060599) |
 
-Excluded: #679 promotion policy, #683 Benchmark tools, #692 forward sync and all alpha/M3E commits. Every input's downloaded test/lint reports passed with zero test failures/errors/skips and zero lint errors. Separate input builds do not validate the combination.
+Excluded: #712 notification/platform grant candidate (still building), #679 promotion policy, #683 Benchmark tools, #692 forward sync and all alpha/M3E commits. Every input's downloaded test/lint reports passed with zero test failures/errors/skips and zero lint errors. Separate input builds do not validate the combination.
 
 ## Current integration / review
 
 The first eight-fix head `101508d12b9e45e41e9046a700141f8a17a32b54` passed [combined .1471](https://github.com/averylicious/muon/actions/runs/40118467225):1,851executions/variant, zero failures/errors/skips; lint0errors/65warnings. Its downloaded release APK passed source/BUILD/checksum, release signer, package/version/non-debuggable/export checks: SHA256 `ecdb1e1abdf228804bc58e10f93a78ec6796850c0b3fcc7ab41428f597b0d8ef`. It was not installed. That old build excludes the newer bulk notice and four new topics.
 
-The current integration app head `d699417e43567f92a01d417e21943cde972a2abe` includes all twelve inputs. New final-head combined CI is required. Source review preserved:
+The earlier twelve-input head `75eafaab2747464acfe052a5dbbd4da127245336` passed [combined .1484](https://github.com/averylicious/muon/actions/runs/40125355737):1,863executions/variant, zero failures/errors/skips, lint0errors/65warnings. Actual release APK source/BUILD/checksum, single pinned signer, package/version/non-debug/export/profile checks passed, SHA256 `b03e7a5312e7798087266c0cce0f52e8fba495bcded669353aec7c2d9d689272`; uninstalled.
+
+Current thirteen-input app integration `96ebeebcad799900c4b5411979934b2e256f7e89` adds #710. Its final PR head needs fresh combined CI. The new field conflict preserves all three purposes: new-save preparation, user-removal preparation and coalesced Move completion. #401 uses its newer maintained snapshot. Source review preserved:
 
 - Connect cancellation's `autoTried` and selected-network/stale-owner checks.
 - PlaybackService's current-selected-Tracks gain policy, revised notification artwork URI and new bounded extractor factory. ReplayGain keeps both current-audio identity rules and ID3 TXXX parsing.
 - Both OfflineStore conflict resolutions retain application-context capture plus pre-enqueue removal admission **and** phone/card-aware Unavailable/bulk-unreadable notices. Actual ownership/byte/move/delivery checks remain. The merged native fixtures exercise both paths together.
-- Issue-index conflicts retain all independent rows; no state file was discarded. Main's build/dependency files, manifest, workflows, `tools/`, signer pins and baseline profile are unchanged. No conflict markers/whitespace errors; main/all twelve inputs are ancestors and the alpha anchor is absent.
+- Issue-index conflicts retain all independent rows; no state file was discarded. Main's build/dependency files, manifest, workflows, `tools/`, signer pins and baseline profile are unchanged. No conflict markers/whitespace errors; main/all thirteen inputs are ancestors and the alpha anchor is absent.
 
-Local128CI-policy and9release-policy cases passed on the integration. These are lightweight checks, not an Android build. Existing test methods are retained. The new total is expected to be1,863executions/variant; only downloaded final-head XML can confirm that.
+Local128CI-policy and9release-policy cases passed on the integration. These are lightweight checks, not an Android build. Existing test methods are retained. The new total is expected to be1,864executions/variant; only downloaded final-head XML can confirm that.
 
 ## Remaining acceptance / limitations
 
@@ -40,4 +43,4 @@ Run final-head Android CI and inspect both variants/new cases. Later, with new p
 
 ## Attribution / ownership
 
-Allocated Claude Opus5.5 (`claude-opus-5-5`) / Claude Code / High explicitly selected integrated the original eight fixes and added the saved-hint median assertion/read-only Move callback KDoc at `40448dd01a4adec736473c4de298266fa2729849`; the runtime reports model, not effort telemetry. GPT-6 / Codex desktop checked that integration and owns the twelve-input refresh, new code/document conflict resolutions, report/APK verification and CI. Exact GPT-6 variant/effort not reported. Each topic retains its PR attribution; reviewing work partly authored by the reviewer is not independent review of every fix. Claude is idle. No phone action, alpha landing or Stable publication/tag.
+Allocated Claude Opus5.5 (`claude-opus-5-5`) / Claude Code / High explicitly selected integrated the original eight fixes and added the saved-hint median assertion/read-only Move callback KDoc at `40448dd01a4adec736473c4de298266fa2729849`; the runtime reports model, not effort telemetry. GPT-6 / Codex desktop checked that integration and owns the thirteen-input refresh, new code/document conflict resolutions, report/APK verification and CI. Exact GPT-6 variant/effort not reported. Each topic retains its PR attribution; reviewing work partly authored by the reviewer is not independent review of every fix. Claude is idle. No phone action, alpha landing or Stable publication/tag.
