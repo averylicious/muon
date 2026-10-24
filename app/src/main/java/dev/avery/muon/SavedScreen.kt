@@ -1,5 +1,10 @@
 package dev.avery.muon
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.Color
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -199,12 +204,26 @@ private fun PreparingPill(preparing: Boolean, cancel: () -> Unit, modifier: Modi
     }
 }
 
+/**
+ * Text whose numbers change in place: the new value rolls up as the old one rolls away, as the Refined
+ * mockup's counts do when a copy is deleted. Plain text with Expressive motion off.
+ */
+@Composable
+private fun RollingText(text: String, style: TextStyle, color: Color) {
+    if (!Expressive.motion) { Text(text, style = style, color = color); return }
+    AnimatedContent(text, transitionSpec = {
+        (slideInVertically(motionSpatial()) { it / 2 } + fadeIn(motionMedium()))
+            .togetherWith(slideOutVertically(motionSpatial()) { -it / 2 } + fadeOut(motionShort()))
+            .using(SizeTransform(clip = false))
+    }, label = "rolling text") { shown -> Text(shown, style = style, color = color) }
+}
+
 /** The page's large title and the summary under it: how many songs, how much space, and where. */
 @Composable
 private fun SavedTitle(summary: String) {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 14.dp)) {
         Text("On this device", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.semantics { heading() })
-        Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        RollingText(summary, MaterialTheme.typography.bodyMedium, MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -338,8 +357,8 @@ private fun CardLine(icon: String, title: String, body: String, extra: @Composab
             MuonIcon(icon, Modifier.size(18.dp))
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(body, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            RollingText(title, MaterialTheme.typography.titleSmall, colors.onSurface)
+            RollingText(body, MaterialTheme.typography.bodySmall, colors.onSurfaceVariant)
             extra()
         }
     }

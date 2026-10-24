@@ -1,6 +1,7 @@
 package dev.avery.muon
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -135,14 +136,17 @@ private fun PlayGroup(play: (() -> Unit)?, playNext: () -> Unit, addToQueue: () 
         var i = 0
         if (play != null) {
             val at = i++
-            Button(onClick = play, modifier = Modifier.weight(1f).heightIn(min = 72.dp), contentPadding = padding,
+            val playPress = remember { MutableInteractionSource() }
+            Button(onClick = play, interactionSource = playPress, modifier = pressedWeight(playPress, 1f).heightIn(min = 72.dp), contentPadding = padding,
                 shapes = ButtonDefaults.shapes(shape(at), pressed)) { Label("play", "Play") }
         }
         val next = i++
-        FilledTonalButton(onClick = playNext, modifier = Modifier.weight(1f).heightIn(min = 72.dp), contentPadding = padding,
+        val nextPress = remember { MutableInteractionSource() }
+        FilledTonalButton(onClick = playNext, interactionSource = nextPress, modifier = pressedWeight(nextPress, 1f).heightIn(min = 72.dp), contentPadding = padding,
             shapes = ButtonDefaults.shapes(shape(next), pressed)) { Label("play-next", "Play next") }
         val add = i
-        FilledTonalButton(onClick = addToQueue, modifier = Modifier.weight(1f).heightIn(min = 72.dp), contentPadding = padding,
+        val addPress = remember { MutableInteractionSource() }
+        FilledTonalButton(onClick = addToQueue, interactionSource = addPress, modifier = pressedWeight(addPress, 1f).heightIn(min = 72.dp), contentPadding = padding,
             shapes = ButtonDefaults.shapes(shape(add), pressed)) { Label("add-queue", "Add to queue") }
     }
 }

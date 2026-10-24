@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.session.MediaController
@@ -836,13 +837,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     } else null) { startQueue(songs, it) }
                                                             }
                                                             LibraryView.Albums -> Column {
-                                                                if (!sortedAlbums.isNullOrEmpty()) SortBar(
-                                                                    "${sortedAlbums.size} ${if (sortedAlbums.size == 1) "album" else "albums"}",
-                                                                    AlbumOrder.entries, library.albumOrder, { it.label }) {
-                                                                    library.chooseAlbumOrder(it); albumGrid = LazyGridState()
+                                                                val albumSort: @Composable (Dp) -> Unit = { inset ->
+                                                                    if (!sortedAlbums.isNullOrEmpty()) SortBar(
+                                                                        "${sortedAlbums.size} ${if (sortedAlbums.size == 1) "album" else "albums"}",
+                                                                        AlbumOrder.entries, library.albumOrder, { it.label }, inset) {
+                                                                        library.chooseAlbumOrder(it); albumGrid = LazyGridState()
+                                                                    }
                                                                 }
+                                                                // With Expressive motion the order sits under Jump back in, inside the grid.
+                                                                if (!Expressive.motion) albumSort(0.dp)
                                                                 AlbumGrid(sortedAlbums, model.busy, model.endpoint, albumGrid,
-                                                                    recent = if (Expressive.motion) recent else emptyList()) {
+                                                                    recent = if (Expressive.motion) recent else emptyList(),
+                                                                    sortBar = if (Expressive.motion) ({ albumSort(12.dp) }) else null) {
                                                                     albumOrigin = origin; albumKey = it.key; albumTitle = it.title
                                                                 }
                                                             }

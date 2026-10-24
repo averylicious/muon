@@ -4,11 +4,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -42,7 +44,8 @@ internal fun albumArt(endpoint: ServerEndpoint?, album: LibraryAlbum): String? =
  */
 @Composable
 internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: ServerEndpoint?,
-    state: LazyGridState, recent: List<LibraryAlbum> = emptyList(), open: (LibraryAlbum) -> Unit) {
+    state: LazyGridState, recent: List<LibraryAlbum> = emptyList(), sortBar: (@Composable () -> Unit)? = null,
+    open: (LibraryAlbum) -> Unit) {
     if (albums.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalUnderBars.current)) {
         item {
             // Full height so the grid can still be pulled down to refresh.
@@ -57,6 +60,8 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
         // title; the grid's gaps shrink to match, and the covers sit exactly where they did.
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 8.dp + LocalUnderBars.current)) {
         if (recent.size >= RECENT_ALBUMS_SHOWN_FROM) jumpBackIn(recent, endpoint, open)
+        // Under Jump back in rather than above it (the Refined mockup), scrolling with the grid.
+        sortBar?.let { bar -> item(key = "sort", span = { GridItemSpan(maxLineSpan) }, contentType = "sort") { bar() } }
         items(albums, key = { it.key }, contentType = { "album" }) { album ->
             Column(springyClick("Open album", RoundedCornerShape(24.dp)) { openWhole(state, album, open) }.padding(8.dp)) {
                 // The cover that grows into the album page's (motion pass 2).
@@ -225,11 +230,15 @@ private fun ConnectedPageActions(enabled: Boolean, playAll: (shuffle: Boolean) -
     val pressed = RoundedCornerShape(50)
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-        Button(onClick = { playAll(false) }, enabled = enabled, modifier = Modifier.weight(1.3f).heightIn(min = 56.dp),
+        val playPress = remember { MutableInteractionSource() }
+        val shufflePress = remember { MutableInteractionSource() }
+        Button(onClick = { playAll(false) }, enabled = enabled, interactionSource = playPress,
+            modifier = pressedWeight(playPress, 1.3f).heightIn(min = 56.dp),
             shapes = ButtonDefaults.shapes(RoundedCornerShape(outer, inner, inner, outer), pressed)) {
             MuonIcon("play", Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
         }
-        FilledTonalButton(onClick = { playAll(true) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+        FilledTonalButton(onClick = { playAll(true) }, enabled = enabled, interactionSource = shufflePress,
+            modifier = pressedWeight(shufflePress, 1f).heightIn(min = 56.dp),
             shapes = ButtonDefaults.shapes(if (canSave) RoundedCornerShape(inner) else RoundedCornerShape(inner, outer, outer, inner), pressed)) {
             MuonIcon("shuffle", Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
         }
