@@ -1,6 +1,6 @@
 # Muon current state
 
-Updated 2026-10-23. [Current release/cleanup checkpoint](handoffs/2026-10-23-stable-020-release.md) · [Issue state](audits/issues/README.md) · [Release plan](release-plan.md).
+Updated 2026-10-24. [Current release/cleanup checkpoint](handoffs/2026-10-23-stable-020-release.md) · [Issue state](audits/issues/README.md) · [Release plan](release-plan.md).
 
 ## Shipped and integrated
 
@@ -13,8 +13,8 @@ Updated 2026-10-23. [Current release/cleanup checkpoint](handoffs/2026-10-23-sta
 - **#646 stays open and unresolved** by user decision; current-copy deletion passing does not prove the lost reset/card case fixed.
 - #401 saved-card/Move latency, #207 notification-only stale cover, deeper SD lifecycle and dependency/tool/cache provenance retain explicit deferrals.
 - #638/#639/#640 and draft PRs #641–#644 are next-point work, not included in this release. Refresh them against released main before future testing/merge.
-- #650 tracks user-requested overlap review toward100–500 actual unit cases; another auditing agent owns that review. No tests reduced in this release task.
-- Animation polish, missing-art mockups and Material3 Beta evaluation belong on the M3E experiment. Current experiment dependency pins were preserved by the sync; Stable dependencies remain stable.
+- #650 is closed not planned at user request after independent agents opposed numerical test-suite reduction. No tests removed.
+- The user considers M3E design mature; [next-RC delta audit](audits/2026-10-24-m3e-delta.md) is active on `1ba260fb`, with #674 diagnostics and #675 lifecycle fixes in separate worktrees. #671 buffering has no established cause. Current main/Stable are unchanged by experimental patches.
 
 ## Working rules
 

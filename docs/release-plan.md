@@ -1,6 +1,6 @@
 # Release plan
 
-Updated 2026-10-23. One published Stable, one accepted upcoming release, and a separate M3E experiment. Workstream names are not version numbers.
+Updated 2026-10-24. Published Stable v0.2.0 and a separate M3E next-release candidate under delta audit. Workstream names are not version numbers.
 
 ## Current release: v0.2.0
 
@@ -23,7 +23,7 @@ Real-user upgrade from an old saved-library state was unavailable. The user appr
 - **#179:** deeper SD eject/live-process/restart recovery deferred.
 - Dependency verification and runner/SDK/cache provenance limits explicitly deferred, with no compromise demonstrated.
 - Missing-art placeholder mockups and animation/UI polish belong to the next design cycle.
-- CI suite reduction toward 100–500 actual cases requires an overlap review and meaningful retained coverage; keep this separate from the accepted RC's checks.
+- #650 numerical test-suite reduction was withdrawn by the user after independent review; the issue is closed not planned. Keep meaningful regression coverage.
 
 Do not reopen a general audit for this release. A confirmed security/privacy/data-loss/crash defect or regression against accepted behavior can interrupt it; speculative hardening and ordinary polish go to maintenance. Keep deferred issues open instead of labelling them fixed.
 
@@ -31,7 +31,7 @@ Latest publication/integration/cleanup receipts: [release checkpoint](handoffs/2
 
 ## Next cycle
 
-After this release, integrate its baseline into M3E, then continue experiments and maintenance. When the user freezes M3E, audit its delta and affected shared contracts against the released baseline; do not automatically restart the whole audit. Evaluate Material3 1.5.0 Beta separately with current compatibility research. Current Stable keeps its pinned stable dependencies.
+The released baseline is integrated into M3E. The user now considers its design mature; audit candidate `1ba260fb` and affected shared contracts against v0.2.0 using the [finite M3E delta gates](audits/2026-10-24-m3e-delta.md). #674/#675 prepare diagnostics and focused lifecycle fixes; #671 remains unexplained. No wholesale re-audit, numerical test-reduction gate, promotion-policy bypass or new Stable publication is implied. Current Stable keeps its pinned dependencies.
 
 Follow [parallel tracks](parallel-tracks.md) for expected-head checks, isolated writers and owner-controlled experiment integration, and [release naming](release-naming.md) for version rules. Main/M3E Canary builds share a package; preserve the user's everyday Canary during agent testing by using Diagnostic when explicitly authorized.
 
