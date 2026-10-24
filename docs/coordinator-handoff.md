@@ -12,7 +12,9 @@ Updated 2026-10-24. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-GPT-6 owns the isolated candidate/policy/receipt worktrees. The allocated audit Claude completed Opus 5.5 High policy implementation/tests and is idle. Its latest exposed quota was 48% five-hour / 50% weekly used; readings are dated evidence, not new availability. User explicitly requested installing this RC on both phones; POCO root and Pixel wireless access were verified for that installation only. No subsequent phone permission follows from this page.
+GPT-6 owns the isolated candidate/policy/receipt worktrees. The allocated audit Claude completed Opus 5.5 High policy implementation/tests and is idle. Quota readings remain local and must be refreshed before another assignment. User explicitly requested installing this RC on both phones; POCO root and Pixel wireless access were verified for that installation only. No subsequent phone permission follows from this page.
+
+**Separate post-RC #83 assessment:** [current state](audits/issues/83.md) confirms profile packaging and a recorder that can silently skip journeys. No profile benefit or new traversal was measured. Next engineering is recorder hardening, then a matched Macrobenchmark experiment; this does not expand the frozen RC gate or authorize more phone work. Allocated Opus completed its read-only assessment and is idle.
 
 ## Resume order
 
