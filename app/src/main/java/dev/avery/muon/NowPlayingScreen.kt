@@ -50,7 +50,13 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: () -> Int,
     player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, queue: () -> Unit,
-    morph: PlayerMorph? = null, lyricsAvailable: Boolean = false, lyrics: () -> Unit) {
+    morph: PlayerMorph? = null, lyricsAvailable: Boolean = false, more: (() -> Unit)? = null, lyrics: () -> Unit) {
+    // The song's panel from a ⋮ at the bar's end, as every song row has (the Refined mockup).
+    val menu: (@Composable RowScope.() -> Unit)? = if (more != null && Expressive.motion) ({
+        IconButton(onClick = more, modifier = Modifier.semantics { contentDescription = "More options for this song" }) {
+            MuonIcon("more", Modifier.size(20.dp))
+        }
+    }) else null
     if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
@@ -83,6 +89,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                             IconButton(onClick = queue, modifier = Modifier.semantics { contentDescription = "Queue" }) {
                                 MuonIcon("queue", Modifier.size(20.dp))
                             }
+                            menu?.invoke(this)
                         }) { away() }
                         PlayerTitles(p)
                         PlayerControls(p, position, player, narrow, queue, lyrics, actions = false, lyricsAvailable = lyricsAvailable)
@@ -100,7 +107,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                PlayerBar(dismiss, dragHeight, collapse) { away() }
+                PlayerBar(dismiss, dragHeight, collapse, actions = menu) { away() }
                 Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
                     contentAlignment = Alignment.Center) {
                     // The cover the mini player's flies to while the player grows (PlayerMorph).

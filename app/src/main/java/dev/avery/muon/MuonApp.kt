@@ -220,7 +220,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val playingId = trackIdOf(ui.item?.mediaId, origin)
         // Whether Tauon has lyrics for the song on show, for Now Playing's hint; the player's item
         // doesn't carry it, the library does.
-        val playingLyrics = remember(playingId, snapshot) { playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id }?.hasLyrics } == true }
+        val playingTrack = remember(playingId, snapshot) { playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id } } }
+        val playingLyrics = playingTrack?.hasLyrics == true
         LaunchedEffect(playingId, origin, snapshot) {
             val server = origin ?: return@LaunchedEffect
             val track = playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id } } ?: return@LaunchedEffect
@@ -439,6 +440,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var actionTrack by remember { mutableStateOf<TauonTrack?>(null) }
         // The list the panel's song was opened from, so its Play starts that list as a tap on the row does.
         var actionList by remember { mutableStateOf<List<TauonTrack>>(emptyList()) }
+        // Opened from Now Playing's ⋮: going to an album or artist closes the player first.
+        var actionFromPlayer by remember { mutableStateOf(false) }
         // Android 17's local network permission (LocalNetwork.kt): asked for in context, from Connect or
         // the library's card. Once Android stops showing the prompt, the same button opens Settings;
         // coming back with access granted connects.
@@ -932,14 +935,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }
             }
             actionTrack?.let { track ->
+                // Read now: the panel is dismissed before its chosen action runs.
+                val fromPlayer = actionFromPlayer
                 // What the page on show already is, it does not offer to go to.
-                val here = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey).takeIf { tab == Tab.Library }
+                val here = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey).takeIf { tab == Tab.Library && !fromPlayer }
                 SongActionsSheet(track, model.endpoint, canQueue = player != null && track.playable,
                     album = songAlbum(track, albums)?.takeIf { !(here is LibraryPage.Album && here.albumKey == it.key) },
                     artists = songArtists(track, artists).filter { !(here is LibraryPage.Artist && here.artistKey == it.key) },
-                    dismiss = { actionTrack = null }, queue = { next -> queueSong(track, next) },
-                    play = { startQueue(actionList.ifEmpty { listOf(track) }, track) },
-                    goToAlbum = ::goToAlbum, goToArtist = ::goToArtist,
+                    dismiss = { actionTrack = null; actionFromPlayer = false }, queue = { next -> queueSong(track, next) },
+                    // The playing song has nothing to start, so its panel offers only the queue actions.
+                    play = if (fromPlayer) null else ({ startQueue(actionList.ifEmpty { listOf(track) }, track) }),
+                    goToAlbum = { if (fromPlayer) playerOpen = false; goToAlbum(it) },
+                    goToArtist = { if (fromPlayer) playerOpen = false; goToArtist(it) },
                     canSave = model.endpoint != null && track.playable && !model.offline,
                     save = { model.endpoint?.let { endpoint -> OfflineStore.add(context, endpoint, listOf(track)) } })
             }
@@ -983,6 +990,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 // nothing down, so its detector goes with it rather than moving what comes next.
                 NowPlayingOverlay(ui, position, revision, player, sheet.takeIf { playerShown },
                     lyricsAvailable = playingLyrics,
+                    more = playingTrack?.let { track -> { actionTrack = track; actionList = emptyList(); actionFromPlayer = true } },
                     // Guarded, so a drag that ends after Lyrics opened over the player, or after
                     // the player has gone, cannot put away whatever took its place.
                     collapse = { if (playerShown) playerOpen = false },

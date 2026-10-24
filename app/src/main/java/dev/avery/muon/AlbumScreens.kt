@@ -93,7 +93,20 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                     .semantics { contentDescription = backLabel }) { MuonIcon("back") }
             }
             item(key = "header", contentType = "header") {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // With Expressive motion the cover leads, large and centred, with the title and a line
+                // of artist and length under it (the Refined mockup).
+                if (Expressive.motion) Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Artwork(album?.let { albumArt(endpoint, it) },
+                        (album?.let { sharedPicture(albumPictureKey(it.key)) } ?: Modifier).fillMaxWidth(0.62f).aspectRatio(1f)
+                            .clip(RoundedCornerShape(32.dp)))
+                    Text(albumLabel(album?.title ?: title), style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 16.dp))
+                    if (album != null) Text("${artistLabel(displayCredits(album.artist))} · ${albumSummary(album.tracks)}",
+                        style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                } else Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Artwork(album?.let { albumArt(endpoint, it) },
                         (album?.let { sharedPicture(albumPictureKey(it.key)) } ?: Modifier).size(140.dp).clip(RoundedCornerShape(16.dp)))
                     Column(Modifier.weight(1f).padding(start = 16.dp)) {

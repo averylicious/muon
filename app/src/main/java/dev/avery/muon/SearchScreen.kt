@@ -81,6 +81,23 @@ internal fun SearchScreen(query: String, onQuery: (String) -> Unit, expanded: Bo
 /** Room the collapsed bar takes at the top: its height and the space around it. */
 private val SEARCH_BAR_ROOM = 80.dp
 
+/** Artists as round avatars in a row that scrolls sideways, each opening its page. */
+@Composable
+private fun ArtistAvatarRow(artists: List<LibraryArtist>, endpoint: ServerEndpoint?, openArtist: (LibraryArtist) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
+            Column(Modifier.width(96.dp).clip(RoundedCornerShape(16.dp))
+                .clickable(onClickLabel = "Open artist") { openArtist(artist) }.padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                ArtistAvatar(artist, side = 80.dp, endpoint = endpoint)
+                Text(artistLabel(artist.name), style = MaterialTheme.typography.labelLarge, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp))
+            }
+        }
+    }
+}
+
 /** At rest: the artists with the most songs, then the newest albums, three to a row. */
 @Composable
 private fun SearchBrowse(artists: List<LibraryArtist>, albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
@@ -94,20 +111,7 @@ private fun SearchBrowse(artists: List<LibraryArtist>, albums: List<LibraryAlbum
     LazyColumn(modifier, contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
         if (artists.isNotEmpty()) {
             item(key = "artists-label", contentType = "label") { SectionHeading("Artists") }
-            item(key = "artists", contentType = "artists") {
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
-                        Column(Modifier.width(96.dp).clip(RoundedCornerShape(16.dp))
-                            .clickable(onClickLabel = "Open artist") { openArtist(artist) }.padding(vertical = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally) {
-                            ArtistAvatar(artist, side = 80.dp, endpoint = endpoint)
-                            Text(artistLabel(artist.name), style = MaterialTheme.typography.labelLarge, maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp))
-                        }
-                    }
-                }
-            }
+            item(key = "artists", contentType = "artists") { ArtistAvatarRow(artists, endpoint, openArtist) }
         }
         if (albums.isNotEmpty()) {
             item(key = "albums-label", contentType = "label") { SectionHeading("Albums") }
@@ -189,7 +193,9 @@ internal fun LazyListScope.searchCollection(artists: List<LibraryArtist>, albums
     if (artists.isEmpty() && albums.isEmpty()) return
     if (artists.isNotEmpty()) {
         item(key = "search:artists", contentType = "label") { SectionHeading("Artists") }
-        items(artists, key = { "search:${it.key}" }, contentType = { "artist" }) { artist ->
+        // With Expressive motion, the matched artists as the same row of avatars as at rest (the Refined mockup).
+        if (Expressive.motion) item(key = "search:artist-row", contentType = "artists") { ArtistAvatarRow(artists, endpoint, openArtist) }
+        else items(artists, key = { "search:${it.key}" }, contentType = { "artist" }) { artist ->
             ListItem(
                 headlineContent = { Text(artistLabel(artist.name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingContent = { Text("Artist · ${artistSongCount(artist.tracks.size)}") },
