@@ -10,7 +10,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | First-song normalization and missing-tags reminder — implemented/accepted/released | [#645](645.md) | [Issue #645](https://github.com/averylicious/muon/issues/645) |
 | Refined M3E candidate / finite next-RC delta audit | [#661](661.md) | [Issue #661](https://github.com/averylicious/muon/issues/661) |
 | M3E predictive Back lifecycle | [#658](658.md) | [Issue #658](https://github.com/averylicious/muon/issues/658) |
-| Intermittent M3E stream buffering — cause unconfirmed | [#671](671.md) | [Issue #671](https://github.com/averylicious/muon/issues/671) |
+| Intermittent M3E stream buffering | [#671](671.md) | [Issue #671](https://github.com/averylicious/muon/issues/671) |
 | Overall release sequence and acceptance gates | [Release plan](../../release-plan.md) | [Audit #181](https://github.com/averylicious/muon/issues/181) |
 
 GitHub remains authoritative for current heads/checks/merge state. A snapshot must identify its date, inspected head and verification limits; it does not grant device access or override user decisions. Latest execution state belongs in the concise [coordinator entry point](../../coordinator-handoff.md), with history linked rather than repeated. Files on an open documentation PR are proposals/working state until merged; verify the linked branch/PR before using a main-branch copy.
