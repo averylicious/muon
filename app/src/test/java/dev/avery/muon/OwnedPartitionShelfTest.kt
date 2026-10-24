@@ -1882,7 +1882,7 @@ class OwnedPartitionShelfTest {
             val f=LocalPublicationFixture(); val back="saved/intent-journal-"+destinationJournal
             val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
             val journal=File(if(destinationJournal) f.f.root else f.targetRoot,"partition-moves-v1.db")
-            val held=File(folders.newFolder(),"held-move-journal"); var replaced=false; var changedInsideRead=false
+            val held=File(folders.newFolder(),"held-move-journal"); var replaced=false; var changedInsideRead=false; var primary:Throwable?=null
             try {
                 val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
                 coverFile(art,f.key).writeBytes(byteArrayOf(2,4,6))
@@ -1892,11 +1892,16 @@ class OwnedPartitionShelfTest {
                     .walkTopDown().single {it.name.endsWith(".v3.exo")}
                 val target=File(f.f.root,"resources/"+copy.destination.allocation.directory)
                     .walkTopDown().single {it.name.endsWith(".v3.exo")}
+                // Invalidate the OTHER shelf's journal while this native owner is open. Changing
+                // the active owner's own journal correctly makes release uncertain/quarantined.
+                val activeBytes=File(if(destinationJournal)
+                    File(f.targetRoot,"resources/"+copy.source.ticket.allocation.directory)
+                    else File(f.f.root,"resources/"+copy.destination.allocation.directory),"bytes")
                 assertEquals(0,f.f.budget.resident)
                 try {
                     assertThrows(IOException::class.java) {onWorker {
                         f.target.beginCoveredSavedMove(f.source,copy,completed,true,art,work) {
-                            if(!replaced && f.f.budget.resident>0) {
+                            if(!replaced && f.f.budget.resident>0 && SimpleCache.isCacheFolderLocked(activeBytes)) {
                                 java.nio.file.Files.move(journal.toPath(),held.toPath());replaced=true
                                 java.nio.file.Files.createSymbolicLink(journal.toPath(),held.toPath());changedInsideRead=true
                             }
@@ -1919,12 +1924,16 @@ class OwnedPartitionShelfTest {
                     f.target.beginCoveredSavedMove(f.source,copy,completed,true,art,work)
                 }.phase)
                 assertEquals(0,f.f.budget.resident);assertTrue(f.f.barrier.quiescent)
-            } finally {
+            } catch(failure:Throwable) {primary=failure;throw failure}
+            finally {
                 if(replaced) {
                     java.nio.file.Files.deleteIfExists(journal.toPath())
                     java.nio.file.Files.move(held.toPath(),journal.toPath())
                 }
-                f.close()
+                try {f.close()} catch(cleanup:Throwable) {
+                    val first=primary
+                    if(first==null) throw cleanup else first.addSuppressed(cleanup)
+                }
             }
         }
     }

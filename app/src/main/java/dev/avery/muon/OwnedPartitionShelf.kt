@@ -350,7 +350,8 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
             {name,permit -> claimsMoveName(name,permit)},checkpoint,{located(); destination.located()},timestamp)
     }
     /** Prepared new-source intent only. Source routing is suppressed durably but source bytes,
-     * row and own-cover are preserved. No automatic replay or cleanup follows this commit. */
+     * row and own-cover are preserved. No automatic replay or cleanup follows this commit.
+     * checkpoint is only a cancellation/availability probe, not content I/O or a shelf writer. */
     internal fun beginCoveredSavedMove(destination:OwnedPartitionShelf,copy:PartitionSavedCopy,
         completed:PartitionSaveCompletion,explicitConsent:Boolean,art:DownloadArt,artwork:DownloadArtworkWork,
         checkpoint:()->Unit={}):PartitionSavedMoveRecord {
