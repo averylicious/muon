@@ -366,7 +366,7 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
         })
         .heightIn(min = 64.dp)
         .then(if (onClick != null) Modifier.clickable(onClickLabel = "Play", onClick = onClick) else Modifier)
-        .padding(start = if (playing || shape != null) 12.dp else 24.dp, end = if (playing) 12.dp else if (shape != null) 4.dp else 24.dp,
+        .padding(start = if (playing || shape != null) 12.dp else 24.dp, end = if (playing) 12.dp else if (shape != null) { if (handle != null) 4.dp else 12.dp } else 24.dp,
             top = 8.dp, bottom = 8.dp)
         .semantics(mergeDescendants = true) {
             if (playing) stateDescription = "Now playing"
