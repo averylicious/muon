@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.os.Process
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaLibraryInfo
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -75,7 +76,7 @@ class PlaybackSessionCallbackTest {
         assertTrue("Notification lost play/pause on the seeded timeline",
             notification.availableCommands.contains(Player.COMMAND_PLAY_PAUSE))
         val internal = MediaSession.ControllerInfo.createTestOnlyControllerInfo(context.packageName,
-            Process.myPid(), Process.myUid(), 0, 0, true, hints, true)
+            Process.myPid(), Process.myUid(), MediaLibraryInfo.VERSION_INT, 0, true, hints, true)
         assertTrue(session.isMediaNotificationController(internal))
         val grant = callback.onConnectAsync(session, internal).get()
         assertEquals(SessionCommands.EMPTY, grant.availableSessionCommands)
