@@ -212,7 +212,9 @@ private fun ExpressiveTrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current
             disabledSupportingContentColor = quiet, disabledTrailingContentColor = quiet,
             disabledLeadingContentColor = ink),
         contentPadding = padding, leadingContent = leading, supportingContent = supporting, trailingContent = trailing,
-        content = title)
+        // Centred however many lines: Material puts a three-line row's cover at the top, which left the
+        // playing song's cover above its middle once its Playing line was added (the user's screenshot).
+        verticalAlignment = Alignment.CenterVertically, content = title)
     else ListItem(onClick = play, enabled = t.playable && ready, onLongClick = actions, onLongClickLabel = longLabel,
         modifier = rowModifier,
         shapes = ListItemDefaults.shapes(shape = RoundedCornerShape(16.dp)),
@@ -222,7 +224,9 @@ private fun ExpressiveTrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current
             disabledSupportingContentColor = quiet, disabledTrailingContentColor = quiet,
             disabledLeadingContentColor = ink),
         contentPadding = padding, leadingContent = leading, supportingContent = supporting, trailingContent = trailing,
-        content = title)
+        // Centred however many lines: Material puts a three-line row's cover at the top, which left the
+        // playing song's cover above its middle once its Playing line was added (the user's screenshot).
+        verticalAlignment = Alignment.CenterVertically, content = title)
 }
 
 /**
