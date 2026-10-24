@@ -82,11 +82,16 @@ internal fun pageShift(full: Int, shift: Int): Int = full.sign * minOf(shift, ab
  * are off.
  */
 internal fun AnimatedContentTransitionScope<LibraryPage>.libraryPageTransform(shift: Int): ContentTransform {
-    val towards = when (libraryMotion(initialState, targetState)) {
-        LibraryMotion.Forward -> SlideDirection.Start
-        LibraryMotion.Back -> SlideDirection.End
-        LibraryMotion.Across -> return fadeIn(motionMedium()) togetherWith fadeOut(motionShort())
+    return when (libraryMotion(initialState, targetState)) {
+        LibraryMotion.Forward -> stepTransform(forward = true, shift)
+        LibraryMotion.Back -> stepTransform(forward = false, shift)
+        LibraryMotion.Across -> fadeIn(motionMedium()) togetherWith fadeOut(motionShort())
     }
+}
+
+/** One step down ([forward]) or back up, sliding [shift] px along the reading direction. */
+internal fun <S> AnimatedContentTransitionScope<S>.stepTransform(forward: Boolean, shift: Int): ContentTransform {
+    val towards = if (forward) SlideDirection.Start else SlideDirection.End
     return (slideIntoContainer(towards, motionSpatial()) { pageShift(it, shift) } + fadeIn(motionMedium()))
         .togetherWith(slideOutOfContainer(towards, motionSpatial()) { pageShift(it, shift) } + fadeOut(motionShort()))
 }

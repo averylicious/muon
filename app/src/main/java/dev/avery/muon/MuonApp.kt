@@ -655,21 +655,59 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         }, label = "screen") { shown ->
                             when (shown) {
                                 null -> ConnectScreen(model, ::allowLocalNetwork)
-                                Tab.Settings -> if (savedOpen) {
-                                    SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
-                                        ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
-                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, model.savedPreparing, model::cancelSavedPlayback, back = { savedOpen = false })
-                                } else SettingsScreen(model, appearance, openSaved = { savedOpen = true }) {
-                                    player?.stop(); player?.clearMediaItems(); model.disconnect()
-                                    // Nothing from the server just left is shown again or kept on disk.
-                                    val disk = ArtworkStore.disk(context)
-                                    scope.launch(Dispatchers.IO) { forgetArtwork(disk) }
-                                    openOrigin = null; openId = null; closeArtist(); closeAlbum()
-                                    songList = LazyListState(); artistList = LazyListState(); albumGrid = LazyGridState()
-                                    playlistList = LazyListState()
-                                    libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
-                                    lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library; fromSearch = false
-                                    searchOpen = false; savedOpen = false
+                                Tab.Settings -> {
+                                    // On this device sits a step below Settings, with the same
+                                    // predictive Back as a Library page (issue #658).
+                                    val shift = with(LocalDensity.current) { LIBRARY_PAGE_SHIFT.roundToPx() }
+                                    val savedState = remember { SeekableTransitionState(savedOpen) }
+                                    val savedPeek = remember { BackPeek() }
+                                    LaunchedEffect(savedOpen) { savedState.animateTo(savedOpen); if (savedPeek.active) savedPeek.reset() }
+                                    val savedTransition = rememberTransition(savedState, label = "saved copies")
+                                    val savedPeekScope = rememberCoroutineScope()
+                                    // Registered after the app's own handlers, so it takes the gesture
+                                    // over Settings' plain Back while On this device is open.
+                                    PredictiveBackHandler(savedOpen && tab == Tab.Settings && !overlayOpen && !sheet.previewing) { events ->
+                                        savedPeek.active = true
+                                        try {
+                                            savedState.seekTo(0f, false)
+                                            events.collect { event -> savedPeek.edge = event.swipeEdge; savedPeek.progress.snapTo(event.progress) }
+                                            savedPeek.commit.animateTo(1f, motionShort())
+                                            savedOpen = false
+                                        } catch (cancelled: CancellationException) {
+                                            savedPeekScope.launch {
+                                                savedPeek.progress.animateTo(0f, motionSpatial())
+                                                savedState.snapTo(true)
+                                                savedPeek.reset()
+                                            }
+                                            throw cancelled
+                                        }
+                                    }
+                                    savedTransition.AnimatedContent(transitionSpec = {
+                                        if (savedPeek.active) peekTransform() else stepTransform(forward = targetState, shift)
+                                    }) { open ->
+                                        val leaving = transition.targetState != EnterExitState.Visible
+                                        Box(Modifier.fillMaxSize().leaving(leaving).then(when {
+                                            !savedPeek.active -> Modifier
+                                            leaving -> Modifier.peekCard(savedPeek, colors.background)
+                                            else -> Modifier.peekParent(savedPeek)
+                                        })) {
+                                            if (open) SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
+                                                ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
+                                                model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, model.savedPreparing, model::cancelSavedPlayback, back = { savedOpen = false })
+                                            else SettingsScreen(model, appearance, openSaved = { savedOpen = true }) {
+                                                player?.stop(); player?.clearMediaItems(); model.disconnect()
+                                                // Nothing from the server just left is shown again or kept on disk.
+                                                val disk = ArtworkStore.disk(context)
+                                                scope.launch(Dispatchers.IO) { forgetArtwork(disk) }
+                                                openOrigin = null; openId = null; closeArtist(); closeAlbum()
+                                                songList = LazyListState(); artistList = LazyListState(); albumGrid = LazyGridState()
+                                                playlistList = LazyListState()
+                                                libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
+                                                lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library; fromSearch = false
+                                                searchOpen = false; savedOpen = false
+                                            }
+                                        }
+                                    }
                                 }
                                 // Offline, the library is the saved copies, each its own Unverified entry (#213).
                                 Tab.Library -> if (model.offline) {
