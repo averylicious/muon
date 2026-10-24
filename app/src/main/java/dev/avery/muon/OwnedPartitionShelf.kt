@@ -361,21 +361,29 @@ internal class OwnedPartitionShelf(private val context:Context,private val direc
         val treeOwnership=MigrationIoOwnership()
         fun owned() {permit.check(); located(); destination.located(); permit.check()}
         fun live() {owned(); checkpoint(); owned()}
+        // Only native identity/digest callbacks: fresh roots before caller cancellation, then
+        // FULL journals/gate again before returning to physical I/O. Intent/cover/tree boundaries
+        // retain live(); no destination-byte proof, source guard or observation is cached.
+        fun digestLive() {
+            permit.check(); rootLocated(); destination.rootLocated()
+            checkpoint()
+            owned()
+        }
         try {
             live()
             val old=copy.completion.key; val fresh=copy.destination.allocation.key
             if(copy.source.ticket.allocation.key!=old || source.moves.find(old)!=null ||
                 source.retirements.holdsName(old) || claimsMoveName(fresh,permit) || destination.claimsMoveName(old,permit))
                 throw IOException("Saved Move intent has conflicting source or destination claims")
-            val before=source.session.moveDestinationIdentity(copy.source.ticket,copy.completion,volume,key(directory).toString(),permit,::live)
+            val before=source.session.moveDestinationIdentity(copy.source.ticket,copy.completion,volume,key(directory).toString(),permit,::digestLive)
             if(before.uid!=copy.source.uid) throw IOException("Saved Move source UID differs")
             val after=target.session.moveDestinationIdentity(copy.destination,completed,destination.volume,
-                destination.key(destination.directory).toString(),permit,::live)
+                destination.key(destination.directory).toString(),permit,::digestLive)
             val provisional=PartitionSavedMoveBinding(before,after,SavedMoveCoverIdentity(0,null)); provisional.validate()
             artwork.cancelForConfirmedRemoval(old,permit); artwork.cancelForConfirmedRemoval(fresh,permit)
             val cover=art.copyEntryConfirmed(old,fresh,permit)
-            source.session.verifyMoveDestination(before,volume,key(directory).toString(),permit,::live)
-            target.session.verifyMoveDestination(after,destination.volume,destination.key(destination.directory).toString(),permit,::live)
+            source.session.verifyMoveDestination(before,volume,key(directory).toString(),permit,::digestLive)
+            target.session.verifyMoveDestination(after,destination.volume,destination.key(destination.directory).toString(),permit,::digestLive)
             art.verifyMovedSource(old,cover,permit); art.verifyMovedTarget(fresh,cover,permit)
             live()
             // Last source native observation is now closed. Do NOT reopen it after capture: native
