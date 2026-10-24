@@ -70,37 +70,25 @@ class PlaybackService : MediaSessionService() {
         // Volume normalization (#97): each song at its ReplayGain level, set as the player's volume.
         val loudnessPrefs = getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
         val loudness = ReplayGainSettings(loudnessPrefs)
-        var checkedLoudnessId: String? = null
-        var currentHasLoudnessTags = false
         fun applyLoudness() {
             val id = player.currentMediaItem?.mediaId
-            val gain = loudness.effectiveGainFor(id)
-            player.volume = if (loudness.enabled && gain != null) volumeForGain(gain) else 1f
-            PlaybackLoudness.current = loudnessPlayback(id, id != null && id == checkedLoudnessId,
-                currentHasLoudnessTags, gain, player.isPlaying)
+            // ExoPlayer publishes its current Tracks before dispatching these callbacks. Read the
+            // snapshot directly: repeat-one can transition without a new onTracksChanged event.
+            val tracks = player.currentTracks
+            val found = selectedTrackLoudness(tracks)
+            val applied = found?.let(::appliedGainDb)
+            if (id != null && applied != null) loudness.remember(id, applied)
+            val gain = loudness.playbackGainFor(id, applied)
+            player.volume = loudness.volumeFor(id, applied)
+            val selectedAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+            // Empty/unselected tracks still mean loading, not evidence of missing tags.
+            PlaybackLoudness.current = loudnessPlayback(id, id != null && selectedAudio,
+                found != null, gain, player.isPlaying)
         }
         player.addListener(object : Player.Listener {
-            // A song already heard starts at its level; one not yet heard plays unchanged until its
-            // tags are read, rather than at the previous song's gain.
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                checkedLoudnessId = null
-                currentHasLoudnessTags = false
-                applyLoudness()
-            }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = applyLoudness()
             override fun onIsPlayingChanged(isPlaying: Boolean) = applyLoudness()
-            override fun onTracksChanged(tracks: Tracks) {
-                val id = player.currentMediaItem?.mediaId
-                val found = tracks.groups.asSequence().filter { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
-                    .flatMap { group -> (0 until group.length).asSequence().filter(group::isTrackSelected)
-                        .map { group.getTrackFormat(it) } }
-                    .firstNotNullOfOrNull { trackLoudness(it.metadata) }
-                // An empty/unselected track list is still loading, not evidence of missing tags.
-                val selectedAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
-                checkedLoudnessId = id.takeIf { selectedAudio }
-                currentHasLoudnessTags = found != null
-                if (id != null && found != null) loudness.remember(id, appliedGainDb(found))
-                applyLoudness()
-            }
+            override fun onTracksChanged(tracks: Tracks) = applyLoudness()
         })
         loudnessListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == ReplayGainSettings.KEY_ENABLED) { loudness.reload(); applyLoudness() }
@@ -153,7 +141,7 @@ fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builde
         .setAlbumArtist(displayCredits(albumArtist))
         // Queue display only. Seek/Now Playing must keep using the player's stream duration.
         .setDurationMs(durationMs.takeIf { it > 0 })
-        .setArtworkUri(android.net.Uri.parse(endpoint.url("/api1/pic/medium/$id")))
+        .setArtworkUri(android.net.Uri.parse(liveArtworkUrl(endpoint)))
         // The song's own record, so the service can keep a played copy the offline library can list.
         .setExtras(android.os.Bundle().apply { putByteArray(SONG_EXTRA, encodeSong(this@mediaItem)) }).build())
     .build().let(::queueOccurrence)

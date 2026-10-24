@@ -842,7 +842,8 @@ class DownloadMoveCharacterizationTest {
         sourceIndex.putDownload(Download(other, Download.STATE_COMPLETED, 1, 1, 0,
             Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
         phoneIndex.failAtRow = 2 // Every whole read of the phone's index now fails at its second row.
-        assertEquals(OfflineStore.SavedRemoval.NotOwned, OfflineStore.removeSavedNow(app,
+        // A failed read is unavailable storage, not evidence of shared ownership (#646).
+        assertEquals(OfflineStore.SavedRemoval.Unavailable, OfflineStore.removeSavedNow(app,
             requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
         assertEquals("The card's census still runs; the phone's sends nothing", OfflineStore.RemoveAllPlan(0, 0),
             OfflineStore.removeAllNow(app))
