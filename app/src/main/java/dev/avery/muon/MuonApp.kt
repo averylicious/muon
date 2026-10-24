@@ -319,10 +319,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             openOrigin = null; openId = null; closeArtist(); closeAlbum()
             if (fromSearch) { fromSearch = false; tab = Tab.Search }
         }
-        // Search opens a page over a fresh Library, so Back from it leads back to the results.
-        fun openFromSearch(open: () -> Unit) {
+        // Open a page over a fresh Library. Only Search supplies a Search return destination;
+        // the player can also open it from Settings, which must not invent a Search history.
+        fun openFromOtherTab(open: () -> Unit) {
             openOrigin = null; openId = null; closeArtist(); closeAlbum()
-            open(); fromSearch = true; tab = Tab.Library
+            open(); fromSearch = tab == Tab.Search; tab = Tab.Library
         }
         fun goBack() {
             when (target) {
@@ -520,12 +521,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // page returns to it, as from the artist's own row; from Search, Back returns to the results.
         fun goToAlbum(album: LibraryAlbum) {
             val open = { albumOrigin = origin; albumKey = album.key; albumTitle = album.title }
-            if (tab != Tab.Library) openFromSearch(open)
+            if (tab != Tab.Library) openFromOtherTab(open)
             else { openOrigin = null; openId = null; open() }
         }
         fun goToArtist(artist: LibraryArtist) {
             val open = { artistOrigin = origin; artistKey = artist.key; artistName = artist.name }
-            if (tab != Tab.Library) openFromSearch(open)
+            if (tab != Tab.Library) openFromOtherTab(open)
             else { openOrigin = null; openId = null; closeAlbum(); open() }
         }
         // Measured here rather than on the player's host, which is not composed until a preview has
@@ -677,20 +678,20 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     val shift = with(LocalDensity.current) { LIBRARY_PAGE_SHIFT.roundToPx() }
                                     val savedState = remember { SeekableTransitionState(savedOpen) }
                                     val savedPeek = remember { BackPeek() }
-                                    LaunchedEffect(savedOpen) { savedState.animateTo(savedOpen); if (savedPeek.active) savedPeek.reset() }
+                                    LaunchedEffect(savedOpen) { savedPeek.interrupt(); savedState.animateTo(savedOpen); if (savedPeek.active) savedPeek.reset() }
                                     val savedTransition = rememberTransition(savedState, label = "saved copies")
                                     val savedPeekScope = rememberCoroutineScope()
                                     // Registered after the app's own handlers, so it takes the gesture
                                     // over Settings' plain Back while On this device is open.
                                     PredictiveBackHandler(savedOpen && tab == Tab.Settings && !overlayOpen && !sheet.previewing) { events ->
-                                        savedPeek.active = true
+                                        val gesture = savedPeek.begin()
                                         try {
                                             savedState.seekTo(0f, false)
                                             events.collect { event -> savedPeek.edge = event.swipeEdge; savedPeek.progress.snapTo(event.progress) }
                                             savedPeek.commit.animateTo(1f, motionShort())
-                                            savedOpen = false
+                                            if (savedPeek.owns(gesture)) savedOpen = false
                                         } catch (cancelled: CancellationException) {
-                                            savedPeekScope.launch {
+                                            savedPeek.restore(savedPeekScope, gesture) {
                                                 savedPeek.progress.animateTo(0f, motionSpatial())
                                                 savedState.snapTo(true)
                                                 savedPeek.reset()
@@ -740,7 +741,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     // underneath while the page on show shrinks away (issue #658).
                                     val pageState = remember { SeekableTransitionState(page) }
                                     val peek = remember { BackPeek() }
-                                    LaunchedEffect(page) { pageState.animateTo(page); if (peek.active) peek.reset() }
+                                    LaunchedEffect(page) { peek.interrupt(); pageState.animateTo(page); if (peek.active) peek.reset() }
                                     val pageTransition = rememberTransition(pageState, label = "library page")
                                     val backTo = libraryBackPage(page, fromSearch)
                                     val peekScope = rememberCoroutineScope()
@@ -750,15 +751,15 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     PredictiveBackHandler(target == BackTarget.Playlist && backTo != null && !sheet.previewing) { events ->
                                         val from = page
                                         val to = backTo ?: return@PredictiveBackHandler
-                                        peek.active = true
+                                        val gesture = peek.begin()
                                         try {
                                             pageState.seekTo(0f, to)
                                             events.collect { event -> peek.edge = event.swipeEdge; peek.progress.snapTo(event.progress) }
                                             // Let go: the card fades away, and the page it covered is already there.
                                             peek.commit.animateTo(1f, motionShort())
-                                            closePage()
+                                            if (peek.owns(gesture)) closePage()
                                         } catch (cancelled: CancellationException) {
-                                            peekScope.launch {
+                                            peek.restore(peekScope, gesture) {
                                                 peek.progress.animateTo(0f, motionSpatial())
                                                 pageState.snapTo(from)
                                                 peek.reset()
@@ -900,8 +901,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 }
                                 Tab.Search -> {
                                     // A search whose result is opened is one worth offering again.
-                                    val openArtistPage = { a: LibraryArtist -> recentSearches.remember(query); openFromSearch { artistOrigin = origin; artistKey = a.key; artistName = a.name } }
-                                    val openAlbumPage = { a: LibraryAlbum -> recentSearches.remember(query); openFromSearch { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } }
+                                    val openArtistPage = { a: LibraryArtist -> recentSearches.remember(query); openFromOtherTab { artistOrigin = origin; artistKey = a.key; artistName = a.name } }
+                                    val openAlbumPage = { a: LibraryAlbum -> recentSearches.remember(query); openFromOtherTab { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } }
                                     val keyboard = LocalSoftwareKeyboardController.current
                                     SearchScreen(query, { query = it }, searchOpen, { searchOpen = it }, search.searching,
                                         browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage,
@@ -1099,16 +1100,21 @@ private fun FullScreenOverlay(state: MutableTransitionState<Boolean>, peeking: (
         val currentClose by rememberUpdatedState(close)
         val currentPeeking by rememberUpdatedState(peeking)
         DisposableEffect(Unit) { onDispose { currentPeeking(false) } }
+        LaunchedEffect(visible) {
+            peek.interrupt()
+            if (visible) peek.reset()
+            currentPeeking(false)
+        }
         // Composed after the app's own handlers and the player's, so it takes Back while on show.
         PredictiveBackHandler(visible) { events ->
-            peek.active = true
+            val gesture = peek.begin()
             currentPeeking(true)
             try {
                 events.collect { event -> peek.edge = event.swipeEdge; peek.progress.snapTo(event.progress) }
                 peek.commit.animateTo(1f, motionShort())
-                currentClose()
+                if (peek.owns(gesture)) currentClose()
             } catch (cancelled: CancellationException) {
-                peekScope.launch {
+                peek.restore(peekScope, gesture) {
                     peek.progress.animateTo(0f, motionSpatial())
                     peek.reset()
                     currentPeeking(false)

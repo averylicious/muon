@@ -1,5 +1,8 @@
 package dev.avery.muon
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.activity.BackEventCompat
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
@@ -38,6 +41,30 @@ internal class BackPeek {
     /** The commit: 0 while held, 1 once the card has gone. */
     val commit = Animatable(0f)
     var edge by mutableIntStateOf(BackEventCompat.EDGE_LEFT)
+
+    // A cancelled gesture repairs its page in the composition scope. That job must lose ownership
+    // when a new gesture or logical navigation starts, even if the new Back has no progress events.
+    private var generation = 0L
+    private var restoration: Job? = null
+
+    fun interrupt() {
+        generation++
+        restoration?.cancel()
+        restoration = null
+    }
+
+    fun begin(): Long {
+        interrupt()
+        active = true
+        return generation
+    }
+
+    fun owns(token: Long): Boolean = generation == token
+
+    fun restore(scope: CoroutineScope, token: Long, action: suspend () -> Unit) {
+        if (!owns(token)) return
+        restoration = scope.launch { if (owns(token)) action() }
+    }
 
     suspend fun reset() {
         progress.snapTo(0f)
