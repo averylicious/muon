@@ -4,7 +4,7 @@ The user authorized these tracks on 2026-09-28. They replace routine live fronte
 
 ## Release generations and frozen candidates
 
-Follow the [release sequence and finite current gate list](release-plan.md). The user-approved sequence is current audit → frozen RC → explicitly approved Stable → checked forward integration into M3E → further experimentation and maintenance → next frozen candidate and delta-focused audit. Current alpha branch protections remain; future promotion requires a reviewed integration/policy change. Routine main-track audit automation should use the separate Diagnostic app when authorized so it does not replace the user's everyday experimental Canary. Release-configuration acceptance is still required.
+Follow the [release sequence and finite current gate list](release-plan.md). The user-approved sequence is current audit → frozen RC → explicitly approved Stable → checked forward integration into M3E → further experimentation and maintenance → next frozen candidate and delta-focused audit. The 2026-10-24 promotion exception below is limited to the frozen accepted RC; later experimental work stays isolated. RC preparation does not authorize a final Stable tag. Routine main-track audit automation should use the separate Diagnostic app when authorized so it does not replace the user's everyday experimental Canary. Release-configuration acceptance is still required.
 
 ## Work without sharing sessions or checkouts
 
@@ -26,9 +26,19 @@ Follow the [release sequence and finite current gate list](release-plan.md). The
 
 Astra may prepare that PR autonomously. The experimental owner lands it at their next clean boundary and updates their checkout, so a background audit process never moves the branch underneath their editing session. Leave it open for them unless the user explicitly delegates that integration. Use merge commits for these syncs, retaining main's ancestry; do not squash, rebase or force-push shared track history.
 
-**Experiment to main:** do not merge the experiment wholesale, even if Git reports no conflicts. For a generally useful fix, make a fresh branch from current main and port only that focused change and its tests. Cite the experimental source commit/PR and check it against main's pinned dependencies. #183 is an example of this pattern. Cherry-picking a reviewed isolated fix can help, but never take an alpha/dependency bundle along with it.
+**Routine experiment to main:** outside the explicit frozen promotion below, do not merge the experiment wholesale, even if Git reports no conflicts. For a generally useful fix, make a fresh branch from current main and port only that focused change and its tests. Cite the experimental source commit/PR and check it against main's pinned dependencies. #183 is an example of this pattern. Cherry-picking a reviewed isolated fix can help, but never take an alpha/dependency bundle along with it.
 
 Sync after a main fix that the experiment needs, before editing a shared state/API/storage contract, or before treating an experimental regression as unrelated to main. Batch independent small main fixes at the experimental owner's next boundary instead of interrupting every commit. Prefer a small integration PR over a large overdue merge.
+
+## Frozen RC and bounded promotion
+
+The user accepted focused M3E UAT on 2026-10-24 and chose to daily-drive a frozen RC while later audits produce separate candidates. Frozen source: `6b1a767c180a8b9e531bf1468c9e72e348635b74` (#678), whose app/build/workflow/tools match accepted Diagnostic .1415 source `209247be9634cd60145525ed15a98af46b5f47fc`; differences are maintained documentation only. No final Stable publication is requested.
+
+A separately reviewed policy change allows **only** `codex/promote-m3e-rc-oct24` to introduce that accepted history to main. The promotion must include current main and the exact frozen commit, keep its tree outside `docs/` and the named policy/test/workflow files unchanged, keep those files identical to main, and import no later experiment-only commits. Start from the frozen source, merge reviewed main policy, and run full checks; do not merge the moving experiment tip. Main advancing with other code requires a new reviewed/accepted candidate instead of silently changing the freeze.
+
+After this promotion, main descendants may contain the now-accepted alpha history. The guard still rejects direct experiment/forward-sync sources, renamed heads importing experiment-only commits absent from main, and main polluted without the accepted anchor. Stable tags containing alpha history must include the accepted anchor and already belong to main; pre-alpha historical main tags remain valid. This is a fetched-graph safeguard, not authentication of cherry-picked code or release authorization. Do not squash/rebase promotion history.
+
+Keep every frozen candidate identified by source, exact signed artifact/hash and acceptance. Later audits use isolated branches and Diagnostic builds; do not replace the user's installed RC without an installation request. Normal Canary still follows main; a manually installed signed release-variant RC uses the existing Stable package and does not follow Canary publications. It is an unreleased test APK, not a new Stable release, even though its package is the Stable one. Branch release artifacts retain the workflow's development version name; use BUILD.txt/run/code to identify the RC. Do not introduce an RC tag/feed/package without explicit approval. Keep #671 and existing deferrals open with their current dispositions. Only a confirmed serious defect can invalidate the freeze as a release gate.
 
 ## Preflight and merge gates
 
@@ -44,12 +54,12 @@ For an experimental PR, pass `--base claude/m3-expressive-alpha`. Use the author
 The lightweight **Branch policy / Branch direction** PR check:
 
 - rejects an experimental or forward-sync source targeting main;
-- rejects any main-targeted head descended from the first alpha-upgrade commit `454350a058fc4e272731afd0fff23bd9cd22e0f3`, even under a renamed branch;
+- before approved promotion, rejects alpha ancestry (including renamed branches) except the bounded frozen promotion above; afterwards rejects additional experiment-only ancestry absent from main;
 - requires the tested head to contain the current destination;
 - additionally requires forward-sync heads to include current main;
 - fails when required history cannot be verified.
 
-The check has a read-only token, no signing secrets and no Android build. It does not extend signed APK access to fork PRs. Missing anchor history needs investigation; do not silently replace the anchor or disable the check. If the experiment is retired, update this policy through a reviewed PR.
+The check has a read-only token, no signing secrets and no Android build. It does not extend signed APK access to fork PRs. Missing anchor history needs investigation; do not silently replace the anchor or disable the check. Any new promotion/anchor change requires another reviewed policy PR; a moving experiment tip is never an implicit approval.
 
 Before merging, refresh the PR head, destination and CI. Both **Build, test and sign** and **Branch direction** must pass on the final head. If the destination changed, merge it into the isolated work branch, inspect the resolution and rerun CI. Record the exact head and destination on the PR and merge using the expected head SHA. Do not enable auto-merge or bypass failed/pending checks to save quota.
 
