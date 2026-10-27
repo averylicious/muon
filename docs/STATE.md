@@ -1,6 +1,6 @@
 # Muon current state
 
-Updated 2026-10-24. [Current release/cleanup checkpoint](handoffs/2026-10-23-stable-020-release.md) · [Issue state](audits/issues/README.md) · [Release plan](release-plan.md).
+Updated 2026-10-25. [Current release/cleanup checkpoint](handoffs/2026-10-23-stable-020-release.md) · [Issue state](audits/issues/README.md) · [Release plan](release-plan.md).
 
 ## Shipped and integrated
 
@@ -12,7 +12,7 @@ Updated 2026-10-24. [Current release/cleanup checkpoint](handoffs/2026-10-23-sta
 
 - **#646 stays open and unresolved** by user decision; current-copy deletion passing does not prove the lost reset/card case fixed.
 - #401 saved-card/Move latency, #207 notification-only stale cover, deeper SD lifecycle and dependency/tool/cache provenance retain explicit deferrals.
-- **Broader post-RC work resumed separately from frozen RC .1420.** CI #685 landed; #638 discovery, #639 collection workers, #83 recorder and #646 error-classification have focused replacement PRs. Old #641–#644 are superseded, not runtime acceptance receipts. [Current continuation](handoffs/2026-10-24-post-rc-continuation.md) links exact heads/checks/limits. #640 is not permission to reduce the suite.
+- **Broader post-RC work resumed separately from frozen RC .1420.** CI/security #685/#694 landed. Twelve runtime topics are staged in CI-verified draft #701; separate Move admission #710 and Benchmark #683 retain their own checks/acceptance. Old #641–#644 are superseded, not runtime acceptance receipts. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) links exact heads/checks/limits. #640 is not permission to reduce the suite.
 - #650 is closed not planned at user request after independent agents opposed numerical test-suite reduction. No tests removed.
 - **M3E focused UAT passed** by user report on 2026-10-24. Frozen RC source `6b1a767c180a8b9e531bf1468c9e72e348635b74` (#678) matches accepted .1415 app code. [Frozen RC receipt and remaining release gates](handoffs/2026-10-24-frozen-m3e-rc.md). #671 has not recurred and stays open/unresolved as a non-blocking follow-up. #679 prepares a bounded promotion guard; main still has the v0.2.0 app. No new Stable release/tag.
 
