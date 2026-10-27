@@ -279,6 +279,9 @@ internal fun movable(download: Download, source: OwnershipCensus, target: Owners
     return targetRecord(id)?.request == download.request
 }
 
+/** No byte mutation has started when the played-copy ownership check is unavailable. */
+internal class PlayedClaimsUnavailable : java.io.IOException("Played-copy protection check unavailable")
+
 /**
  * The played-copy keys that any row of the phone's index names, read once when the store opens. Media3
  * removes those bytes with their row, so the played cache must never remove them itself: not by eviction,
@@ -305,6 +308,10 @@ internal class PlayedClaims private constructor(@Volatile private var claimed: S
 
     /** Whether the played cache may remove [key]: the index has been read and no row names it. */
     fun removable(key: String): Boolean = disk?.removable(key) ?: (claimed?.let { key !in it } ?: false)
+
+    /** User removal reports an unavailable check without claiming that another row owns the copy. */
+    fun removableForRemoval(key: String): Boolean = disk?.removableForRemoval(key)
+        ?: (claimed?.let { key !in it } ?: throw PlayedClaimsUnavailable())
 
     companion object {
         /** For fixtures with no phone index rows naming played keys. */

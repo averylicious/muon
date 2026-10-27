@@ -322,6 +322,22 @@ class PartitionStorageSessionTest {
         assertTrue("Fresh per-block storage/cancellation checks must still grow with actual reads",large.second>small.second)
         assertTrue(f.barrier.quiescent)
     }
+    @Test fun unavailablePlayedClaimCheckPreservesPartitionAndAllowsHealthyRetry() {
+        val f=fixture(); val key=playedKey("saved/claim-retry"); val claims=PlayedClaims()
+        worker {
+            played(f,key)
+            assertEquals(OfflineStore.SavedRemoval.Unavailable,f.session.removePlayed(key,claims::removableForRemoval))
+            assertTrue(f.barrier.quiescent); assertEquals(0,f.budget.resident)
+            assertArrayEquals(payload,read(f,key))
+            claims.ready(setOf(key))
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,f.session.removePlayed(key,claims::removableForRemoval))
+            assertArrayEquals(payload,read(f,key))
+            claims.ready(emptySet())
+            assertEquals(OfflineStore.SavedRemoval.Sent,f.session.removePlayed(key,claims::removableForRemoval))
+            assertEquals(SavedCoverage.Missing,f.session.audio.inspect(key).coverage)
+        }
+        assertTrue(f.barrier.quiescent); assertEquals(0,f.budget.resident)
+    }
     @Test fun interleavedManualDeletionRecensusesBeforeResizeCanOverEvict() {
         val f=fixture(nativeCapacity=2); val keys=(0..2).map {playedKey("saved/overlap-$it")}
         worker {keys.forEach {played(f,it)}}
