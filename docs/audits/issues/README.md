@@ -13,6 +13,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Vorbis/Ogg/FLAC admission — post-RC candidate | [#714](714.md) | [Issue #714](https://github.com/averylicious/muon/issues/714) |
 | MP4 retained-box and sample-table admission — post-RC candidate | [#720](720.md) | [Issue #720](https://github.com/averylicious/muon/issues/720) |
 | WAV format/writer admission — post-RC candidate | [#723](723.md) | [Issue #723](https://github.com/averylicious/muon/issues/723) |
+| Matroska metadata/sniff admission — post-RC candidate | [#726](726.md) | [Issue #726](https://github.com/averylicious/muon/issues/726) |
 | Notification/platform command grants — post-RC hardening | [#711](711.md) | [Issue #711](https://github.com/averylicious/muon/issues/711) |
 | Notification artwork revision — post-RC acceptance | [#207](207.md) | [Issue #207](https://github.com/averylicious/muon/issues/207) |
 | Initial connection cancellation — post-RC acceptance | [#690](690.md) | [Issue #690](https://github.com/averylicious/muon/issues/690) |
