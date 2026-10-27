@@ -9,7 +9,7 @@ import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.ForwardingExtractorInput
 
-/** Metadata/sniff/retention policies (#726), not all codec/sample/master or global heap limits. */
+/** Metadata/sniff/retention policies (#726), not all codec/sample or global heap limits. */
 internal class MatroskaLimits(
     val elementBytes: Long = 4L * 1024 * 1024,
     val metadataBytes: Long = 16L * 1024 * 1024,
@@ -18,9 +18,10 @@ internal class MatroskaLimits(
     val tracks: Int = 128,
     val chapters: Int = 4096,
     val cues: Int = 65_536,
+    val nativeMasters: Int = 4096,
 ) {
     init { require(elementBytes > 0 && metadataBytes > 0 && metadataEntries > 0 && sniffBytes >= 4 &&
-        tracks > 0 && chapters > 0 && cues > 0) }
+        tracks > 0 && chapters > 0 && cues > 0 && nativeMasters > 0) }
 }
 
 /**
@@ -49,6 +50,7 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
     private val chapterIds = HashSet<Long>()
     private var cueCount = 0
     private var sentMap = false
+    private val masterEnds = ArrayList<Long>()
 
     fun output(actual: ExtractorOutput): ExtractorOutput = object : ExtractorOutput {
         override fun track(id: Int, type: Int): TrackOutput = actual.track(id, type)
@@ -62,7 +64,14 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
     fun seek() {
         expectingSize = false; remaining = 0; prefix = 0; restAt = -1
         payloadAt = -1 // Retain current track codec state just as native seek retains currentTrack.
+        masterEnds.clear() // Native reader.reset clears all master frames.
         if (!sentMap) cueCount = 0 // Native clears only unfinished cue lists on seek.
+    }
+
+    // Internal native seeks return after end-master callbacks, sometimes reopening backwards.
+    // Reconcile at the old position before that reopen, not only at the next lower header.
+    fun returned(position: Long) {
+        while (masterEnds.isNotEmpty() && position >= masterEnds.last()) masterEnds.removeAt(masterEnds.lastIndex)
     }
 
     fun sniffInput(actual: ExtractorInput): ExtractorInput = object : ForwardingExtractorInput(actual) {
@@ -109,6 +118,7 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
 
     private fun start(first: Int, size: Boolean, at: Long, fileLength: Long) {
         if (size != expectingSize || first == 0) refuse(true)
+        if (!size) returned(at - 1)
         val width = Integer.numberOfLeadingZeros(first) - 24 + 1
         if (width > if (size) 8 else 4) refuse(true) // Do not silently enter native ID resync.
         prefix = (if (size) first and (0xff ushr width) else first).toLong()
@@ -125,11 +135,19 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
         }
         expectingSize = false
         payloadAt = -1
+        if (isMaster(elementId)) {
+            if (at > Long.MAX_VALUE - value) refuse(true)
+            if (masterEnds.size >= limits.nativeMasters) refuse()
+            masterEnds.add(at + value)
+        }
         if (elementId == 0xae) {
             vorbis = false; codecPrivate = null
             admitTrack(0) // Native Track default when no TrackNumber is supplied.
         }
-        if (elementId == 0xb7 && !sentMap && ++cueCount > limits.cues) refuse()
+        if (elementId == 0xb7 && !sentMap) {
+            if (cueCount >= limits.cues) refuse()
+            cueCount++
+        }
         if (isCensusInteger(elementId) && value <= 8) {
             payloadId = elementId; payloadAt = at; payloadSize = value.toInt()
             return // Native fixed8-byte integer target, no declared-size payload allocation.
@@ -198,6 +216,15 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
         // Native info/books copies together fit the already admitted codec-private payload.
     }
 
+    // Exact pinned getElementType MASTER set. This mirrors native retained frames, not EBML
+    // schema depth: native unknown-size sibling Clusters can accumulate frames until seek/EOF.
+    private fun isMaster(id: Int) = when (id) {
+        0x1a45dfa3, 0x18538067, 0x1043a770, 0x45b9, 0xb6, 0x8f, 0x80, 0x114d9b74,
+        0x4dbb, 0x1549a966, 0x1f43b675, 0x1654ae6b, 0xae, 0x41e4, 0xe1, 0xe0,
+        0x6d80, 0x6240, 0x5034, 0x5035, 0x47e7, 0x1c53bb6b, 0xbb, 0xb7, 0xa0,
+        0x75a1, 0xa6, 0x7670, 0x55b0, 0x55d0 -> true
+        else -> false
+    }
     private fun isCensusInteger(id: Int) = id == 0xd7 || id == 0x73c4
     private fun admitTrack(id: Int) {
         if (id !in trackIds) {
@@ -212,5 +239,5 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
         0x53ab, 0x41ed, 0x4255, 0x47e2, 0x63a2, 0x7672, 0xa5 -> true
         else -> false
     }
-    private fun refuse(malformed: Boolean = false): Nothing = throw StreamMetadataRefusal(malformed)
+    private fun refuse(malformed: Boolean = false): Nothing = throw StreamMetadataRefusal(malformed, audioFormat = true)
 }

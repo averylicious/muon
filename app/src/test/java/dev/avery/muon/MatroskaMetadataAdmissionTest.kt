@@ -183,6 +183,40 @@ class MatroskaMetadataAdmissionTest {
         } finally { bounded.release() }
     }
 
+    @Test fun actualUnknownSizedClusterFramesAreBoundedWithoutPretendingTheyAreSchemaDepth() {
+        val info = element(0x1549a966, element(0x2ad7b1, byteArrayOf(0x0f, 0x42, 0x40)))
+        val clusters = (0..3).map { timestamp ->
+            id(0x1f43b675) + byteArrayOf(1, -1, -1, -1, -1, -1, -1, -1) +
+                element(0xe7, byteArrayOf(timestamp.toByte()))
+        }.reduce { a, b -> a + b }
+        val bytes = segment(info + element(0x1654ae6b, pcmEntry(1)) + clusters)
+        fun nativeFrames(raw: MatroskaExtractor): Int {
+            val reader = MatroskaExtractor::class.java.getDeclaredField("reader").also { it.isAccessible = true }.get(raw)
+            val stack = reader.javaClass.getDeclaredField("masterElementsStack").also { it.isAccessible = true }.get(reader)
+            return (stack as Collection<*>).size
+        }
+        val raw = actual() as MatroskaExtractor
+        try {
+            raw.init(Capture())
+            finish(raw, opened(bytes)) { opened(bytes, it) }
+            assertEquals("Native retains Segment plus four sibling unknown Cluster frames at EOF", 5, nativeFrames(raw))
+        } finally { raw.release() }
+        val cappedRaw = actual() as MatroskaExtractor
+        val capped = MetadataBoundedExtractor(cappedRaw, mkvLimits = MatroskaLimits(nativeMasters = 4))
+        try {
+            capped.init(Capture())
+            assertThrows(StreamMetadataRefusal::class.java) { finish(capped, opened(bytes)) { opened(bytes, it) } }
+            assertEquals("Refused before the fifth native frame", 4, nativeFrames(cappedRaw))
+        } finally { capped.release() }
+        val bounded = MetadataBoundedExtractor(actual(), mkvLimits = MatroskaLimits(nativeMasters = 5))
+        try {
+            bounded.init(Capture())
+            finish(bounded, opened(bytes)) { opened(bytes, it) }
+            bounded.seek(0, 0)
+            finish(bounded, opened(bytes)) { opened(bytes, it) }
+        } finally { bounded.release() }
+    }
+
     private fun actual() = DefaultExtractorsFactory().createExtractors().single { it is MatroskaExtractor }
     private fun finish(extractor: Extractor, start: ExtractorInput, reopen: (Long) -> ExtractorInput) {
         var input = start
