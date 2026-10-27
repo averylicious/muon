@@ -21,6 +21,7 @@ import androidx.media3.extractor.mp4.Mp4Extractor
 import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.ogg.OggExtractor
 import androidx.media3.extractor.wav.WavExtractor
+import androidx.media3.extractor.ts.Ac4Extractor
 import java.io.EOFException
 import java.io.InterruptedIOException
 
@@ -58,7 +59,8 @@ internal class PlaybackExtractors(factory: ExtractorsFactory = DefaultExtractors
 internal class MetadataBoundedExtractor(private val actual: Extractor, private val maximum: Int = STREAM_ID3_BYTES,
     containerBytes: Long = CONTAINER_METADATA_BYTES, containerEntries: Int = CONTAINER_METADATA_ENTRIES,
     private val mp4Limits: Mp4Limits = Mp4Limits(), private val wavLimits: WavLimits = WavLimits(),
-    mkvLimits: MatroskaLimits = MatroskaLimits(), private val id3Limits: Id3FrameLimits = Id3FrameLimits()) :
+    mkvLimits: MatroskaLimits = MatroskaLimits(), private val id3Limits: Id3FrameLimits = Id3FrameLimits(),
+    private val ac4SniffBytes: Long = AC4_SNIFF_BYTES) :
     ForwardingExtractor(actual) {
     init { require(maximum >= ID3_HEADER) }
     private val id3 = Id3FrameAdmission(id3Limits)
@@ -81,7 +83,8 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
         val guarded = if (mp4Sniffer) Mp4SniffInput(input, mp4Limits.retainedBytes) else mkv?.sniffInput(input) ?: input
-        return super.sniff(id3.input(guarded))
+        val decoded = id3.input(guarded)
+        return if (actual.underlyingImplementation is Ac4Extractor) sniffAc4(actual, decoded, ac4SniffBytes) else super.sniff(decoded)
     }
     override fun init(output: ExtractorOutput) = super.init(ogg?.output(output) ?: mkv?.output(output) ?: output)
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.
