@@ -324,17 +324,33 @@ class PartitionStorageSessionTest {
     }
     @Test fun unavailablePlayedClaimCheckPreservesPartitionAndAllowsHealthyRetry() {
         val f=fixture(); val key=playedKey("saved/claim-retry"); val claims=PlayedClaims()
+        val phone=DefaultDownloadIndex(database,"played_phone_retry")
+        var unavailable=true
+        val observed=object:androidx.media3.exoplayer.offline.DownloadIndex by phone {
+            override fun getDownloads(vararg states:Int):androidx.media3.exoplayer.offline.DownloadCursor {
+                if(unavailable) throw IOException("Phone index unavailable")
+                return phone.getDownloads(*states)
+            }
+        }
+        val removable:(String)->Boolean={claims.removableForRemoval(it,observed)}
         worker {
             played(f,key)
-            assertEquals(OfflineStore.SavedRemoval.Unavailable,f.session.removePlayed(key,claims::removableForRemoval))
+            assertEquals(OfflineStore.SavedRemoval.Unavailable,f.session.removePlayed(key,removable))
+            assertFalse(claims.known); assertFalse(claims.removable(key))
             assertTrue(f.barrier.quiescent); assertEquals(0,f.budget.resident)
             assertArrayEquals(payload,read(f,key))
-            claims.ready(setOf(key))
-            assertEquals(OfflineStore.SavedRemoval.NotOwned,f.session.removePlayed(key,claims::removableForRemoval))
-            assertArrayEquals(payload,read(f,key))
-            claims.ready(emptySet())
-            assertEquals(OfflineStore.SavedRemoval.Sent,f.session.removePlayed(key,claims::removableForRemoval))
+            val request=DownloadRequest.Builder("hidden-phone-owner",Uri.parse("http://h/api1/file/1"))
+                .setCustomCacheKey(key).build()
+            phone.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
+            unavailable=false // A new user request rechecks the recovered index, without restart.
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,f.session.removePlayed(key,removable))
+            assertTrue(claims.known); assertArrayEquals(payload,read(f,key))
+            phone.removeDownload(request.id); claims.read(phone)
+            assertEquals(OfflineStore.SavedRemoval.Sent,f.session.removePlayed(key,removable))
+            assertEquals(0,f.budget.resident)
             assertEquals(SavedCoverage.Missing,f.session.audio.inspect(key).coverage)
+            // inspect owns an intentional idle reader; actual session close releases it.
+            f.session.close()
         }
         assertTrue(f.barrier.quiescent); assertEquals(0,f.budget.resident)
     }

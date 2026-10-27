@@ -965,10 +965,13 @@ internal object OfflineStore {
         if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
-            store.phone.partition?.let { partition ->
-                return partition.removePlayed(ref.key,store.playedClaims::removableForRemoval)
+            val removable:(String)->Boolean={ key ->
+                store.playedClaims.removableForRemoval(key,store.phone.manager.downloadIndex)
             }
-            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removableForRemoval) {
+            store.phone.partition?.let { partition ->
+                return partition.removePlayed(ref.key,removable)
+            }
+            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,removable) {
                 store.played.quarantine()
             }
         }
