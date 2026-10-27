@@ -56,9 +56,11 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         FlacMetadataAdmission(containerBytes, containerEntries) else null
     private val ogg = if (actual.underlyingImplementation is OggExtractor)
         OggPacketAdmission(containerBytes, containerEntries) else null
-    // Ordinary MP4 reads are admitted (#720); both MP4 candidates share the pinned Sniffer. Fragmented
-    // MP4 reading itself has not been assessed and is not covered by this guard.
+    // Ordinary MP4 reads and fragmented MFRA tails are admitted (#720); both share the Sniffer.
+    // Fragmented ordinary atoms/trun/DRM remain separate engineering, not implicit clearance.
     private val mp4 = if (actual.underlyingImplementation is Mp4Extractor) Mp4MetadataAdmission(mp4Limits) else null
+    private val fragmented = if (actual.underlyingImplementation is FragmentedMp4Extractor)
+        FragmentedMp4Admission(mp4Limits) else null
     private val mp4Sniffer = actual.underlyingImplementation.let { it is Mp4Extractor || it is FragmentedMp4Extractor }
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
@@ -68,13 +70,14 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.
     override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
         checkPrefix(input)
-        val guarded = flac?.input(input) ?: ogg?.input(input) ?: mp4?.input(input) ?: input
+        val guarded = flac?.input(input) ?: ogg?.input(input) ?: mp4?.input(input) ?: fragmented?.input(input) ?: input
         return super.read(guarded, seekPosition).also { ogg?.returned() }
     }
     override fun seek(position: Long, timeUs: Long) {
         flac?.seek(position)
         ogg?.seek(position)
         mp4?.seek(position)
+        fragmented?.seek()
         super.seek(position, timeUs)
     }
     private fun checkPrefix(input: ExtractorInput) {
