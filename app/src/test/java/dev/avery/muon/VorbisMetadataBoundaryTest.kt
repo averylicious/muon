@@ -10,6 +10,8 @@ import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.ogg.OggExtractor
+import androidx.media3.extractor.metadata.flac.PictureFrame
+import java.util.Base64
 import androidx.media3.container.VorbisUtil
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -80,6 +82,37 @@ class VorbisMetadataBoundaryTest {
             assertEquals(1, tracks)
             assertEquals(file.size.toLong(), input.position)
         } finally { extractor.release() }
+    }
+
+    @Test fun nestedPictureDataLengthReachesAllocationBeforePayloadValidation() {
+        val image = byteArrayOf(1, 2, 3)
+        val valid = ParsableByteArray(picture(image.size, image))
+        val frame = PictureFrame.fromPictureBlock(valid)
+        assertEquals("image/png", frame.mimeType)
+        assertArrayEquals(image, frame.pictureData)
+        assertEquals(0, valid.bytesLeft())
+
+        //41 bytes only. A negative data length cannot allocate an array; no OOM is attempted.
+        val bytes = picture(Int.MIN_VALUE, byteArrayOf())
+        assertEquals(41, bytes.size)
+        val malformed = ParsableByteArray(bytes)
+        assertThrows(NegativeArraySizeException::class.java) {
+            PictureFrame.fromPictureBlock(malformed)
+        }
+        assertEquals(bytes.size, malformed.position)
+        assertEquals(0, malformed.bytesLeft())
+
+        // The Vorbis adapter catches RuntimeException for a bad picture, not OutOfMemoryError.
+        // Record its actual safe-negative behavior; do not call this a crash or a production fix.
+        val comment = "METADATA_BLOCK_PICTURE=" + Base64.getEncoder().encodeToString(bytes)
+        assertNull(androidx.media3.extractor.VorbisUtil.parseVorbisComments(listOf(comment)))
+    }
+
+    private fun picture(declaredBytes: Int, data: ByteArray): ByteArray {
+        val mime = "image/png".toByteArray(Charsets.US_ASCII)
+        return ByteBuffer.allocate(32 + mime.size + data.size).order(ByteOrder.BIG_ENDIAN)
+            .putInt(3).putInt(mime.size).put(mime).putInt(0)
+            .putInt(1).putInt(1).putInt(24).putInt(0).putInt(declaredBytes).put(data).array()
     }
 
     private fun page(payload: ByteArray, type: Int, sequence: Int): ByteArray {
