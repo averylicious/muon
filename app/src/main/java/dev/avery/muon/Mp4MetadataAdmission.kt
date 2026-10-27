@@ -41,14 +41,13 @@ private val STSD = box("stsd"); private val STSZ = box("stsz"); private val STZ2
 private val STCO = box("stco"); private val CO64 = box("co64"); private val STSC = box("stsc")
 private val STTS = box("stts"); private val CTTS = box("ctts"); private val STSS = box("stss")
 private val ELST = box("elst"); private val MLPA = box("mlpa")
+private val MDAT = box("mdat"); private val QUICKTIME = box("qt  ")
 /** Pinned Mp4Extractor.shouldParseContainerAtom / shouldParseLeafAtom. */
 private val CONTAINERS = listOf("moov", "trak", "mdia", "minf", "stbl", "edts", "meta", "axte", "tref").map(::box).toSet()
 private val LEAVES = listOf("mdhd", "mvhd", "hdlr", "stsd", "stts", "stss", "ctts", "elst", "stsc", "stsz", "stz2",
     "stco", "co64", "tkhd", "ftyp", "udta", "keys", "ilst", "chap").map(::box).toSet()
-/** Sample entries pinned parseAudioSampleEntry always maps to raw, μ-law or A-law (ipcm/fpcm only with pcmC, else dropped). */
-private val RAW_ENTRIES = listOf("sowt", "twos", "lpcm", "alaw", "ulaw", "ipcm", "fpcm").map(::box).toSet()
-/** Children that can replace that MIME type or the whole format; any of them means the normal table path. */
-private val FORMAT_CHILDREN = listOf("esds", "wave", "dac3", "dec3", "dac4", "ddts", "udts").map(::box).toSet()
+/** Without child overrides, these sample entries always produce a rechunkable audio MIME. */
+private val SIMPLE_RAW_ENTRIES = listOf("sowt", "twos", "lpcm", "alaw", "ulaw").map(::box).toSet()
 
 private fun ByteArray.u16(at: Int): Int = ((this[at].toInt() and 255) shl 8) or (this[at + 1].toInt() and 255)
 private fun ByteArray.u32(at: Int): Long = ((this[at].toLong() and 255) shl 24) or ((this[at + 1].toLong() and 255) shl 16) or
@@ -81,6 +80,8 @@ private class Frame(val type: Int, val end: Long) {
  */
 internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits()) {
     private var done = false
+    private var seenFtyp = false
+    private var quickTime = false
     private val stack = ArrayList<Frame>()
     private var retained = 0L
     private var boxes = 0
@@ -93,7 +94,8 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
     /** Mp4Extractor rereads its atoms only from the start. */
     fun seek(position: Long) {
         if (position != 0L) return
-        done = false; stack.clear(); retained = 0; boxes = 0; largeAt = -1; leafAt = -1
+        done = false; seenFtyp = false; quickTime = false
+        stack.clear(); retained = 0; boxes = 0; largeAt = -1; leafAt = -1
     }
 
     fun input(actual: ExtractorInput): ExtractorInput = if (done) actual else Observed(actual)
@@ -140,6 +142,7 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
         }
         if (size > Long.MAX_VALUE - at) throw StreamMetadataRefusal(true)
         val end = at + size
+        if (type == MDAT && !seenFtyp) quickTime = true // Same fallback as readAtomPayload.
         val parent = stack.lastOrNull()
         if (parent != null && end > parent.end) throw StreamMetadataRefusal(true)
         val container = type in CONTAINERS
@@ -166,6 +169,15 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
     private fun body(data: ByteArray) {
         val leaf = Leaf(data, leafSize)
         validate(leafType, leaf)
+        if (leafType == FTYP) {
+            seenFtyp = true
+            quickTime = leaf.size >= 12 && leaf.u32(8).toInt() == QUICKTIME
+            var at = 16
+            while (!quickTime && leaf.fits(at.toLong(), 4)) {
+                quickTime = leaf.u32(at).toInt() == QUICKTIME
+                at += 4
+            }
+        }
         val end = leafAt + leafSize
         leafAt = -1
         stack.lastOrNull()?.leaves?.putIfAbsent(leafType, leaf)
@@ -217,7 +229,7 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
                 var at = 16L
                 repeat(count) {
                     val entry = leaf.u32(at.toInt()).toInt()
-                    if (entry <= 0 || !leaf.fits(at, entry.toLong())) throw StreamMetadataRefusal(true)
+                    if (entry < 8 || !leaf.fits(at, entry.toLong())) throw StreamMetadataRefusal(true)
                     at += entry
                 }
             }
@@ -243,29 +255,35 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
         val chunks = stbl.leaves[STCO] ?: stbl.leaves[CO64] ?: return 0
         val stsc = stbl.leaves[STSC] ?: return 0
         val stts = stbl.leaves[STTS] ?: return 0
-        val entry = Entry(stsd)
+        val entry = Entry(stsd, quickTime)
         val fixed = stsz?.u32(12) ?: 0L
-        val rechunk = fixed != 0L && entry.raw && stts.u32(12) == 1L &&
+        val timingAllowsRechunk = fixed != 0L && stts.u32(12) == 1L &&
             (stbl.leaves[CTTS]?.u32(12) ?: 0L) == 0L && (stbl.leaves[STSS]?.u32(12) ?: 0L) == 0L
-        val samples: Long
-        var rows: Long
-        if (rechunk) {
-            // A raw PCM frame can replace the stsz size; 8 bytes a channel bounds it from above.
-            val frame = maxOf(fixed, 8L * entry.channels)
-            val chunkCount = chunks.u32(12)
-            samples = rechunked(stsc, chunkCount, maxOf(1L, RECHUNK_SAMPLE_BYTES / frame))
-            rows = chunkCount + samples
-        } else {
-            var largest = if (stsz != null && fixed != 0L) fixed else largest(sizes, stsz != null, count)
-            if (entry.rawCandidate) largest = maxOf(largest, 8L * entry.channels)
-            if (entry.trueHd) largest *= 16 // Mp4Extractor groups TrueHD samples by 16.
-            if (largest > limits.sampleBytes) throw StreamMetadataRefusal()
-            samples = count; rows = count
+        val edits = trak.containers[EDTS]?.leaves?.get(ELST)?.let(::mediaEdits)
+        fun rows(samples: Long, chunkRows: Long = 0): Long {
+            // Count the primary tables, potential edit copies and accumulated sizes. This is a
+            // conservative row-admission policy, not byte-exact heap accounting.
+            return chunkRows + samples + if (edits == null) samples
+                else samples * edits + samples * maxOf(1L, edits)
         }
-        // Edit lists may copy each media edit's samples; Mp4Extractor then accumulates sizes per sample.
-        val edits = trak.containers[EDTS]?.leaves?.get(ELST)?.let { mediaEdits(it) }
-        rows += if (edits == null) samples else samples * edits + samples * maxOf(1L, edits)
-        return rows
+        val chunkCount = chunks.u32(12)
+        if (timingAllowsRechunk && entry.simpleRaw) {
+            // Proven single raw entry, no codec children. PCM can replace an inconsistent stsz
+            // size with the format frame size; every supported encoding uses at most8bytes/channel.
+            val frame = maxOf(fixed, 8L * entry.channels)
+            return rows(rechunked(stsc, chunkCount, maxOf(1L, RECHUNK_SAMPLE_BYTES / frame)), chunkCount)
+        }
+        var largest = if (stsz != null && fixed != 0L) fixed else largest(sizes, stsz != null, count)
+        if (entry.trueHd) largest *= 16
+        if (largest > limits.sampleBytes) throw StreamMetadataRefusal()
+        val normalRows = rows(count)
+        if (!timingAllowsRechunk) return normalRows
+        // A format-changing child, encryption or several descriptions can still select RAW, even
+        // when we cannot prove it from the entry header. Its allocation follows chunk samples,
+        // which need NOT agree with stsz count. Admit BOTH paths; one buffer per declared chunk
+        // sample is an upper bound on every successful rechunk. Never call normal count safer.
+        val possibleRawRows = rows(rechunked(stsc, chunkCount, 1), chunkCount)
+        return maxOf(normalRows, possibleRawRows)
     }
 
     /** Mirrors ChunkIterator and FixedSampleSizeRechunker's buffer count, stopping at the budget. */
@@ -310,27 +328,31 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
         return media
     }
 
-    /** What parseStsd's sample entries decide for the table path, conservatively. */
-    private class Entry(stsd: Leaf) {
-        var raw = false; var rawCandidate = false; var trueHd = false; var channels = 0L
+    /** Only prove the raw fast path when no child can change format/channels/PCM encoding. */
+    private class Entry(stsd: Leaf, quickTime: Boolean) {
+        var simpleRaw = false
+        var trueHd = false
+        var channels = 0L
         init {
             val count = stsd.u32(12).toInt()
             var at = 16
             repeat(count) {
                 val size = stsd.data.s32(at)
                 val type = stsd.data.s32(at + 4)
-                if (size >= 26) channels = maxOf(channels, stsd.data.u16(at + 24).toLong())
-                // QuickTime sound description version 2 moves the count to a 32-bit field.
-                if (size >= 52 && stsd.data.u16(at + 16) == 2) channels = maxOf(channels, stsd.data.u32(at + 48))
-                if (type in RAW_ENTRIES) rawCandidate = true
                 if (type == MLPA) trueHd = true
-                if (count == 1 && type in RAW_ENTRIES) {
-                    raw = (at + 24..at + size - 4).none { stsd.data.s32(it) in FORMAT_CHILDREN }
+                if (count == 1 && type in SIMPLE_RAW_ENTRIES && size >= 36) {
+                    val version = if (quickTime) stsd.data.u16(at + 16) else 0
+                    val prefix = when (version) { 0 -> 36; 1 -> 52; 2 -> 72; else -> -1 }
+                    if (size == prefix) {
+                        channels = if (version == 2) stsd.data.u32(at + 48) else stsd.data.u16(at + 24).toLong()
+                        simpleRaw = true
+                    }
                 }
                 at += size
             }
         }
     }
+
 }
 
 /**

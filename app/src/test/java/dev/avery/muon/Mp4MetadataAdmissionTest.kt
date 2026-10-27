@@ -113,6 +113,7 @@ class Mp4MetadataAdmissionTest {
             // 16-bit compact sizes: 64 declared, one present.
             "stz2" to replace(control, chain(control, *stbl, "stsz"), atom("stz2", ByteArray(4) + be(16) + be(64) + ByteArray(2))),
             "stco" to table("stco", ByteArray(4) + be(64) + be(0)),
+            "stsd short child" to table("stsd", ByteArray(4) + be(1) + be(1) + ascii("sowt")),
             // 64 sample entries declared (each sizes a TrackEncryptionBox slot), one present.
             "stsd" to table("stsd", ByteArray(4) + be(64) + entries),
             "elst" to replace(edited, chain(edited, "moov", "trak", "edts", "elst"), atom("elst", ByteArray(4) + be(64))),
@@ -185,6 +186,43 @@ class Mp4MetadataAdmissionTest {
         val split = replace(pcm, chain(pcm, *stbl, "stts"),
             atom("stts", ByteArray(4), be(2), be(count - 1), be(int(stts, 12)), be(1), be(int(stts, 12))))
         assertFalse(assertThrows(StreamMetadataRefusal::class.java) { published(split, limits) }.contentIsMalformed)
+    }
+
+    @Test fun ambiguousRawDescriptionsCannotHideChunkBasedAllocationBehindASmallSampleCount() {
+        val original = resource("pcm.mov")
+        val path = arrayOf("moov", "trak", "mdia", "minf", "stbl")
+        val description = chain(original, *path, "stsd")
+        val originalDescription = payload(original, description)
+        assertEquals(1, int(originalDescription, 4))
+        val entry = originalDescription.copyOfRange(8, originalDescription.size)
+        val duplicate = replace(original, description,
+            atom("stsd", originalDescription.copyOfRange(0, 4), be(2), entry, entry))
+        val extra = entry + atom("free")
+        put(extra, 0, extra.size)
+        val withChild = replace(original, description,
+            atom("stsd", originalDescription.copyOfRange(0, 8), extra))
+        for (candidate in listOf(duplicate, withChild)) {
+            val changed = candidate.copyOf()
+            val stsz = chain(changed, *path, "stsz").last().start
+            val stsc = chain(changed, *path, "stsc").last().start
+            val stts = chain(changed, *path, "stts").last().start
+            put(changed, stsz + 16, 1)
+            put(changed, stsc + 20, 262_144)
+            put(changed, stts + 16, 262_144)
+            // Pinned library control: the selected format is still RAW; its tables use chunk
+            // samples, not the stsz count1. Just64 sample rows, no audio decode/heap-pressure run.
+            val raw = Mp4Extractor(); val out = Capture(); val rawFaults = Faults()
+            try {
+                pump(raw, start(raw, out, changed, rawFaults, sniff = false), changed, rawFaults) { out.map != null }
+                assertEquals(MimeTypes.AUDIO_RAW, out.format?.sampleMimeType)
+                assertEquals(64, raw.getSampleTimestampsUs(0).size)
+            } finally { raw.release() }
+            val refused = Capture()
+            assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+                published(changed, Mp4Limits(tableRows = 100), refused)
+            }.contentIsMalformed)
+            assertNull("Must refuse before the real table publication", refused.map)
+        }
     }
 
     @Test fun interruptedBodyAndExtendedHeaderResumeAtTheSameAtom() {
