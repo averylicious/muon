@@ -60,3 +60,10 @@ Continue from maintained [issue state](issues/README.md) and the [current contin
 ## Development version-label check
 
 The .1511 branch release-package artifact reports0.1.0 despite published Stable0.2.0. This matches the explicit [development-version convention](../release-naming.md): workflow non-tag builds use an independent base and increasing run-number version code; Stable tags override the display version. Both main205 and alphaEE keep that development fallback. This inspection did not establish a signing/update-order failure, so no unrequested version/channel change was made. Actual APK identity/source/hash checks remain separate from naming policy.
+
+
+## Additional bounded source checks — 2026-10-28
+
+At candidate74d532e2, artwork trimming already uses DirectoryStream plus at most8,193 retained candidates, rather than listFiles/sort of all names. This does not certify filesystem-failure cleanup or all cache memory. The track-list parser deliberately preserves JSONObject coercions; its cancellation checkpoints sit outside deferred per-record projection failures. No new coercion/cancellation defect was established in those inspected paths.
+
+A focused scan of interpolated SQLite raw-query/statement sites checked DiskOwnershipCensus, LegacyResourceProjection/Retirement/TransitionOwner, PartitionNativeAdmission/CompletionIndex/ContentMetadata, ReadOnlyLegacySavedAudio and selected migration/catalog/Delete journal bindings. Dynamic tables use fixed prefixes plus Long.toHexString UIDs or the validated64-character ASCII alphanumeric/underscore index name; query projections, state predicates and limits are internal constants/closed choices. External key/name values use selection arguments or bindBlob/bindLong. No injection found in these selected paths; this was source inspection, not every query/native SQLite behavior, corruption fuzzing or a device test. No new tests were added merely to assert SQL strings.
