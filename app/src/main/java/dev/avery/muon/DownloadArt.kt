@@ -80,25 +80,37 @@ internal class DownloadArt(private val dir: File,
         try {
             val io=SavedCoverIo()
             val target=entryFile(requestId)
-            val temp=File(dir,target.name+".part")
-            var failure:Throwable?=null
+            var temp:File?=null
+            var closed=false
             try {
-                io.response=(calls ?: Transport.metadataClient).newCall(Request.Builder().url(url).build()).execute()
-                val response=requireNotNull(io.response)
-                val source=response.body?.source()?.also { io.source=it }
-                if(!response.isSuccessful || source==null || source.request(COVER_BYTES+1)) return
-                val bytes=source.readByteArray(source.buffer.size)
-                if(bytes.isEmpty()) return
-                dir.mkdirs()
-                val output=outputs(temp).also { io.output=it }
-                output.write(bytes); output.flush()
-            } catch(error:Throwable) { failure=error; throw error }
-            finally { try { io.finish() } catch(unknown:SavedCoverCloseUncertain) {
-                if(failure!=null && failure!==unknown && failure!==unknown.cause) unknown.addSuppressed(failure)
-                throw unknown
-            } }
-            // Publication is after BOTH observable closes, never after a quiet response close.
-            temp.renameTo(target)
+                var failure:Throwable?=null
+                try {
+                    io.response=(calls ?: Transport.metadataClient).newCall(Request.Builder().url(url).build()).execute()
+                    val response=requireNotNull(io.response)
+                    val source=response.body?.source()?.also { io.source=it }
+                    if(!response.isSuccessful || source==null || source.request(COVER_BYTES+1)) return
+                    val bytes=source.readByteArray(source.buffer.size)
+                    if(bytes.isEmpty()) return
+                    dir.mkdirs()
+                    // Only this fetch owns its temporary; old/uncertain files are not cleanup targets.
+                    val pending=File.createTempFile(target.name+".fetch-", ".part",dir)
+                    temp=pending; io.disposition=pending
+                    val output=outputs(pending).also { io.output=it }
+                    output.write(bytes); output.flush()
+                } catch(error:Throwable) { failure=error; throw error }
+                finally {
+                    try { io.finish(); closed=true } catch(unknown:SavedCoverCloseUncertain) {
+                        if(failure!=null && failure!==unknown && failure!==unknown.cause) unknown.addSuppressed(failure)
+                        throw unknown
+                    }
+                }
+                // Publication is after BOTH observable closes, never after a quiet response close.
+                temp?.renameTo(target)
+            } finally {
+                // A known-closed write/rename failure may leave a partial cover. Never unlink after
+                // an unknown close: that exact file/handle belongs to the retained I/O owner.
+                if(closed) temp?.delete()
+            }
         } catch(unknown:SavedCoverCloseUncertain) { retain(unknown.owner); throw unknown }
         catch(_:Exception) { /* Optional cover failure; known-closed audio/index remain unaffected. */ }
     }
