@@ -65,6 +65,35 @@ class SavedCoverLifetimeTest {
             gate.exclusive().close()
         } finally { dir.deleteRecursively() }
     }
+    @Test fun aCoverDirectoryLinkedDuringTheResponseIsRefusedBeforeCreatingOutput() {
+        val root=Files.createTempDirectory("cover-path-change").toFile()
+        val dir=File(root,"art").apply {mkdirs()};val parked=File(root,"parked")
+        val outside=File(root,"outside").apply {mkdirs()}
+        val closes=AtomicInteger();var outputs=0;var requests=0
+        val responseSource=source(byteArrayOf(1,2,3),closes)
+        val calls=OkHttpClient.Builder().addInterceptor { chain ->
+            requests++
+            Files.move(dir.toPath(),parked.toPath())
+            Files.createSymbolicLink(dir.toPath(),outside.toPath())
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                .body(object:ResponseBody() {
+                    override fun contentType():MediaType?=null
+                    override fun contentLength()=-1L
+                    override fun source()=responseSource
+                }).build()
+        }.build()
+        val art=DownloadArt(dir,calls,outputs={outputs++;FileOutputStream(it)})
+        try {
+            art.fetchEntry("active",url)
+            assertEquals(1,requests);assertEquals(1,closes.get());assertEquals(0,outputs)
+            assertTrue(outside.listFiles()!!.isEmpty());assertTrue(parked.listFiles()!!.isEmpty())
+            assertTrue(Files.isSymbolicLink(dir.toPath()));assertFalse(art.hasEntry("active"))
+            assertNull(art.forEntry("active"))
+        } finally {
+            Files.walk(root.toPath()).use { paths -> paths.sorted(java.util.Comparator.reverseOrder()).forEach(Files::delete) }
+        }
+    }
+
     @Test fun healthyActualCoverPublishesOnlyAfterKnownClosesAndRemainsReadable() {
         val dir=Files.createTempDirectory("cover-published").toFile(); val gate=SavedStorageBarrier()
         val worker=Worker(); val closes=AtomicInteger()

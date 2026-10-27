@@ -45,7 +45,9 @@ internal class DownloadArt(private val dir: File,
     }
 
     /** Whether the entry with this request ID has its own cover. */
-    fun hasEntry(requestId: String): Boolean = retained==null && entryFile(requestId).isFile
+    fun hasEntry(requestId: String): Boolean = try {
+        if(retained!=null) false else entryFile(requestId).let { file -> checkCoverPath(file); file.isFile }
+    } catch(_:IOException) { false }
 
     /** The entry's own cover, if it has one and is within the cover size cap; never an older per-track cover. */
     fun forEntry(requestId: String): ByteArray? {
@@ -56,11 +58,13 @@ internal class DownloadArt(private val dir: File,
             try {
                 permit?.check()
                 val file=entryFile(requestId)
+                checkCoverPath(file)
                 if(!file.isFile || file.length() !in 1..COVER_BYTES) return null
                 val input=inputs(file).also { io.input=it }
                 val source=input.source().buffer().also { io.source=it }
                 if(source.request(COVER_BYTES+1)) return null
                 val bytes=source.readByteArray(source.buffer.size)
+                checkCoverPath(file)
                 permit?.check()
                 return bytes.takeIf { it.isNotEmpty() }
             } finally { io.finish() }
@@ -80,6 +84,7 @@ internal class DownloadArt(private val dir: File,
         try {
             val io=SavedCoverIo()
             val target=entryFile(requestId)
+            checkCoverPath(target) // Optional fetch must not follow a pre-existing outside path.
             var temp:File?=null
             var closed=false
             try {
@@ -92,6 +97,7 @@ internal class DownloadArt(private val dir: File,
                     val bytes=source.readByteArray(source.buffer.size)
                     if(bytes.isEmpty()) return
                     dir.mkdirs()
+                    checkCoverPath(target) // Recheck after network work, before creating an output.
                     // Only this fetch owns its temporary; old/uncertain files are not cleanup targets.
                     val pending=File.createTempFile(target.name+".fetch-", ".part",dir)
                     temp=pending; io.disposition=pending
@@ -105,11 +111,12 @@ internal class DownloadArt(private val dir: File,
                     }
                 }
                 // Publication is after BOTH observable closes, never after a quiet response close.
+                checkCoverPath(target)
                 temp?.renameTo(target)
             } finally {
                 // A known-closed write/rename failure may leave a partial cover. Never unlink after
                 // an unknown close: that exact file/handle belongs to the retained I/O owner.
-                if(closed) temp?.delete()
+                if(closed) temp?.let { checkCoverPath(it); it.delete() }
             }
         } catch(unknown:SavedCoverCloseUncertain) { retain(unknown.owner); throw unknown }
         catch(_:Exception) { /* Optional cover failure; known-closed audio/index remain unaffected. */ }
@@ -118,7 +125,9 @@ internal class DownloadArt(private val dir: File,
     /** Removes the entry's own cover; any other file, including an older per-track cover, stays. */
     fun removeEntry(requestId: String) {
         if(retained!=null) throw IOException("Saved-cover ownership uncertain; removal refused")
-        entryFile(requestId).delete()
+        val file=entryFile(requestId)
+        checkCoverPath(file)
+        file.delete()
     }
 
     /** Confirm only this entry's own cover absence under the actual exclusive saved-storage gate.
