@@ -157,7 +157,8 @@ internal class Id3FrameAdmission(private val limits: Id3FrameLimits = Id3FrameLi
         private fun text(id: Int, at: Int, end: Int) {
             if (at >= end) return
             val encoding = u(at)
-            val width = if (encoding == 1 || encoding == 2) 2 else 1
+            // Native uses two-byte delimiters for ALL values except0/3, even invalid encodings.
+            val width = if (encoding == 0 || encoding == 3) 1 else 2
             var start = at + 1
             if (id == 0x54585858 || (version == 2 && id == 0x545858)) start = terminator(start, end, width) + width
             if (start >= end) { countValue(); return }

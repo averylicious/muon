@@ -68,6 +68,20 @@ class GuardedMetadataRenderersTest {
         } finally { Thread.interrupted(); if (hadInterrupt) Thread.currentThread().interrupt() }
     }
 
+    @Test fun invalidEncodingValuesCannotBypassSupplementalDecoderAdmission() {
+        for (encoding in listOf(4, 255)) for (id in listOf("TPE1", "TXXX")) {
+            val description = if (id == "TXXX") "RG\u0000\u0000" else ""
+            val body = byteArrayOf(encoding.toByte()) + "${description}AB\u0000\u0000AB\u0000\u0000".toByteArray()
+            val frame = id.toByteArray() + ByteBuffer.allocate(4).putInt(body.size).array() + byteArrayOf(0, 0) + body
+            val raw = "ID3".toByteArray() + byteArrayOf(3, 0, 0) + sync(frame.size) + frame
+            val refusing = GuardedMetadataDecoders(Id3FrameLimits(values = 1)).createDecoder(id3Format())
+            assertNull(refusing.decode(buffer(raw)))
+            val admitted = GuardedMetadataDecoders(Id3FrameLimits(values = 2)).createDecoder(id3Format())
+            val metadata = requireNotNull(admitted.decode(buffer(raw)))
+            assertEquals(2, (metadata.get(0) as TextInformationFrame).values.size)
+        }
+    }
+
     @Test fun actualMetadataSlotsKeepDefaultCountOrderAndUseGuardedDecoders() {
         val context = RuntimeEnvironment.getApplication()
         val output = MetadataOutput { }

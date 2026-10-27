@@ -62,6 +62,20 @@ class Id3FrameAdmissionTest {
         }
     }
 
+    @Test fun textValueAdmissionMatchesNativeWidthsIncludingInvalidEncodings() {
+        for (encoding in listOf(0, 1, 2, 3, 4, 255)) for (id in listOf("TPE1", "TXXX")) {
+            val separator = if (encoding == 0 || encoding == 3) "\u0000" else "\u0000\u0000"
+            val description = if (id == "TXXX") "RG$separator" else ""
+            val body = byteArrayOf(encoding.toByte()) + "${description}AB${separator}AB${separator}".toByteArray()
+            val bytes = tag(frame(id, body))
+            assertThrows(StreamMetadataRefusal::class.java) { play(bytes, Id3FrameLimits(values = 1)) }
+            // Actual native decode still produces two nonempty values, including for4/255.
+            val native = entries(play(bytes, Id3FrameLimits(values = 2)))
+                .filterIsInstance<TextInformationFrame>().single()
+            assertEquals(2, native.values.size)
+        }
+    }
+
     @Test fun versionsExtendedHeadersFooterAndRawV4SizeFallbackPreserveGainMetadata() {
         assertEquals(listOf("Title"), entries(play(tag(frame("TT2", byteArrayOf(0) + "Title".toByteArray(), version = 2), 2)))
             .filterIsInstance<TextInformationFrame>().single().values)
