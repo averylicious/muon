@@ -14,6 +14,7 @@ import androidx.media3.extractor.ForwardingExtractor
 import androidx.media3.extractor.ForwardingExtractorsFactory
 import androidx.media3.extractor.MpegAudioUtil
 import androidx.media3.extractor.PositionHolder
+import androidx.media3.extractor.avi.AviExtractor
 import androidx.media3.extractor.flac.FlacExtractor
 import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
@@ -60,7 +61,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
     containerBytes: Long = CONTAINER_METADATA_BYTES, containerEntries: Int = CONTAINER_METADATA_ENTRIES,
     private val mp4Limits: Mp4Limits = Mp4Limits(), private val wavLimits: WavLimits = WavLimits(),
     mkvLimits: MatroskaLimits = MatroskaLimits(), private val id3Limits: Id3FrameLimits = Id3FrameLimits(),
-    private val ac4SniffBytes: Long = AC4_SNIFF_BYTES) :
+    private val ac4SniffBytes: Long = AC4_SNIFF_BYTES, aviLimits: AviHeaderLimits = AviHeaderLimits()) :
     ForwardingExtractor(actual) {
     init { require(maximum >= ID3_HEADER) }
     private val id3 = Id3FrameAdmission(id3Limits)
@@ -80,6 +81,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
     private val mp4Sniffer = actual.underlyingImplementation.let { it is Mp4Extractor || it is FragmentedMp4Extractor }
     private val wav = if (actual.underlyingImplementation is WavExtractor) WavMetadataAdmission(wavLimits) else null
     private val mkv = if (actual.underlyingImplementation is MatroskaExtractor) MatroskaMetadataAdmission(mkvLimits) else null
+    private val avi = if (actual.underlyingImplementation is AviExtractor) AviHeaderAdmission(aviLimits) else null
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
         val guarded = if (mp4Sniffer) Mp4SniffInput(input, mp4Limits.retainedBytes) else mkv?.sniffInput(input) ?: input
@@ -91,7 +93,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
     override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
         checkPrefix(input)
         val tailGuarded = fragmented?.input(input) ?: input
-        val guarded = flac?.input(input) ?: ogg?.input(input) ?: wav?.input(input) ?: mkv?.input(input) ?: mp4?.input(tailGuarded) ?: tailGuarded
+        val guarded = flac?.input(input) ?: ogg?.input(input) ?: wav?.input(input) ?: mkv?.input(input) ?: avi?.input(input) ?: mp4?.input(tailGuarded) ?: tailGuarded
         return super.read(id3.input(guarded), seekPosition).also { ogg?.returned(); mkv?.returned(input.position) }
     }
     override fun seek(position: Long, timeUs: Long) {
@@ -101,6 +103,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         fragmented?.seek()
         wav?.seek(position)
         mkv?.seek()
+        avi?.seek()
         super.seek(position, timeUs)
     }
     private fun checkPrefix(input: ExtractorInput) {
