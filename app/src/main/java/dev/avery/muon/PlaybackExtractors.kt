@@ -63,7 +63,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
     private val wav = if (actual.underlyingImplementation is WavExtractor) WavMetadataAdmission(wavLimits) else null
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
-        return super.sniff(wav?.input(input) ?: input)
+        return super.sniff(input)
     }
     override fun init(output: ExtractorOutput) = super.init(ogg?.output(output) ?: output)
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.

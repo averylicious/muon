@@ -1,6 +1,6 @@
 # WAV allocation admission candidate
 
-Post-RC [#723](issues/723.md), based on main20579cf1 plus #718’s extractor wrapper and raw #724. No phone/user media, dependency/signing/package/manifest/storage/Stable publication or frozen .1420 changes. Root owns `codex/wav-metadata-admission-oct27`; no competing writer. Source read against official extractor1.11.0 SHA256 `76404d34549e50b93f16c94119aace19dee06be9068c45a3d4f8ed5289e4eb3e`, plus its common WavUtil. No library fork/flag/order/identity change.
+Post-RC [#723](issues/723.md), based on main20579cf1 plus #718’s extractor wrapper and raw #724. No phone/user media, dependency/signing/package/manifest/storage/Stable publication or frozen .1420 changes. Root owns `codex/wav-metadata-admission-oct27`; no competing writer. Source read against official extractor1.11.0 SHA256 `76404d34549e50b93f16c94119aace19dee06be9068c45a3d4f8ed5289e4eb3e`, plus its common WavUtil. No library fork/flag/order/identity change. WAV sniffing stays native (only fixed12bytes); fmt observation is applied to the selected reader’s real reads, avoiding an unnecessary format-selection behavior change.
 
 ## Actual header and writer boundary
 
@@ -16,7 +16,7 @@ Resource versus malformed refusals remain permanent ParserExceptions. Audio-form
 
 ## Verification
 
-CI is the first compile. Four actual default-reader cases cover normal PCM/float/extensible/RF64/IMA and seek0/nonzero seeking; fmt header refusal before an extension-array body peek; moderate writer/input-budget acceptance/refusal; and successful changed-response re-admission after an interrupted unused PCM extension. The last check would catch retiring the guard immediately after fixed fields. Small inline original RIFF arrays only. IMA is format-only (no packet decoding); ordinary PCM is discarded without rendering. Raw #724 separately observes the unguarded dependency's actual modest arrays, not desired production behavior. No giant positive allocation attempt, decoder/device/sound claim or #671 diagnosis.
+CI is the first compile. Four actual default-reader cases cover normal PCM/float/A-law/mu-law/extensible/RF64/IMA and seek0/nonzero seeking; fmt header refusal before an extension-array body peek; moderate writer/input-budget acceptance/refusal; and successful changed-response re-admission after an interrupted unused PCM extension. The last check would catch retiring the guard immediately after fixed fields. Small inline original RIFF arrays only. IMA is format-only (no packet decoding); ordinary PCM is discarded without rendering. Raw #724 separately observes the unguarded dependency's actual modest arrays, not desired production behavior. No giant positive allocation attempt, decoder/device/sound claim or #671 diagnosis.
 
 ## Remaining
 

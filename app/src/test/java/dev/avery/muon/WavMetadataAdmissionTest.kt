@@ -41,12 +41,15 @@ class WavMetadataAdmissionTest {
             "PCM" to wave(atom("fmt ", fmt), atom("data", ByteArray(8))),
             "float" to wave(atom("fmt ", format(type = 3, block = 4, bits = 32)), atom("data", ByteArray(16))),
             "extensible" to wave(atom("fmt ", extensible), atom("data", ByteArray(8))),
+            "A-law" to wave(atom("fmt ", format(type = 6, block = 1, bits = 8)), atom("data", ByteArray(8))),
+            "mu-law" to wave(atom("fmt ", format(type = 7, block = 1, bits = 8)), atom("data", ByteArray(8))),
             "RF64" to rf64,
             "IMA" to ima(),
         )) {
             val out = Capture()
             run(bytes, WavLimits(outputBytes = 64 * 1024), out, seeks = true)
-            assertEquals(name, MimeTypes.AUDIO_RAW, out.format?.sampleMimeType)
+            val expected = when (name) { "A-law" -> MimeTypes.AUDIO_ALAW; "mu-law" -> MimeTypes.AUDIO_MLAW; else -> MimeTypes.AUDIO_RAW }
+            assertEquals(name, expected, out.format?.sampleMimeType)
             assertTrue(name, requireNotNull(out.map).isSeekable)
             assertEquals(name, 1, out.format?.channelCount)
         }
