@@ -11,6 +11,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | First-song normalization and missing-tags reminder — implemented/accepted/released | [#645](645.md) | [Issue #645](https://github.com/averylicious/muon/issues/645) |
 | CI signing / Benchmark boundary — completed | [#640 / #685](685.md) | [Issue #640](https://github.com/averylicious/muon/issues/640) |
 | Vorbis/Ogg/FLAC admission — post-RC candidate | [#714](714.md) | [Issue #714](https://github.com/averylicious/muon/issues/714) |
+| HEVC derived-array characterization — post-RC source finding | [#730](730.md) | [Issue #730](https://github.com/averylicious/muon/issues/730) |
 | Matroska metadata/sniff admission — post-RC engineering | [#726](726.md) | [Issue #726](https://github.com/averylicious/muon/issues/726) |
 | WAV format/writer admission — post-RC candidate | [#723](723.md) | [Issue #723](https://github.com/averylicious/muon/issues/723) |
 | MP4 retained-box and sample-table admission — source finding | [#720](720.md) | [Issue #720](https://github.com/averylicious/muon/issues/720) |
@@ -19,7 +20,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Initial connection cancellation — post-RC acceptance | [#690](690.md) | [Issue #690](https://github.com/averylicious/muon/issues/690) |
 | Live ReplayGain ID reuse — post-RC implementation | [#695](695.md) | [Issue #695](https://github.com/averylicious/muon/issues/695) |
 | ReplayGain container metadata — post-RC implementation | [#702](702.md) | [Issue #702](https://github.com/averylicious/muon/issues/702) |
-| Initial ID3 allocation admission — post-RC implementation | [#704](704.md) | [Issue #704](https://github.com/averylicious/muon/issues/704) |
+| ID3 prefix and decoded-frame admission — post-RC implementation | [#704](704.md) | [Issue #704](https://github.com/averylicious/muon/issues/704) |
 | Saved-admission lifecycle — post-RC implementation | [#708](708.md) | [Issue #708](https://github.com/averylicious/muon/issues/708) |
 | Notification artwork queue — post-RC implementation | [#697](697.md) | [Issue #697](https://github.com/averylicious/muon/issues/697) |
 | Published Gradle advisories — main/experimental tool updates | [#693](693.md) | [Issue #693](https://github.com/averylicious/muon/issues/693) |
