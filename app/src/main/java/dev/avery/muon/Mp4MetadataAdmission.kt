@@ -38,6 +38,8 @@ private val MOOV = box("moov"); private val TRAK = box("trak"); private val MDIA
 private val MINF = box("minf"); private val STBL = box("stbl"); private val EDTS = box("edts")
 private val FREE = box("free"); private val FTYP = box("ftyp"); private val UUID = box("uuid")
 private val MOOF = box("moof"); private val MVEX = box("mvex"); private val PSSH = box("pssh")
+private val TRAF = box("traf"); private val TFHD = box("tfhd"); private val TRUN = box("trun")
+private val SAIZ = box("saiz"); private val SENC = box("senc"); private val SIDX = box("sidx"); private val META = box("meta")
 private val STSD = box("stsd"); private val STSZ = box("stsz"); private val STZ2 = box("stz2")
 private val STCO = box("stco"); private val CO64 = box("co64"); private val STSC = box("stsc")
 private val STTS = box("stts"); private val CTTS = box("ctts"); private val STSS = box("stss")
@@ -48,7 +50,7 @@ private val CONTAINERS = listOf("moov", "trak", "mdia", "minf", "stbl", "edts", 
 private val LEAVES = listOf("mdhd", "mvhd", "hdlr", "stsd", "stts", "stss", "ctts", "elst", "stsc", "stsz", "stz2",
     "stco", "co64", "tkhd", "ftyp", "udta", "keys", "ilst", "chap").map(::box).toSet()
 // Pinned FragmentedMp4Extractor's initial moov has a different whitelist and always parses
-// sample descriptions with isQuickTime=false. This mode stops after the first moov, as below.
+// sample descriptions with isQuickTime=false. Later moof frames reuse the bounded observer.
 private val FRAGMENT_CONTAINERS = listOf("moov", "trak", "mdia", "minf", "stbl", "moof", "traf", "mvex", "edts", "meta").map(::box).toSet()
 private val FRAGMENT_LEAVES = listOf("hdlr", "mdhd", "mvhd", "sidx", "stsd", "stts", "ctts", "stsc", "stsz", "stz2", "stco", "co64", "stss",
     "tfdt", "tfhd", "tkhd", "trex", "trun", "pssh", "saiz", "saio", "senc", "uuid", "sbgp", "sgpd", "elst", "mehd", "emsg", "udta", "keys", "ilst").map(::box).toSet()
@@ -74,7 +76,9 @@ private class Leaf(val data: ByteArray, val size: Int) {
 private class Frame(val type: Int, val end: Long) {
     val leaves = HashMap<Int, Leaf>()      // First of each type, as Mp4Box.getLeafBoxOfType.
     val containers = HashMap<Int, Frame>() // First completed of each type, as getContainerBoxOfType.
-    val traks = ArrayList<Frame>()         // Every trak, as BoxParser.parseTraks.
+    val traks = ArrayList<Frame>()         // Every trak, or every traf in a fragmented moof.
+    val runs = ArrayList<Leaf>()           // Every trun, not only getLeafBoxOfType's first one.
+    var encryptionBytes = 0L             // Potential inline SENC/PIFF data; unknown UUIDs over-count.
 }
 
 /**
@@ -84,7 +88,9 @@ private class Frame(val type: Int, val end: Long) {
  * body arrives by `readFully(data, 8, size - 8)` before any parser sees it; table counts are checked
  * there. Container ends mirror processAtomEnded, including an unparsed atom large enough to be
  * skipped by a seek, which ends its ancestors without another read. When moov ends, its tables are
- * admitted before processMoovAtom runs; afterwards samples pass through untouched until a seek to 0.
+ * admitted before processMoovAtom runs; ordinary samples then pass through until seek0. The
+ * fragmented mode continues observing moof tables/retention, with only the native MFRA header
+ * replay permitted to restart an uncommitted frame. Samples themselves pass through untouched.
  */
 internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(), private val fragmented: Boolean = false) {
     private var done = false
@@ -99,12 +105,23 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
     private var leafAt = -1L
     private var leafType = 0
     private var leafSize = 0
+    private var nextHeaderAt = -1L
+    private var restartableAt = -1L
+    private val fragments = Mp4FragmentTables(limits)
 
-    /** Mp4Extractor rereads its atoms only from the start. */
+    /** The tail wrapper calls this before native time/offset arrays; retain the high-water cost. */
+    fun admitTailRows(rows: Long) { fragments.tail(rows) }
+
+    /** Ordinary rereads atoms from0; fragmented seek clears parsing, not retained native tables. */
     fun seek(position: Long) {
-        if (position != 0L) return
+        if (position != 0L && !fragmented) return
         done = false; seenFtyp = false; quickTime = false
+        clearAtoms()
+    }
+
+    private fun clearAtoms() {
         stack.clear(); retained = 0; boxes = 0; metadataEntries = 0; largeAt = -1; leafAt = -1
+        nextHeaderAt = -1; restartableAt = -1
     }
 
     fun input(actual: ExtractorInput): ExtractorInput = if (done) actual else Observed(actual)
@@ -122,11 +139,19 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
             super.readFully(target, offset, length)
             if (done || offset != 8) return
             if (largeAt >= 0 && at == largeAt + 8 && length == 8 && target.size == 16) extended(target, this.length)
-            else if (leafAt >= 0 && at == leafAt + 8 && target.size == leafSize && length == leafSize - 8) body(target)
+            else if (leafAt >= 0 && at == leafAt + 8 && target.size >= leafSize && length == leafSize - 8) body(target)
         }
     }
 
     private fun header(at: Long, data: ByteArray, streamLength: Long) {
+        if (fragmented && nextHeaderAt >= 0 && at != nextHeaderAt &&
+            !(stack.lastOrNull()?.type == META && at == nextHeaderAt + 4)) {
+            // Before pushing the first moof/mdat, native may seek to MFRO/MFRA and return to
+            // reread this very header. No other discontinuity may discard a retained frame.
+            if (at != restartableAt) throw StreamMetadataRefusal(true)
+            clearAtoms()
+        }
+        restartableAt = -1
         val declared = data.u32(0)
         if (declared == 1L) { largeAt = at; largeType = data.s32(4); return } // A 64-bit size follows.
         resolve(at, data.s32(4), declared, 8, streamLength)
@@ -153,6 +178,8 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
         val end = at + size
         if (!fragmented && type == MDAT && !seenFtyp) quickTime = true // Same fallback as readAtomPayload.
         val parent = stack.lastOrNull()
+        if (type == MOOV && parent != null) throw StreamMetadataRefusal(true)
+        if (fragmented && parent != null && (type == MOOF || type == MDAT)) throw StreamMetadataRefusal(true)
         if (parent != null && end > parent.end) throw StreamMetadataRefusal(true)
         val container = type in (if (fragmented) FRAGMENT_CONTAINERS else CONTAINERS)
         val leaf = !container && type in (if (fragmented) FRAGMENT_LEAVES else LEAVES)
@@ -160,6 +187,8 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
         // Do not certify that inconsistent boundary or let first-moov admission end prematurely.
         if (fragmented && container && header != 8) throw StreamMetadataRefusal(true)
         if ((container || leaf) && streamLength != UNSET && end > streamLength) throw StreamMetadataRefusal(true)
+        nextHeaderAt = if (container) at + header else end
+        if (fragmented && (type == MOOF || type == MDAT)) restartableAt = at
         when {
             container -> {
                 if (stack.size >= limits.depth || ++boxes > limits.boxes) throw StreamMetadataRefusal()
@@ -196,7 +225,14 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
         metadataEntries += admitMp4NestedMetadata(inspect, data, leafSize,
             limits.metadataEntries - metadataEntries, quickTime, limits.depth)
         validate(leafType, leaf)
-        if (fragmented && leafType == PSSH && parent?.type == MOOV) admitPssh(leaf)
+        if (fragmented && leafType == PSSH && (parent?.type == MOOV || parent?.type == MOOF)) admitPssh(leaf)
+        if (fragmented && leafType == SIDX && parent == null) fragments.index(data, leafSize)
+        if (fragmented && leafType == TRUN && parent?.type == TRAF) {
+            fragments.checkRun(data, leafSize)
+            parent.runs += leaf
+        }
+        if (fragmented && parent?.type == TRAF && (leafType == SENC || leafType == UUID))
+            parent.encryptionBytes = maxOf(parent.encryptionBytes, leafSize.toLong())
         val end = leafAt + leafSize
         leafAt = -1
         stack.lastOrNull()?.leaves?.putIfAbsent(leafType, leaf)
@@ -218,13 +254,25 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
         while (stack.isNotEmpty() && stack.last().end == position) {
             val frame = stack.removeAt(stack.lastIndex)
             if (frame.type == MOOV) {
-                admitMoov(frame)
-                stack.clear(); done = true; retained = 0; boxes = 0; metadataEntries = 0
+                val rows = admitMoov(frame)
+                if (fragmented) fragments.movie(rows)
+                stack.clear(); done = !fragmented; retained = 0; boxes = 0; metadataEntries = 0
+                return
+            }
+            if (fragmented && frame.type == MOOF) {
+                for (traf in frame.traks) {
+                    val tfhd = traf.leaves[TFHD] ?: continue // Native fails before initTables.
+                    val saiz = traf.leaves[SAIZ]
+                    fragments.fragment(tfhd.data, tfhd.size, traf.runs.map { it.data to it.size },
+                        saiz?.data, saiz?.size ?: 0, traf.encryptionBytes)
+                }
+                stack.clear(); retained = 0; boxes = 0; metadataEntries = 0
                 return
             }
             val parent = stack.lastOrNull() ?: continue
             parent.containers.putIfAbsent(frame.type, frame)
-            if (frame.type == TRAK && parent.type == MOOV) parent.traks += frame
+            if ((frame.type == TRAK && parent.type == MOOV) ||
+                (fragmented && frame.type == TRAF && parent.type == MOOF)) parent.traks += frame
         }
         if (stack.isEmpty()) { retained = 0; boxes = 0; metadataEntries = 0 } // Top-level boxes are processed or dropped.
     }
@@ -266,13 +314,14 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
         }
     }
 
-    private fun admitMoov(moov: Frame) {
+    private fun admitMoov(moov: Frame): Long {
         var rows = 0L
         for (trak in moov.traks) {
             val stbl = trak.containers[MDIA]?.containers[MINF]?.containers[STBL] ?: continue
             rows += trackRows(trak, stbl)
             if (rows > limits.tableRows) throw StreamMetadataRefusal()
         }
+        return rows
     }
 
     /** One track's tables as BoxParser.parseStbl and Mp4Extractor would build them, or an upper bound. */

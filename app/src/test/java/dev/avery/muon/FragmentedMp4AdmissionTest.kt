@@ -70,15 +70,23 @@ class FragmentedMp4AdmissionTest {
         assertNull(refused.map)
     }
 
-    @Test fun interruptedTailReopensWithoutLosingAdmissionOrSeekMap() {
+    @Test fun interruptedTailAndFragmentBodiesReopenWithoutLosingAdmissionOrSeekMap() {
         val bytes = fixture()
-        val faults = Faults(at = top(bytes, "mfra") + 8L)
-        val out = Capture()
-        run(bytes, Mp4Limits(), out, faults)
-        assertEquals(-1L, faults.at)
-        assertTrue(faults.bodyReads >= 2 && faults.seeks > 0)
-        assertEquals(MimeTypes.AUDIO_AAC, out.format?.sampleMimeType)
-        assertTrue(requireNotNull(out.map).isSeekable)
+        for ((name, at) in listOf(
+            "tail" to top(bytes, "mfra") + 8L,
+            "track header" to position(bytes, arrayOf("moof", "traf", "tfhd")) + 8L,
+            "sample run" to position(bytes, arrayOf("moof", "traf", "trun")) + 8L,
+        )) {
+            val faults = Faults(at)
+            val out = Capture()
+            run(bytes, Mp4Limits(), out, faults)
+            assertEquals(name, -1L, faults.at)
+            assertTrue(name, faults.bodyReads >= if (name == "tail") 2 else 1)
+            assertTrue(name, faults.seeks > 0)
+            assertEquals(name, MimeTypes.AUDIO_AAC, out.format?.sampleMimeType)
+            assertTrue(name, requireNotNull(out.map).isSeekable)
+            assertEquals(name, 4, out.samples)
+        }
     }
 
     @Test fun initialMovieTablesCannotBypassAdmissionThroughFragmentedSelection() {
@@ -132,7 +140,71 @@ class FragmentedMp4AdmissionTest {
         }.contentIsMalformed)
     }
 
-    private fun run(bytes: ByteArray, limits: Mp4Limits, out: Capture, faults: Faults, stopAtFormat: Boolean = false) {
+    @Test fun sampleRunsAreBackedAndAdmittedTogetherBeforeTheirArrays() {
+        val accepted = Capture()
+        run(withRuns(listOf(8)), Mp4Limits(tableRows = 100), accepted, Faults(), stopAtSample = true)
+        assertEquals(1, accepted.samples)
+        val small = Capture()
+        assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+            run(withRuns(listOf(8, 8)), Mp4Limits(tableRows = 70), small, Faults(), stopAtSample = true)
+        }.contentIsMalformed) // Each run fits alone; together they need20-entry headroom arrays.
+        assertEquals(0, small.samples)
+        assertEquals(MimeTypes.AUDIO_AAC, small.format?.sampleMimeType)
+        val original = fixture()
+        val unbacked = replace(original, arrayOf("moof", "traf", "trun")) {
+            atom("trun", be(0x201), be(8), be(108), be(4)) // Only one of eight size fields.
+        }
+        assertTrue(assertThrows(StreamMetadataRefusal::class.java) {
+            run(unbacked, Mp4Limits(), Capture(), Faults(), stopAtSample = true)
+        }.contentIsMalformed)
+    }
+
+    @Test fun differentTracksRetainTheirFragmentHighWaterCapacities() {
+        val bytes = twoTrackFragments()
+        val accepted = Capture()
+        run(bytes, Mp4Limits(tableRows = 100), accepted, Faults())
+        assertEquals(16, accepted.samples)
+        val small = Capture()
+        assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+            run(bytes, Mp4Limits(tableRows = 70), small, Faults())
+        }.contentIsMalformed)
+        assertEquals("The first track played; refuse before allocating the second track arrays", 8, small.samples)
+    }
+
+    @Test fun segmentIndexesStayBoundedWithoutCountingDuplicateStartsAsNewRetention() {
+        fun indexes(starts: List<Int>, declared: Int = 8): ByteArray {
+            val reference = be(4) + be(1024) + be(0)
+            var entries = ByteArray(0)
+            repeat(8) { entries += reference }
+            val indexes = starts.fold(ByteArray(0)) { result, start -> result +
+                atom("sidx", be(0), be(1), be(48_000), be(start), be(0),
+                    byteArrayOf(0, 0, (declared shr 8).toByte(), declared.toByte()), entries) }
+            val original = fixture()
+            val at = top(original, "moof")
+            return original.copyOfRange(0, at) + indexes + original.copyOfRange(at, original.size)
+        }
+        val distinct = Capture()
+        run(indexes(listOf(0, 8192, 16384)), Mp4Limits(tableRows = 300), distinct, Faults())
+        assertEquals(3, distinct.maps)
+        assertEquals(4, distinct.samples)
+        val duplicate = Capture()
+        run(indexes(listOf(0, 0, 0)), Mp4Limits(tableRows = 100), duplicate, Faults())
+        assertEquals(3, duplicate.maps) // Native publishes all three; its merger retains one.
+        assertEquals(4, duplicate.samples)
+        val small = Capture()
+        assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+            run(indexes(listOf(0, 8192, 16384)), Mp4Limits(tableRows = 150), small, Faults())
+        }.contentIsMalformed)
+        assertEquals("Third distinct index refused before its native arrays/publication", 2, small.maps)
+        val bad = Capture()
+        assertTrue(assertThrows(StreamMetadataRefusal::class.java) {
+            run(indexes(listOf(0), declared = 64), Mp4Limits(), bad, Faults())
+        }.contentIsMalformed)
+        assertEquals(0, bad.maps)
+    }
+
+    private fun run(bytes: ByteArray, limits: Mp4Limits, out: Capture, faults: Faults,
+        stopAtFormat: Boolean = false, stopAtSample: Boolean = false) {
         val mfra = top(bytes, "mfra").toLong()
         fun open(at: Long): ExtractorInput = object : ForwardingExtractorInput(
             DefaultExtractorInput(Reader(bytes, at, faults), at, bytes.size.toLong())) {
@@ -159,7 +231,7 @@ class FragmentedMp4AdmissionTest {
                     input = open(input.position)
                     continue
                 }
-                if (stopAtFormat && out.format != null) return
+                if ((stopAtFormat && out.format != null) || (stopAtSample && out.samples > 0)) return
                 when (result) {
                     Extractor.RESULT_CONTINUE -> Unit
                     Extractor.RESULT_SEEK -> { faults.seeks++; input = open(holder.position) }
@@ -172,11 +244,14 @@ class FragmentedMp4AdmissionTest {
     private class Capture : ExtractorOutput {
         var format: Format? = null
         var map: SeekMap? = null
+        var samples = 0
+        var maps = 0
         override fun track(id: Int, type: Int): TrackOutput = object : TrackOutput by DiscardingTrackOutput() {
             override fun format(value: Format) { format = value }
+            override fun sampleMetadata(timeUs: Long, flags: Int, size: Int, offset: Int, cryptoData: TrackOutput.CryptoData?) { samples++ }
         }
         override fun endTracks() {}
-        override fun seekMap(seekMap: SeekMap) { map = seekMap }
+        override fun seekMap(seekMap: SeekMap) { map = seekMap; maps++ }
     }
     private class Faults(var at: Long = -1) {
         var headerSeen = false; var bodyReads = 0; var seeks = 0
@@ -220,6 +295,58 @@ class FragmentedMp4AdmissionTest {
         }
         error("Missing fixture box $name")
     }
+    private fun withRuns(counts: List<Int>, track: Int = 1): ByteArray {
+        val original = fixture()
+        //20-byte trun with tfhd defaults: positive counts need no per-sample payload.
+        val moofSize = 116 - 36 + 20 * counts.size
+        var offset = moofSize + 8
+        val runs = counts.fold(ByteArray(0)) { result, count ->
+            val run = atom("trun", be(1), be(count), be(offset))
+            offset += count * 4
+            result + run
+        }
+        var bytes = replace(original, arrayOf("moof", "traf", "trun")) { runs }
+        bytes = replace(bytes, arrayOf("moof", "traf", "tfhd")) { old ->
+            old.copyOf().also { ByteBuffer.wrap(it, 12, 4).putInt(track) }
+        }
+        return bytes
+    }
+
+    private fun twoTrackFragments(): ByteArray {
+        val original = fixture()
+        var movie = original.copyOfRange(0, top(original, "moof"))
+        val track = child(original, arrayOf("moov", "trak")).let { bytes ->
+            replace(bytes, arrayOf("trak", "tkhd")) { old ->
+                old.copyOf().also { ByteBuffer.wrap(it, 20, 4).putInt(2) }
+            }
+        }
+        movie = replace(movie, arrayOf("moov")) { old -> atom("moov", old.copyOfRange(8, old.size), track) }
+        val trex = child(original, arrayOf("moov", "mvex", "trex")).also { ByteBuffer.wrap(it, 12, 4).putInt(2) }
+        movie = replace(movie, arrayOf("moov", "mvex")) { old -> atom("mvex", old.copyOfRange(8, old.size), trex) }
+        val first = child(withRuns(listOf(8), track = 1), arrayOf("moof"))
+        val second = child(withRuns(listOf(8), track = 2), arrayOf("moof"))
+        // Repeated original AAC silence packet bytes, parsed/discarded without decoding.
+        val packet = original.copyOfRange(top(original, "mdat") + 8, top(original, "mdat") + 12)
+        var media = ByteArray(0)
+        repeat(8) { media += packet }
+        val tail = child(original, arrayOf("mfra")).also { ByteBuffer.wrap(it, 40, 8).putLong(movie.size.toLong()) }
+        return movie + first + atom("mdat", media) + second + atom("mdat", media) + tail
+    }
+
+    private fun position(bytes: ByteArray, path: Array<String>): Int {
+        val at = top(bytes, path.first())
+        val size = ByteBuffer.wrap(bytes, at, 4).int
+        return if (path.size == 1) at else at + 8 +
+            position(bytes.copyOfRange(at + 8, at + size), path.drop(1).toTypedArray())
+    }
+
+    private fun child(bytes: ByteArray, path: Array<String>): ByteArray {
+        val at = top(bytes, path.first())
+        val size = ByteBuffer.wrap(bytes, at, 4).int
+        return if (path.size == 1) bytes.copyOfRange(at, at + size)
+            else child(bytes.copyOfRange(at + 8, at + size), path.drop(1).toTypedArray())
+    }
+
     /** Rewrite only framed fixture ancestors; this is fixture construction, not admission logic. */
     private fun replace(bytes: ByteArray, path: Array<String>, change: (ByteArray) -> ByteArray): ByteArray {
         val at = top(bytes, path.first())

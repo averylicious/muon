@@ -56,15 +56,15 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         FlacMetadataAdmission(containerBytes, containerEntries) else null
     private val ogg = if (actual.underlyingImplementation is OggExtractor)
         OggPacketAdmission(containerBytes, containerEntries) else null
-    // Ordinary MP4, the fragmented first moov and MFRA tails are admitted (#720).
-    // Later fragmented leaves/trun/DRM remain separate engineering, not implicit clearance.
+    // MP4 metadata, fragmented table/index retention and MFRA tails are admitted (#720).
+    // This is not every codec/decoder/heap path; preserve native factory identities and flags.
     private val mp4 = when (actual.underlyingImplementation) {
         is Mp4Extractor -> Mp4MetadataAdmission(mp4Limits)
         is FragmentedMp4Extractor -> Mp4MetadataAdmission(mp4Limits, fragmented = true)
         else -> null
     }
     private val fragmented = if (actual.underlyingImplementation is FragmentedMp4Extractor)
-        FragmentedMp4Admission(mp4Limits) else null
+        FragmentedMp4Admission(mp4Limits) { rows -> mp4?.admitTailRows(rows) } else null
     private val mp4Sniffer = actual.underlyingImplementation.let { it is Mp4Extractor || it is FragmentedMp4Extractor }
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)

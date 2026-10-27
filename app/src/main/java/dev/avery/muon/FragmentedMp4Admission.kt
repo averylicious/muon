@@ -11,7 +11,8 @@ import androidx.media3.extractor.ForwardingExtractorInput
  * before that array and check actual delivered tfra declarations before their two long arrays.
  * Ordinary atom/trun/DRM/sidx admission is separate work; this is not whole-fragmented-MP4 clearance.
  */
-internal class FragmentedMp4Admission(private val limits: Mp4Limits = Mp4Limits()) {
+internal class FragmentedMp4Admission(private val limits: Mp4Limits = Mp4Limits(),
+    private val admitRows: (Long) -> Unit = {}) {
     private var mfraAt = -1L
     private var mfraBytes = 0
 
@@ -47,13 +48,13 @@ internal class FragmentedMp4Admission(private val limits: Mp4Limits = Mp4Limits(
         while (size - at >= 8) {
             val declared = data.u32(at)
             val header = if (declared == 1L) 16 else 8
-            if (size - at < header) return // Native parser stops on a truncated child header.
+            if (size - at < header) { admitRows(rows); return } // Native parser stops on a truncated child header.
             val bytes = when (declared) {
                 0L -> (size - at).toLong()
                 1L -> data.s64(at + 8)
                 else -> declared
             }
-            if (bytes < header || bytes > size - at) return // Native parser breaks before allocation.
+            if (bytes < header || bytes > size - at) { admitRows(rows); return } // Native parser breaks before allocation.
             if (++boxes > limits.boxes) throw StreamMetadataRefusal()
             if (data.u32(at + 4) == TFRA && bytes >= header + 16) {
                 val fields = at + header
@@ -72,6 +73,7 @@ internal class FragmentedMp4Admission(private val limits: Mp4Limits = Mp4Limits(
             }
             at += bytes.toInt()
         }
+        admitRows(rows)
     }
 
     private companion object {

@@ -77,6 +77,8 @@ class Mp4MetadataAdmissionTest {
             Triple("retained", false, append(control, moov, atom("udta", ByteArray(2048)))),
             // A leaf declaring more than its container holds.
             Triple("parent", true, append(control, moov, be(4096) + ascii("udta") + ByteArray(16))),
+            Triple("nested movie", true, append(control, moov,
+                control.copyOfRange(moov.last().start, moov.last().end))),
             // A 64-bit header on a parsed leaf, which Mp4Extractor cannot allocate.
             Triple("extended leaf", true, append(control, moov, be(1) + ascii("udta") + be64(32) + ByteArray(16))),
             // A container whose 64-bit end overflows its parent.
