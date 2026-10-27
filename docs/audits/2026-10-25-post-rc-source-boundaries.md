@@ -56,3 +56,7 @@ Thus repeated Muon logical timeouts do not demonstrate an unbounded native-resol
 - Discovery's old resolve fallback now has the API28 source qualification above. Its platform single-client slot narrows the unbounded-queue hypothesis for that version; later Android/OEM cancellation/retention remains unverified. Logical timeout alone is not physical cancellation. No NSD/network setting was changed.
 
 Continue from maintained [issue state](issues/README.md) and the [current continuation](../handoffs/2026-10-25-post-rc-continuation.md). Source questions are not newly invented frozen-RC blockers.
+
+## Development version-label check
+
+The .1511 branch release-package artifact reports0.1.0 despite published Stable0.2.0. This matches the explicit [development-version convention](../release-naming.md): workflow non-tag builds use an independent base and increasing run-number version code; Stable tags override the display version. Both main205 and alphaEE keep that development fallback. This inspection did not establish a signing/update-order failure, so no unrequested version/channel change was made. Actual APK identity/source/hash checks remain separate from naming policy.
