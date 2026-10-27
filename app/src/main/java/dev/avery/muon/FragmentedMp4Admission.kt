@@ -18,11 +18,10 @@ internal class FragmentedMp4Admission(private val limits: Mp4Limits = Mp4Limits(
     fun seek() { mfraAt = -1; mfraBytes = 0 }
     fun input(actual: ExtractorInput): ExtractorInput = object : ForwardingExtractorInput(actual) {
         override fun peekFully(target: ByteArray, offset: Int, length: Int, allowEndOfInput: Boolean): Boolean {
-            val at = peekPosition
             if (!super.peekFully(target, offset, length, allowEndOfInput)) return false
             // Pinned readMfra is the fragmented reader's only allow-end 8-byte header peek. The
             // meta helper's peek is the other overload and must not be mistaken for this state.
-            if (allowEndOfInput && at == position && offset == 0 && length == 8 && target.u32(4) == MFRA) {
+            if (allowEndOfInput && offset == 0 && length == 8 && target.u32(4) == MFRA) {
                 val bytes = this.length - position
                 if (bytes < 8 || bytes > Int.MAX_VALUE) throw StreamMetadataRefusal(true)
                 if (bytes > limits.retainedBytes) throw StreamMetadataRefusal()

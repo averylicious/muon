@@ -37,7 +37,7 @@ private fun box(name: String) = name.fold(0) { value, c -> (value shl 8) or c.co
 private val MOOV = box("moov"); private val TRAK = box("trak"); private val MDIA = box("mdia")
 private val MINF = box("minf"); private val STBL = box("stbl"); private val EDTS = box("edts")
 private val FREE = box("free"); private val FTYP = box("ftyp"); private val UUID = box("uuid")
-private val MOOF = box("moof"); private val MVEX = box("mvex")
+private val MOOF = box("moof"); private val MVEX = box("mvex"); private val PSSH = box("pssh")
 private val STSD = box("stsd"); private val STSZ = box("stsz"); private val STZ2 = box("stz2")
 private val STCO = box("stco"); private val CO64 = box("co64"); private val STSC = box("stsc")
 private val STTS = box("stts"); private val CTTS = box("ctts"); private val STSS = box("stss")
@@ -47,6 +47,11 @@ private val UDTA = box("udta"); private val MDAT = box("mdat"); private val QUIC
 private val CONTAINERS = listOf("moov", "trak", "mdia", "minf", "stbl", "edts", "meta", "axte", "tref").map(::box).toSet()
 private val LEAVES = listOf("mdhd", "mvhd", "hdlr", "stsd", "stts", "stss", "ctts", "elst", "stsc", "stsz", "stz2",
     "stco", "co64", "tkhd", "ftyp", "udta", "keys", "ilst", "chap").map(::box).toSet()
+// Pinned FragmentedMp4Extractor's initial moov has a different whitelist and always parses
+// sample descriptions with isQuickTime=false. This mode stops after the first moov, as below.
+private val FRAGMENT_CONTAINERS = listOf("moov", "trak", "mdia", "minf", "stbl", "moof", "traf", "mvex", "edts", "meta").map(::box).toSet()
+private val FRAGMENT_LEAVES = listOf("hdlr", "mdhd", "mvhd", "sidx", "stsd", "stts", "ctts", "stsc", "stsz", "stz2", "stco", "co64", "stss",
+    "tfdt", "tfhd", "tkhd", "trex", "trun", "pssh", "saiz", "saio", "senc", "uuid", "sbgp", "sgpd", "elst", "mehd", "emsg", "udta", "keys", "ilst").map(::box).toSet()
 /** Without child overrides, these sample entries always produce a rechunkable audio MIME. */
 private val SIMPLE_RAW_ENTRIES = listOf("sowt", "twos", "lpcm", "alaw", "ulaw").map(::box).toSet()
 // Pinned parseAudioSampleEntry ignores chan/free; btrt updates only bitrates, not format/frame size.
@@ -81,7 +86,7 @@ private class Frame(val type: Int, val end: Long) {
  * skipped by a seek, which ends its ancestors without another read. When moov ends, its tables are
  * admitted before processMoovAtom runs; afterwards samples pass through untouched until a seek to 0.
  */
-internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits()) {
+internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(), private val fragmented: Boolean = false) {
     private var done = false
     private var seenFtyp = false
     private var quickTime = false
@@ -146,11 +151,14 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
         }
         if (size > Long.MAX_VALUE - at) throw StreamMetadataRefusal(true)
         val end = at + size
-        if (type == MDAT && !seenFtyp) quickTime = true // Same fallback as readAtomPayload.
+        if (!fragmented && type == MDAT && !seenFtyp) quickTime = true // Same fallback as readAtomPayload.
         val parent = stack.lastOrNull()
         if (parent != null && end > parent.end) throw StreamMetadataRefusal(true)
-        val container = type in CONTAINERS
-        val leaf = !container && type in LEAVES
+        val container = type in (if (fragmented) FRAGMENT_CONTAINERS else CONTAINERS)
+        val leaf = !container && type in (if (fragmented) FRAGMENT_LEAVES else LEAVES)
+        // Pinned fragmented container-end arithmetic uses HEADER_SIZE even for extended headers.
+        // Do not certify that inconsistent boundary or let first-moov admission end prematurely.
+        if (fragmented && container && header != 8) throw StreamMetadataRefusal(true)
         if ((container || leaf) && streamLength != UNSET && end > streamLength) throw StreamMetadataRefusal(true)
         when {
             container -> {
@@ -188,10 +196,22 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
         metadataEntries += admitMp4NestedMetadata(inspect, data, leafSize,
             limits.metadataEntries - metadataEntries, quickTime, limits.depth)
         validate(leafType, leaf)
+        if (fragmented && leafType == PSSH && parent?.type == MOOV) admitPssh(leaf)
         val end = leafAt + leafSize
         leafAt = -1
         stack.lastOrNull()?.leaves?.putIfAbsent(leafType, leaf)
         ended(end)
+    }
+
+    /** Pinned PsshAtomUtil creates the UUID array before reading its key IDs. */
+    private fun admitPssh(leaf: Leaf) {
+        if (leaf.size < 32 || leaf.u32(0) != leaf.size.toLong()) return // Native returns null.
+        val version = leaf.u32(8) ushr 24
+        if (version != 1L) return // Version0 has no count array; unsupported versions return null.
+        val count = leaf.count(28)
+        if (!leaf.fits(32, count * 16 + 4)) throw StreamMetadataRefusal(true)
+        if (count > limits.metadataEntries - metadataEntries) throw StreamMetadataRefusal()
+        metadataEntries += count.toInt()
     }
 
     private fun ended(position: Long) {

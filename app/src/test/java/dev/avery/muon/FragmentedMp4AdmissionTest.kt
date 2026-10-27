@@ -17,6 +17,8 @@ import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
+import androidx.media3.extractor.mp4.PsshAtomUtil
+import java.util.UUID
 import java.io.IOException
 import java.nio.ByteBuffer
 import org.junit.Assert.*
@@ -30,7 +32,11 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], manifest = Config.NONE)
 class FragmentedMp4AdmissionTest {
     @Test fun actualTailLengthIsAdmittedBeforeTheMfraArray() {
-        val bytes = index(entries = 1, padding = 4096)
+        val bytes = index(entries = 1, padding = 4096).also {
+            // Native readMfra ignores the outer size except for its extended-header marker.
+            // The declared8-byte box must not hide its actual larger allocation suffix.
+            ByteBuffer.wrap(it, top(it, "mfra"), 4).putInt(8)
+        }
         val accepted = Capture(); val normal = Faults()
         run(bytes, Mp4Limits(retainedBytes = 8192), accepted, normal)
         assertEquals(MimeTypes.AUDIO_AAC, accepted.format?.sampleMimeType)
@@ -75,7 +81,58 @@ class FragmentedMp4AdmissionTest {
         assertTrue(requireNotNull(out.map).isSeekable)
     }
 
-    private fun run(bytes: ByteArray, limits: Mp4Limits, out: Capture, faults: Faults) {
+    @Test fun initialMovieTablesCannotBypassAdmissionThroughFragmentedSelection() {
+        val path = arrayOf("moov", "trak", "mdia", "minf", "stbl")
+        var bytes = fixture()
+        // Coherent modest64-row initial sample table; named audio isn't decoded by this test.
+        for ((name, table) in listOf(
+            "stsz" to atom("stsz", be(0), be(4), be(64)),
+            "stts" to atom("stts", be(0), be(1), be(64), be(1024)),
+            "stsc" to atom("stsc", be(0), be(1), be(1), be(64), be(1)),
+            "stco" to atom("stco", be(0), be(1), be(0)),
+        )) bytes = replace(bytes, path + name) { table }
+        val accepted = Capture()
+        run(bytes, Mp4Limits(tableRows = 200), accepted, Faults(), stopAtFormat = true)
+        assertEquals(MimeTypes.AUDIO_AAC, accepted.format?.sampleMimeType)
+        val refused = Capture()
+        assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+            run(bytes, Mp4Limits(tableRows = 100), refused, Faults(), stopAtFormat = true)
+        }.contentIsMalformed)
+        assertNull("Refuse before native moov parsing publishes the track", refused.format)
+    }
+
+    @Test fun initialDrmKeyCountsAreBackedAndShareTheMetadataBudget() {
+        val pssh = PsshAtomUtil.buildPsshAtom(UUID(1, 2), arrayOf(UUID(3, 4), UUID(5, 6)), byteArrayOf(7))
+        fun added(box: ByteArray) = replace(fixture(), arrayOf("moov")) { old ->
+            atom("moov", old.copyOfRange(8, old.size), box)
+        }
+        val accepted = Capture()
+        run(added(pssh), Mp4Limits(), accepted, Faults(), stopAtFormat = true)
+        assertEquals(UUID(1, 2), requireNotNull(accepted.format?.drmInitData).get(0).uuid)
+        val keys = Array(20) { UUID(3, it.toLong()) }
+        val twenty = PsshAtomUtil.buildPsshAtom(UUID(1, 2), keys, byteArrayOf(7))
+        val one = Capture()
+        run(added(twenty), Mp4Limits(metadataEntries = 32), one, Faults(), stopAtFormat = true)
+        assertEquals(MimeTypes.AUDIO_AAC, one.format?.sampleMimeType)
+        val small = Capture()
+        assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+            run(added(twenty + twenty), Mp4Limits(metadataEntries = 32), small, Faults(), stopAtFormat = true)
+        }.contentIsMalformed) // Both individually backed20-key boxes share the movie budget.
+        assertNull(small.format)
+        val bad = pssh.copyOf().also { ByteBuffer.wrap(it, 28, 4).putInt(64) }
+        assertTrue(assertThrows(StreamMetadataRefusal::class.java) {
+            run(added(bad), Mp4Limits(), Capture(), Faults(), stopAtFormat = true)
+        }.contentIsMalformed)
+        // A declared parsed leaf must also be bounded BEFORE its missing body is requested.
+        val truncated = replace(fixture(), arrayOf("moov")) { old ->
+            atom("moov", old.copyOfRange(8, old.size), be(4096), "pssh".toByteArray(Charsets.US_ASCII))
+        }
+        assertTrue(assertThrows(StreamMetadataRefusal::class.java) {
+            run(truncated, Mp4Limits(), Capture(), Faults(), stopAtFormat = true)
+        }.contentIsMalformed)
+    }
+
+    private fun run(bytes: ByteArray, limits: Mp4Limits, out: Capture, faults: Faults, stopAtFormat: Boolean = false) {
         val mfra = top(bytes, "mfra").toLong()
         fun open(at: Long): ExtractorInput = object : ForwardingExtractorInput(
             DefaultExtractorInput(Reader(bytes, at, faults), at, bytes.size.toLong())) {
@@ -102,6 +159,7 @@ class FragmentedMp4AdmissionTest {
                     input = open(input.position)
                     continue
                 }
+                if (stopAtFormat && out.format != null) return
                 when (result) {
                     Extractor.RESULT_CONTINUE -> Unit
                     Extractor.RESULT_SEEK -> { faults.seeks++; input = open(holder.position) }
@@ -161,6 +219,15 @@ class FragmentedMp4AdmissionTest {
             at += size
         }
         error("Missing fixture box $name")
+    }
+    /** Rewrite only framed fixture ancestors; this is fixture construction, not admission logic. */
+    private fun replace(bytes: ByteArray, path: Array<String>, change: (ByteArray) -> ByteArray): ByteArray {
+        val at = top(bytes, path.first())
+        val size = ByteBuffer.wrap(bytes, at, 4).int
+        val original = bytes.copyOfRange(at, at + size)
+        val updated = if (path.size == 1) change(original) else atom(path.first(),
+            replace(original.copyOfRange(8, original.size), path.drop(1).toTypedArray(), change))
+        return bytes.copyOfRange(0, at) + updated + bytes.copyOfRange(at + size, bytes.size)
     }
     private fun be(value: Int) = ByteBuffer.allocate(4).putInt(value).array()
     private fun be64(value: Long) = ByteBuffer.allocate(8).putLong(value).array()
