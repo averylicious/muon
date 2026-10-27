@@ -2,6 +2,19 @@
 
 package dev.avery.muon
 
+import androidx.media3.common.C
+import androidx.media3.common.DataReader
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
+import androidx.media3.extractor.DefaultExtractorInput
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.DiscardingTrackOutput
+import androidx.media3.extractor.Extractor
+import androidx.media3.extractor.ExtractorOutput
+import androidx.media3.extractor.PositionHolder
+import androidx.media3.extractor.SeekMap
+import androidx.media3.extractor.TrackOutput
+import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.container.NalUnitUtil
 import androidx.media3.container.ParsableNalUnitBitArray
 import java.io.ByteArrayOutputStream
@@ -44,6 +57,71 @@ class HevcMetadataBoundaryTest {
             it.methodName.contains("skipH265ShortTermReferencePictureSets") })
         assertTrue(missing.size < 16)
         // Private-helper reflection is TEST ONLY; this alone is not full SPS/container reachability.
+    }
+
+    @Test fun completeTinyMatroskaCodecEnvelopeReachesTheDefaultReadersVpsParser() {
+        for (backed in listOf(true, false)) {
+            val nal = vps(if (backed) 2 else 64, backed)
+            val hvcc = ByteArray(23).also {
+                it[0] = 1; it[1] = 1; it[12] = 120; it[13] = 0xf0.toByte()
+                it[15] = 0xfc.toByte(); it[16] = 0xfd.toByte(); it[17] = 0xf8.toByte(); it[18] = 0xf8.toByte()
+                it[21] = 3; it[22] = 1
+            } + byteArrayOf(32, 0, 1, (nal.size ushr 8).toByte(), nal.size.toByte()) + nal
+            val entry = element(0xae, element(0xd7, byteArrayOf(1)) + element(0x83, byteArrayOf(1)) +
+                element(0x86, "V_MPEGH/ISO/HEVC".toByteArray()) + element(0x63a2, hvcc) +
+                element(0xe0, element(0xb0, byteArrayOf(16)) + element(0xba, byteArrayOf(16))))
+            val bytes = element(0x1a45dfa3, element(0x4282, "matroska".toByteArray())) +
+                element(0x18538067, element(0x1654ae6b, entry))
+            assertTrue(bytes.size < 256)
+            var position = 0
+            val reader = DataReader { target, offset, length ->
+                if (length == 0) 0 else if (position >= bytes.size) C.RESULT_END_OF_INPUT else
+                    minOf(length, bytes.size - position).also { bytes.copyInto(target, offset, position, position + it); position += it }
+            }
+            val input = DefaultExtractorInput(reader, 0, bytes.size.toLong())
+            val raw = DefaultExtractorsFactory().createExtractors().single { it is MatroskaExtractor }
+            var format: Format? = null
+            try {
+                assertTrue(raw.sniff(input)); input.resetPeekPosition()
+                raw.init(object : ExtractorOutput {
+                    override fun track(id: Int, type: Int): TrackOutput = object : TrackOutput by DiscardingTrackOutput() {
+                        override fun format(value: Format) { format = value }
+                    }
+                    override fun endTracks() {}
+                    override fun seekMap(seekMap: SeekMap) {}
+                })
+                fun finish() {
+                    val holder = PositionHolder()
+                    repeat(100) {
+                        when (raw.read(input, holder)) {
+                            Extractor.RESULT_END_OF_INPUT -> return
+                            Extractor.RESULT_CONTINUE -> Unit
+                            else -> error("Unexpected tiny-envelope seek")
+                        }
+                    }
+                    error("Tiny envelope did not finish")
+                }
+                if (backed) {
+                    finish()
+                    assertEquals(MimeTypes.VIDEO_H265, format?.sampleMimeType)
+                } else {
+                    val error = assertThrows(Exception::class.java) { finish() }
+                    val chain = generateSequence<Throwable>(error) { it.cause }.take(8).toList()
+                    assertTrue(chain.any { cause -> cause.stackTrace.any { it.className == NalUnitUtil::class.java.name &&
+                        it.methodName.contains("parseH265VpsNalUnitPayload") } })
+                    assertNull(format)
+                }
+            } finally { raw.release() }
+        }
+        // Real default-reader metadata reachability only: no encoded frames or video decoder.
+    }
+
+    private fun element(id: Int, bytes: ByteArray): ByteArray {
+        val width = when { id > 0xffffff -> 4; id > 0xffff -> 3; id > 0xff -> 2; else -> 1 }
+        val prefix = ByteArray(width) { (id ushr ((width - 1 - it) * 8)).toByte() }
+        val size = if (bytes.size < 127) byteArrayOf((0x80 or bytes.size).toByte()) else
+            byteArrayOf((0x40 or (bytes.size ushr 8)).toByte(), bytes.size.toByte())
+        return prefix + size + bytes
     }
 
     private fun vps(sets: Int, backed: Boolean): ByteArray {
