@@ -71,7 +71,8 @@ class PlaybackService : MediaSessionService() {
         val loudnessPrefs = getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
         val loudness = ReplayGainSettings(loudnessPrefs)
         fun applyLoudness() {
-            val id = player.currentMediaItem?.mediaId
+            val item = player.currentMediaItem
+            val id = item?.mediaId
             // ExoPlayer publishes its current Tracks before dispatching these callbacks. Read the
             // snapshot directly: repeat-one can transition without a new onTracksChanged event.
             val tracks = player.currentTracks
@@ -83,7 +84,7 @@ class PlaybackService : MediaSessionService() {
             val selectedAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
             // Empty/unselected tracks still mean loading, not evidence of missing tags.
             PlaybackLoudness.current = loudnessPlayback(id, id != null && selectedAudio,
-                found != null, gain, player.isPlaying)
+                found != null, gain, player.isPlaying, item?.let(::loudnessNoticeKey))
         }
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = applyLoudness()

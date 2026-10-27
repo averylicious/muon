@@ -191,6 +191,34 @@ class ReplayGainSettingsTest {
         assertEquals(-24f, settings.gainFor(saved)!!, 0f)
     }
 
+    @Test fun nonFiniteSavedHintsAreAbsentAndKeepTheFiniteFallbackWithoutRewritingHistory() {
+        val saved = SavedRef.download(SavedShelf.Phone, "saved-request", "saved-key")!!.handle
+        for (bad in listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {
+            assertTrue(prefs.edit().clear().putBoolean(ReplayGainSettings.KEY_ENABLED, true)
+                .putFloat("gain:" + saved, bad).commit())
+            val empty = ReplayGainSettings(prefs)
+            assertNull(empty.playbackGainFor(saved, null))
+            assertEquals(1f, empty.volumeFor(saved), 0f)
+            assertFalse(loudnessPlayback(saved, true, false, empty.playbackGainFor(saved, null), true).usable)
+            assertTrue(prefs.edit().putBoolean(ReplayGainSettings.KEY_ENABLED, true)
+                .putFloat("gain:" + saved, bad).putFloat("gain:" + B, -12f)
+                .putString("unrelated", "kept").commit())
+            val settings = ReplayGainSettings(prefs)
+            assertNull(settings.gainFor(saved))
+            assertEquals(-12f, settings.playbackGainFor(saved, null)!!, 0f)
+            assertEquals(volumeForGain(-12f), settings.volumeFor(saved), 0.00001f)
+            assertEquals(volumeForGain(-3f), settings.volumeFor(saved, -3f), 0.00001f)
+            assertEquals(bad.toBits(), prefs.getFloat("gain:" + saved, 0f).toBits())
+            assertEquals(-12f, settings.gainFor(B)!!, 0f)
+            assertEquals("kept", prefs.getString("unrelated", null))
+            settings.choose(false)
+            assertEquals(1f, settings.volumeFor(saved), 0f)
+        }
+        val settings = ReplayGainSettings(prefs)
+        settings.remember(saved, -6f)
+        assertEquals(-6f, ReplayGainSettings(prefs).gainFor(saved)!!, 0f)
+    }
+
     private fun audioGroup(tag: String?, selected: Boolean): Tracks.Group {
         val format = Format.Builder().setSampleMimeType(MimeTypes.AUDIO_FLAC)
             .setMetadata(tag?.let { Metadata(VorbisComment("REPLAYGAIN_TRACK_GAIN", it)) }).build()
