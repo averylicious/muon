@@ -69,7 +69,7 @@ class GuardedMetadataRenderersTest {
     }
 
     @Test fun actualMetadataSlotsKeepDefaultCountOrderAndUseGuardedDecoders() {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         val output = MetadataOutput { }
         val looper = requireNotNull(Looper.getMainLooper())
         val marker = MetadataRenderer(output, looper)
