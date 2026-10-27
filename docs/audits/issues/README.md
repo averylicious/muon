@@ -11,6 +11,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | First-song normalization and missing-tags reminder — implemented/accepted/released | [#645](645.md) | [Issue #645](https://github.com/averylicious/muon/issues/645) |
 | CI signing / Benchmark boundary — completed | [#640 / #685](685.md) | [Issue #640](https://github.com/averylicious/muon/issues/640) |
 | Vorbis/Ogg/FLAC admission — post-RC candidate | [#714](714.md) | [Issue #714](https://github.com/averylicious/muon/issues/714) |
+| AVI header/index admission — post-RC engineering | [#734](734.md) | [Issue #734](https://github.com/averylicious/muon/issues/734) |
 | AC-4 format-sniff lookahead — post-RC engineering | [#732](732.md) | [Issue #732](https://github.com/averylicious/muon/issues/732) |
 | HEVC derived-array characterization — post-RC source finding | [#730](730.md) | [Issue #730](https://github.com/averylicious/muon/issues/730) |
 | Matroska metadata/sniff admission — post-RC engineering | [#726](726.md) | [Issue #726](https://github.com/averylicious/muon/issues/726) |
