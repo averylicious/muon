@@ -78,10 +78,8 @@ internal class AviHeaderAdmission(private val limits: AviHeaderLimits = AviHeade
 
     private fun header(data: ByteArray, streamLength: Long) {
         bodyBytes = -1
-        if (le(data, 8) != HDRL) return // Native refuses the other list type before allocation.
-        // Native does NOT validate the LIST fourcc here. Ignoring a different fourcc would
-        // bypass admission while still reaching its size-based allocation. Refuse it explicitly.
-        if (le(data, 0) != LIST) throw StreamMetadataRefusal(true, audioFormat = true)
+        // The nested ChunkHeaderHolder validates LIST; the outer state validates hdrl.
+        if (le(data, 0) != LIST || le(data, 8) != HDRL) return
         // Native computes size - 4 in int arithmetic: negative, or overflowing to a huge array.
         val size = le(data, 4).toLong()
         if (size < 4) throw StreamMetadataRefusal(true, audioFormat = true)

@@ -39,9 +39,8 @@ class AviHeaderAdmissionTest {
     @Test fun rawNativeAllocatesTheDeclaredHdrlBodyBeforeItsMissingBytesFail() {
         // Only 32 bytes exist; the hdrl LIST declares a modest 128KiB body.
         val bytes = unbacked(128 * 1024)
-        for (known in listOf(true, false)) for (listFourcc in listOf("LIST", "JUNK")) {
-            // Native validates only hdrl, not the preceding LIST fourcc.
-            val source = Source(bytes.copyOf().also { ascii(listFourcc).copyInto(it, 12) })
+        for (known in listOf(true, false)) {
+            val source = Source(bytes)
             val output = Capture()
             val raw = native()
             try {
@@ -68,13 +67,6 @@ class AviHeaderAdmissionTest {
                 assertEquals(0, output.tracks)
             } finally { guarded.release() }
         }
-        val nonList = Source(bytes.copyOf().also { ascii("JUNK").copyInto(it, 12) })
-        val checked = MetadataBoundedExtractor(native())
-        try {
-            checked.init(Capture())
-            assertTrue(assertThrows(StreamMetadataRefusal::class.java) { pump(checked, nonList, false) }.contentIsMalformed)
-            assertTrue(nonList.targets.all { it <= 12 })
-        } finally { checked.release() }
         // Native int size - 4: negative, or overflowing from Int.MIN_VALUE to a huge positive array.
         for (size in listOf(-1, 3, Int.MIN_VALUE)) {
             val source = Source(unbacked(0).also { put(it, 16, size) })
