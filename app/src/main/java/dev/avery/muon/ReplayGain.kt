@@ -10,6 +10,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
+import androidx.media3.extractor.metadata.id3.InternalFrame
 import java.util.Locale
 import kotlin.math.log10
 import kotlin.math.pow
@@ -17,7 +18,8 @@ import kotlin.math.pow
 /**
  * Volume normalization (#97): a song's ReplayGain track gain, as `rsgain` wrote it into the FLAC on the
  * desktop. Tauon streams the file's own bytes and copies tags into its Opus downloads. Media3 exposes
- * FLAC/Ogg/Opus comments as VorbisComment and MP3 ID3 user text as TextInformationFrame.
+ * FLAC/Ogg/Opus comments as VorbisComment, MP3 ID3 user text as TextInformationFrame and
+ * MP4 iTunes free-form tags as InternalFrame.
  *
  * The gain is applied as the player's own volume, never the phone's media volume, and that volume can
  * only lower a song. So a song is turned down by its gain, never up: a quiet song keeps its level
@@ -57,6 +59,11 @@ internal fun trackLoudness(metadata: Metadata?): TrackLoudness? {
                 val key = entry.key
                 if (key == "REPLAYGAIN_TRACK_GAIN" || key == "REPLAYGAIN_TRACK_PEAK" || key == "R128_TRACK_GAIN")
                     put(key, entry.value)
+            }
+            is InternalFrame -> if (entry.domain == "com.apple.iTunes") {
+                // rsgain's M4A namespace. Other internal fields and Opus-only R128 are unrelated.
+                val key = entry.description.uppercase(Locale.ROOT)
+                if (key == "REPLAYGAIN_TRACK_GAIN" || key == "REPLAYGAIN_TRACK_PEAK") put(key, entry.text)
             }
             is TextInformationFrame -> if (entry.id == "TXXX") {
                 val key = entry.description?.uppercase(Locale.ROOT)
