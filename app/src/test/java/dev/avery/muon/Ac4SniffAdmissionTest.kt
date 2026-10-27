@@ -44,14 +44,20 @@ class Ac4SniffAdmissionTest {
         }
         // A sync-like junk prefix is not proof of AC-4. Refusal must not stop another format.
         val mpeg = ByteArray(417).also { byteArrayOf(-1, 0xfb.toByte(), 0x90.toByte(), 0).copyInto(it) }
-        val source = Opened(declared() + mpeg + mpeg + mpeg + mpeg, false)
+        val bytes = declared() + mpeg + mpeg + mpeg + mpeg
+        val source = Opened(bytes, false)
+        val control = Opened(bytes, false)
+        val rawMp3 = DefaultExtractorsFactory().createExtractors().single { it is Mp3Extractor }
         val ac4 = MetadataBoundedExtractor(native(), ac4SniffBytes = 64 * 1024)
         val mp3 = MetadataBoundedExtractor(DefaultExtractorsFactory().createExtractors().single { it is Mp3Extractor })
         try {
             assertFalse(ac4.sniff(source.input)); source.input.resetPeekPosition()
+            assertTrue(rawMp3.sniff(control.input))
             assertTrue(mp3.sniff(source.input))
-            assertEquals(0L, source.input.position)
-        } finally { ac4.release(); mp3.release() }
+            // Native MP3 sniff consumes its skipped junk; preserve that actual behavior.
+            assertEquals(declared().size.toLong(), source.input.position)
+            assertEquals(control.input.position, source.input.position)
+        } finally { ac4.release(); mp3.release(); rawMp3.release() }
     }
 
     @Test fun normalSyncwordsAndLeadingTagsKeepNativeSniffIdentityAndExactBudget() {
