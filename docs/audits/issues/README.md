@@ -16,6 +16,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Initial connection cancellation — post-RC acceptance | [#690](690.md) | [Issue #690](https://github.com/averylicious/muon/issues/690) |
 | Live ReplayGain ID reuse — post-RC implementation | [#695](695.md) | [Issue #695](https://github.com/averylicious/muon/issues/695) |
 | ReplayGain container metadata — post-RC implementation | [#702](702.md) | [Issue #702](https://github.com/averylicious/muon/issues/702) |
+| Derived HEVC codec arrays — source assessment | [#730](730.md) | [Issue #730](https://github.com/averylicious/muon/issues/730) |
 | Initial ID3 allocation admission — post-RC implementation | [#704](704.md) | [Issue #704](https://github.com/averylicious/muon/issues/704) |
 | Saved-admission lifecycle — post-RC implementation | [#708](708.md) | [Issue #708](https://github.com/averylicious/muon/issues/708) |
 | Notification artwork queue — post-RC implementation | [#697](697.md) | [Issue #697](https://github.com/averylicious/muon/issues/697) |
