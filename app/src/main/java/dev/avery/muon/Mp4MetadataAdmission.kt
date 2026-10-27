@@ -48,6 +48,8 @@ private val LEAVES = listOf("mdhd", "mvhd", "hdlr", "stsd", "stts", "stss", "ctt
     "stco", "co64", "tkhd", "ftyp", "udta", "keys", "ilst", "chap").map(::box).toSet()
 /** Without child overrides, these sample entries always produce a rechunkable audio MIME. */
 private val SIMPLE_RAW_ENTRIES = listOf("sowt", "twos", "lpcm", "alaw", "ulaw").map(::box).toSet()
+// Pinned parseAudioSampleEntry ignores chan/free; btrt updates only bitrates, not format/frame size.
+private val RAW_SAFE_CHILDREN = listOf("chan", "free", "btrt").map(::box).toSet()
 
 private fun ByteArray.u16(at: Int): Int = ((this[at].toInt() and 255) shl 8) or (this[at + 1].toInt() and 255)
 private fun ByteArray.u32(at: Int): Long = ((this[at].toLong() and 255) shl 24) or ((this[at + 1].toLong() and 255) shl 16) or
@@ -268,7 +270,7 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
         }
         val chunkCount = chunks.u32(12)
         if (timingAllowsRechunk && entry.simpleRaw) {
-            // Proven single raw entry, no codec children. PCM can replace an inconsistent stsz
+            // Proven single raw entry, only known harmless children. PCM can replace an inconsistent stsz
             // size with the format frame size; every supported encoding uses at most8bytes/channel.
             val frame = maxOf(fixed, 8L * entry.channels)
             return rows(rechunked(stsc, chunkCount, maxOf(1L, RECHUNK_SAMPLE_BYTES / frame)), chunkCount)
@@ -328,7 +330,7 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
         return media
     }
 
-    /** Only prove the raw fast path when no child can change format/channels/PCM encoding. */
+    /** Only prove the raw fast path when every framed child is known not to change format/frame size. */
     private class Entry(stsd: Leaf, quickTime: Boolean) {
         var simpleRaw = false
         var trueHd = false
@@ -343,13 +345,23 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
                 if (count == 1 && type in SIMPLE_RAW_ENTRIES && size >= 36) {
                     val version = if (quickTime) stsd.data.u16(at + 16) else 0
                     val prefix = when (version) { 0 -> 36; 1 -> 52; 2 -> 72; else -> -1 }
-                    if (size == prefix) {
+                    if (prefix > 0 && size >= prefix && safeChildren(stsd, at + prefix, at + size)) {
                         channels = if (version == 2) stsd.data.u32(at + 48) else stsd.data.u16(at + 24).toLong()
                         simpleRaw = true
                     }
                 }
                 at += size
             }
+        }
+        private fun safeChildren(stsd: Leaf, start: Int, end: Int): Boolean {
+            var at = start
+            while (at < end) {
+                if (end - at < 8) return false
+                val bytes = stsd.data.u32(at)
+                if (bytes < 8 || bytes > end - at || stsd.data.s32(at + 4) !in RAW_SAFE_CHILDREN) return false
+                at += bytes.toInt()
+            }
+            return true
         }
     }
 

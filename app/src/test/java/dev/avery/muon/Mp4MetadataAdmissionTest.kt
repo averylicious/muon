@@ -197,7 +197,7 @@ class Mp4MetadataAdmissionTest {
         val entry = originalDescription.copyOfRange(8, originalDescription.size)
         val duplicate = replace(original, description,
             atom("stsd", originalDescription.copyOfRange(0, 4), be(2), entry, entry))
-        val extra = entry + atom("free")
+        val extra = entry + atom("zzzz") // Opaque to our classifier; ignored by the pinned parser.
         put(extra, 0, extra.size)
         val withChild = replace(original, description,
             atom("stsd", originalDescription.copyOfRange(0, 8), extra))
