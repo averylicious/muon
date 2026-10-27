@@ -4,16 +4,23 @@ package dev.avery.muon
 
 import androidx.media3.common.C
 import androidx.media3.extractor.ExtractorInput
+import androidx.media3.extractor.ExtractorOutput
+import androidx.media3.extractor.SeekMap
+import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.ForwardingExtractorInput
 
-/** Initial metadata/sniff policies (#726), not sample, codec, track/cue or global heap limits. */
+/** Metadata/sniff/retention policies (#726), not all codec/sample/master or global heap limits. */
 internal class MatroskaLimits(
     val elementBytes: Long = 4L * 1024 * 1024,
     val metadataBytes: Long = 16L * 1024 * 1024,
     val metadataEntries: Int = 4096,
     val sniffBytes: Long = 64L * 1024,
+    val tracks: Int = 128,
+    val chapters: Int = 4096,
+    val cues: Int = 65_536,
 ) {
-    init { require(elementBytes > 0 && metadataBytes > 0 && metadataEntries > 0 && sniffBytes >= 4) }
+    init { require(elementBytes > 0 && metadataBytes > 0 && metadataEntries > 0 && sniffBytes >= 4 &&
+        tracks > 0 && chapters > 0 && cues > 0) }
 }
 
 /**
@@ -33,9 +40,29 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
     // twice. Keep it on seek: native track/chapter objects may also remain retained after seek.
     private val charged = HashMap<Long, Long>()
     private var total = 0L
+    private var payloadId = 0
+    private var payloadAt = -1L
+    private var payloadSize = 0
+    private var vorbis = false
+    private var codecPrivate: ByteArray? = null
+    private val trackIds = HashSet<Int>()
+    private val chapterIds = HashSet<Long>()
+    private var cueCount = 0
+    private var sentMap = false
+
+    fun output(actual: ExtractorOutput): ExtractorOutput = object : ExtractorOutput {
+        override fun track(id: Int, type: Int): TrackOutput = actual.track(id, type)
+        override fun endTracks() = actual.endTracks()
+        override fun seekMap(seekMap: SeekMap) {
+            actual.seekMap(seekMap)
+            sentMap = true
+        }
+    }
 
     fun seek() {
         expectingSize = false; remaining = 0; prefix = 0; restAt = -1
+        payloadAt = -1 // Retain current track codec state just as native seek retains currentTrack.
+        if (!sentMap) cueCount = 0 // Native clears only unfinished cue lists on seek.
     }
 
     fun sniffInput(actual: ExtractorInput): ExtractorInput = object : ForwardingExtractorInput(actual) {
@@ -72,6 +99,10 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
                 for (i in offset until offset + length) value = (value shl 8) or (target[i].toLong() and 255)
                 remaining = 0
                 complete(value, pendingSize, position, this.length)
+            } else if (offset == 0 && length == payloadSize &&
+                payloadAt >= 0 && position == payloadAt + payloadSize &&
+                (target.size == payloadSize || (target.size == 8 && isCensusInteger(payloadId)))) {
+                deliveredPayload(target)
             }
         }
     }
@@ -93,6 +124,17 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
             return
         }
         expectingSize = false
+        payloadAt = -1
+        if (elementId == 0xae) {
+            vorbis = false; codecPrivate = null
+            admitTrack(0) // Native Track default when no TrackNumber is supplied.
+        }
+        if (elementId == 0xb7 && !sentMap && ++cueCount > limits.cues) refuse()
+        if (isCensusInteger(elementId) && value <= 8) {
+            payloadId = elementId; payloadAt = at; payloadSize = value.toInt()
+            return // Native fixed8-byte integer target, no declared-size payload allocation.
+        }
+        if (elementId == 0x86) vorbis = false // Native empty string needs no payload read.
         if (!isMetadata(elementId)) return // No whole Segment/Cluster/audio-block length cap.
         if (value > Int.MAX_VALUE || at > Long.MAX_VALUE - value) refuse(true)
         if (value > limits.elementBytes) refuse()
@@ -105,6 +147,63 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
         if (growth > limits.metadataBytes - total) refuse()
         total += growth
         charged[at] = maxOf(previous ?: 0, value)
+        if (elementId == 0x86 || elementId == 0x63a2) {
+            payloadId = elementId; payloadAt = at; payloadSize = value.toInt()
+        }
+    }
+
+    private fun deliveredPayload(bytes: ByteArray) {
+        if (isCensusInteger(payloadId)) {
+            var value = 0L
+            for (i in 0 until payloadSize) value = (value shl 8) or (bytes[i].toLong() and 255)
+            if (payloadId == 0xd7) admitTrack(value.toInt())
+            else if (value != 0L && value !in chapterIds) {
+                if (chapterIds.size >= limits.chapters) refuse()
+                chapterIds.add(value)
+            }
+            payloadAt = -1
+            return
+        }
+        if (payloadId == 0x86) {
+            var trimmed = bytes.size
+            while (trimmed > 0 && bytes[trimmed - 1] == 0.toByte()) trimmed--
+            val expected = "A_VORBIS"
+            vorbis = trimmed == expected.length && expected.indices.all { bytes[it].toInt() == expected[it].code }
+        } else codecPrivate = bytes // Same native array, not an additional payload copy.
+        payloadAt = -1
+        val data = codecPrivate
+        if (vorbis && data != null) admitVorbis(data)
+    }
+
+    /** Native Xiph lengths precede arraycopy's backing check. Validate actual bytes first. */
+    private fun admitVorbis(data: ByteArray) {
+        if (data.isEmpty() || data[0] != 2.toByte()) refuse(true)
+        var cursor = 1
+        fun lace(): Long {
+            var size = 0L
+            while (true) {
+                if (cursor >= data.size) refuse(true)
+                val part = data[cursor++].toInt() and 255
+                size += part
+                if (part != 255) return size
+            }
+        }
+        val info = lace()
+        val skip = lace()
+        if (cursor >= data.size || data[cursor] != 1.toByte() || info > data.size - cursor) refuse(true)
+        cursor += info.toInt()
+        if (cursor >= data.size || data[cursor] != 3.toByte() || skip > data.size - cursor) refuse(true)
+        cursor += skip.toInt()
+        if (cursor >= data.size || data[cursor] != 5.toByte()) refuse(true)
+        // Native info/books copies together fit the already admitted codec-private payload.
+    }
+
+    private fun isCensusInteger(id: Int) = id == 0xd7 || id == 0x73c4
+    private fun admitTrack(id: Int) {
+        if (id !in trackIds) {
+            if (trackIds.size >= limits.tracks) refuse()
+            trackIds.add(id)
+        }
     }
 
     private fun isMetadata(id: Int) = when (id) {

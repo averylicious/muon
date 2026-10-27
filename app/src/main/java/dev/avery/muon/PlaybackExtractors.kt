@@ -60,7 +60,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         checkPrefix(input)
         return super.sniff(mkv?.sniffInput(input) ?: input)
     }
-    override fun init(output: ExtractorOutput) = super.init(ogg?.output(output) ?: output)
+    override fun init(output: ExtractorOutput) = super.init(ogg?.output(output) ?: mkv?.output(output) ?: output)
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.
     override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
         checkPrefix(input)

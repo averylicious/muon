@@ -27,8 +27,8 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 class MatroskaMetadataAdmissionTest {
-    @Test fun actualAacAndOpusKeepFactoryIdentitySniffFormatReopensAndSeek() {
-        for ((resource, mime) in listOf("control.mka" to MimeTypes.AUDIO_AAC, "control-opus.mka" to MimeTypes.AUDIO_OPUS)) {
+    @Test fun actualAacOpusVorbisKeepFactoryIdentitySniffFormatReopensAndSeek() {
+        for ((resource, mime) in listOf("control.mka" to MimeTypes.AUDIO_AAC, "control-opus.mka" to MimeTypes.AUDIO_OPUS, "control-vorbis.mka" to MimeTypes.AUDIO_VORBIS)) {
             val bytes = requireNotNull(javaClass.getResourceAsStream("/mkv-admission/$resource")).use { it.readBytes() }
             val raw = actual()
             val bounded = MetadataBoundedExtractor(raw)
@@ -132,6 +132,57 @@ class MatroskaMetadataAdmissionTest {
         } finally { bounded.release() }
     }
 
+    @Test fun actualCodecPrivateBytesBoundVorbisLacesRegardlessOfCodecFieldOrder() {
+        val codec = element(0x86, "A_VORBIS".toByteArray())
+        // Tiny payload declares510 info bytes then presents only a packet-type byte. Native
+        // allocates the info target before arraycopy checks backing; use modest values only.
+        val privateData = element(0x63a2, byteArrayOf(2, 0xff.toByte(), 0xff.toByte(), 0, 0, 1))
+        for (leaves in listOf(codec + privateData, privateData + codec)) {
+            val bounded = MetadataBoundedExtractor(actual())
+            try {
+                bounded.init(Capture())
+                val refusal = assertThrows(StreamMetadataRefusal::class.java) {
+                    finish(bounded, opened(track(leaves))) { error("Unexpected seek") }
+                }
+                assertTrue(refusal.contentIsMalformed)
+            } finally { bounded.release() }
+        }
+    }
+
+    @Test fun realTrackChapterAndCueRetentionBudgetsPreserveSmallControlsAndPostMapSeek() {
+        val tracks = element(0x1654ae6b, pcmEntry(1) + pcmEntry(2))
+        val chapterAtoms = (1..2).map { uid -> element(0xb6, element(0x73c4, byteArrayOf(uid.toByte()))) }
+            .reduce { a, b -> a + b }
+        val chapters = element(0x1043a770, element(0x45b9, chapterAtoms))
+        val points = (1..3).map {
+            element(0xb7, element(0xf7, byteArrayOf(1)) + element(0xf1, byteArrayOf(0)))
+        }.reduce { a, b -> a + b }
+        val cues = element(0x1c53bb6b, element(0xbb, element(0xb3, byteArrayOf(0)) + points))
+        val info = element(0x1549a966, element(0x2ad7b1, byteArrayOf(0x0f, 0x42, 0x40)) +
+            element(0x4489, java.nio.ByteBuffer.allocate(8).putDouble(1000.0).array()))
+        val bytes = segment(info + tracks + chapters + cues)
+        for (limits in listOf(MatroskaLimits(tracks = 2), MatroskaLimits(chapters = 1), MatroskaLimits(cues = 2))) {
+            val bounded = MetadataBoundedExtractor(actual(), mkvLimits = limits)
+            try {
+                bounded.init(Capture())
+                assertThrows(StreamMetadataRefusal::class.java) { finish(bounded, opened(bytes)) { opened(bytes, it) } }
+            } finally { bounded.release() }
+        }
+        val bounded = MetadataBoundedExtractor(actual(), mkvLimits = MatroskaLimits(tracks = 3, chapters = 2, cues = 3))
+        val output = Capture()
+        try {
+            bounded.init(output)
+            finish(bounded, opened(bytes)) { opened(bytes, it) }
+            assertEquals(MimeTypes.AUDIO_RAW, output.format?.sampleMimeType)
+            assertEquals(2, output.format?.metadata?.length())
+            assertNotNull(output.map)
+            // Native final cues are ignored after a map. Do not charge ignored re-parses or
+            // wipe retained track/chapter costs on seek. The exact tight budgets still pass.
+            bounded.seek(0, 0)
+            finish(bounded, opened(bytes)) { opened(bytes, it) }
+        } finally { bounded.release() }
+    }
+
     private fun actual() = DefaultExtractorsFactory().createExtractors().single { it is MatroskaExtractor }
     private fun finish(extractor: Extractor, start: ExtractorInput, reopen: (Long) -> ExtractorInput) {
         var input = start
@@ -176,6 +227,13 @@ class MatroskaMetadataAdmissionTest {
     }
     private fun header(id: Int, bytes: Long) = id(id) + size(bytes)
     private fun element(id: Int, bytes: ByteArray) = header(id, bytes.size.toLong()) + bytes
+    private fun pcmEntry(number: Int): ByteArray = element(0xae,
+        element(0xd7, byteArrayOf(number.toByte())) + element(0x83, byteArrayOf(2)) +
+            element(0x86, "A_PCM/INT/LIT".toByteArray()) + element(0xe1,
+                element(0xb5, java.nio.ByteBuffer.allocate(8).putDouble(48_000.0).array()) +
+                    element(0x9f, byteArrayOf(1)) + element(0x6264, byteArrayOf(16))))
+    private fun segment(children: ByteArray) = element(0x1a45dfa3, element(0x4282, "matroska".toByteArray())) +
+        element(0x18538067, children)
     private fun track(leaves: ByteArray, missing: Int = 0): ByteArray {
         val entry = header(0xae, leaves.size.toLong() + missing) + leaves
         val tracks = header(0x1654ae6b, entry.size.toLong() + missing) + entry

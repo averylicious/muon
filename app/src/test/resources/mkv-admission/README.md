@@ -5,3 +5,5 @@
 Raw tests demux the actual default-factory Matroska candidate and follow its requested source reopens without decoding audio. Separate small inline EBML declarations characterize4KiB string/codec-private allocation before missing-body reads and a moderate128KiB unknown-length sniff peek-buffer growth. They are not production guards, huge allocation attempts, OOM/device proof or proof malformed named media exists.
 
 `control-opus.mka`: original50ms mono48kHz Opus silence, generated with the same installed FFmpeg n9.0.2/options as the AAC control, except `-c:a libopus`. SHA256 `c63547e6b126718ffa677a334973ee041bf8c1defacce489e07d855d0ceda0e2`. Normal default-reader compatibility only, not decoding or a user's song. No CI FFmpeg dependency.
+
+`control-vorbis.mka`: original50ms mono48kHz Vorbis silence, same installed FFmpeg n9.0.2/options except `-c:a libvorbis`. SHA256 `afbe57c68ba8e90cdf3f225e2ef34467e972b83df628673fce4cfebeac72e658`. Confirms actual backed Xiph private headers alongside the malformed-length case; no decoder or user audio.
