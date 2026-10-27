@@ -965,13 +965,13 @@ internal object OfflineStore {
         if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
-            val removable:(String)->Boolean={ key ->
-                store.playedClaims.removableForRemoval(key,store.phone.manager.downloadIndex)
-            }
+            // Manager indexes admit their own shared cursor. Rebuild BEFORE partition removal
+            // takes exclusive access; the final callback still refuses any unavailable lookup.
+            store.playedClaims.prepareRemoval(store.phone.manager.downloadIndex)
             store.phone.partition?.let { partition ->
-                return partition.removePlayed(ref.key,removable)
+                return partition.removePlayed(ref.key,store.playedClaims::removableForRemoval)
             }
-            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,removable) {
+            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removableForRemoval) {
                 store.played.quarantine()
             }
         }

@@ -326,15 +326,17 @@ class PartitionStorageSessionTest {
         val f=fixture(); val key=playedKey("saved/claim-retry"); val claims=PlayedClaims()
         val phone=DefaultDownloadIndex(database,"played_phone_retry")
         var unavailable=true
-        val observed=object:androidx.media3.exoplayer.offline.DownloadIndex by phone {
+        val admitted=StorageDownloadIndex(phone,f.barrier)
+        val observed=object:androidx.media3.exoplayer.offline.DownloadIndex by admitted {
             override fun getDownloads(vararg states:Int):androidx.media3.exoplayer.offline.DownloadCursor {
-                if(unavailable) throw IOException("Phone index unavailable")
-                return phone.getDownloads(*states)
+                if(unavailable) throw IOException("Phone index unavailable before opening a cursor")
+                return admitted.getDownloads(*states)
             }
         }
-        val removable:(String)->Boolean={claims.removableForRemoval(it,observed)}
+        val removable=claims::removableForRemoval
         worker {
             played(f,key)
+            claims.prepareRemoval(observed)
             assertEquals(OfflineStore.SavedRemoval.Unavailable,f.session.removePlayed(key,removable))
             assertFalse(claims.known); assertFalse(claims.removable(key))
             assertTrue(f.barrier.quiescent); assertEquals(0,f.budget.resident)
@@ -342,7 +344,9 @@ class PartitionStorageSessionTest {
             val request=DownloadRequest.Builder("hidden-phone-owner",Uri.parse("http://h/api1/file/1"))
                 .setCustomCacheKey(key).build()
             phone.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
-            unavailable=false // A new user request rechecks the recovered index, without restart.
+            unavailable=false // Rebuild through the real admitted index BEFORE exclusive deletion.
+            claims.prepareRemoval(observed)
+            assertTrue(f.barrier.quiescent)
             assertEquals(OfflineStore.SavedRemoval.NotOwned,f.session.removePlayed(key,removable))
             assertTrue(claims.known); assertArrayEquals(payload,read(f,key))
             phone.removeDownload(request.id); claims.read(phone)

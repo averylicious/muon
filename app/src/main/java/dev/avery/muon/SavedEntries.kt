@@ -313,11 +313,9 @@ internal class PlayedClaims private constructor(@Volatile private var claimed: S
     fun removableForRemoval(key: String): Boolean = disk?.removableForRemoval(key)
         ?: (claimed?.let { key !in it } ?: throw PlayedClaimsUnavailable())
 
-    /** A new user request may retry a failed derived census; eviction never performs this I/O. */
-    fun removableForRemoval(key: String, index: DownloadIndex): Boolean {
-        if (!known) read(index)
-        return removableForRemoval(key)
-    }
+    /** Before exclusive deletion, retry a failed derived census through the index's own admission.
+     * The actual removal callback only queries the prepared claims; eviction never does this I/O. */
+    fun prepareRemoval(index: DownloadIndex) { if (!known) read(index) }
 
     companion object {
         /** For fixtures with no phone index rows naming played keys. */
