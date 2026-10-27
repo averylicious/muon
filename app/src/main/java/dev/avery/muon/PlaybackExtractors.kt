@@ -14,6 +14,7 @@ import androidx.media3.extractor.ForwardingExtractorsFactory
 import androidx.media3.extractor.MpegAudioUtil
 import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.mp3.Mp3Extractor
+import androidx.media3.extractor.ts.Ac4Extractor
 import java.io.EOFException
 import java.io.InterruptedIOException
 
@@ -41,12 +42,13 @@ internal class PlaybackExtractors(factory: ExtractorsFactory = DefaultExtractors
     private fun wrap(extractors: Array<Extractor>) = extractors.map { MetadataBoundedExtractor(it) }.toTypedArray<Extractor>()
 }
 
-internal class MetadataBoundedExtractor(private val actual: Extractor, private val maximum: Int = STREAM_ID3_BYTES) :
+internal class MetadataBoundedExtractor(private val actual: Extractor, private val maximum: Int = STREAM_ID3_BYTES,
+    private val ac4SniffBytes: Long = AC4_SNIFF_BYTES) :
     ForwardingExtractor(actual) {
     init { require(maximum >= ID3_HEADER) }
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
-        return super.sniff(input)
+        return if (actual.underlyingImplementation is Ac4Extractor) sniffAc4(actual, input, ac4SniffBytes) else super.sniff(input)
     }
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.
     override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
