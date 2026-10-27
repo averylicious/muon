@@ -86,6 +86,7 @@ class Id3FrameAdmissionTest {
             assertGain(out)
             assertArrayEquals(binary, entries(out).filterIsInstance<BinaryFrame>().single().data)
             assertArrayEquals(before, bytes)
+            assertThrows(StreamMetadataRefusal::class.java) { play(bytes, Id3FrameLimits(unsyncWork = 0)) }
         }
         for ((version, flags) in listOf(3 to 0x80, 4 to 4)) {
             val ignored = frame("MLLT", ByteArray(80), version, flags = flags) + frame("TXXX", gainBody(), version)

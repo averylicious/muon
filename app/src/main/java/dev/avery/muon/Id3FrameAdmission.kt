@@ -6,22 +6,19 @@ import androidx.media3.extractor.ExtractorInput
 import androidx.media3.extractor.ForwardingExtractorInput
 import java.io.InterruptedIOException
 
-/** Initial Id3Peeker resource policies (#704), not in-band renderer or whole-heap limits. */
+/** ID3 decoded-cost policies (#704), not prior sample-buffer or whole-heap limits. */
 internal class Id3FrameLimits(
     val tags: Int = 4096, val frames: Int = 4096, val depth: Int = 16,
-    val values: Int = 4096, val references: Long = 1_048_576,
-) { init { require(tags > 0 && frames > 0 && depth >= 0 && values > 0 && references > 0) } }
+    val values: Int = 4096, val references: Long = 1_048_576, val unsyncWork: Long = 4L * 1024 * 1024 * 1024,
+) { init { require(tags > 0 && frames > 0 && depth >= 0 && values > 0 && references > 0 && unsyncWork >= 0) } }
 
-/** Inspect actual initial-peeker body bytes before native decode, after prefix byte admission. */
+/** Inspect delivered ID3 before native decode; the peeker path also needs prefix byte admission. */
 internal class Id3FrameAdmission(private val limits: Id3FrameLimits = Id3FrameLimits()) {
     fun input(actual: ExtractorInput): ExtractorInput = object : ForwardingExtractorInput(actual) {
         private fun delivered(data: ByteArray, offset: Int, length: Int) {
             if (offset != 10 || data.size < 10 || data.size - 10 != length ||
                 data[0] != 'I'.code.toByte() || data[1] != 'D'.code.toByte() || data[2] != '3'.code.toByte()) return
-            if (data.size > STREAM_ID3_BYTES) throw StreamMetadataRefusal()
-            val version = data[3].toInt() and 255
-            if (version !in 2..4 || (version == 2 && data[5].toInt() and 0x40 != 0)) return // Native ignores it.
-            Scan(data.copyOf(), limits, version).admit()
+            admit(data, data.size)
         }
         override fun peekFully(target: ByteArray, offset: Int, length: Int) {
             super.peekFully(target, offset, length); delivered(target, offset, length)
@@ -32,12 +29,33 @@ internal class Id3FrameAdmission(private val limits: Id3FrameLimits = Id3FrameLi
         }
     }
 
+    /** Also used before ID3 metadata-renderer decode. Respect the delivered limit, not spare
+     * ByteBuffer capacity: native setLimit must not expose an undelivered previous sample tail. */
+    fun admit(data: ByteArray, size: Int) {
+        if (size < 0 || size > data.size) throw StreamMetadataRefusal(true)
+        if (size > STREAM_ID3_BYTES) throw StreamMetadataRefusal()
+        if (size < 10 || data[0] != 'I'.code.toByte() || data[1] != 'D'.code.toByte() || data[2] != '3'.code.toByte()) return
+        val version = data[3].toInt() and 255
+        if (version !in 2..4 || (version == 2 && data[5].toInt() and 0x40 != 0)) return // Native ignores it.
+        var declared = 0
+        for (i in 6..9) {
+            val value = data[i].toInt() and 255
+            if (value and 128 != 0) throw StreamMetadataRefusal(true)
+            declared = (declared shl 7) or value
+        }
+        if (declared > size - 10) throw StreamMetadataRefusal(true)
+        // Native ignores bytes after the declared tag; preserve that rather than counting a
+        // reused buffer's capacity or PES/sample padding as another frame.
+        Scan(data.copyOf(10 + declared), limits, version).admit()
+    }
+
     /** A bounded private working copy preserves the original bytes for native unsynchronization. */
     private class Scan(private val data: ByteArray, private val limits: Id3FrameLimits, private val version: Int) {
         private val header = if (version == 2) 6 else 10
         private var frameCount = 0
         private var valueCount = 0
         private var referenceCount = 0L
+        private var shiftedBytes = 0L
         private data class Frame(val id: Int, val flags: Int, val start: Int, val end: Int) {
             val size get() = end - start
         }
@@ -174,7 +192,14 @@ internal class Id3FrameAdmission(private val limits: Id3FrameLimits = Id3FrameLi
                 cancelled()
                 val value = data[read++]
                 data[write++] = value
-                if (value == 0xff.toByte() && read < end && data[read] == 0.toByte()) read++
+                if (value == 0xff.toByte() && read < end && data[read] == 0.toByte()) {
+                    read++
+                    // Pinned native removal arraycopies the remaining region for EACH match.
+                    // Linear normalization here also accounts for that later native copy work.
+                    val shifted = (end - read).toLong()
+                    if (shifted > limits.unsyncWork - shiftedBytes) refuse()
+                    shiftedBytes += shifted
+                }
             }
             return write - at
         }
