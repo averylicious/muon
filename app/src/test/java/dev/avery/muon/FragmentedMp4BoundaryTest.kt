@@ -18,7 +18,6 @@ import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
-import androidx.media3.extractor.mp4.TrackFragment
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -91,12 +90,12 @@ class FragmentedMp4BoundaryTest {
                 val bundles = bundlesField.get(selected) as SparseArray<*>
                 val bundle = requireNotNull(bundles.valueAt(0))
                 val fragment = bundle.javaClass.getDeclaredField("fragment").apply { isAccessible = true }
-                    .get(bundle) as TrackFragment
-                assertEquals(count, fragment.sampleCount)
-                assertEquals(count * 125 / 100, fragment.sampleSizeTable.size)
-                assertEquals(fragment.sampleSizeTable.size, fragment.samplePresentationTimesUs.size)
-                assertEquals(fragment.sampleSizeTable.size, fragment.sampleIsSyncFrameTable.size)
-                assertEquals(fragment.sampleSizeTable.size, fragment.sampleHasSubsampleEncryptionTable.size)
+                    .get(bundle)
+                fun field(name: String) = fragment.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(fragment)
+                assertEquals(count, field("sampleCount"))
+                for (name in listOf("sampleSizeTable", "samplePresentationTimesUs", "sampleIsSyncFrameTable", "sampleHasSubsampleEncryptionTable")) {
+                    assertEquals(name, count * 125 / 100, java.lang.reflect.Array.getLength(field(name)))
+                }
                 assertEquals(stop, input.position) // Neither mdat's header nor audio body was read.
             } finally { candidates.forEach { it.release() } }
         }
