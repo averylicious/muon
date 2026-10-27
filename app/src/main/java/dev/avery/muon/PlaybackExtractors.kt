@@ -16,6 +16,7 @@ import androidx.media3.extractor.MpegAudioUtil
 import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.flac.FlacExtractor
 import androidx.media3.extractor.mp3.Mp3Extractor
+import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.ogg.OggExtractor
 import java.io.EOFException
 import java.io.InterruptedIOException
@@ -45,7 +46,8 @@ internal class PlaybackExtractors(factory: ExtractorsFactory = DefaultExtractors
 }
 
 internal class MetadataBoundedExtractor(private val actual: Extractor, private val maximum: Int = STREAM_ID3_BYTES,
-    containerBytes: Long = CONTAINER_METADATA_BYTES, containerEntries: Int = CONTAINER_METADATA_ENTRIES) :
+    containerBytes: Long = CONTAINER_METADATA_BYTES, containerEntries: Int = CONTAINER_METADATA_ENTRIES,
+    mkvLimits: MatroskaLimits = MatroskaLimits()) :
     ForwardingExtractor(actual) {
     init { require(maximum >= ID3_HEADER) }
     // Container metadata parsed after sniffing (#714); other candidates keep only the ID3 prefix check.
@@ -53,20 +55,22 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         FlacMetadataAdmission(containerBytes, containerEntries) else null
     private val ogg = if (actual.underlyingImplementation is OggExtractor)
         OggPacketAdmission(containerBytes, containerEntries) else null
+    private val mkv = if (actual.underlyingImplementation is MatroskaExtractor) MatroskaMetadataAdmission(mkvLimits) else null
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
-        return super.sniff(input)
+        return super.sniff(mkv?.sniffInput(input) ?: input)
     }
     override fun init(output: ExtractorOutput) = super.init(ogg?.output(output) ?: output)
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.
     override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
         checkPrefix(input)
-        val guarded = flac?.input(input) ?: ogg?.input(input) ?: input
+        val guarded = flac?.input(input) ?: ogg?.input(input) ?: mkv?.input(input) ?: input
         return super.read(guarded, seekPosition).also { ogg?.returned() }
     }
     override fun seek(position: Long, timeUs: Long) {
         flac?.seek(position)
         ogg?.seek(position)
+        mkv?.seek()
         super.seek(position, timeUs)
     }
     private fun checkPrefix(input: ExtractorInput) {
