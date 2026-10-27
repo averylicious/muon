@@ -117,7 +117,7 @@ internal class ReplayGainSettings(private val prefs: SharedPreferences) {
     }).also { typical = it }
 
     fun gainFor(mediaId: String?): Float? =
-        mediaId?.let(::storedGain)?.takeIf { !it.isNaN() }
+        mediaId?.let(::storedGain)?.takeIf { it.isFinite() }
 
     // A mismatched local preference type is an absent value, like the playback-mode settings.
     // Reading does not delete it; a later user toggle or parsed gain writes the expected type.
