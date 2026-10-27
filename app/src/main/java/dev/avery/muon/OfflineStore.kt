@@ -995,7 +995,8 @@ internal object OfflineStore {
         var uncertain=false
         try {
             permit.check()
-            if(!removable(key)) return SavedRemoval.NotOwned
+            val allowed=try { removable(key) } catch(_:PlayedClaimsUnavailable) { return SavedRemoval.Unavailable }
+            if(!allowed) return SavedRemoval.NotOwned
             cache.removeResource(key)
             permit.check()
             return SavedRemoval.Sent
@@ -1013,10 +1014,13 @@ internal object OfflineStore {
         if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
+            // Manager indexes admit their own shared cursor. Rebuild BEFORE partition removal
+            // takes exclusive access; the final callback still refuses any unavailable lookup.
+            store.playedClaims.prepareRemoval(store.phone.manager.downloadIndex)
             store.phone.partition?.let { partition ->
-                return partition.removePlayed(ref.key,store.playedClaims::removable)
+                return partition.removePlayed(ref.key,store.playedClaims::removableForRemoval)
             }
-            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removable) {
+            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removableForRemoval) {
                 store.played.quarantine()
             }
         }

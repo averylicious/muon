@@ -322,6 +322,42 @@ class PartitionStorageSessionTest {
         assertTrue("Fresh per-block storage/cancellation checks must still grow with actual reads",large.second>small.second)
         assertTrue(f.barrier.quiescent)
     }
+    @Test fun unavailablePlayedClaimCheckPreservesPartitionAndAllowsHealthyRetry() {
+        val f=fixture(); val key=playedKey("saved/claim-retry"); val claims=PlayedClaims()
+        val phone=DefaultDownloadIndex(database,"played_phone_retry")
+        var unavailable=true
+        val admitted=StorageDownloadIndex(phone,f.barrier)
+        val observed=object:androidx.media3.exoplayer.offline.DownloadIndex by admitted {
+            override fun getDownloads(vararg states:Int):androidx.media3.exoplayer.offline.DownloadCursor {
+                if(unavailable) throw IOException("Phone index unavailable before opening a cursor")
+                return admitted.getDownloads(*states)
+            }
+        }
+        val removable=claims::removableForRemoval
+        worker {
+            played(f,key)
+            claims.prepareRemoval(observed)
+            assertEquals(OfflineStore.SavedRemoval.Unavailable,f.session.removePlayed(key,removable))
+            assertFalse(claims.known); assertFalse(claims.removable(key))
+            assertTrue(f.barrier.quiescent); assertEquals(0,f.budget.resident)
+            assertArrayEquals(payload,read(f,key))
+            val request=DownloadRequest.Builder("hidden-phone-owner",Uri.parse("http://h/api1/file/1"))
+                .setCustomCacheKey(key).build()
+            phone.putDownload(Download(request,Download.STATE_COMPLETED,1,2,4,0,0))
+            unavailable=false // Rebuild through the real admitted index BEFORE exclusive deletion.
+            claims.prepareRemoval(observed)
+            assertTrue(f.barrier.quiescent)
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,f.session.removePlayed(key,removable))
+            assertTrue(claims.known); assertArrayEquals(payload,read(f,key))
+            phone.removeDownload(request.id); claims.read(phone)
+            assertEquals(OfflineStore.SavedRemoval.Sent,f.session.removePlayed(key,removable))
+            assertEquals(0,f.budget.resident)
+            assertEquals(SavedCoverage.Missing,f.session.audio.inspect(key).coverage)
+            // inspect owns an intentional idle reader; actual session close releases it.
+            f.session.close()
+        }
+        assertTrue(f.barrier.quiescent); assertEquals(0,f.budget.resident)
+    }
     @Test fun interleavedManualDeletionRecensusesBeforeResizeCanOverEvict() {
         val f=fixture(nativeCapacity=2); val keys=(0..2).map {playedKey("saved/overlap-$it")}
         worker {keys.forEach {played(f,it)}}
