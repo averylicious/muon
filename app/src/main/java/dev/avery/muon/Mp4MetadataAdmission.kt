@@ -30,6 +30,7 @@ internal class Mp4Limits(
     val sampleBytes: Long = MP4_SAMPLE_BYTES,
     val boxes: Int = CONTAINER_METADATA_ENTRIES,
     val depth: Int = MP4_BOX_DEPTH,
+    val metadataEntries: Int = CONTAINER_METADATA_ENTRIES,
 )
 
 private fun box(name: String) = name.fold(0) { value, c -> (value shl 8) or c.code }
@@ -87,6 +88,7 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
     private val stack = ArrayList<Frame>()
     private var retained = 0L
     private var boxes = 0
+    private var metadataEntries = 0
     private var largeAt = -1L
     private var largeType = 0
     private var leafAt = -1L
@@ -97,7 +99,7 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
     fun seek(position: Long) {
         if (position != 0L) return
         done = false; seenFtyp = false; quickTime = false
-        stack.clear(); retained = 0; boxes = 0; largeAt = -1; leafAt = -1
+        stack.clear(); retained = 0; boxes = 0; metadataEntries = 0; largeAt = -1; leafAt = -1
     }
 
     fun input(actual: ExtractorInput): ExtractorInput = if (done) actual else Observed(actual)
@@ -170,7 +172,6 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
 
     private fun body(data: ByteArray) {
         val leaf = Leaf(data, leafSize)
-        validate(leafType, leaf)
         if (leafType == FTYP) {
             seenFtyp = true
             quickTime = leaf.size >= 12 && leaf.u32(8).toInt() == QUICKTIME
@@ -180,6 +181,9 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
                 at += 4
             }
         }
+        metadataEntries += admitMp4NestedMetadata(leafType, data, leafSize,
+            limits.metadataEntries - metadataEntries, quickTime, limits.depth)
+        validate(leafType, leaf)
         val end = leafAt + leafSize
         leafAt = -1
         stack.lastOrNull()?.leaves?.putIfAbsent(leafType, leaf)
@@ -191,14 +195,14 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
             val frame = stack.removeAt(stack.lastIndex)
             if (frame.type == MOOV) {
                 admitMoov(frame)
-                stack.clear(); done = true; retained = 0; boxes = 0
+                stack.clear(); done = true; retained = 0; boxes = 0; metadataEntries = 0
                 return
             }
             val parent = stack.lastOrNull() ?: continue
             parent.containers.putIfAbsent(frame.type, frame)
             if (frame.type == TRAK && parent.type == MOOV) parent.traks += frame
         }
-        if (stack.isEmpty()) { retained = 0; boxes = 0 } // Top-level boxes are processed or dropped.
+        if (stack.isEmpty()) { retained = 0; boxes = 0; metadataEntries = 0 } // Top-level boxes are processed or dropped.
     }
 
     /** Counts BoxParser reads before allocating from them must be backed by the leaf's own bytes. */

@@ -18,3 +18,5 @@ Root generated mono48kHz/50ms silence with FFmpeg n9.0.2, `-map_metadata -1 -ffl
 | `tail-pcm.mov` | 5417 | `510acb096ca6330433651df8a0c9c78ad1fb924c807c04b9f24581034dbdd739` |
 | `tail-alac.m4a` | 677 | `c501879e23156d25dba9fd5007613083f059fa807eb2779076e384dfa11c88aa` |
 | `tail-aac-edit.m4a` | 786 | `5b6bbbbadf5d922251650fd00f18a3bfbea66975154cba20a001524cdcde3b4b` |
+
+`tagged-gain.m4a` is the original750-byte AAC control augmented only on that generated fixture with installed Mutagen1.48.1: standard com.apple.iTunes gain/peak/album fields and the same original1×1 PNG.1,126bytes, SHA256 `da2b849735f2520d11a5605fdf1c693b3f48d6d48f1bbf8ed11024b7f67e2fdc`. The nested-admission control checks actual metadata/artwork delivery; gain application itself is the separate #703 follow-up. No user music or CI Mutagen dependency.

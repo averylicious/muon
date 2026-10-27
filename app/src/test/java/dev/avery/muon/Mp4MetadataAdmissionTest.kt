@@ -7,6 +7,10 @@ import androidx.media3.common.C
 import androidx.media3.common.DataReader
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
+import androidx.media3.container.MdtaMetadataEntry
+import androidx.media3.extractor.metadata.Chapter
+import androidx.media3.extractor.metadata.id3.ApicFrame
+import androidx.media3.extractor.metadata.id3.InternalFrame
 import androidx.media3.exoplayer.source.BundledExtractorsAdapter
 import androidx.media3.extractor.DefaultExtractorInput
 import androidx.media3.extractor.DiscardingTrackOutput
@@ -290,6 +294,109 @@ class Mp4MetadataAdmissionTest {
                 adapter.init(Reader(ftyp, 0, Faults()), URI, emptyMap(), 0, UNKNOWN, Capture())
             }
         } finally { adapter.release() }
+    }
+
+    @Test fun nestedMetadataControlsPreserveActualArtAndIndexedFields() {
+        val tagged = resource("tagged-gain.m4a", tail = false)
+        val out = published(tagged, Mp4Limits())
+        val metadata = requireNotNull(out.format?.metadata)
+        val entries = (0 until metadata.length()).map { metadata.get(it) }
+        assertTrue(entries.filterIsInstance<ApicFrame>().single().pictureData.isNotEmpty())
+        assertTrue(entries.filterIsInstance<InternalFrame>().any {
+            it.domain == "com.apple.iTunes" && it.description == "replaygain_track_gain" && it.text == "-2.00 dB"
+        })
+        val control = resource("control.m4a")
+        val mdta = append(control, chain(control, "moov"), indexedMetadata(1))
+        val indexed = requireNotNull(published(mdta, Mp4Limits(metadataEntries = 20)).format?.metadata)
+        assertTrue((0 until indexed.length()).map { indexed.get(it) }.any {
+            it is MdtaMetadataEntry && it.key == "fixture"
+        })
+    }
+
+    @Test fun nestedDeclarationsAreCheckedBeforeTheNativeAllocation() {
+        val control = resource("control.m4a")
+        val tagged = resource("tagged-gain.m4a", tail = false)
+        val cover = tagged.copyOf()
+        val coverBox = findType(cover, "covr")
+        assertEquals("data", String(cover, coverBox + 12, 4, Charsets.US_ASCII))
+        put(cover, coverBox + 8, 4096) // Actual child carries only the original70-byte image.
+        val descriptor = control.copyOf()
+        // Original esds uses a4-byte expandable size for a5-byte AudioSpecificConfig. Change only
+        // that declared size to64: moderate if the guard regresses, not a huge-allocation test.
+        val marker = byteArrayOf(5, 0x80.toByte(), 0x80.toByte(), 0x80.toByte(), 5)
+        val length = find(descriptor, marker)
+        assertTrue(length >= findType(descriptor, "esds") + 12)
+        descriptor[length + 4] = 64
+        val alac = resource("alac.m4a").copyOf()
+        val alacEntry = chain(alac, "moov", "trak", "mdia", "minf", "stbl", "stsd").last().start + 16
+        val config = findType(alac, "alac", alacEntry + 8)
+        put(alac, config, 4096)
+        val malformedKeys = append(control, chain(control, "moov"), indexedMetadata(1, declared = 64))
+        val badSmta = append(control, chain(control, "moov"),
+            atom("udta", atom("smta", ByteArray(4), be(4096), ascii("xxxx"))))
+        val audioPath = arrayOf("moov", "trak", "mdia", "minf", "stbl")
+        val stsd = chain(control, *audioPath, "stsd")
+        val info = payload(control, stsd)
+        val entry = info.copyOfRange(8, info.size)
+        // Keep the original fixed sample-entry prefix, supply a compact IAMF child with a64-byte
+        // length but no payload. Media3 allocates from this child before final MIME selection.
+        val iamf = atom("iacb", byteArrayOf(0, 64))
+        val replacement = entry.copyOfRange(0, 36) + iamf
+        put(replacement, 0, replacement.size)
+        val badIamf = replace(control, stsd, atom("stsd", info.copyOfRange(0, 8), replacement))
+        for ((name, bytes) in listOf("cover" to cover, "esds" to descriptor, "alac" to alac,
+            "keys" to malformedKeys, "smta" to badSmta, "iacb" to badIamf)) {
+            val output = Capture()
+            assertTrue(name, assertThrows(name, StreamMetadataRefusal::class.java) {
+                published(bytes, Mp4Limits(), output)
+            }.contentIsMalformed)
+            assertNull(name, output.map)
+        }
+    }
+
+    @Test fun nestedEntryBudgetAndIgnoredDescriptionKeepTheirDifferentOutcomes() {
+        val control = resource("control.m4a")
+        val manyKeys = append(control, chain(control, "moov"), indexedMetadata(32))
+        assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+            published(manyKeys, Mp4Limits(metadataEntries = 20))
+        }.contentIsMalformed)
+        fun chapters(count: Int): ByteArray = atom("chpl", ByteArray(5), be(count), ByteArray(count * 9))
+        val one = append(control, chain(control, "moov"), atom("udta", chapters(1)))
+        val oneOutput = published(one, Mp4Limits(metadataEntries = 20))
+        val chapterMetadata = requireNotNull(oneOutput.format?.metadata)
+        assertTrue((0 until chapterMetadata.length()).any { chapterMetadata.get(it) is Chapter })
+        val many = append(control, chain(control, "moov"), atom("udta", chapters(32)))
+        assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+            published(many, Mp4Limits(metadataEntries = 20))
+        }.contentIsMalformed)
+
+        // QuickTime's unsupported version3 description is skipped before channel/config parsing.
+        // Keep that behavior and the following valid PCM entry; don't impose the v0 prefix on it.
+        val pcm = resource("pcm.mov")
+        val desc = chain(pcm, "moov", "trak", "mdia", "minf", "stbl", "stsd")
+        val info = payload(pcm, desc)
+        val entry = info.copyOfRange(8, info.size)
+        val unsupported = entry.copyOf(24)
+        put(unsupported, 0, unsupported.size)
+        unsupported[16] = 0; unsupported[17] = 3
+        val combined = replace(pcm, desc, atom("stsd", info.copyOfRange(0, 4), be(2), unsupported, entry))
+        assertEquals(MimeTypes.AUDIO_RAW, published(combined, Mp4Limits()).format?.sampleMimeType)
+    }
+
+    private fun indexedMetadata(count: Int, declared: Int = count): ByteArray {
+        val hdlr = atom("hdlr", ByteArray(8), ascii("mdta"), ByteArray(13))
+        var keys = ByteArray(0)
+        repeat(count) { keys += be(15) + ascii("mdta") + ascii("fixture") }
+        val keyBox = atom("keys", ByteArray(4), be(declared), keys)
+        val value = atom("data", be(1), be(0), ascii("value"))
+        val item = atom("\u0000\u0000\u0000\u0001", value)
+        return atom("meta", ByteArray(4), hdlr, keyBox, atom("ilst", item))
+    }
+
+    private fun findType(bytes: ByteArray, type: String, after: Int = 4): Int = find(bytes, ascii(type), after) - 4
+    private fun find(bytes: ByteArray, marker: ByteArray, after: Int = 0): Int {
+        val at = (after..bytes.size - marker.size).firstOrNull { at -> marker.indices.all { bytes[at + it] == marker[it] } }
+        return requireNotNull(at) { "Fixture marker missing" }
     }
 
     // Box editing for the committed fixtures. Each fixture keeps media before moov, so movie edits
