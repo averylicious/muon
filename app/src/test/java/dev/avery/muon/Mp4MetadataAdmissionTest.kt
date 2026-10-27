@@ -11,6 +11,8 @@ import androidx.media3.container.MdtaMetadataEntry
 import androidx.media3.extractor.metadata.Chapter
 import androidx.media3.extractor.metadata.id3.ApicFrame
 import androidx.media3.extractor.metadata.id3.InternalFrame
+import androidx.media3.extractor.metadata.id3.TextInformationFrame
+import androidx.media3.extractor.metadata.mp4.SmtaMetadataEntry
 import androidx.media3.exoplayer.source.BundledExtractorsAdapter
 import androidx.media3.extractor.DefaultExtractorInput
 import androidx.media3.extractor.DiscardingTrackOutput
@@ -313,6 +315,41 @@ class Mp4MetadataAdmissionTest {
         })
     }
 
+    @Test fun nativeOptionalPaddingAndUnusedUserdataStayPlayable() {
+        val control = resource("control.m4a")
+        val udta = chain(control, "moov", "udta")
+        val old = payload(control, udta)
+        val data = atom("data", be(1), be(0), ascii("Fixture"))
+        val title = atom("\u00a9nam", data)
+        // The encoder stores a copyright byte0xA9 (not an ASCII replacement).
+        title[4] = 0xa9.toByte()
+        val withTail = atom("udta", atom("meta", ByteArray(4), atom("ilst", title, be(0))), be(0))
+        val saut = atom("saut", ByteArray(4), byteArrayOf(0, 12, 1, 1))
+        val smta = atom("smta", ByteArray(4), saut, be(0))
+        val cases = listOf(
+            replace(control, udta, atom("udta", old, be(0))),
+            replace(control, udta, withTail),
+            append(control, udta, smta),
+            // Native first-match selection ignores a second udta's malformed inner bytes.
+            append(control, chain(control, "moov"), atom("udta", be(4096), ascii("meta")))
+        )
+        for (bytes in cases) assertEquals(MimeTypes.AUDIO_AAC, published(bytes, Mp4Limits()).format?.sampleMimeType)
+        val titleMeta = requireNotNull(published(replace(control, udta, withTail), Mp4Limits()).format?.metadata)
+        assertTrue((0 until titleMeta.length()).map { titleMeta.get(it) }.filterIsInstance<TextInformationFrame>()
+            .any { it.id == "TIT2" && it.values.singleOrNull() == "Fixture" })
+        val smtaMeta = requireNotNull(published(append(control, udta, smta), Mp4Limits()).format?.metadata)
+        assertTrue((0 until smtaMeta.length()).any { smtaMeta.get(it) is SmtaMetadataEntry })
+
+        // Pinned video parsing explicitly accepts a terminal four-zero word after codec children.
+        val video = resource("video.mp4")
+        val desc = chain(video, "moov", "trak", "mdia", "minf", "stbl", "stsd")
+        val info = payload(video, desc)
+        val entry = info.copyOfRange(8, info.size) + be(0)
+        put(entry, 0, entry.size)
+        val padded = replace(video, desc, atom("stsd", info.copyOfRange(0, 8), entry))
+        assertEquals(MimeTypes.VIDEO_MP4V, published(padded, Mp4Limits()).format?.sampleMimeType)
+    }
+
     @Test fun nestedDeclarationsAreCheckedBeforeTheNativeAllocation() {
         val control = resource("control.m4a")
         val tagged = resource("tagged-gain.m4a", tail = false)
@@ -332,8 +369,8 @@ class Mp4MetadataAdmissionTest {
         val config = findType(alac, "alac", alacEntry + 8)
         put(alac, config, 4096)
         val malformedKeys = append(control, chain(control, "moov"), indexedMetadata(1, declared = 64))
-        val badSmta = append(control, chain(control, "moov"),
-            atom("udta", atom("smta", ByteArray(4), be(4096), ascii("xxxx"))))
+        val badSmta = append(control, chain(control, "moov", "udta"),
+            atom("smta", ByteArray(4), be(4096), ascii("xxxx")))
         val audioPath = arrayOf("moov", "trak", "mdia", "minf", "stbl")
         val stsd = chain(control, *audioPath, "stsd")
         val info = payload(control, stsd)
@@ -361,11 +398,11 @@ class Mp4MetadataAdmissionTest {
             published(manyKeys, Mp4Limits(metadataEntries = 20))
         }.contentIsMalformed)
         fun chapters(count: Int): ByteArray = atom("chpl", ByteArray(5), be(count), ByteArray(count * 9))
-        val one = append(control, chain(control, "moov"), atom("udta", chapters(1)))
+        val one = append(control, chain(control, "moov", "udta"), chapters(1))
         val oneOutput = published(one, Mp4Limits(metadataEntries = 20))
         val chapterMetadata = requireNotNull(oneOutput.format?.metadata)
         assertTrue((0 until chapterMetadata.length()).any { chapterMetadata.get(it) is Chapter })
-        val many = append(control, chain(control, "moov"), atom("udta", chapters(32)))
+        val many = append(control, chain(control, "moov", "udta"), chapters(32))
         assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
             published(many, Mp4Limits(metadataEntries = 20))
         }.contentIsMalformed)

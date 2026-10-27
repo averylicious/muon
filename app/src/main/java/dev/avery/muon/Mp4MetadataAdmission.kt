@@ -42,7 +42,7 @@ private val STSD = box("stsd"); private val STSZ = box("stsz"); private val STZ2
 private val STCO = box("stco"); private val CO64 = box("co64"); private val STSC = box("stsc")
 private val STTS = box("stts"); private val CTTS = box("ctts"); private val STSS = box("stss")
 private val ELST = box("elst"); private val MLPA = box("mlpa")
-private val MDAT = box("mdat"); private val QUICKTIME = box("qt  ")
+private val UDTA = box("udta"); private val MDAT = box("mdat"); private val QUICKTIME = box("qt  ")
 /** Pinned Mp4Extractor.shouldParseContainerAtom / shouldParseLeafAtom. */
 private val CONTAINERS = listOf("moov", "trak", "mdia", "minf", "stbl", "edts", "meta", "axte", "tref").map(::box).toSet()
 private val LEAVES = listOf("mdhd", "mvhd", "hdlr", "stsd", "stts", "stss", "ctts", "elst", "stsc", "stsz", "stz2",
@@ -181,7 +181,11 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits())
                 at += 4
             }
         }
-        metadataEntries += admitMp4NestedMetadata(leafType, data, leafSize,
+        // Ordinary Mp4Extractor parses only the first movie-level udta. Other copies still cost
+        // retained bytes, but their unparsed nested declarations cannot create native objects.
+        val parent = stack.lastOrNull()
+        val inspect = if (leafType == UDTA && (parent == null || parent.type != MOOV || parent.leaves.containsKey(UDTA))) 0 else leafType
+        metadataEntries += admitMp4NestedMetadata(inspect, data, leafSize,
             limits.metadataEntries - metadataEntries, quickTime, limits.depth)
         validate(leafType, leaf)
         val end = leafAt + leafSize

@@ -48,10 +48,12 @@ private class Mp4NestedAdmission(private val data: ByteArray, private val size: 
         if (bytes < 8 || bytes > limit - at) malformed()
         return at + bytes.toInt()
     }
-    private inline fun boxes(start: Int, limit: Int, depth: Int, visit: (Int, Int, Int) -> Unit) {
+    private inline fun boxes(start: Int, limit: Int, depth: Int, tail: Int = 0,
+        terminatingZero: Boolean = false, visit: (Int, Int, Int) -> Unit) {
         if (depth > maximumDepth) throw StreamMetadataRefusal()
         var at = start
         while (at < limit) {
+            if (limit - at <= tail || (terminatingZero && limit - at == 4 && u32(at, limit) == 0L)) break
             val end = end(at, limit)
             val type = u32(at + 4, end).toInt()
             charge()
@@ -65,7 +67,7 @@ private class Mp4NestedAdmission(private val data: ByteArray, private val size: 
             atomType("keys") -> keys()
             atomType("stsd") -> descriptions()
             atomType("udta") -> userdata(8, size, 0)
-            atomType("ilst") -> items(8, size, 0)
+            atomType("ilst") -> items(8, size, 0, indexed = true)
         }
         return used
     }
@@ -97,13 +99,13 @@ private class Mp4NestedAdmission(private val data: ByteArray, private val size: 
                 else -> stop // Unrecognized entries are skipped; text-entry copies already fit.
             }
             need(child, 0, stop)
-            sampleChildren(child, stop, 0)
+            sampleChildren(child, stop, 0, terminatingZero = type in VIDEO_ENTRIES)
             at = stop
         }
     }
 
-    private fun sampleChildren(start: Int, limit: Int, depth: Int) {
-        boxes(start, limit, depth) { at, stop, type ->
+    private fun sampleChildren(start: Int, limit: Int, depth: Int, terminatingZero: Boolean = false) {
+        boxes(start, limit, depth, terminatingZero = terminatingZero) { at, stop, type ->
             when (type) {
                 in NESTED_BOXES -> sampleChildren(at + 8, stop, depth + 1)
                 atomType("esds") -> esds(at + 12, stop)
@@ -119,9 +121,8 @@ private class Mp4NestedAdmission(private val data: ByteArray, private val size: 
                     while (true) {
                         val value = u8(next++, stop)
                         length = length or ((value and 127).toLong() shl shift)
-                        if (value and 128 == 0) break
+                        if (value and 128 == 0 || shift == 56) break
                         shift += 7
-                        if (shift > 28) malformed()
                     }
                     if (length > Int.MAX_VALUE) malformed()
                     need(next, length, stop)
@@ -159,22 +160,11 @@ private class Mp4NestedAdmission(private val data: ByteArray, private val size: 
     }
 
     private fun userdata(start: Int, limit: Int, depth: Int) {
-        boxes(start, limit, depth) { at, stop, type ->
+        // parseUdta intentionally ignores a final incomplete8-byte header.
+        boxes(start, limit, depth, tail = 7) { at, stop, type ->
             when (type) {
-                atomType("meta") -> {
-                    val body = at + 8
-                    // Pinned maybeSkipRemainingMetaBoxHeaderBytes detects a QuickTime hdlr header.
-                    need(body, 8, stop)
-                    val children = if (u32(body + 4, stop).toInt() == atomType("hdlr")) body else body + 4
-                    boxes(children, stop, depth + 1) { child, childEnd, childType ->
-                        if (childType == atomType("ilst")) items(child + 8, childEnd, depth + 2)
-                    }
-                }
-                atomType("smta") -> {
-                    need(at, 12, stop)
-                    // The pinned helper also walks child sizes; require forward, bounded progress.
-                    boxes(at + 12, stop, depth + 1) { _, _, _ -> }
-                }
+                atomType("meta") -> userMeta(at + 8, stop, depth + 1)
+                atomType("smta") -> smta(at + 12, stop, depth + 1)
                 atomType("chpl") -> {
                     // Pinned parseChpl starts after size/type, skips5 then reads a SIGNED count.
                     need(at, 17, stop)
@@ -195,20 +185,80 @@ private class Mp4NestedAdmission(private val data: ByteArray, private val size: 
         }
     }
 
-    private fun items(start: Int, limit: Int, depth: Int) {
-        boxes(start, limit, depth) { at, stop, type ->
-            // Indexed mdta fields, standard iTunes fields and copyright text use data sub-boxes.
-            // Unknown opaque iTunes items are skipped by Media3 and are not interpreted here.
+    private fun userMeta(start: Int, limit: Int, depth: Int) {
+        need(start, 8, limit)
+        var at = if (u32(start + 4, limit).toInt() == atomType("hdlr")) start else start + 4
+        while (at < limit) {
+            val stop = end(at, limit)
+            charge()
+            if (u32(at + 4, stop).toInt() == atomType("ilst")) {
+                items(at + 8, stop, depth + 1, indexed = false)
+                return // Pinned parseUdtaMeta ignores anything after its first ilst.
+            }
+            at = stop
+        }
+    }
+
+    private fun smta(start: Int, limit: Int, depth: Int) {
+        if (depth > maximumDepth) throw StreamMetadataRefusal()
+        need(start, 0, limit)
+        var at = start
+        while (at < limit) {
+            val stop = end(at, limit)
+            charge()
+            // The helper returns after saut (its fields/srfr have no unbounded declaration).
+            if (u32(at + 4, stop).toInt() == atomType("saut")) return
+            at = stop
+        }
+    }
+
+    private fun items(start: Int, limit: Int, depth: Int, indexed: Boolean) {
+        if (depth > maximumDepth) throw StreamMetadataRefusal()
+        var at = start
+        // Mdta stops with <=8bytes left; the iTunes helper can consume a short size word but cannot
+        // allocate from a tail this short. Leave those bytes to the pinned parser, not a refusal.
+        while (limit - at > 8) {
+            val bytes = u32(at, limit)
+            charge()
+            if (!indexed && bytes < 8) { at += 4; continue } // parseIlstElement consumes only size.
+            val stop = end(at, limit)
+            val type = u32(at + 4, stop).toInt()
             val top = type ushr 24
             val copyright = (top == 0xa9 || top == 0xfd) && (type and 0x00ffffff) in COPYRIGHT_FIELDS
-            if (type in 1..CONTAINER_METADATA_ENTRIES || type in ITUNES_FIELDS || copyright) {
-                boxes(at + 8, stop, depth + 1) { child, childEnd, childType ->
-                    when (childType) {
-                        atomType("data") -> need(child, 16, childEnd)
-                        atomType("mean"), atomType("name") -> need(child, 12, childEnd)
+            when {
+                indexed && type > 0 -> indexedField(at + 8, stop, depth + 1)
+                !indexed && (type in ITUNES_FIELDS || copyright) && stop - at >= 16 -> {
+                    if (type == atomType("----")) {
+                        boxes(at + 8, stop, depth + 1) { child, childEnd, childType ->
+                            when (childType) {
+                                atomType("data") -> need(child, 16, childEnd)
+                                atomType("mean"), atomType("name") -> need(child, 12, childEnd)
+                            }
+                        }
+                    } else {
+                        // Ordinary iTunes readers inspect only the first child and ignore any tail.
+                        val child = at + 8
+                        val childEnd = end(child, stop)
+                        charge()
+                        if (u32(child + 4, childEnd).toInt() == atomType("data")) need(child, 16, childEnd)
                     }
                 }
             }
+            at = stop
+        }
+    }
+
+    private fun indexedField(start: Int, limit: Int, depth: Int) {
+        if (depth > maximumDepth) throw StreamMetadataRefusal()
+        var at = start
+        while (at < limit) {
+            val stop = end(at, limit)
+            charge()
+            if (u32(at + 4, stop).toInt() == atomType("data")) {
+                need(at, 16, stop)
+                return // Media3 returns immediately after the first data field.
+            }
+            at = stop
         }
     }
 }
