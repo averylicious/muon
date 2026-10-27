@@ -54,12 +54,13 @@ class FragmentedMp4BoundaryTest {
 
         for ((bytes, count, stop) in listOf(
             Triple(original, 4, mdat.toLong()), Triple(changed, 4096, mediaHeader))) {
-            val input = object : ForwardingExtractorInput(DefaultExtractorInput(reader(bytes), 0, bytes.size.toLong())) {
+            fun open(at: Long) = object : ForwardingExtractorInput(DefaultExtractorInput(reader(bytes, at), at, bytes.size.toLong())) {
                 override fun readFully(target: ByteArray, offset: Int, length: Int, allowEndOfInput: Boolean): Boolean {
                     if (position == stop && offset == 0 && length == 8) throw BeforeMedia()
                     return super.readFully(target, offset, length, allowEndOfInput)
                 }
             }
+            var input = open(0)
             val candidates = DefaultExtractorsFactory().createExtractors(Uri.parse("http://fixture.invalid/fragmented.m4a"), emptyMap())
             val selected = candidates.first { candidate ->
                 try { candidate.sniff(input) } finally { input.resetPeekPosition() }
@@ -76,9 +77,14 @@ class FragmentedMp4BoundaryTest {
             try {
                 assertThrows(BeforeMedia::class.java) {
                     val position = PositionHolder()
-                    repeat(20) {
-                        val result = selected.read(input, position)
-                        assertEquals("No source reopen is needed before this fixture's media", Extractor.RESULT_CONTINUE, result)
+                    repeat(40) {
+                        // DefaultExtractorsFactory enables MFRA seek-map reads. Follow those real
+                        // source reopens rather than changing flags to avoid the production path.
+                        when (selected.read(input, position)) {
+                            Extractor.RESULT_CONTINUE -> Unit
+                            Extractor.RESULT_SEEK -> input = open(position.position)
+                            else -> fail("EOF before the selected fragment's media boundary")
+                        }
                     }
                     fail("Extractor never reached the media boundary")
                 }
@@ -94,7 +100,7 @@ class FragmentedMp4BoundaryTest {
                 fun field(name: String) = fragment.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(fragment)
                 assertEquals(count, field("sampleCount"))
                 for (name in listOf("sampleSizeTable", "samplePresentationTimesUs", "sampleIsSyncFrameTable", "sampleHasSubsampleEncryptionTable")) {
-                    assertEquals(name, count * 125 / 100, java.lang.reflect.Array.getLength(field(name)))
+                    assertEquals(name, count * 125 / 100, java.lang.reflect.Array.getLength(requireNotNull(field(name))))
                 }
                 assertEquals(stop, input.position) // Neither mdat's header nor audio body was read.
             } finally { candidates.forEach { it.release() } }
@@ -102,8 +108,8 @@ class FragmentedMp4BoundaryTest {
     }
 
     private class BeforeMedia : IOException()
-    private fun reader(bytes: ByteArray): DataReader {
-        var at = 0
+    private fun reader(bytes: ByteArray, start: Long): DataReader {
+        var at = start.toInt()
         return DataReader { target, offset, length ->
             if (length == 0) 0 else if (at == bytes.size) C.RESULT_END_OF_INPUT
             else minOf(length, bytes.size - at).also { bytes.copyInto(target, offset, at, at + it); at += it }
