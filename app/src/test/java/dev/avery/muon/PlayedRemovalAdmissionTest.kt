@@ -56,6 +56,35 @@ class PlayedRemovalAdmissionTest {
         assertEquals(OfflineStore.SavedRemoval.NotOwned,OfflineStore.removePlayedCopy("played:test",actual,gate,{false},{}))
         assertEquals(3L,actual.cacheSpace); assertTrue(gate.quiescent)
     }
+    @Test fun failedRealClaimCensusPreservesAudioAndRetryDistinguishesProtectionFromDeletion() {
+        val actual=cache(); val gate=SavedStorageBarrier()
+        val index=androidx.media3.exoplayer.offline.DefaultDownloadIndex(db,"played_removal_claims")
+        val request=androidx.media3.exoplayer.offline.DownloadRequest.Builder("hidden-owner",android.net.Uri.parse("http://h/api1/file/1"))
+            .setCustomCacheKey("played:test").build()
+        index.putDownload(androidx.media3.exoplayer.offline.Download(request,
+            androidx.media3.exoplayer.offline.Download.STATE_COMPLETED,1,2,3,0,0))
+        PlayedClaimDisk(folders.newFile()).use { claims ->
+            val failure=object:androidx.media3.exoplayer.offline.DownloadIndex by index {
+                override fun getDownloads(vararg states:Int):androidx.media3.exoplayer.offline.DownloadCursor =
+                    throw IOException("Unavailable census")
+            }
+            claims.read(failure)
+            assertFalse(claims.known)
+            assertEquals(OfflineStore.SavedRemoval.Unavailable,
+                OfflineStore.removePlayedCopy("played:test",actual,gate,claims::removableForRemoval) { fail("No mutation attempted") })
+            assertEquals(3L,actual.cacheSpace); assertTrue(gate.quiescent)
+            assertEquals(request,index.getDownload("hidden-owner")!!.request)
+            assertFalse(claims.removable("played:test")) // Automatic eviction remains fail-closed.
+            claims.read(index)
+            assertEquals(OfflineStore.SavedRemoval.NotOwned,
+                OfflineStore.removePlayedCopy("played:test",actual,gate,claims::removableForRemoval) { fail("Protected copy") })
+            assertEquals(3L,actual.cacheSpace); assertTrue(gate.quiescent)
+            index.removeDownload("hidden-owner"); claims.read(index)
+            assertEquals(OfflineStore.SavedRemoval.Sent,
+                OfflineStore.removePlayedCopy("played:test",actual,gate,claims::removableForRemoval) { fail("Known deletion") })
+            assertEquals(0L,actual.cacheSpace); assertTrue(gate.quiescent)
+        }
+    }
     @Test fun thrownNativeMutationNeverReportsSuccessOrAllowsReplacement() {
         val actual=cache(); val gate=SavedStorageBarrier(); var calls=0; var notices=0
         val observed=object:Cache by actual { override fun removeResource(key:String) { calls++; throw IOException("Unknown actual mutation outcome") } }

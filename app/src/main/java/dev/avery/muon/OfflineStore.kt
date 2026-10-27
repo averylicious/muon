@@ -32,6 +32,8 @@ import java.util.concurrent.atomic.AtomicReference
 import okhttp3.Call
 import okhttp3.Request
 
+private const val BULK_REMOVAL_UNREADABLE = "Couldn't check all saved copies. Check storage and retry."
+
 /**
  * Where downloads are kept: the phone's own storage, or a removable SD card (#112, mockup 01). Each has
  * its own cache, its own download index and its own service. A card that is unavailable is skipped by
@@ -905,8 +907,9 @@ internal object OfflineStore {
                 SavedRemoval.Waiting ->
                     notice(context, "Saved copies are still being removed, so that copy wasn't. " +
                         "Try again when that finishes.")
-                SavedRemoval.Unavailable ->
-                    notice(context, "That copy is on the SD card, which isn't available, so it wasn't removed.")
+                SavedRemoval.Unavailable -> notice(context, if (ref.shelf == SavedShelf.Card)
+                    "SD card unavailable or unreadable. Check the card and try again."
+                    else "Saved copies couldn't be read. Try again or restart Muon.")
                 SavedRemoval.NotOwned ->
                     notice(context, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
                 SavedRemoval.Busy ->
@@ -943,7 +946,8 @@ internal object OfflineStore {
         var uncertain=false
         try {
             permit.check()
-            if(!removable(key)) return SavedRemoval.NotOwned
+            val allowed=try { removable(key) } catch(_:PlayedClaimsUnavailable) { return SavedRemoval.Unavailable }
+            if(!allowed) return SavedRemoval.NotOwned
             cache.removeResource(key)
             permit.check()
             return SavedRemoval.Sent
@@ -961,10 +965,13 @@ internal object OfflineStore {
         if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
+            // Manager indexes admit their own shared cursor. Rebuild BEFORE partition removal
+            // takes exclusive access; the final callback still refuses any unavailable lookup.
+            store.playedClaims.prepareRemoval(store.phone.manager.downloadIndex)
             store.phone.partition?.let { partition ->
-                return partition.removePlayed(ref.key,store.playedClaims::removable)
+                return partition.removePlayed(ref.key,store.playedClaims::removableForRemoval)
             }
-            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removable) {
+            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removableForRemoval) {
                 store.played.quarantine()
             }
         }
@@ -997,11 +1004,7 @@ internal object OfflineStore {
             }
             return outcome
         }
-        // One candidate, every index row: do not retain unrelated names just to remove this copy (#253).
-        val owner = runCatching { IndexNameProbe.read(shelf.manager.downloadIndex, ref.requestId) }
-            .getOrNull() ?: return SavedRemoval.NotOwned
-        val row = owner.row
-        if (row == null || row.key != ref.key || !owner.soleOwner) return SavedRemoval.NotOwned
+        legacyRemovalRefusal(shelf.manager.downloadIndex, ref)?.let { return it }
         if (store.removalDelivery.busy) return SavedRemoval.Waiting
         // Its own move, if one is under way, loses its hand-over too (#234).
         moveOwnership.remove(listOf(ref.requestId))
@@ -1010,6 +1013,20 @@ internal object OfflineStore {
             removalDeliveryMessage(result, single = true)?.let { notice(app, it) }
         }
         return if (begun) SavedRemoval.Sent else SavedRemoval.Waiting
+    }
+
+    /**
+     * [removeSavedNow]'s ownership check for a legacy shelf: null only when [ref]'s own row is the sole owner
+     * of its bytes. A missing, mismatched or shared row is [SavedRemoval.NotOwned]. A census that could not be
+     * read or closed says nothing about ownership, so it is [SavedRemoval.Unavailable] (#646): refused just
+     * the same, but not reported as shared bytes. Reads only; no row or byte is changed.
+     */
+    internal fun legacyRemovalRefusal(index: androidx.media3.exoplayer.offline.DownloadIndex, ref: SavedRef): SavedRemoval? {
+        // One candidate, every index row: do not retain unrelated names just to remove this copy (#253).
+        val owner = runCatching { IndexNameProbe.read(index, ref.requestId) }
+            .getOrElse { return SavedRemoval.Unavailable }
+        val row = owner.row
+        return if (row == null || row.key != ref.key || !owner.soleOwner) SavedRemoval.NotOwned else null
     }
 
     /** One tagged removal for the delivery batch; true only when Android accepted the start request. */
@@ -1875,7 +1892,9 @@ internal object OfflineStore {
         saver.execute {
             val plan = removeAllNow(context)
             if (plan.busy) notice(context, "Saved storage is busy, so some copies could not be removed. Try again later.")
-            if (store.shelves.any { !it.available() })
+            if (!store.phone.available())
+                notice(context, "Saved copies couldn't be read. Try again or restart Muon.")
+            else if (store.card?.available() == false)
                 notice(context, "The SD card isn't available, so its saved copies weren't removed.")
             if (plan.kept > 0) notice(context, "${plan.kept} saved ${if (plan.kept == 1) "copy was" else "copies were"} kept: " +
                 "Muon can't safely remove them in their current state.")
@@ -1884,6 +1903,7 @@ internal object OfflineStore {
             if (plan.later > 0 && plan.sent == 0) notice(context, "${plan.later} saved " +
                 "${if (plan.later == 1) "copy wasn't" else "copies weren't"} removed and " +
                 "${if (plan.later == 1) "is" else "are"} unchanged. Try again later.")
+            if (plan.unreadableShelves > 0) notice(context, BULK_REMOVAL_UNREADABLE)
         }
     }
 
@@ -1892,10 +1912,11 @@ internal object OfflineStore {
      * removed; [kept]: rows not the sole owner of their bytes; [later]: sole owners beyond the batch's bounds,
      * unchanged and left for another Remove all; [busy]: storage/another removal was busy. [removed]:
      * partition copies whose actual bytes and row were already removed; [unconfirmed]: attempted partition
-     * removals with unknown outcome. An unknown mutation is never reported as unchanged.
+     * removals with unknown outcome. [unreadableShelves] counts failed whole censuses, not guessed
+     * copy counts: those shelves sent no removals. An unknown mutation is never reported as unchanged.
      */
     internal data class RemoveAllPlan(val sent: Int, val kept: Int, val later: Int = 0, val busy: Boolean = false,
-        val removed:Int=0,val unconfirmed:Int=0)
+        val removed:Int=0,val unconfirmed:Int=0,val unreadableShelves:Int=0)
 
     /**
      * [removeAll]'s commands, on the calling thread: every row on each available shelf that a census finds
@@ -1909,6 +1930,7 @@ internal object OfflineStore {
         val selection = RemovalSelection()
         var kept = 0
         var later = 0
+        var unreadable = 0
         for (shelf in availableShelves(store.shelves)) {
             // A whole, closed disk census is required; a partial read/close sends nothing from this shelf.
             val local = RemovalSelection()
@@ -1925,7 +1947,7 @@ internal object OfflineStore {
                     }
                 }
             }.isSuccess
-            if (!complete) continue
+            if (!complete) { unreadable++; continue }
             kept += localKept
             later += localLater
             for (target in local.targets) if (!selection.take(target.shelf, target.id)) later++
@@ -1949,15 +1971,17 @@ internal object OfflineStore {
                 SavedRemoval.Failed -> {unconfirmed++; stopped=true}
             }
         }
-        if(stopped) {later+=legacy.size; return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed)}
-        if(legacy.isEmpty()) return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed)
+        if(stopped) {later+=legacy.size; return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed,unreadable)}
+        if(legacy.isEmpty()) return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed,unreadable)
         val app = context.applicationContext
         val count = legacy.size
         val begun = store.removalDelivery.begin(legacy, sendRemoval(context)) { result ->
-            removalDeliveryMessage(result, single = false, later = later)?.let { notice(app, it) }
+            removalDeliveryMessage(result, single = false, later = later)?.let {
+                notice(app, it + if (unreadable > 0) " $BULK_REMOVAL_UNREADABLE" else "")
+            }
         }
-        return if (begun) RemoveAllPlan(count,kept,later,busy,removed,unconfirmed)
-            else RemoveAllPlan(0,kept,later+count,true,removed,unconfirmed)
+        return if (begun) RemoveAllPlan(count,kept,later,busy,removed,unconfirmed,unreadable)
+            else RemoveAllPlan(0,kept,later+count,true,removed,unconfirmed,unreadable)
     }
 }
 
