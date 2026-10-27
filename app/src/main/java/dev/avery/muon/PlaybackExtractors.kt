@@ -41,17 +41,19 @@ internal class PlaybackExtractors(factory: ExtractorsFactory = DefaultExtractors
     private fun wrap(extractors: Array<Extractor>) = extractors.map { MetadataBoundedExtractor(it) }.toTypedArray<Extractor>()
 }
 
-internal class MetadataBoundedExtractor(private val actual: Extractor, private val maximum: Int = STREAM_ID3_BYTES) :
+internal class MetadataBoundedExtractor(private val actual: Extractor, private val maximum: Int = STREAM_ID3_BYTES,
+    private val id3Limits: Id3FrameLimits = Id3FrameLimits()) :
     ForwardingExtractor(actual) {
     init { require(maximum >= ID3_HEADER) }
+    private val id3 = Id3FrameAdmission(id3Limits)
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
-        return super.sniff(input)
+        return super.sniff(id3.input(input))
     }
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.
     override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
         checkPrefix(input)
-        return super.read(input, seekPosition)
+        return super.read(id3.input(input), seekPosition)
     }
     private fun checkPrefix(input: ExtractorInput) {
         if (input.position != 0L) return // The pinned extractors only peek leading ID3 at position0.
@@ -59,6 +61,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         val header = ByteArray(ID3_HEADER)
         var fresh = true
         var searched = 0
+        var tags = 0
         input.resetPeekPosition()
         try {
             while (true) {
@@ -73,6 +76,8 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
                     }
                 } catch (_: EOFException) { return } // Leave short input handling to its extractor.
                 if (header[0] == 'I'.code.toByte() && header[1] == 'D'.code.toByte() && header[2] == '3'.code.toByte()) {
+                    if (tags >= id3Limits.tags) throw StreamMetadataRefusal()
+                    tags++
                     if ((6..9).any { header[it].toInt() and 0x80 != 0 }) throw StreamMetadataRefusal(true)
                     var bytes = 0
                     for (i in 6..9) bytes = (bytes shl 7) or (header[i].toInt() and 0x7f)

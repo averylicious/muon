@@ -10,13 +10,23 @@ Official extractor1.11.0 source SHA256 `76404d34549e50b93f16c94119aace19dee06be9
 - decodeChapterFrame/decodeChapterTOCFrame recursively call decodeFrame. No explicit depth/frame census was found in the inspected path. Native catches OutOfMemoryError and Exception around a frame, but not arbitrary Error; Loader separately catches Exception/OOM and sends other Error as fatal. This is source/control-flow evidence, not a reproduced stack overflow or phone crash.
 - TextInformationFrame decodeStringValues can retain many separately decoded nonempty values from one backed frame. The tag-byte cap bounds input bytes but not a small object/value count.
 
-## Small characterization, first compile pending
+## Small characterization
 
 Three raw-library cases: a4KiB packed MLLT through the real default MP3 extractor, inspecting the two deviation arrays plus two actual seeker arrays;12 shallow backed chapters ending in a title; and1,024 nonempty artist values from a roughly2KiB tag. MPEG controls contain synthetic frame headers, not valid encoded audio; there is no decoder/sound claim. Arrays remain modest, no giant positive allocation, OOM/stack pressure, phone/user media or #671 diagnosis.
 
-## Next engineering
+Raw653867a4 / [.1542](https://github.com/averylicious/muon/actions/runs/40530609094) passed downloaded1,829cases/variant, zero failures/errors/skips and lint0errors/65warnings plus3hints; all three raw cases executed in both. These actual reports confirm the safe-sized control paths, not an attempted failure on a phone.
 
-Verify/fix actual reports, then prepare public-input admission of actual initial Id3Peeker body bytes before native decode: bounded frame/depth/value/reference-row costs, preserving ordinary TXXX/ReplayGain/artwork/seeking and supported ID3 versions/flags/unsynchronization. Unsupported/ignored native frames and v4 size fallback need source checks. Do not claim a header-only helper fixes decoded metadata, or that initial peeker coverage covers later ADTS/HLS/in-band metadata renderers. Guard scope/policies and later runtime acceptance remain explicit.
+## Initial-peeker guard, first compile pending
+
+The new public input wrapper inspects the actual Id3Peeker body array after its complete peek, before native decode. Prefix admission still bounds its allocation before that peek. A private bounded working copy preserves native input/unsynchronization; no private API or decoder fork. Proposed limits:4,096 prefix tags,4,096 decoded frames,16 nested chapter levels,4,096 text/CTOC values and1,048,576 total MLLT reference rows per decoded tag. MLLT's two int arrays and the selected first seeker's two long arrays are thus bounded separately from encoded bytes; this is not a universal heap/GC/externally retained metadata bound.
+
+Header/extended/footer handling follows supported2/3/4 layouts; top-level validation retains native v4 raw-size fallback and ignored invalid tags. Compressed/encrypted frames keep native skip behavior. The scanner handles global pre-v4 and per-frame v4 unsynchronization on its own copy. Chapter children must stay inside their parent and have complete headers: this is deliberately stricter than native malformed-data tolerance, preventing cross-parent uninspected allocation. Group/data-length flags retain their effective-body offsets. Refusal messages remain fixed/sanitized.
+
+Six actual-default-MP3 tests cover table admission/refusal on sniff/read, tight frame/depth/value limits, version/extended/footer/raw-size compatibility, original binary bytes after both unsynchronization forms, ignored unsupported frames/top-level damage, nested parent crossing, prefix-tag census and a failed body peek followed by larger changed data. Synthetic MPEG headers are not encoded audio; no rendering/phone claim. Initial production compile/reports still need verification.
+
+## Remaining boundaries
+
+Verify/fix the new guard compile and actual reports, preserve ordinary TXXX/ReplayGain/artwork/seeking, then inspect combined integration and obtain later policy/runtime acceptance. Do not claim a header-only helper fixes decoded metadata, or that initial peeker coverage covers later ADTS/HLS/in-band metadata renderers. Native unsynchronization uses repeated array shifting; this guard models bytes/objects, not a certified CPU deadline for that separate path. Guard scope/policies and later runtime acceptance remain explicit.
 
 A separate source question remains in HEVC configuration/VPS/SPS derived arrays (NalUnitUtil, also called by MP4/Matroska video-track initialization). Byte caps alone do not certify those codec paths. No unsafe allocation probe or new finding about normal user files is claimed from that question; assess and record independently rather than silently expanding this ID3 implementation.
 
