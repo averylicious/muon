@@ -29,7 +29,7 @@ class PlaybackService : MediaSessionService() {
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply {
             setSmallIcon(R.drawable.ic_notification)
         })
-        val player = ExoPlayer.Builder(this)
+        val player = ExoPlayer.Builder(this, GuardedMetadataRenderers(this))
             // A live song streams; a saved copy plays from its own shelf, cache-only (#112, #213).
             .setMediaSourceFactory(DefaultMediaSourceFactory(
                 OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client)), PlaybackExtractors()))

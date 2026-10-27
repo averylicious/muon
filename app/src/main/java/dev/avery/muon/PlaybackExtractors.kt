@@ -58,9 +58,10 @@ internal class PlaybackExtractors(factory: ExtractorsFactory = DefaultExtractors
 internal class MetadataBoundedExtractor(private val actual: Extractor, private val maximum: Int = STREAM_ID3_BYTES,
     containerBytes: Long = CONTAINER_METADATA_BYTES, containerEntries: Int = CONTAINER_METADATA_ENTRIES,
     private val mp4Limits: Mp4Limits = Mp4Limits(), private val wavLimits: WavLimits = WavLimits(),
-    mkvLimits: MatroskaLimits = MatroskaLimits()) :
+    mkvLimits: MatroskaLimits = MatroskaLimits(), private val id3Limits: Id3FrameLimits = Id3FrameLimits()) :
     ForwardingExtractor(actual) {
     init { require(maximum >= ID3_HEADER) }
+    private val id3 = Id3FrameAdmission(id3Limits)
     // Container observers inspect actual parser input; all candidates retain initial ID3 admission.
     private val flac = if (actual.underlyingImplementation is FlacExtractor)
         FlacMetadataAdmission(containerBytes, containerEntries) else null
@@ -79,7 +80,8 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
     private val mkv = if (actual.underlyingImplementation is MatroskaExtractor) MatroskaMetadataAdmission(mkvLimits) else null
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
-        return super.sniff(if (mp4Sniffer) Mp4SniffInput(input, mp4Limits.retainedBytes) else mkv?.sniffInput(input) ?: input)
+        val guarded = if (mp4Sniffer) Mp4SniffInput(input, mp4Limits.retainedBytes) else mkv?.sniffInput(input) ?: input
+        return super.sniff(id3.input(guarded))
     }
     override fun init(output: ExtractorOutput) = super.init(ogg?.output(output) ?: mkv?.output(output) ?: output)
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.
@@ -87,7 +89,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         checkPrefix(input)
         val tailGuarded = fragmented?.input(input) ?: input
         val guarded = flac?.input(input) ?: ogg?.input(input) ?: wav?.input(input) ?: mkv?.input(input) ?: mp4?.input(tailGuarded) ?: tailGuarded
-        return super.read(guarded, seekPosition).also { ogg?.returned(); mkv?.returned(input.position) }
+        return super.read(id3.input(guarded), seekPosition).also { ogg?.returned(); mkv?.returned(input.position) }
     }
     override fun seek(position: Long, timeUs: Long) {
         flac?.seek(position)
@@ -104,6 +106,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         val header = ByteArray(ID3_HEADER)
         var fresh = true
         var searched = 0
+        var tags = 0
         input.resetPeekPosition()
         try {
             while (true) {
@@ -118,6 +121,8 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
                     }
                 } catch (_: EOFException) { return } // Leave short input handling to its extractor.
                 if (header[0] == 'I'.code.toByte() && header[1] == 'D'.code.toByte() && header[2] == '3'.code.toByte()) {
+                    if (tags >= id3Limits.tags) throw StreamMetadataRefusal()
+                    tags++
                     if ((6..9).any { header[it].toInt() and 0x80 != 0 }) throw StreamMetadataRefusal(true)
                     var bytes = 0
                     for (i in 6..9) bytes = (bytes shl 7) or (header[i].toInt() and 0x7f)
