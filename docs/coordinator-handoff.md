@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Updated 2026-10-27. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-28. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
@@ -12,9 +12,9 @@ Updated 2026-10-27. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC auditing continues on isolated drafts.** Main205 and alphaEE are unchanged.24-topic #701/74d532e2/.1575 passed downloaded1,956cases/variant and actual signed-release APK gates, uninstalled. AVI, FLV and the updated controller raw-track exclusion are included. Transport characterization #739/.1568 passed; optional stream-text policy #738 is pending. Gain #696/f08/.1577 is building its saved-hint/reminder follow-up. Raw HEVC #731 passed characterization only; the user explicitly retains playable HEVC with unresolved #730 follow-up. Matroska live-WebM and MP4 long-AAC restrictions were provisionally accepted. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact source/checks, owners, pending question and next actions.
+**Broader post-RC auditing continues on isolated drafts.** Main205 and alphaEE are unchanged. Prior24-topic #701/8819/.1579 passed downloaded1,958cases/variant and actual signed-release APK gates, uninstalled. New25-topic #701/4721dd91 adds verified JSON discard #741/020a/.1580; combined .1581/40578821287 is pending. Gain/reminder #696/f08 and external raw-track exclusion #712/e615 are included. HEVC #730 remains an explicitly accepted unresolved library follow-up; playback remains enabled. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact evidence, owners, pending question and next action.
 
-GPT-6 is the sole writer/integrator of the isolated worktrees. Allocated Opus5.5 / Claude Code / explicitly High finished its gain follow-up review and is idle; bounded reviews are not whole-candidate independence. Verify idle ownership/capacity before reuse; never resume the user's other session. **No phones this cycle.** Preserve frozen .1420 and the original experimental checkout. Continue useful work to the live weekly20%-remaining boundary with recovery reserve. Keep unanswered questions in the current checkpoint and repeat them at final/early reboot handoff; one optional-text metadata policy question is pending (see continuation). No new Stable tag/publication, alpha landing or frozen-RC scope expansion.
+GPT-6 is the sole writer/integrator of the isolated worktrees. Allocated Opus5.5 / Claude Code / explicitly High completed JSON implementation and scoped reviews; its run is terminal/idle. Root independently reviewed the JSON delta; its field-alignment comment/integration are self-checks, not whole-candidate independence. Verify idle ownership/capacity before reuse; never resume the user's other session. **No phones this cycle.** Preserve frozen .1420 and the original experimental checkout. Continue useful work to the live weekly20%-remaining boundary with recovery reserve. Keep unanswered questions in the current checkpoint and repeat them at final/early reboot handoff; optional stream-text metadata policy #738 remains pending. No new Stable tag/publication, alpha landing or frozen-RC scope expansion.
 
 ## Resume order
 
