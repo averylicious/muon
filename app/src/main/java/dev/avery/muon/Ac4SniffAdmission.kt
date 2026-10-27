@@ -16,19 +16,22 @@ internal const val AC4_SNIFF_BYTES = 16L * 1024 * 1024
  * returning false at this resource limit so another format (including MP3 with junk) can try.
  * Known-length truncation retains EOF semantics. Reads/samples/whole-song size are unchanged.
  */
-internal fun sniffAc4(actual: Extractor, input: ExtractorInput, maximum: Long): Boolean = try {
-    actual.sniff(Ac4SniffInput(input, maximum))
-} catch (_: Ac4SniffLimit) { false }
+internal fun sniffAc4(actual: Extractor, input: ExtractorInput, maximum: Long): Boolean = sniffWithinLookahead(actual, input, maximum)
 
-private class Ac4SniffLimit : IOException("AC-4 format detection lookahead limit")
+/** The same requested-lookahead bound for any native sniffer that only peeks/advances (AC-4, FLV #736). */
+internal fun sniffWithinLookahead(actual: Extractor, input: ExtractorInput, maximum: Long): Boolean = try {
+    actual.sniff(LookaheadSniffInput(input, maximum))
+} catch (_: SniffLookaheadLimit) { false }
 
-private class Ac4SniffInput(input: ExtractorInput, private val maximum: Long) : ForwardingExtractorInput(input) {
+private class SniffLookaheadLimit : IOException("Format detection lookahead limit")
+
+private class LookaheadSniffInput(input: ExtractorInput, private val maximum: Long) : ForwardingExtractorInput(input) {
     init { require(maximum > 0) }
     private val start = input.peekPosition
     private fun admit(length: Int) {
         val used = peekPosition - start
-        // Negative frame-body advances are malformed, not a way to rewind the resource census.
-        if (length < 0 || used < 0 || used > maximum || length.toLong() > maximum - used) throw Ac4SniffLimit()
+        // Negative frame-body/offset advances are malformed, not a way to rewind the resource census.
+        if (length < 0 || used < 0 || used > maximum || length.toLong() > maximum - used) throw SniffLookaheadLimit()
         val known = this.length
         if (known != C.LENGTH_UNSET.toLong() && (peekPosition > known || length.toLong() > known - peekPosition))
             throw EOFException()
