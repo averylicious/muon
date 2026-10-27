@@ -1,0 +1,43 @@
+# Post-RC source/CI continuation — 2026-10-25
+
+## Scope and owners
+
+Continue authorized broad source/CI audits outside the frozen RC until the live weekly meter reaches80% used/20% remaining, or no useful authorized work remains. A reset can lower used%; follow the live meter. Do not activate a banked reset. A passing PR/checkpoint is not a stopping condition. **No phones this cycle:** no ADB, installs, device settings/data, music-file or host/network changes, Stable publication/tag or alpha landing.
+
+GPT-6 / Codex desktop is sole writer/integrator in isolated worktrees (exact variant/effort not reported). Allocated Claude Opus5.5 (`claude-opus-5-5`) / Claude Code / explicitly High completed its source reviews and is idle; its latest runtime quota event showed99% five-hour used,0% weekly after a reset. Refresh actual capacity before reuse. Runtime confirms model but does not expose effort telemetry. No other user-owned Claude session or Codex subagent was used here.
+
+Main baseline is `dd8782a0426437093a99ea3f7205878b6af775bc` (#685/#694 security and #699 report); app source still matches published Stable v0.2.0. Remote alpha remains `ee7ddb7521855a7422036d7cd4f384d11b308caa`. Original owner checkout remains local `claude/m3-expressive-alpha` at `2ad986d56876050a64b6858f75480d9f7e14741a`, clean at inspection; do not switch/pull/reset it. Verify live refs/checks before acting.
+
+## Preserve the daily driver
+
+Published Latest **v0.2.0**, tag79b5e70e / APK1358, is separate from installed unreleased M3E release-package RC **.1420** at `6b1a767c180a8b9e531bf1468c9e72e348635b74`. Frozen APK SHA256 `6dd8e03861967502b708f7c12b0e611d7d8f6e67ca16d7bf869d6590a613a19c`. Focused UAT passed; actual release-configuration daily-driving/promotion remains separate. [Frozen receipt](2026-10-24-frozen-m3e-rc.md). #679 remains draft; no new Stable release authorized.
+
+## Current candidates
+
+| Candidate | Verified source / outcome | Remaining boundary |
+| --- | --- | --- |
+| [#701](https://github.com/averylicious/muon/pull/701), fourteen runtime topics plus derived-art temporary cleanup | `d90b41b754332989b2a88786f5f1afa3baef77a8`, [Android .1492](https://github.com/averylicious/muon/actions/runs/40131122045): downloaded1,865cases/variant, zero failures/errors/skips; lint0errors/65warnings plus3hints. Actual release APK source/BUILD/checksum, single pinned signer, package/version/non-debuggable/export/profile checks passed; SHA256 `06db5e43c793a1937cc5c9bf5fb7bac35825a193ecdba2d716acfded1d99844f`. | Draft/uninstalled/unaccepted. [All exact input heads and integration evidence](2026-10-25-combined-post-rc-candidate.md). Artifact `app-debug-d90b41b754332989b2a88786f5f1afa3baef77a8`, ID12575387102; release12575172291; reports12575661856. No Obtainium publication. |
+| [#710](https://github.com/averylicious/muon/pull/710), coalesced legacy Move checks | `836acfe9ba0dbf6f5dc07c7bfdc8cc24785a3536`, [.1485](https://github.com/averylicious/muon/actions/runs/40126060599):1,822cases/variant, zero failures/errors/skips, lint0errors/65warnings. Opus independently source-reviewed without blocker. Included in #701. | Later preservation/recovery acceptance and timing; historical #401 latency remains unresolved. |
+| [#712](https://github.com/averylicious/muon/pull/712), notification/platform least privilege | `e68b7b8a63d07e0d2f83c13f475e1781f2e6831c`, [.1491](https://github.com/averylicious/muon/actions/runs/40129516260):1,822cases/variant, zero failures/errors/skips, lint0errors/65warnings. Included in #701. | Source policy hardening, not a confirmed impersonation exploit. Platform/notification/Bluetooth and UI queue/gain acceptance pending. [Corrected fixture failure history](../audits/issues/711.md). |
+| [#715](https://github.com/averylicious/muon/pull/715), raw Vorbis parser characterization | `f4e16754390b7f3eaab7a6394dfdfd2d60826aa5`: strengthened tiny helper plus91-byte real Ogg/Opus route, [Android .1494](https://github.com/averylicious/muon/actions/runs/40132886691) pending. Prior .1493/22a8b9fb is superseded first-helper evidence, not final verification. No large allocation. | Preparation only, separate from #701. #714 needs production container-specific admission or a qualified upstream fix; not merely UAT. |
+| [#683](https://github.com/averylicious/muon/pull/683), Benchmark recorder/measurement tools | `906707b51a867b8f8fd1968f531c70896f1dc69c`: Android .1473 and tools.47/.48 passed. Both downloaded APK pairs/gates verified, helper minimumAPI34 inspected. | Draft; real recording/ART/performance unrun. No automatic profile replacement. [#83](../audits/issues/83.md). |
+| [#692](https://github.com/averylicious/muon/pull/692), main→M3E security/CI | `e7a352a00bdb3d08c0102b2f26a87cb3e0562915`, [.1468](https://github.com/averylicious/muon/actions/runs/40115183849):1,883cases/variant, zero failures/errors/skips; lint0errors/71warnings. Includes DD main; app/build track files match EE alpha. | **Owner lands at a clean boundary.** Refresh integration and full CI if main advances, including this documentation PR. Do not move alpha. |
+
+Main Canary .1464 from DD was verified against BUILD/source/version/API digest/checksums (SHA256 `3e759d061608ce07e6ee6fa9420691dafae707378aa97198de14a0394d309c2d`); downloaded1,821cases/variant, lint0errors/65warnings. No install/device acceptance.
+
+## Findings and limits
+
+Current issue snapshots cover ID3 gain #702,4MiB initial-ID3 admission #704, pre-enqueue removal #706, cross-service saved admission #708, notification grants #711, Move #401 and accurate single/bulk failures #646. All fourteen topic heads and #701 passed CI. The first controller fixtures failed because synthetic libraryVersion0 meant legacy; the earlier empty-player diagnosis was wrong. Final fixture uses pinned MediaLibraryInfo.VERSION_INT without weakening production guards or assertions.
+
+Lowercase-Xiph gain suspicion was withdrawn: Media3 uppercases keys. Per-controller command serialization did not support the suspected saved/live ordering defect. ID3 admission is not a universal metadata/heap guarantee; unusually large valid tags/padding may be refused. [#714](../audits/issues/714.md) records the separate Vorbis/Ogg allocation boundary; Loader catches OOM, so no crash/exploit/#671 diagnosis is claimed. Derived-art cleanup passed compile/existing tests but not injected partial-write/ENOSPC recovery.
+
+[Source-boundary checks](../audits/2026-10-25-post-rc-source-boundaries.md) cover these qualified non-findings, HTTP cancellation, UI projections, existing CI cancellation recovery, guarded storage-review entry and live repository policy. The [credential rescan](../audits/2026-10-25-credential-rescan.md) classified all redacted candidates as two false-positive categories; scope/pins/binary and public-text limits are explicit. No confirmed leak, credential rotation or setting change. #401 latency, #646 old reset/SD refusal, #671 intermittent buffering, eject/restart, ReplayGain-history retention and accepted supply-chain deferrals remain unresolved; do not silently add them as frozen-RC gates.
+
+## Next action / ownership handoff
+
+1. Verify current main/alpha/PR heads, required checks and owner state. Inspect #715 exact-head compile/reports; a passing characterization does not implement #714. Read relevant current issue files rather than entire issue timelines.
+2. Land only blocker-free documentation at its exact verified head using recorded self-review. Keep runtime/tools draft pending new acceptance. After main changes, refresh #692 once and verify full CI; experimental owner lands it.
+3. Continue useful post-RC engineering, especially #714's actual container-specific allocation admission. Preserve valid FLAC/Ogg/ReplayGain/seek and actual parser paths; do not add an unwired helper, arbitrary whole-audio cap, heap-pressure test or casual Media3 fork.
+4. Refresh live usage at meaningful boundaries and retain20% as requested unless reset. Update this snapshot in place before a genuine stop, recording any outstanding run rather than claiming it passed. Never install over .1420 without renewed authorization.
+
+Root owns `muon-post-rc-state-oct25` (documentation). `muon-post-rc-acceptance-oct25`, `muon-notification-controller-commands-oct25`, `muon-move-completion-admission-oct25` and all prior topic worktrees are clean, committed/pushed and parked after their verified heads. `muon-vorbis-count-characterization-oct25` is clean/pushed with CI pending. No local-only code commit, phone operation or audit-Claude process remains. Worktree ownership is not released until a live takeover check. This is an ongoing checkpoint, not audit completion.
