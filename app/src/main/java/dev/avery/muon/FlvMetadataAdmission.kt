@@ -125,8 +125,8 @@ internal class FlvMetadataAdmission(private val limits: FlvMetadataLimits = FlvM
         ((data[at + 2].toInt() and 255) shl 8) or (data[at + 3].toInt() and 255)
 
     /**
-     * ScriptTagPayloadReader's onMetaData walk without its objects or strings. Native reads past the
-     * delivered limit into stale reused bytes; here every read must be backed (stricter, malformed).
+     * ScriptTagPayloadReader's onMetaData walk without its objects or strings. Native can throw on
+     * a truncated value; here every read must be backed before native parsing (malformed).
      * Unsupported value types consume nothing more, exactly as native readAmfData returns null.
      */
     private class Amf(private val data: ByteArray, private val end: Int, private val limits: FlvMetadataLimits) {

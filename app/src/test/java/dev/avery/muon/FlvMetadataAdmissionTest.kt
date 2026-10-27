@@ -183,12 +183,12 @@ class FlvMetadataAdmissionTest {
             guardedRun(good, FlvMetadataLimits(slots = 4), fault = bodyAt + 4, retry = changed)
         }.contentIsMalformed)
 
-        // Native reuses a larger tag array: a short second tag reads its number from the first tag's
-        // stale zeros (3.0's low bytes) past its own limit. The guard uses only delivered bytes.
+        // Native reuses a larger tag array, but this pinned ParsableByteArray checks the delivered
+        // limit and throws. The guard reports malformed input before that native parser runs.
         val first = name("onCuePoint") + ByteArray(64)
         val second = name() + byteArrayOf(8) + be32(1) + str("duration") + byteArrayOf(0) + number(3.0).copyOfRange(1, 5)
         val reused = header(9) + be32(0) + tag(18, first) + tag(18, second)
-        assertEquals(3_000_000L, rawRun(reused).map?.durationUs)
+        assertThrows(IndexOutOfBoundsException::class.java) { rawRun(reused) }
         assertTrue(assertThrows(StreamMetadataRefusal::class.java) { guardedRun(reused, FlvMetadataLimits()) }.contentIsMalformed)
     }
 
