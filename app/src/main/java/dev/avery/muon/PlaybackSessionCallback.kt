@@ -156,7 +156,9 @@ internal class PlaybackSessionCallback(
         // An allowlist also keeps future Media3 commands from expanding external capabilities.
         // Read access supplies system metadata/position; transport includes shuffle/repeat and
         // selecting an entry already in the queue. Volume/gain, configuration and queue edits stay
-        // with Muon's UI. System media-volume buttons do not need these session player-volume setters.
+        // with Muon's UI. Raw track labels/codec initialization are unnecessary for transport controls
+        // and can make remote track bundles oversized (#738); GET_METADATA still supplies song text.
+        // System media-volume buttons do not need these session player-volume setters.
         val externalCommands = Player.Commands.Builder().addAll(
             Player.COMMAND_PLAY_PAUSE,
             Player.COMMAND_PREPARE,
@@ -178,7 +180,6 @@ internal class PlaybackSessionCallback(
             Player.COMMAND_GET_AUDIO_ATTRIBUTES,
             Player.COMMAND_GET_VOLUME,
             Player.COMMAND_GET_DEVICE_VOLUME,
-            Player.COMMAND_GET_TRACKS,
         ).build()
     }
 }
