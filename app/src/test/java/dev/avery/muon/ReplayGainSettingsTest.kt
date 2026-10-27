@@ -184,6 +184,12 @@ class ReplayGainSettingsTest {
     @Test fun nonFiniteSavedHintsAreAbsentAndKeepTheFiniteFallbackWithoutRewritingHistory() {
         val saved = SavedRef.download(SavedShelf.Phone, "saved-request", "saved-key")!!.handle
         for (bad in listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {
+            assertTrue(prefs.edit().clear().putBoolean(ReplayGainSettings.KEY_ENABLED, true)
+                .putFloat("gain:" + saved, bad).commit())
+            val empty = ReplayGainSettings(prefs)
+            assertNull(empty.playbackGainFor(saved, null))
+            assertEquals(1f, empty.volumeFor(saved), 0f)
+            assertFalse(loudnessPlayback(saved, true, false, empty.playbackGainFor(saved, null), true).usable)
             assertTrue(prefs.edit().putBoolean(ReplayGainSettings.KEY_ENABLED, true)
                 .putFloat("gain:" + saved, bad).putFloat("gain:" + B, -12f)
                 .putString("unrelated", "kept").commit())
