@@ -18,7 +18,7 @@ internal class AviHeaderLimits(
     val depth: Int = 16,
     val streams: Int = 128,
     val indexBytes: Int = 16 * 1024 * 1024,
-    val indexRows: Int = 65_536,
+    val indexRows: Int = 1_048_576,
 ) { init { require(hdrlBytes >= 0 && chunks > 0 && depth >= 0 && streams >= 0 && indexBytes >= 0 && indexRows >= 0) } }
 
 private const val LIST = 0x5453494c // Little-endian fourccs, as pinned AviExtractor reads them.
