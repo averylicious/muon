@@ -2,6 +2,11 @@ package dev.avery.muon
 
 import android.os.Bundle
 import android.os.Process
+import android.os.Parcel
+import androidx.media3.common.Format
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.Tracks
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaLibraryInfo
@@ -147,8 +152,44 @@ class PlaybackSessionCallbackTest {
             Player.COMMAND_SET_PLAYLIST_METADATA, Player.COMMAND_SET_VOLUME,
             Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS, Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
             Player.COMMAND_SET_SPEED_AND_PITCH, Player.COMMAND_SET_AUDIO_ATTRIBUTES,
-            Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS, Player.COMMAND_RELEASE
+            Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS, Player.COMMAND_GET_TRACKS, Player.COMMAND_RELEASE
         ).forEach { assertFalse("Disallowed command $it", commands.contains(it)) }
+    }
+
+    @Test fun externalGrantFiltersRawTracksBeforePinnedRemoteBundlingButKeepsSongMetadata() {
+        // Pinned PlayerInfo is package-private. Reflection is test-only; connect and update both
+        // use this filter before remote bundling. No Binder transaction or phone is exercised.
+        val type = Class.forName("androidx.media3.session.PlayerInfo")
+        val builderType = Class.forName("androidx.media3.session.PlayerInfo\$Builder")
+        val initial = type.getDeclaredField("DEFAULT").apply { isAccessible = true }.get(null)
+        val builder = builderType.getDeclaredConstructor(type).apply { isAccessible = true }.newInstance(initial)
+        val tracks = Tracks(listOf(Tracks.Group(TrackGroup(Format.Builder()
+            .setSampleMimeType("audio/raw").setLabel("L".repeat(256 * 1024)).build()),
+            false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(true))))
+        val metadata = MediaMetadata.Builder().setTitle("Song").setArtist("Artist").build()
+        builderType.getDeclaredMethod("setCurrentTracks", Tracks::class.java).apply { isAccessible = true }.invoke(builder, tracks)
+        builderType.getDeclaredMethod("setMediaMetadata", MediaMetadata::class.java).apply { isAccessible = true }.invoke(builder, metadata)
+        val state = builderType.getDeclaredMethod("build").apply { isAccessible = true }.invoke(builder)
+        val filter = type.getDeclaredMethod("filterByAvailableCommands", Player.Commands::class.java,
+            Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+        val bundle = type.getDeclaredMethod("toBundleForRemoteProcess", Int::class.javaPrimitiveType).apply { isAccessible = true }
+        val commands = callback.onConnectAsync(session, controller()).get().availablePlayerCommands
+        val filtered = filter.invoke(state, commands, false, false)
+        assertEquals(Tracks.EMPTY, type.getDeclaredField("currentTracks").apply { isAccessible = true }.get(filtered))
+        assertEquals(metadata, type.getDeclaredField("mediaMetadata").apply { isAccessible = true }.get(filtered))
+        val own = callback.onConnectAsync(session, controller(uid = Process.myUid())).get().availablePlayerCommands
+        val ownState = filter.invoke(state, own, false, false)
+        assertEquals(tracks, type.getDeclaredField("currentTracks").apply { isAccessible = true }.get(ownState))
+        fun size(value: Any): Int {
+            val parcel = Parcel.obtain()
+            return try {
+                parcel.writeBundle(bundle.invoke(value, MediaLibraryInfo.INTERFACE_VERSION) as Bundle)
+                parcel.dataSize()
+            } finally { parcel.recycle() }
+        }
+        assertTrue(size(ownState) > 256 * 1024)
+        assertTrue(size(filtered) < 64 * 1024)
+        // Only the raw-track route is removed. Oversized optional metadata text remains #738.
     }
 
     @Test fun trustedForeignUidWithAppLabelStillCannotSupplyQueueItems() {
