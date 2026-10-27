@@ -65,6 +65,35 @@ class SavedCoverLifetimeTest {
             gate.exclusive().close()
         } finally { dir.deleteRecursively() }
     }
+    @Test fun aCoverDirectoryLinkedDuringTheResponseIsRefusedBeforeCreatingOutput() {
+        val root=Files.createTempDirectory("cover-path-change").toFile()
+        val dir=File(root,"art").apply {mkdirs()};val parked=File(root,"parked")
+        val outside=File(root,"outside").apply {mkdirs()}
+        val closes=AtomicInteger();var outputs=0;var requests=0
+        val responseSource=source(byteArrayOf(1,2,3),closes)
+        val calls=OkHttpClient.Builder().addInterceptor { chain ->
+            requests++
+            Files.move(dir.toPath(),parked.toPath())
+            Files.createSymbolicLink(dir.toPath(),outside.toPath())
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                .body(object:ResponseBody() {
+                    override fun contentType():MediaType?=null
+                    override fun contentLength()=-1L
+                    override fun source()=responseSource
+                }).build()
+        }.build()
+        val art=DownloadArt(dir,calls,outputs={outputs++;FileOutputStream(it)})
+        try {
+            art.fetchEntry("active",url)
+            assertEquals(1,requests);assertEquals(1,closes.get());assertEquals(0,outputs)
+            assertTrue(outside.listFiles()!!.isEmpty());assertTrue(parked.listFiles()!!.isEmpty())
+            assertTrue(Files.isSymbolicLink(dir.toPath()));assertFalse(art.hasEntry("active"))
+            assertNull(art.forEntry("active"))
+        } finally {
+            Files.walk(root.toPath()).use { paths -> paths.sorted(java.util.Comparator.reverseOrder()).forEach(Files::delete) }
+        }
+    }
+
     @Test fun healthyActualCoverPublishesOnlyAfterKnownClosesAndRemainsReadable() {
         val dir=Files.createTempDirectory("cover-published").toFile(); val gate=SavedStorageBarrier()
         val worker=Worker(); val closes=AtomicInteger()
@@ -73,9 +102,50 @@ class SavedCoverLifetimeTest {
         try {
             assertTrue(work.fetch("active",url)); worker.drain()
             assertEquals(1,closes.get()); assertArrayEquals(byteArrayOf(4,3,2),art.forEntry("active"))
-            assertFalse(File(dir,entry(dir,"active").name+".part").exists())
+            assertEquals(listOf(entry(dir,"active").name),dir.listFiles()!!.map {it.name})
             assertTrue(gate.quiescent); assertFalse(work.isUncertain)
         } finally { dir.deleteRecursively() }
+    }
+    @Test fun knownClosedPartialWriteIsCleanedWithoutTouchingOldFilesAndCanRetry() {
+        val dir=Files.createTempDirectory("cover-partial-known").toFile(); val gate=SavedStorageBarrier()
+        val worker=Worker(); val closes=AtomicInteger(); var outputCloses=0; var partial:File?=null
+        val other=entry(dir,"other").apply {writeBytes(byteArrayOf(9))}
+        val older=File(dir,entry(dir,"active").name+".part").apply {writeBytes(byteArrayOf(7))}
+        val art=DownloadArt(dir,client(source(byteArrayOf(1,2,3),closes)),outputs={ file ->
+            partial=file
+            object:FilterOutputStream(FileOutputStream(file)) {
+                override fun write(bytes:ByteArray,offset:Int,length:Int) {
+                    out.write(bytes,offset,1); throw IOException("Controlled partial write")
+                }
+                override fun close() {outputCloses++; super.close()}
+            }
+        })
+        val work=DownloadArtworkWork(worker,art::fetchEntry,art::removeEntry,barrier=gate)
+        try {
+            assertTrue(work.fetch("active",url)); worker.drain()
+            assertEquals(1,closes.get()); assertEquals(1,outputCloses)
+            assertFalse(requireNotNull(partial).exists()); assertFalse(art.hasEntry("active"))
+            assertArrayEquals(byteArrayOf(9),other.readBytes()); assertArrayEquals(byteArrayOf(7),older.readBytes())
+            assertTrue(gate.quiescent); assertFalse(work.isUncertain)
+            val retry=DownloadArt(dir,client(source(byteArrayOf(4,5,6),closes)))
+            val retryWork=DownloadArtworkWork(worker,retry::fetchEntry,retry::removeEntry,barrier=gate)
+            assertTrue(retryWork.fetch("active",url)); worker.drain()
+            assertArrayEquals(byteArrayOf(4,5,6),retry.forEntry("active")); assertEquals(2,closes.get())
+            assertEquals(setOf(other.name,older.name,entry(dir,"active").name),dir.listFiles()!!.map {it.name}.toSet())
+            assertTrue(gate.quiescent); assertFalse(retryWork.isUncertain)
+        } finally {dir.deleteRecursively()}
+    }
+    @Test fun failedPublicationCleansOnlyItsClosedTemporaryAndPreservesUnexpectedTarget() {
+        val dir=Files.createTempDirectory("cover-rename-known").toFile(); val closes=AtomicInteger()
+        val target=entry(dir,"active").apply {assertTrue(mkdir())}
+        val child=File(target,"keep").apply {writeBytes(byteArrayOf(8))}
+        val art=DownloadArt(dir,client(source(byteArrayOf(1,2,3),closes)))
+        try {
+            art.fetchEntry("active",url)
+            assertEquals(1,closes.get()); assertFalse(art.hasEntry("active"))
+            assertArrayEquals(byteArrayOf(8),child.readBytes())
+            assertEquals(listOf(target.name),dir.listFiles()!!.map {it.name})
+        } finally {dir.deleteRecursively()}
     }
     @Test fun overCapActualResponseClosesWithoutCreatingOutputAndReleasesTheGate() {
         val dir=Files.createTempDirectory("cover-over-cap").toFile(); val gate=SavedStorageBarrier()
@@ -93,8 +163,10 @@ class SavedCoverLifetimeTest {
         val oldCloses=AtomicInteger()
         client(source(byteArrayOf(1),oldCloses,true)).newCall(okhttp3.Request.Builder().url(url).build()).execute().close()
         assertEquals(1,oldCloses.get()) // Pinned ResponseBody hides this checked close exception.
-        val closes=AtomicInteger(); val worker=Worker()
-        val art=DownloadArt(dir,client(source(byteArrayOf(1,2,3),closes,true)))
+        val closes=AtomicInteger(); val worker=Worker(); var partial:File?=null
+        val art=DownloadArt(dir,client(source(byteArrayOf(1,2,3),closes,true)),outputs={ file ->
+            partial=file; FileOutputStream(file)
+        })
         val work=DownloadArtworkWork(worker,art::fetchEntry,art::removeEntry,barrier=gate)
         val other=entry(dir,"other").apply { writeBytes(byteArrayOf(9)) }
         try {
@@ -102,7 +174,7 @@ class SavedCoverLifetimeTest {
             assertTrue(work.isUncertain); assertEquals(1,gate.active)
             assertThrows(IOException::class.java) { gate.exclusive() }
             assertEquals(1,closes.get()); assertFalse(art.hasEntry("active"))
-            assertArrayEquals(byteArrayOf(1,2,3),File(dir,entry(dir,"active").name+".part").readBytes())
+            assertArrayEquals(byteArrayOf(1,2,3),requireNotNull(partial).readBytes())
             assertArrayEquals(byteArrayOf(9),other.readBytes())
             work.remove("other"); assertFalse(work.fetch("retry",url)); assertTrue(worker.tasks.isEmpty())
             assertEquals(1,closes.get())
@@ -110,20 +182,20 @@ class SavedCoverLifetimeTest {
     }
     @Test fun unknownActualOutputKeepsExactHandleAndDoesNotRetryCloseOrPublish() {
         val dir=Files.createTempDirectory("cover-file-unknown").toFile(); val closes=AtomicInteger()
-        var raw:FileOutputStream?=null; var wrapper:FilterOutputStream?=null; var attempts=0
+        var raw:FileOutputStream?=null; var wrapper:FilterOutputStream?=null; var attempts=0; var partial:File?=null
         val art=DownloadArt(dir,client(source(byteArrayOf(3,4,5),closes)),{ file ->
-            raw=FileOutputStream(file)
+            partial=file; raw=FileOutputStream(file)
             object:FilterOutputStream(raw!!) {
                 override fun close() { attempts++; throw IOException("Controlled unknown real output close") }
             }.also { wrapper=it }
         })
         try {
             val failure=assertThrows(SavedCoverCloseUncertain::class.java) { art.fetchEntry("active",url) }
-            assertSame(wrapper,failure.owner.output)
+            assertSame(wrapper,failure.owner.output); assertSame(partial,failure.owner.disposition)
             assertEquals(1,attempts); assertEquals(1,closes.get())
             assertThrows(SavedCoverCloseUncertain::class.java) { failure.owner.finish() }
             assertEquals(1,attempts); assertEquals(1,closes.get()); assertFalse(art.hasEntry("active"))
-            assertArrayEquals(byteArrayOf(3,4,5),File(dir,entry(dir,"active").name+".part").readBytes())
+            assertArrayEquals(byteArrayOf(3,4,5),requireNotNull(partial).readBytes())
         } finally { raw?.close(); dir.deleteRecursively() } // Fixture-only actual descriptor cleanup.
     }
     @Test fun exclusiveGateRefusesFetchAndCallerCleanupBeforeAnyMutationThenCanRetry() {
