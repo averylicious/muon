@@ -7,6 +7,7 @@ import androidx.media3.common.C
 import androidx.media3.common.DataReader
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.ParsableByteArray
 import androidx.media3.exoplayer.source.BundledExtractorsAdapter
 import androidx.media3.extractor.DefaultExtractorInput
 import androidx.media3.extractor.DefaultExtractorsFactory
@@ -191,6 +192,15 @@ class FlvMetadataAdmissionTest {
         val reused = header(9) + be32(0) + tag(18, first) + tag(18, second)
         assertThrows(IndexOutOfBoundsException::class.java) { rawRun(reused) }
         assertTrue(assertThrows(StreamMetadataRefusal::class.java) { guardedRun(reused, FlvMetadataLimits()) }.contentIsMalformed)
+        // Public test hook selects the production-default legacy-read policy. Restore it even on
+        // assertion failure; no reflection or application/runtime setting is involved.
+        ParsableByteArray.setShouldEnforceLimitOnLegacyMethods(false)
+        try {
+            assertEquals(3_000_000L, rawRun(reused).map?.durationUs)
+            assertTrue(assertThrows(StreamMetadataRefusal::class.java) {
+                guardedRun(reused, FlvMetadataLimits())
+            }.contentIsMalformed)
+        } finally { ParsableByteArray.setShouldEnforceLimitOnLegacyMethods(null) }
     }
 
     // Inputs like ProgressiveMediaPeriod's: an interruption or RESULT_SEEK reopens at a position.
