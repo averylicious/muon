@@ -17,6 +17,7 @@ import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.flac.FlacExtractor
 import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.extractor.ogg.OggExtractor
+import androidx.media3.extractor.wav.WavExtractor
 import java.io.EOFException
 import java.io.InterruptedIOException
 
@@ -28,10 +29,15 @@ private const val MP3_TAG_SEARCH_BYTES = 128 * 1024
 private const val LARGE_TAG_NOTICE = "This song's embedded information is too large. Use smaller artwork or tags."
 private const val INVALID_TAG_NOTICE = "This song has invalid embedded information. Check its tags and retry."
 
+private fun admissionNotice(malformed: Boolean, audioFormat: Boolean): String = if (audioFormat) {
+    if (malformed) "This song has an invalid audio format. Check the file and retry."
+    else "This song's audio format needs too much memory. Try a different format."
+} else if (malformed) INVALID_TAG_NOTICE else LARGE_TAG_NOTICE
+
 /** ParserException is permanent to Media3's retry policy; never render its diagnostic suffix. */
-internal class StreamMetadataRefusal(malformed: Boolean = false) : ParserException(
-    if (malformed) INVALID_TAG_NOTICE else LARGE_TAG_NOTICE, null, malformed, C.DATA_TYPE_MEDIA) {
-    override val message: String get() = if (contentIsMalformed) INVALID_TAG_NOTICE else LARGE_TAG_NOTICE
+internal class StreamMetadataRefusal(malformed: Boolean = false, private val audioFormat: Boolean = false) : ParserException(
+    admissionNotice(malformed, audioFormat), null, malformed, C.DATA_TYPE_MEDIA) {
+    override val message: String get() = admissionNotice(contentIsMalformed, audioFormat)
 }
 
 /** Every candidate needs the initial check: FLAC's sniffer also invokes Id3Peeker before rejecting MP3.
@@ -45,7 +51,8 @@ internal class PlaybackExtractors(factory: ExtractorsFactory = DefaultExtractors
 }
 
 internal class MetadataBoundedExtractor(private val actual: Extractor, private val maximum: Int = STREAM_ID3_BYTES,
-    containerBytes: Long = CONTAINER_METADATA_BYTES, containerEntries: Int = CONTAINER_METADATA_ENTRIES) :
+    containerBytes: Long = CONTAINER_METADATA_BYTES, containerEntries: Int = CONTAINER_METADATA_ENTRIES,
+    private val wavLimits: WavLimits = WavLimits()) :
     ForwardingExtractor(actual) {
     init { require(maximum >= ID3_HEADER) }
     // Container metadata parsed after sniffing (#714); other candidates keep only the ID3 prefix check.
@@ -53,20 +60,22 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         FlacMetadataAdmission(containerBytes, containerEntries) else null
     private val ogg = if (actual.underlyingImplementation is OggExtractor)
         OggPacketAdmission(containerBytes, containerEntries) else null
+    private val wav = if (actual.underlyingImplementation is WavExtractor) WavMetadataAdmission(wavLimits) else null
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
-        return super.sniff(input)
+        return super.sniff(wav?.input(input) ?: input)
     }
     override fun init(output: ExtractorOutput) = super.init(ogg?.output(output) ?: output)
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.
     override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
         checkPrefix(input)
-        val guarded = flac?.input(input) ?: ogg?.input(input) ?: input
+        val guarded = flac?.input(input) ?: ogg?.input(input) ?: wav?.input(input) ?: input
         return super.read(guarded, seekPosition).also { ogg?.returned() }
     }
     override fun seek(position: Long, timeUs: Long) {
         flac?.seek(position)
         ogg?.seek(position)
+        wav?.seek(position)
         super.seek(position, timeUs)
     }
     private fun checkPrefix(input: ExtractorInput) {
