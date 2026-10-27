@@ -183,8 +183,9 @@ class FlvMetadataAdmissionTest {
             guardedRun(good, FlvMetadataLimits(slots = 4), fault = bodyAt + 4, retry = changed)
         }.contentIsMalformed)
 
-        // Native reuses a larger tag array, but this pinned ParsableByteArray checks the delivered
-        // limit and throws. The guard reports malformed input before that native parser runs.
+        // Native reuses a larger tag array. Its extra delivered-limit checks are enabled under
+        // tests, but disabled by default in production; do not infer the production result from
+        // this raw exception. The guard refuses the same truncated body in either environment.
         val first = name("onCuePoint") + ByteArray(64)
         val second = name() + byteArrayOf(8) + be32(1) + str("duration") + byteArrayOf(0) + number(3.0).copyOfRange(1, 5)
         val reused = header(9) + be32(0) + tag(18, first) + tag(18, second)
