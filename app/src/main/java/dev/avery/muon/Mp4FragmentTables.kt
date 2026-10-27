@@ -17,11 +17,21 @@ internal class Mp4FragmentTables(private val limits: Mp4Limits) {
     }
     private val tracks = HashMap<Int, Peak>()
     private val indexes = HashMap<Long, Long>()
+    private val defaults = HashMap<Int, Long>()
     private var fragmentRows = 0L
     private var encryptionBytes = 0L
     private var movieRows = 0L
     private var tailRows = 0L
     private var indexEntries = 0L
+
+    fun beginMovie() { defaults.clear() }
+    fun defaultSize(data: ByteArray, size: Int) {
+        val box = Fields(data, size)
+        box.need(0, 32) // Pinned parseTrex reads all fields before constructing defaults.
+        val track = box.u32(12).toInt()
+        if (track !in defaults && defaults.size >= limits.boxes) throw StreamMetadataRefusal()
+        defaults[track] = box.u32(24)
+    }
 
     fun movie(rows: Long) {
         admit(rows, fragmentRows, tailRows, indexEntries)
@@ -46,7 +56,8 @@ internal class Mp4FragmentTables(private val limits: Mp4Limits) {
         val start = 16 + (if (flags and 1 != 0) 4 else 0) + (if (flags and 4 != 0) 4 else 0)
         val fields = Integer.bitCount(flags and 0xf00)
         box.need(start, count * fields * 4)
-        if (count > limits.tableRows) throw StreamMetadataRefusal()
+        if (count > limits.tableRows || (count > 0 && (count * 125 / 100) * 4 + 2 > limits.tableRows))
+            throw StreamMetadataRefusal()
         if (flags and 0x200 != 0) {
             val sizeOffset = start + if (flags and 0x100 != 0) 4 else 0
             for (i in 0 until count) {
@@ -58,14 +69,30 @@ internal class Mp4FragmentTables(private val limits: Mp4Limits) {
 
     fun fragment(tfhd: ByteArray, tfhdSize: Int, runs: List<Pair<ByteArray, Int>>,
         saiz: ByteArray?, saizSize: Int, encryptionHint: Long) {
-        val track = Fields(tfhd, tfhdSize).u32(12).toInt()
+        val header = Fields(tfhd, tfhdSize)
+        val flags = header.u32(8).toInt()
+        val track = header.u32(12).toInt()
+        val sampleAt = 16 + (if (flags and 1 != 0) 8 else 0) +
+            (if (flags and 2 != 0) 4 else 0) + (if (flags and 8 != 0) 4 else 0)
+        header.need(sampleAt, (if (flags and 0x10 != 0) 4L else 0L) + (if (flags and 0x20 != 0) 4 else 0))
+        val inherited = if (flags and 0x10 != 0) header.u32(sampleAt)
+            else defaults[track] ?: if (defaults.size == 1) defaults.values.first() else 0L
         var samples = 0L
         var runCount = 0L
+        var usesDefault = false
         for ((data, size) in runs) {
-            val count = Fields(data, size).count(12)
-            if (count > 0) { samples += count; runCount++ }
+            val run = Fields(data, size)
+            val count = run.count(12)
+            if (count > 0) {
+                samples += count; runCount++
+                if (run.u32(8).toInt() and 0x200 == 0) usesDefault = true
+            }
             // Do not let native signed addition or the later125% multiply overflow.
             if (samples > limits.tableRows) throw StreamMetadataRefusal()
+        }
+        if (usesDefault) {
+            if (inherited > Int.MAX_VALUE) throw StreamMetadataRefusal(true)
+            if (inherited > limits.sampleBytes) throw StreamMetadataRefusal()
         }
         val old = tracks[track] ?: Peak(0, 0, 0)
         val capacity = if (samples > old.samples) samples * 125 / 100 else old.samples

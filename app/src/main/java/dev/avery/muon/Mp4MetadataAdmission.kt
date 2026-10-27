@@ -40,6 +40,7 @@ private val FREE = box("free"); private val FTYP = box("ftyp"); private val UUID
 private val MOOF = box("moof"); private val MVEX = box("mvex"); private val PSSH = box("pssh")
 private val TRAF = box("traf"); private val TFHD = box("tfhd"); private val TRUN = box("trun")
 private val SAIZ = box("saiz"); private val SENC = box("senc"); private val SIDX = box("sidx"); private val META = box("meta")
+private val TREX = box("trex")
 private val STSD = box("stsd"); private val STSZ = box("stsz"); private val STZ2 = box("stz2")
 private val STCO = box("stco"); private val CO64 = box("co64"); private val STSC = box("stsc")
 private val STTS = box("stts"); private val CTTS = box("ctts"); private val STSS = box("stss")
@@ -130,8 +131,11 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
         override fun readFully(target: ByteArray, offset: Int, length: Int, allowEndOfInput: Boolean): Boolean {
             val at = position
             if (!super.readFully(target, offset, length, allowEndOfInput)) return false
-            if (!done && leafAt < 0 && largeAt < 0 && offset == 0 && length == 8 && target.size == 16)
+            if (!done && offset == 0 && length == 8 && target.size == 16) {
+                // A new native header cannot silently disable observation of an outstanding body.
+                if (leafAt >= 0 || largeAt >= 0) throw StreamMetadataRefusal(true)
                 header(at, target, this.length)
+            }
             return true
         }
         override fun readFully(target: ByteArray, offset: Int, length: Int) {
@@ -191,6 +195,7 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
         if (fragmented && (type == MOOF || type == MDAT)) restartableAt = at
         when {
             container -> {
+                if (fragmented && type == MOOV) fragments.beginMovie()
                 if (stack.size >= limits.depth || ++boxes > limits.boxes) throw StreamMetadataRefusal()
                 stack.add(Frame(type, end))
                 if (end == at + header) ended(end)
@@ -227,6 +232,9 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
         validate(leafType, leaf)
         if (fragmented && leafType == PSSH && (parent?.type == MOOV || parent?.type == MOOF)) admitPssh(leaf)
         if (fragmented && leafType == SIDX && parent == null) fragments.index(data, leafSize)
+        val movie = stack.getOrNull(stack.size - 2)
+        if (fragmented && leafType == TREX && parent?.type == MVEX && movie?.type == MOOV &&
+            !movie.containers.containsKey(MVEX)) fragments.defaultSize(data, leafSize)
         if (fragmented && leafType == TRUN && parent?.type == TRAF) {
             fragments.checkRun(data, leafSize)
             parent.runs += leaf

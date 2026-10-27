@@ -38,6 +38,8 @@ internal class StreamMetadataRefusal(malformed: Boolean = false) : ParserExcepti
 
 /** Every candidate needs the initial check: FLAC's sniffer also invokes Id3Peeker before rejecting MP3.
  * Preserve factory ordering, format options, headers and underlying identities used for MP3 seeking.
+ * Fragmented read observation supports the app's default flags; its optional forward sidx scan
+ * (FLAG_MERGE_FRAGMENTED_SIDX) needs a separate observer adaptation before enabling it.
  */
 internal class PlaybackExtractors(factory: ExtractorsFactory = DefaultExtractorsFactory()) : ForwardingExtractorsFactory(factory) {
     override fun createExtractors(): Array<Extractor> = wrap(super.createExtractors())

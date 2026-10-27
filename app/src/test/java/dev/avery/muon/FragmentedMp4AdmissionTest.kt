@@ -203,6 +203,58 @@ class FragmentedMp4AdmissionTest {
         assertEquals(0, bad.maps)
     }
 
+    @Test fun selectedDefaultSizesAreAdmittedButExplicitOverridesAndIgnoredDefaultsStayPlayable() {
+        fun tfhdSize(bytes: ByteArray, value: Int) = replace(bytes, arrayOf("moof", "traf", "tfhd")) {
+            it.copyOf().also { out -> ByteBuffer.wrap(out, 20, 4).putInt(value) }
+        }
+        val normal = Capture()
+        run(fixture(), Mp4Limits(sampleBytes = 4), normal, Faults(), stopAtSample = true)
+        assertEquals(1, normal.samples)
+        for ((value, malformed) in listOf(32 to false, Int.MIN_VALUE to true)) {
+            val out = Capture()
+            assertEquals(malformed, assertThrows(StreamMetadataRefusal::class.java) {
+                run(tfhdSize(fixture(), value), Mp4Limits(sampleBytes = 4), out, Faults(), stopAtSample = true)
+            }.contentIsMalformed)
+            assertEquals(0, out.samples)
+        }
+        fun inherited(value: Int, ignored: Int): ByteArray {
+            var bytes = replace(fixture(), arrayOf("moof", "traf", "tfhd")) { old ->
+                // Remove default_sample_size; actual size now comes from the sole trex.
+                (old.copyOfRange(0, 20) + old.copyOfRange(24, old.size)).also {
+                    ByteBuffer.wrap(it, 0, 4).putInt(it.size)
+                    ByteBuffer.wrap(it, 8, 4).putInt(0x20028)
+                }
+            }
+            bytes = replace(bytes, arrayOf("moov", "mvex", "trex")) { old -> old.copyOf().also {
+                // Pinned getDefaultSampleValues ignores mismatched ID if there is only one trex.
+                ByteBuffer.wrap(it, 12, 4).putInt(7)
+                ByteBuffer.wrap(it, 24, 4).putInt(value)
+            } }
+            bytes = replace(bytes, arrayOf("moov")) { old -> atom("moov", old.copyOfRange(8, old.size),
+                atom("mvex", atom("trex", be(0), be(7), be(1), be(0), be(ignored), be(0)))) }
+            val offset = child(bytes, arrayOf("moof")).size + 8
+            return replace(bytes, arrayOf("moof", "traf", "trun")) { old -> old.copyOf().also {
+                ByteBuffer.wrap(it, 16, 4).putInt(offset)
+            } }
+        }
+        val fallback = Capture()
+        run(inherited(4, ignored = 32), Mp4Limits(sampleBytes = 4), fallback, Faults(), stopAtSample = true)
+        assertEquals(1, fallback.samples)
+        assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+            run(inherited(32, ignored = 4), Mp4Limits(sampleBytes = 4), Capture(), Faults(), stopAtSample = true)
+        }.contentIsMalformed)
+        // All sample sizes are explicit: the oversized but UNUSED tfhd/trex defaults may remain.
+        var explicit = replace(tfhdSize(fixture(), 32), arrayOf("moof", "traf", "trun")) {
+            atom("trun", be(0x201), be(4), be(124), be(4), be(4), be(4), be(4))
+        }
+        explicit = replace(explicit, arrayOf("moov", "mvex", "trex")) { old -> old.copyOf().also {
+            ByteBuffer.wrap(it, 24, 4).putInt(32)
+        } }
+        val overridden = Capture()
+        run(explicit, Mp4Limits(sampleBytes = 4), overridden, Faults(), stopAtSample = true)
+        assertEquals(1, overridden.samples)
+    }
+
     private fun run(bytes: ByteArray, limits: Mp4Limits, out: Capture, faults: Faults,
         stopAtFormat: Boolean = false, stopAtSample: Boolean = false) {
         val mfra = top(bytes, "mfra").toLong()
