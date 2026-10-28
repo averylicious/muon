@@ -124,10 +124,11 @@ class PlaybackService : MediaSessionService() {
                     })
                 }
             })
-        session = MediaSession.Builder(this, PlaybackQueuePlayer(player, refused = {
+        // Controllers and the platform session get bounded song metadata (#738); queue guards stay inside.
+        session = MediaSession.Builder(this, ControlMetadataPlayer(PlaybackQueuePlayer(player, refused = {
             android.widget.Toast.makeText(this, "The queue is full. Choose fewer songs or remove some queued songs.",
                 android.widget.Toast.LENGTH_LONG).show()
-        }))
+        })))
             .setBitmapLoader(CacheBitmapLoader(notificationBitmapLoader(this,
                 OkHttpDataSource.Factory(Transport.metadataClient))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
