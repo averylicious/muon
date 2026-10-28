@@ -4,6 +4,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 
 | Workstream | Current state | GitHub owner record |
 | --- | --- | --- |
+| Guava deserialization advisory — post-RC dependency correction | [#754](754.md) | [Issue #754](https://github.com/averylicious/muon/issues/754) |
 | Repeated playlist row selection — post-RC correction | [#748](748.md) | [Issue #748](https://github.com/averylicious/muon/issues/748) |
 | Artwork-theme normal-text contrast — post-RC correction | [#746](746.md) | [Issue #746](https://github.com/averylicious/muon/issues/746) |
 | Queue feedback backlog — post-RC engineering | [#744](744.md) | [Issue #744](https://github.com/averylicious/muon/issues/744) |
