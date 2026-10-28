@@ -246,7 +246,10 @@ class NestedMp4AdmissionTest {
         } finally { second.release() }
         val cancellable = JpegMotionPhotoAdmission(Mp4Limits(), preambleBytes = 1024)
         var advances = 0
-        val buffered = object : ForwardingExtractorInput(source()) {
+        val cached = source()
+        cached.advancePeekPosition(bytes.size)
+        cached.resetPeekPosition()
+        val buffered = object : ForwardingExtractorInput(cached) {
             override fun advancePeekPosition(length: Int) {
                 super.advancePeekPosition(length)
                 if (++advances == 2) Thread.currentThread().interrupt()
