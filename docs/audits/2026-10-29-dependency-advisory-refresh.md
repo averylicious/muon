@@ -16,7 +16,7 @@ The app Guava constraint does **not** patch or establish exploitability of AGP's
 
 Standalone #755/a7ec5ca6 / Android .1653 and inventory129 passed. Normal buildscript classpath constraints select Guava33.7.2-jre without changing AGP/Kotlin/Gradle/Compose pins; all four app configurations exactly equal prior app-only inventory127. The 152-coordinate build graph changes Guava and its companions, including checker-qual3.43.0→2.5.8 after the former Guava requirement disappears; TensorFlow metadata requests2.5.8. No annotation constraint was forced. Consulted pinned AGP local-state ObjectInputStream routes, published Gradle plugin resolution/filtering and graph/bytecode evidence are qualified in[#754](issues/754.md).
 
-A fresh query of all152 plugin-build coordinates has **12 matched coordinates /47 unique IDs /48 pairs**, no pagination and no new pair: the old build-Guava pair alone disappeared. Full .1653 reports show1,821cases/variant, no failures/errors/skips/lint errors; actual release gates passed. The new #701 combination still needs its own verification. Source/archive/version observations do not authenticate publishers or establish an exploit.
+A fresh query of all152 plugin-build coordinates has **12 matched coordinates /47 unique IDs /48 pairs**, no pagination and no new pair: the old build-Guava pair alone disappeared. Full .1653 reports show1,821cases/variant, no failures/errors/skips/lint errors; actual release gates passed. Combined#701/77e217e5/.1654 passed actual1,997cases/variant, release gates and inventory130; its app/build graphs exactly match the separately verified inputs. Source/archive/version observations do not authenticate publishers or establish an exploit.
 
 ## Scope and next action
 
@@ -24,4 +24,4 @@ Gradle's own v8.14.6 build-platform source declares Guava33.4.6-jre, also in the
 
 This fresh query covers selected runtime and build Maven configurations, not all tests, Gradle/SDK/native/shaded code, JavaScript actions or a complete tool/APK SBOM. No publisher authentication, compromise, Binder/OOM exploit or phone test. User-deferred dependency verification/runner-SDK-cache provenance remains deferred for later maintenance, not abandoned. No forced versions, secret/workflow/protection changes or frozen-RC replacement.
 
-Next: verify the combined plugin-patch candidate, assess the distinct Gradle-internal route and keep later ordinary playback/service acceptance pending. Runtime/source checks do not replace that work.
+Next: refresh destination ancestry/checks before any runtime promotion, assess the distinct Gradle-internal route and keep later ordinary playback/service acceptance pending. Runtime/source checks do not replace that work.
