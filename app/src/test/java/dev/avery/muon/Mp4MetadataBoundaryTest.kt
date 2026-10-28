@@ -17,6 +17,7 @@ import androidx.media3.extractor.ForwardingExtractorInput
 import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
+import androidx.media3.extractor.jpeg.JpegExtractor
 import androidx.media3.extractor.mp4.Mp4Extractor
 import java.io.EOFException
 import java.nio.ByteBuffer
@@ -107,6 +108,55 @@ class Mp4MetadataBoundaryTest {
             assertTrue("Metadata tables name samples beyond the whole750-byte file",last>changed.size)
             // The declared table was built/used, not proof the named audio is present or decodable.
         } finally {extractor.release()}
+    }
+
+    @Test fun defaultMotionJpegConstructsItsOwnMp4ParserAndAllocatesANestedLeaf() {
+        fun atom(name: String, body: ByteArray) = ByteBuffer.allocate(8 + body.size).order(ByteOrder.BIG_ENDIAN)
+            .putInt(8 + body.size).put(name.toByteArray(Charsets.US_ASCII)).put(body).array()
+        val declared = 4096 // Modest native target, no giant declaration or memory-pressure test.
+        val movie = atom("ftyp", "isom".toByteArray() + ByteArray(4) + "isom".toByteArray()) +
+            atom("moov", atom("udta", ByteArray(declared - 8)))
+        val xmp = """<x:xmpmeta xmlns:x="adobe:ns:meta/">""" +
+            """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">""" +
+            """<rdf:Description xmlns:GCamera="http://ns.google.com/photos/1.0/camera/" """ +
+            """GCamera:MotionPhoto="1" GCamera:MicroVideoOffset="${movie.size}"/>""" +
+            "</rdf:RDF></x:xmpmeta>"
+        val app1 = "http://ns.adobe.com/xap/1.0/".toByteArray() + byteArrayOf(0) + xmp.toByteArray() + byteArrayOf(0)
+        val prefix = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe1.toByte()) +
+            byteArrayOf(((app1.size + 2) ushr 8).toByte(), (app1.size + 2).toByte()) + app1 +
+            byteArrayOf(0xff.toByte(), 0xda.toByte())
+        val bytes = prefix + movie
+        assertTrue(bytes.size < 8192)
+        val stop = java.io.IOException("Controlled stop before nested body read")
+        var observed = 0
+        fun input(at: Long) = object : ForwardingExtractorInput(DefaultExtractorInput(reader(bytes, at), at, bytes.size.toLong())) {
+            override fun readFully(target: ByteArray, offset: Int, length: Int) {
+                if (offset == 8 && length == declared - 8 && target.size == declared) {
+                    observed = target.size
+                    throw stop
+                }
+                super.readFully(target, offset, length)
+            }
+        }
+        val raw = DefaultExtractorsFactory().createExtractors().single { it is JpegExtractor }
+        var source = input(0)
+        val output = Capture()
+        try {
+            assertTrue(raw.sniff(source)); source.resetPeekPosition()
+            raw.init(output)
+            assertSame(stop, assertThrows(java.io.IOException::class.java) {
+                val holder = PositionHolder()
+                repeat(64) {
+                    when (raw.read(source, holder)) {
+                        Extractor.RESULT_SEEK -> source = input(holder.position)
+                        Extractor.RESULT_END_OF_INPUT -> fail("Ended before nested MP4 witness")
+                    }
+                }
+                fail("Nested MP4 witness not reached")
+            })
+            assertEquals(declared, observed)
+            assertEquals(MimeTypes.IMAGE_JPEG, output.format?.containerMimeType)
+        } finally { raw.release() }
     }
 
     private class Capture:ExtractorOutput {
