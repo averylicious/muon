@@ -200,7 +200,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
         modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = colors.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbar) { data -> Snackbar(notices.observeAction(data)) } },
         topBar = {
             LargeTopAppBar(
                 title = { QueueTitle() },

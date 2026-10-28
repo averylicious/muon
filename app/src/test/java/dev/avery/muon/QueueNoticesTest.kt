@@ -74,7 +74,7 @@ class QueueNoticesTest {
             runCurrent()
             // Replace before the host continuation gets its next dispatcher turn. Cancelling the
             // native host coroutine here would lose the action via prompt cancellation.
-            host.currentSnackbarData!!.performAction()
+            notices.observeAction(host.currentSnackbarData!!).performAction()
             val latest = async(start = CoroutineStart.UNDISPATCHED) { notices.show("new refusal") }
             runCurrent()
             assertTrue(started); assertFalse(finished); assertFalse(old.isCompleted)
@@ -82,6 +82,32 @@ class QueueNoticesTest {
             operation.complete(Unit); runCurrent(); old.await(); assertTrue(finished)
             host.currentSnackbarData!!.dismiss(); runCurrent()
             assertEquals(SnackbarResult.Dismissed, latest.await())
+        } finally { owner.cancel(); runCurrent() }
+    }
+
+    @Test fun aQueueWaiterBehindAnUnrelatedHostCallerCanStillBeReplaced() = runTest {
+        val owner = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        try {
+            val host = SnackbarHostState()
+            val notices = QueueNotices(owner, host)
+            val first = async(start = CoroutineStart.UNDISPATCHED) { notices.show("first", "Undo") }
+            runCurrent()
+            val unrelated = owner.async(start = CoroutineStart.UNDISPATCHED) {
+                host.showSnackbar("storage notice", "Settings")
+            }
+            val obsolete = async(start = CoroutineStart.UNDISPATCHED) { notices.show("obsolete queue", "Undo") }
+            runCurrent()
+            assertEquals("storage notice", host.currentSnackbarData!!.visuals.message)
+            assertFalse(obsolete.isCompleted) // Native mutex waiter, not the visible queue message.
+            val latest = async(start = CoroutineStart.UNDISPATCHED) { notices.show("newest queue", "Undo") }
+            runCurrent()
+            assertEquals("newest queue", host.currentSnackbarData!!.visuals.message)
+            assertEquals(SnackbarResult.Dismissed, first.await())
+            assertEquals(SnackbarResult.Dismissed, obsolete.await())
+            assertEquals(SnackbarResult.Dismissed, unrelated.await())
+            host.currentSnackbarData!!.dismiss(); runCurrent()
+            assertEquals(SnackbarResult.Dismissed, latest.await())
+            assertNull(host.currentSnackbarData)
         } finally { owner.cancel(); runCurrent() }
     }
 
@@ -99,7 +125,7 @@ class QueueNoticesTest {
         } finally { owner.cancel(); runCurrent() }
     }
 
-    @Test fun cancellingACallerOrTheScreenClearsItsNoticeAndPendingMailbox() = runTest {
+    @Test fun cancellingACallerOrTheScreenClearsItsNoticeAndPendingDisplay() = runTest {
         val owner = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
         val host = SnackbarHostState()
         val notices = QueueNotices(owner, host)
@@ -111,7 +137,7 @@ class QueueNoticesTest {
             val active = async(start = CoroutineStart.UNDISPATCHED) { notices.show("active") }
             runCurrent()
             val pending = async(start = CoroutineStart.UNDISPATCHED) { notices.show("pending") }
-            // Dispose while the old host continuation and newest mailbox item are both unsettled.
+            // Dispose while the old host continuation and newest display waiter are both unsettled.
             owner.cancel(); runCurrent()
             assertTrue(active.isCompleted); assertTrue(pending.isCompleted)
             assertNull(host.currentSnackbarData)
