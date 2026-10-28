@@ -34,7 +34,7 @@ import org.robolectric.annotation.Config
 
 /** #738: controller metadata projection over the actual pinned SimpleBasePlayer/session machinery.
  * In-process, hermetic (no network, no artwork I/O): no Binder transaction, cross-process controller
- * or phone. Platform-session readback is Robolectric's, not a system_server or OEM controller. */
+ * or phone. Legacy conversion is exercised directly; platform-session readback is still device QA. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 class ControlMetadataPlayerTest {
@@ -85,6 +85,16 @@ class ControlMetadataPlayerTest {
         return try { parcel.writeBundle(bundle); parcel.dataSize() } finally { parcel.recycle() }
     }
 
+    /** Test-only access to the same pinned conversion the legacy stub calls. No production reflection. */
+    private fun legacyBundle(player: Player): Bundle {
+        val type = Class.forName("androidx.media3.session.LegacyConversions")
+        val convert = type.getDeclaredMethod("convertToMediaMetadataCompat", MediaMetadata::class.java,
+            String::class.java, Uri::class.java, java.lang.Long.TYPE, Bitmap::class.java).apply { isAccessible = true }
+        val result = requireNotNull(convert.invoke(null, player.mediaMetadata,
+            player.currentMediaItem?.mediaId.orEmpty(), null, player.duration, null))
+        return result.javaClass.getMethod("getBundle").apply { isAccessible = true }.invoke(result) as Bundle
+    }
+
     @Test fun initialUpdatedAndEmptyStatesCarryOnlyTheQueuedSongMetadata() {
         val metadata = raw()
         val producer = Producer(state(queued("q1", "Queued"), metadata))
@@ -122,13 +132,15 @@ class ControlMetadataPlayerTest {
             idle()
             assertEquals("Second", seen.single().title.toString()); assertNull(seen.single().composer)
             assertEquals("Second", player.mediaMetadata.title.toString())
+            assertEquals(producer.currentTimeline, player.currentTimeline)
+            assertSame(producer.currentTracks, player.currentTracks)
             producer.publish(state(null))
             idle()
             assertEquals(MediaMetadata.EMPTY, player.mediaMetadata)
         } finally { player.release() }
     }
 
-    @Test fun aRealSessionPublishesTheProjectionToControllersAndThePlatformSession() {
+    @Test fun aRealSessionPublishesTheProjectionAndActualLegacyConversionKeepsItBounded() {
         val context = RuntimeEnvironment.getApplication()
         val producer = Producer(state(queued("q1", "Queued")))
         val player = ControlMetadataPlayer(producer)
@@ -139,21 +151,24 @@ class ControlMetadataPlayerTest {
             val connected = connection.get(1, TimeUnit.SECONDS)
             assertEquals("Queued", connected.mediaMetadata.title.toString())
             assertNull(connected.mediaMetadata.composer); assertNull(connected.mediaMetadata.author)
-            // Public platform controller over the legacy session, which Media3 fills from this same player.
-            val platform = android.media.session.MediaController(context, session.platformToken)
-            fun text(key: String) = platform.metadata?.getString(key)
-            pump { text(android.media.MediaMetadata.METADATA_KEY_TITLE) == "Queued" }
-            assertEquals("Artist", text(android.media.MediaMetadata.METADATA_KEY_ARTIST))
+            // Robolectric4.16.1's platform getter only returns manually supplied shadow data.
+            // Exercise the actual pinned converter on the actual session player instead; do not
+            // seed a shadow with expected values and claim platform publication was observed.
+            val legacy = legacyBundle(session.player)
+            assertEquals("Queued", legacy.getString(android.media.MediaMetadata.METADATA_KEY_TITLE))
+            assertEquals("Artist", legacy.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST))
             for (key in listOf(android.media.MediaMetadata.METADATA_KEY_COMPOSER, android.media.MediaMetadata.METADATA_KEY_WRITER,
                 android.media.MediaMetadata.METADATA_KEY_AUTHOR, android.media.MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION,
-                android.media.MediaMetadata.METADATA_KEY_GENRE)) assertNull(key, text(key))
+                android.media.MediaMetadata.METADATA_KEY_GENRE)) assertNull(key, legacy.getString(key))
+            assertTrue(parcelBytes(legacy) < 16 * 1024)
 
             producer.publish(state(queued("q2", "Second")))
             pump { connected.mediaMetadata.title?.toString() == "Second" }
             assertNull(connected.mediaMetadata.composer); assertNull(connected.mediaMetadata.description)
-            pump { text(android.media.MediaMetadata.METADATA_KEY_TITLE) == "Second" }
-            assertNull(text(android.media.MediaMetadata.METADATA_KEY_COMPOSER))
-            assertNull(text(android.media.MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION))
+            val updated = legacyBundle(session.player)
+            assertEquals("Second", updated.getString(android.media.MediaMetadata.METADATA_KEY_TITLE))
+            assertNull(updated.getString(android.media.MediaMetadata.METADATA_KEY_COMPOSER))
+            assertNull(updated.getString(android.media.MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION))
         } finally { MediaController.releaseFuture(connection); session.release(); player.release() }
     }
 

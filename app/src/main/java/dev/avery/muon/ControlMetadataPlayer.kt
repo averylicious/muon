@@ -8,24 +8,35 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.Timeline
+import androidx.media3.exoplayer.source.ForwardingTimeline
 
 /**
  * The session's player (#738): controllers, the notification and the legacy platform session see
  * the selected song's queued metadata, not optional text read from the stream. Title, artist, album
  * and album artist come from Muon's queued item, which is already budgeted; unused stream text
  * (composer, description, author, …) is left blank, as the user chose for controls. Every other
- * state field, event, position, command, the timeline and the native Tracks pass through unchanged,
+ * state field, event, position, command, the timeline contents and native Tracks pass through unchanged,
  * and edits still reach the wrapped PlaybackQueuePlayer's guards. Embedded artwork and numeric
  * fields keep their existing values; the artwork array is shared, not copied. The ExoPlayer itself
  * (ReplayGain's Tracks, decoding, original tags) is untouched. This is a transport projection, not
  * a universal Binder or heap limit.
  */
 internal class ControlMetadataPlayer(player: Player) : ForwardingSimpleBasePlayer(player) {
-    // Projected in getState, so initial getters and every onEvents-driven update agree. No fields:
-    // getState can run before a subclass property would be initialized.
+    // Cache one opaque view, not a per-item list or growing timeline map. Nullable cache fields are
+    // safe even if a delegate causes an early state read during construction.
+    private var sourceTimeline: Timeline? = null
+    private var projectedTimeline: Timeline? = null
+
     override fun getState(): SimpleBasePlayer.State {
         val state = super.getState()
-        return state.buildUpon().setPlaylist(state.timeline, state.currentTracks, controlMetadata(state)).build()
+        if (sourceTimeline !== state.timeline || projectedTimeline == null) {
+            sourceTimeline = state.timeline
+            projectedTimeline = object : ForwardingTimeline(state.timeline) {}
+        }
+        // State.buildUpon restores per-item metadata for its own private PlaylistTimeline. Hide that
+        // implementation behind the supported forwarding view so later one-shot-state resets retain
+        // this explicit projection. Window/period UIDs, navigation/shuffle and Tracks still delegate.
+        return state.buildUpon().setPlaylist(checkNotNull(projectedTimeline), state.currentTracks, controlMetadata(state)).build()
     }
 }
 
