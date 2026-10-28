@@ -13,3 +13,7 @@ Audio/unknown-track Blocks, Segment/Cluster lengths, native factory/flags/transc
 Two new SDK34 actual-default-extractor cases: Block and SimpleBlock refusal with1/2/8-byte track numbers, native missing-number0, known/unknown source length and actual seek; no native32KiB target observed before a scaled64-byte cap. Positive controls preserve a32KiB audio sample and ordinary native-transcoded small SubRip delivery; unknown track remains native EOF/skip. Existing AAC/Opus/Vorbis/seek/census/master-retention cases and all raw subtitle/PGS witnesses stay intact. Actions is first compile; nothing built/run locally. No decoded audio/visual/OEM claim.
 
 Google Maven extractor1.11.0 sources SHA25676404d34549e50b93f16c94119aace19dee06be9068c45a3d4f8ed5289e4eb3e: actual binaryElement track-varint read, default/missing Track.number0, writeSubtitleSampleData, default transcription output and VarintReader fixed scratch checked. Existing observer is deliberately tied to pinned read shapes; arbitrary custom parser implementations are not covered. GPT-6 / Codex desktop implemented/source-self-reviewed; exact variant/effort not reported, independent review pending. No Claude used for this delta.
+
+## Disposition
+
+On 2026-10-28 the user approved later maintenance to keep the text-only 4 MiB packet limit and document that unusually large legitimate captions may stop a stream. This is policy approval, not device acceptance or a change to the frozen RC. Refreshed combined CI is required.
