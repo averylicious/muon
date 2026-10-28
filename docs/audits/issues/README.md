@@ -5,6 +5,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Workstream | Current state | GitHub owner record |
 | --- | --- | --- |
 | Audio-only playback defaults — approved post-RC implementation | [#750](750.md) | [Issue #750](https://github.com/averylicious/muon/issues/750) |
+| Stable Media3 audio-output lifecycle patch — post-RC proposal | [#752](752.md) | [Issue #752](https://github.com/averylicious/muon/issues/752) |
 | Repeated playlist row selection — post-RC correction | [#748](748.md) | [Issue #748](https://github.com/averylicious/muon/issues/748) |
 | Artwork-theme normal-text contrast — post-RC correction | [#746](746.md) | [Issue #746](https://github.com/averylicious/muon/issues/746) |
 | Queue feedback backlog — post-RC engineering | [#744](744.md) | [Issue #744](https://github.com/averylicious/muon/issues/744) |

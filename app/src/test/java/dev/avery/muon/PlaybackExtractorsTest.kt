@@ -23,22 +23,34 @@ import java.io.InterruptedIOException
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 class PlaybackExtractorsTest {
-    @Test fun pinnedPeekerSearchLimitDoesNotBoundItsDeclaredTagAllocation() {
+    @Test fun knownLengthPeekerSkipsTruncatedTagsButUnknownLengthStillAllocates() {
         val declared = 1024 * 1024 // Controlled1MiB probe; no large payload or OOM attempt.
-        val actual = input(id3Header(declared))
-        var allocated = 0
-        val observing = object : ForwardingExtractorInput(actual) {
-            override fun peekFully(target: ByteArray, offset: Int, length: Int) {
-                if (offset == 10 && length == declared) {
-                    allocated = target.size
-                    throw IOException("Probe stopped before reading any tag body")
+        val bytes = id3Header(declared)
+        for (knownLength in listOf(true, false)) {
+            val actual = DefaultExtractorInput(Reader(bytes), 0,
+                if (knownLength) bytes.size.toLong() else C.LENGTH_UNSET.toLong())
+            var allocated = 0
+            val observing = object : ForwardingExtractorInput(actual) {
+                override fun peekFully(target: ByteArray, offset: Int, length: Int) {
+                    if (offset == 10 && length == declared) {
+                        allocated = target.size
+                        throw IOException("Probe stopped before reading any tag body")
+                    }
+                    super.peekFully(target, offset, length)
                 }
-                super.peekFully(target, offset, length)
             }
+            if (knownLength) {
+                // The stable patch rejects an impossible known-length tag before its body array.
+                assertNull(Id3Peeker().peekId3Data(observing, null, 128 * 1024))
+                assertEquals(0, allocated)
+                assertEquals(0L, actual.peekPosition)
+            } else {
+                // Search distance still does not bound a valid-header unknown-length allocation.
+                assertThrows(IOException::class.java) { Id3Peeker().peekId3Data(observing, null, 128 * 1024) }
+                assertEquals(declared + 10, allocated)
+            }
+            assertEquals(0L, actual.position)
         }
-        assertThrows(IOException::class.java) { Id3Peeker().peekId3Data(observing, null, 128 * 1024) }
-        assertEquals(declared + 10, allocated)
-        assertEquals(0L, actual.position)
     }
 
     @Test fun oversizedOrInvalidLeadingTagsRefuseBeforeEitherDelegateEntryPoint() {
