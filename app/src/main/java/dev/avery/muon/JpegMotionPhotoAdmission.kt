@@ -10,6 +10,7 @@ import androidx.media3.extractor.ForwardingExtractorInput
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.metadata.MotionPhotoMetadata
+import java.io.InterruptedIOException
 
 /** The pinned default JPEG creates an internal ordinary MP4 reader, outside the app's factory.
  * Observe its actual MP4 sniff/header calls through public input/output forwarders. The first
@@ -95,6 +96,8 @@ internal class JpegMotionPhotoAdmission(private val limits: Mp4Limits,
     private open inner class Preamble(input: ExtractorInput) : ForwardingExtractorInput(input) {
         private val initial = input.peekPosition
         private fun admit(length: Int) {
+            // Buffered preambles can scan without another interruptible upstream read.
+            if (Thread.interrupted()) throw InterruptedIOException("Embedded information read cancelled")
             val used = peekPosition - initial
             if (length < 0 || used < 0 || used > preambleBytes || length.toLong() > preambleBytes - used)
                 throw StreamMetadataRefusal()

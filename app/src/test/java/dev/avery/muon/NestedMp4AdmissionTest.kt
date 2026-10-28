@@ -21,6 +21,7 @@ import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.mp4.Mp4Extractor
 import androidx.media3.extractor.jpeg.JpegExtractor
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.nio.ByteBuffer
 import org.junit.Assert.*
 import org.junit.Test
@@ -243,6 +244,19 @@ class NestedMp4AdmissionTest {
             second.init(admission.output(Capture()))
             assertThrows(StreamMetadataRefusal::class.java) { second.read(admission.input(source()), PositionHolder()) }
         } finally { second.release() }
+        val cancellable = JpegMotionPhotoAdmission(Mp4Limits(), preambleBytes = 1024)
+        var advances = 0
+        val buffered = object : ForwardingExtractorInput(source()) {
+            override fun advancePeekPosition(length: Int) {
+                super.advancePeekPosition(length)
+                if (++advances == 2) Thread.currentThread().interrupt()
+            }
+        }
+        val cancelled = JpegExtractor()
+        try {
+            assertThrows(InterruptedIOException::class.java) { cancelled.sniff(cancellable.sniffInput(buffered)) }
+            assertEquals("Cancellation is triggered from the native header loop", 2, advances)
+        } finally { Thread.interrupted(); cancelled.release() }
         // A tiny ordinary image still follows the native single-sample route (no image decoding).
         val plain = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xda.toByte(), 1, 2, 3)
         val guarded = MetadataBoundedExtractor(JpegExtractor())
