@@ -15,3 +15,5 @@ Three SDK34 Robolectric cases exercise actual pinned public contracts: media-sou
 Checked published1.11.0 DefaultMediaSourceFactory/ProgressiveMediaSource, ForwardingExtractorsFactory, SubtitleParser.Factory.UNSUPPORTED, SubtitleTranscoding output, TextRenderer support/legacy trap and DefaultTrackSelector activation/disabled-track rules. Source SHA256: extractor76404d34549e50b93f16c94119aace19dee06be9068c45a3d4f8ed5289e4eb3e; exoplayer2d583de9d39b48e45f9a29f1d94d23032c0642cfc7ca4bbe1967071d26a60ed6. Factory return values/observer composition must be rechecked on later #701 integration.
 
 GPT-6 / Codex desktop implemented and source-self-reviewed; exact variant/effort not reported. Independent review and actual audio/format/device acceptance pending. Claude not used for this proposal.
+
+First a68e4e80 / .1603/40661001769 failed test compilation: the synthetic TextOutput lacked pinned onCues(CueGroup). No unit-test execution is claimed. Root checked the actual published interface and adds the no-op required callback, leaving production settings and every functional assertion unchanged. Fresh exact-head CI is required.

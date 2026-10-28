@@ -95,7 +95,9 @@ class UnusedSubtitlePolicyTest {
 
     @Test fun actualSelectorKeepsAudioButDisablesAnOtherwiseSelectedRawTextTrack() {
         val context = RuntimeEnvironment.getApplication()
-        val text = TextRenderer(object : TextOutput {}, Looper.getMainLooper())
+        val text = TextRenderer(object : TextOutput {
+            override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) = Unit
+        }, Looper.getMainLooper())
         val caption = Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_PGS).setLanguage("en")
             .setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()
         // The pinned renderer advertises this format despite legacy decoding being disabled.
