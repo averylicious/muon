@@ -15,6 +15,7 @@ import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
@@ -32,10 +33,15 @@ class PlaybackService : MediaSessionService() {
         val player = ExoPlayer.Builder(this)
             // A live song streams; a saved copy plays from its own shelf, cache-only (#112, #213).
             .setMediaSourceFactory(DefaultMediaSourceFactory(
-                OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client))))
+                OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client)))
+                .setSubtitleParserFactory(SubtitleParser.Factory.UNSUPPORTED))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK).build()
+        // Muon has no caption output. Avoid unused extraction-time subtitle parsers AND legacy text
+        // selection: raw text still advertises renderer support but would fail when legacy decoding is off.
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
         // A shuffle that starts from the chosen song and keeps Play next and Add to queue where they
         // were put (see QueueShuffleOrder). Turning shuffle on reshuffles from the playing song, so
         // everything else is still to come rather than wherever an old shuffle had left it.
