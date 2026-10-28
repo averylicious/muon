@@ -330,10 +330,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 QueueActionStamp(0, original.currentTimeline, original.currentMediaItemIndex, original.shuffleModeEnabled),
                 original.repeatMode, shuffle)
         }
-        fun startQueue(list: List<TauonTrack>, track: TauonTrack) {
+        fun startQueue(list: List<TauonTrack>, track: TauonTrack, selectedIndex: Int? = null) {
             val endpoint = model.endpoint ?: return
             val original = player ?: return
-            val plan = try { prepareLiveQueue(list, endpoint, track.id) }
+            val plan = try { prepareLiveQueue(list, endpoint, track.id, selectedIndex = selectedIndex) }
             catch (_: PlaybackQueueLimit) { liveQueueRefused(track, endpoint, null); return } ?: return
             original.setMediaItems(plan.items, plan.startIndex, 0L)
             original.prepare(); original.play()
@@ -685,7 +685,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     // A–Z only: in Recently added there are no letters to jump to.
                                                                     sections = if (library.songOrder == SongOrder.Title) {
                                                                         { t: TauonTrack -> sectionLetter(t.title) }
-                                                                    } else null) { track -> songs?.let { startQueue(it, track) } }
+                                                                    } else null) { track, index -> songs?.let { startQueue(it, track, index) } }
                                                             }
                                                             LibraryView.Albums -> Column {
                                                                 if (!sortedAlbums.isNullOrEmpty()) SortBar(
@@ -732,7 +732,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     }
                                                                     item(key = "download", contentType = "download") { DownloadAll(tracks, model.endpoint) }
                                                                 },
-                                                                loading = model.busy) { startQueue(tracks, it) }
+                                                                loading = model.busy) { track, index -> startQueue(tracks, track, index) }
                                                         }
                                                     }
                                                 }
@@ -750,14 +750,14 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                         browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage) {
                                         TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null && songs != null, ui.playing, actions = { actionTrack = it },
                                             emptyText = searchEmptyText(query, search.searching, search.completed), state = searchList,
-                                            header = { searchCollection(foundArtists, foundAlbums, model.endpoint, openArtistPage, openAlbumPage) }) {
+                                            header = { searchCollection(foundArtists, foundAlbums, model.endpoint, openArtistPage, openAlbumPage) }) { track, _ ->
                                             // A search finds where to start, not what to play: the song plays on
                                             // through the whole library in the Songs order, so Next and Shuffle
                                             // reach every song rather than only the few that matched.
                                             // The keyboard goes, so the mini player shows what started.
                                             // Only in the current Songs order; while it is still sorting, nothing starts.
                                             val order = songs
-                                            if (order != null) { keyboard?.hide(); startQueue(order, it) }
+                                            if (order != null) { keyboard?.hide(); startQueue(order, track) }
                                         }
                                     }
                                 }
