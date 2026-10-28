@@ -41,6 +41,7 @@ class ControlMetadataPlayerTest {
     /** A raw producer built on the real SimpleBasePlayer state/listener machinery. */
     private class Producer(private var current: SimpleBasePlayer.State) : SimpleBasePlayer(Looper.getMainLooper()) {
         override fun getState(): SimpleBasePlayer.State = current
+        override fun handleRelease(): ListenableFuture<*> = Futures.immediateVoidFuture()
         fun publish(next: SimpleBasePlayer.State) { current = next; invalidateState() }
     }
 
