@@ -16,6 +16,7 @@ import androidx.media3.extractor.MpegAudioUtil
 import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.flac.FlacExtractor
 import androidx.media3.extractor.mp3.Mp3Extractor
+import androidx.media3.extractor.jpeg.JpegExtractor
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
 import androidx.media3.extractor.mp4.Mp4Extractor
 import androidx.media3.extractor.ogg.OggExtractor
@@ -65,19 +66,20 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         is FragmentedMp4Extractor -> Mp4MetadataAdmission(mp4Limits, fragmented = true)
         else -> null
     }
+    private val jpeg = if (actual.underlyingImplementation is JpegExtractor) JpegMotionPhotoAdmission(mp4Limits) else null
     private val fragmented = if (actual.underlyingImplementation is FragmentedMp4Extractor)
         FragmentedMp4Admission(mp4Limits) { rows -> mp4?.admitTailRows(rows) } else null
     private val mp4Sniffer = actual.underlyingImplementation.let { it is Mp4Extractor || it is FragmentedMp4Extractor }
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
-        return super.sniff(if (mp4Sniffer) Mp4SniffInput(input, mp4Limits.retainedBytes) else input)
+        return super.sniff(if (mp4Sniffer) Mp4SniffInput(input, mp4Limits.retainedBytes) else jpeg?.sniffInput(input) ?: input)
     }
-    override fun init(output: ExtractorOutput) = super.init(ogg?.output(output) ?: output)
+    override fun init(output: ExtractorOutput) = super.init(ogg?.output(output) ?: jpeg?.output(output) ?: output)
     // A single-candidate factory can select without sniffing; seek-to-start must recheck too.
     override fun read(input: ExtractorInput, seekPosition: PositionHolder): Int {
         checkPrefix(input)
         val tailGuarded = fragmented?.input(input) ?: input
-        val guarded = flac?.input(input) ?: ogg?.input(input) ?: mp4?.input(tailGuarded) ?: tailGuarded
+        val guarded = flac?.input(input) ?: ogg?.input(input) ?: mp4?.input(tailGuarded) ?: jpeg?.input(tailGuarded) ?: tailGuarded
         return super.read(guarded, seekPosition).also { ogg?.returned() }
     }
     override fun seek(position: Long, timeUs: Long) {
@@ -85,6 +87,7 @@ internal class MetadataBoundedExtractor(private val actual: Extractor, private v
         ogg?.seek(position)
         mp4?.seek(position)
         fragmented?.seek()
+        jpeg?.seek(position)
         super.seek(position, timeUs)
     }
     private fun checkPrefix(input: ExtractorInput) {
