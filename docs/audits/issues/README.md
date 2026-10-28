@@ -10,6 +10,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Saved-copy Delete refusal and reset compatibility | [#646](646.md) | [Issue #646](https://github.com/averylicious/muon/issues/646) |
 | First-song normalization and missing-tags reminder — implemented/accepted/released | [#645](645.md) | [Issue #645](https://github.com/averylicious/muon/issues/645) |
 | CI signing / Benchmark boundary — completed | [#640 / #685](685.md) | [Issue #640](https://github.com/averylicious/muon/issues/640) |
+| Matroska metadata/sniff admission — source finding | [#726](726.md) | [Issue #726](https://github.com/averylicious/muon/issues/726) |
 | Vorbis/Ogg metadata admission — post-RC characterization | [#714](714.md) | [Issue #714](https://github.com/averylicious/muon/issues/714) |
 | Notification/platform command grants — post-RC hardening | [#711](711.md) | [Issue #711](https://github.com/averylicious/muon/issues/711) |
 | Notification artwork revision — post-RC acceptance | [#207](207.md) | [Issue #207](https://github.com/averylicious/muon/issues/207) |
