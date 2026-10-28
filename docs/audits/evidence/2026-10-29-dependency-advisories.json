@@ -1,0 +1,776 @@
+{
+  "build": {
+    "addedPairs": [
+      {
+        "id": "GHSA-xxph-c9ww-hj94",
+        "module": "com.google.guava:guava:33.3.1-jre"
+      }
+    ],
+    "comparison": "2026-10-25-dependency-advisories.json restricted to current build coordinates",
+    "coordinates": [
+      "androidx.databinding:databinding-common:8.13.2",
+      "androidx.databinding:databinding-compiler-common:8.13.2",
+      "com.android.application:com.android.application.gradle.plugin:8.13.2",
+      "com.android.databinding:baseLibrary:8.13.2",
+      "com.android.test:com.android.test.gradle.plugin:8.13.2",
+      "com.android.tools.analytics-library:crash:31.13.2",
+      "com.android.tools.analytics-library:protos:31.13.2",
+      "com.android.tools.analytics-library:shared:31.13.2",
+      "com.android.tools.analytics-library:tracker:31.13.2",
+      "com.android.tools.build.jetifier:jetifier-core:1.0.0-beta10",
+      "com.android.tools.build.jetifier:jetifier-processor:1.0.0-beta10",
+      "com.android.tools.build:aapt2-proto:8.13.2-14304508",
+      "com.android.tools.build:aaptcompiler:8.13.2",
+      "com.android.tools.build:apksig:8.13.2",
+      "com.android.tools.build:apkzlib:8.13.2",
+      "com.android.tools.build:builder-model:8.13.2",
+      "com.android.tools.build:builder-test-api:8.13.2",
+      "com.android.tools.build:builder:8.13.2",
+      "com.android.tools.build:bundletool:1.18.1",
+      "com.android.tools.build:gradle-api:8.13.2",
+      "com.android.tools.build:gradle-common-api:8.13.2",
+      "com.android.tools.build:gradle-settings-api:8.13.2",
+      "com.android.tools.build:gradle:8.13.2",
+      "com.android.tools.build:manifest-merger:31.13.2",
+      "com.android.tools.build:transform-api:2.0.0-deprecated-use-gradle-api",
+      "com.android.tools.ddms:ddmlib:31.13.2",
+      "com.android.tools.layoutlib:layoutlib-api:31.13.2",
+      "com.android.tools.lint:lint-model:31.13.2",
+      "com.android.tools.lint:lint-typedef-remover:31.13.2",
+      "com.android.tools.utp:android-device-provider-ddmlib-proto:31.13.2",
+      "com.android.tools.utp:android-device-provider-profile-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-additional-test-output-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-apk-installer-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-coverage-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-emulator-control-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-logcat-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-result-listener-gradle-proto:31.13.2",
+      "com.android.tools:annotations:31.13.2",
+      "com.android.tools:common:31.13.2",
+      "com.android.tools:dvlib:31.13.2",
+      "com.android.tools:repository:31.13.2",
+      "com.android.tools:sdk-common:31.13.2",
+      "com.android.tools:sdklib:31.13.2",
+      "com.android:signflinger:8.13.2",
+      "com.android:zipflinger:8.13.2",
+      "com.google.android:annotations:4.1.1.4",
+      "com.google.api.grpc:proto-google-common-protos:2.48.0",
+      "com.google.auto.value:auto-value-annotations:1.6.2",
+      "com.google.code.findbugs:jsr305:3.0.2",
+      "com.google.code.gson:gson:2.11.0",
+      "com.google.crypto.tink:tink:1.7.0",
+      "com.google.dagger:dagger:2.28.3",
+      "com.google.errorprone:error_prone_annotations:2.30.0",
+      "com.google.flatbuffers:flatbuffers-java:1.12.0",
+      "com.google.guava:failureaccess:1.0.2",
+      "com.google.guava:guava:33.3.1-jre",
+      "com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava",
+      "com.google.j2objc:j2objc-annotations:3.0.0",
+      "com.google.jimfs:jimfs:1.1",
+      "com.google.protobuf:protobuf-java-util:3.25.5",
+      "com.google.protobuf:protobuf-java:3.25.5",
+      "com.google.testing.platform:core-proto:0.0.9-alpha03",
+      "com.googlecode.juniversalchardet:juniversalchardet:1.0.3",
+      "com.squareup:javapoet:1.10.0",
+      "com.squareup:javawriter:2.5.0",
+      "com.sun.activation:javax.activation:1.2.0",
+      "com.sun.istack:istack-commons-runtime:3.0.8",
+      "com.sun.xml.fastinfoset:FastInfoset:1.2.16",
+      "commons-codec:commons-codec:1.11",
+      "commons-io:commons-io:2.16.1",
+      "commons-logging:commons-logging:1.2",
+      "io.grpc:grpc-api:1.69.1",
+      "io.grpc:grpc-context:1.69.1",
+      "io.grpc:grpc-core:1.69.1",
+      "io.grpc:grpc-inprocess:1.69.1",
+      "io.grpc:grpc-netty:1.69.1",
+      "io.grpc:grpc-protobuf-lite:1.69.1",
+      "io.grpc:grpc-protobuf:1.69.1",
+      "io.grpc:grpc-stub:1.69.1",
+      "io.grpc:grpc-util:1.69.1",
+      "io.netty:netty-buffer:4.1.110.Final",
+      "io.netty:netty-codec-http2:4.1.110.Final",
+      "io.netty:netty-codec-http:4.1.110.Final",
+      "io.netty:netty-codec-socks:4.1.110.Final",
+      "io.netty:netty-codec:4.1.110.Final",
+      "io.netty:netty-common:4.1.110.Final",
+      "io.netty:netty-handler-proxy:4.1.110.Final",
+      "io.netty:netty-handler:4.1.110.Final",
+      "io.netty:netty-resolver:4.1.110.Final",
+      "io.netty:netty-transport-native-unix-common:4.1.110.Final",
+      "io.netty:netty-transport:4.1.110.Final",
+      "io.perfmark:perfmark-api:0.27.0",
+      "jakarta.activation:jakarta.activation-api:1.2.1",
+      "jakarta.xml.bind:jakarta.xml.bind-api:2.3.2",
+      "javax.annotation:javax.annotation-api:1.3.2",
+      "javax.inject:javax.inject:1",
+      "net.java.dev.jna:jna-platform:5.6.0",
+      "net.java.dev.jna:jna:5.6.0",
+      "net.sf.jopt-simple:jopt-simple:4.9",
+      "net.sf.kxml:kxml2:2.3.0",
+      "org.apache.commons:commons-compress:1.21",
+      "org.apache.httpcomponents:httpclient:4.5.14",
+      "org.apache.httpcomponents:httpcore:4.4.16",
+      "org.apache.httpcomponents:httpmime:4.5.6",
+      "org.bitbucket.b_c:jose4j:0.9.5",
+      "org.bouncycastle:bcpkix-jdk18on:1.79",
+      "org.bouncycastle:bcprov-jdk18on:1.79",
+      "org.bouncycastle:bcutil-jdk18on:1.79",
+      "org.checkerframework:checker-qual:3.43.0",
+      "org.codehaus.mojo:animal-sniffer-annotations:1.24",
+      "org.glassfish.jaxb:jaxb-runtime:2.3.2",
+      "org.glassfish.jaxb:txw2:2.3.2",
+      "org.jdom:jdom2:2.0.6",
+      "org.jetbrains.kotlin.android:org.jetbrains.kotlin.android.gradle.plugin:2.2.21",
+      "org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:2.2.21",
+      "org.jetbrains.kotlin:abi-tools-api:2.2.21",
+      "org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.2.21",
+      "org.jetbrains.kotlin:fus-statistics-gradle-plugin:2.2.21",
+      "org.jetbrains.kotlin:kotlin-build-statistics:2.2.21",
+      "org.jetbrains.kotlin:kotlin-build-tools-api:2.2.21",
+      "org.jetbrains.kotlin:kotlin-compiler-runner:2.2.21",
+      "org.jetbrains.kotlin:kotlin-daemon-client:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-annotations:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-idea-proto:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-idea:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-model:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.2.21",
+      "org.jetbrains.kotlin:kotlin-klib-commonizer-api:2.2.21",
+      "org.jetbrains.kotlin:kotlin-native-utils:2.2.21",
+      "org.jetbrains.kotlin:kotlin-reflect:2.0.21",
+      "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.0",
+      "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.0",
+      "org.jetbrains.kotlin:kotlin-stdlib:2.0.21",
+      "org.jetbrains.kotlin:kotlin-tooling-core:2.2.21",
+      "org.jetbrains.kotlin:kotlin-util-io:2.2.21",
+      "org.jetbrains.kotlin:kotlin-util-klib-metadata:2.2.21",
+      "org.jetbrains.kotlin:kotlin-util-klib:2.2.21",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.9.0",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.9.0",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0",
+      "org.jetbrains:annotations:13.0",
+      "org.jvnet.staxex:stax-ex:1.8.1",
+      "org.ow2.asm:asm-analysis:9.8",
+      "org.ow2.asm:asm-commons:9.8",
+      "org.ow2.asm:asm-tree:9.8",
+      "org.ow2.asm:asm-util:9.8",
+      "org.ow2.asm:asm:9.8",
+      "org.slf4j:slf4j-api:1.7.30",
+      "org.tensorflow:tensorflow-lite-metadata:0.2.0"
+    ],
+    "matchedCoordinates": {
+      "com.google.guava:guava:33.3.1-jre": {
+        "GHSA-xxph-c9ww-hj94": "2026-10-27T14:45:04.803511Z"
+      },
+      "io.netty:netty-codec-http2:4.1.110.Final": {
+        "GHSA-563q-j3cm-6jxm": "2026-09-10T03:50:48.396944Z",
+        "GHSA-5x3r-wrvg-rp6q": "2026-09-10T03:50:48.488084Z",
+        "GHSA-93wv-jw9v-4972": "2026-09-10T03:51:11.318239Z",
+        "GHSA-c2gf-v879-257j": "2026-10-06T19:45:03.555042Z",
+        "GHSA-c69g-56f8-xwqj": "2026-09-10T03:51:11.564389Z",
+        "GHSA-f6hv-jmp6-3vwv": "2026-09-10T03:51:05.447415Z",
+        "GHSA-prj3-ccx8-p6x4": "2026-09-10T03:50:27.396257Z",
+        "GHSA-w9fj-cfpg-grvv": "2026-09-10T03:50:41.535305Z"
+      },
+      "io.netty:netty-codec-http:4.1.110.Final": {
+        "GHSA-38f8-5428-x5cv": "2026-09-10T03:51:04.415985Z",
+        "GHSA-4mp9-239f-g9hg": "2026-09-10T03:51:10.413004Z",
+        "GHSA-57rv-r2g8-2cj3": "2026-09-10T03:51:04.645242Z",
+        "GHSA-6cqp-g7gg-8hr5": "2026-09-10T03:51:10.615779Z",
+        "GHSA-6jqx-86gh-f27w": "2026-09-10T03:51:10.812069Z",
+        "GHSA-84h7-rjj3-6jx4": "2026-09-10T03:50:31.724062Z",
+        "GHSA-8c42-7qj2-3j46": "2026-09-10T03:51:13.389261Z",
+        "GHSA-f6hv-jmp6-3vwv": "2026-09-10T03:51:05.447415Z",
+        "GHSA-fghv-69vj-qj49": "2026-09-10T03:50:28.333050Z",
+        "GHSA-gcjf-9mgh-3p7g": "2026-09-10T03:50:52.172506Z",
+        "GHSA-hvcg-qmg6-jm4c": "2026-09-10T03:50:50.025404Z",
+        "GHSA-jppx-w49h-x2qq": "2026-09-10T03:50:12.368445Z",
+        "GHSA-m4cv-j2px-7723": "2026-09-10T03:51:06.379210Z",
+        "GHSA-mvh2-crg5-v77c": "2026-09-10T03:50:52.830435Z",
+        "GHSA-pwqr-wmgm-9rr8": "2026-09-10T03:50:40.493461Z",
+        "GHSA-q4f6-jm68-57ww": "2026-09-10T03:50:52.883743Z",
+        "GHSA-v8h7-rr48-vmmv": "2026-09-10T03:50:47.637727Z",
+        "GHSA-xxqh-mfjm-7mv9": "2026-09-10T03:51:07.381332Z"
+      },
+      "io.netty:netty-codec:4.1.110.Final": {
+        "GHSA-3p8m-j85q-pgmj": "2026-09-10T03:50:27.942019Z",
+        "GHSA-558v-64gr-wgg4": "2026-09-10T03:50:12.358146Z",
+        "GHSA-mj4r-2hfc-f8p6": "2026-09-10T03:51:06.526589Z"
+      },
+      "io.netty:netty-common:4.1.110.Final": {
+        "GHSA-389x-839f-4rhx": "2026-09-10T03:50:22.454183Z",
+        "GHSA-xq3w-v528-46rv": "2026-09-10T03:50:56.073045Z"
+      },
+      "io.netty:netty-handler-proxy:4.1.110.Final": {
+        "GHSA-45q3-82m4-75jr": "2026-09-10T03:51:04.662453Z"
+      },
+      "io.netty:netty-handler:4.1.110.Final": {
+        "GHSA-3qp7-7mw8-wx86": "2026-09-10T03:50:55.436123Z",
+        "GHSA-4g8c-wm8x-jfhw": "2026-09-10T03:50:22.400091Z",
+        "GHSA-c4c3-7fpv-j4q5": "2026-09-08T18:27:48.571082Z",
+        "GHSA-c653-97m9-rcg9": "2026-09-10T03:51:08.552933Z",
+        "GHSA-fccg-mwvh-qqg4": "2026-09-08T18:27:48.113951Z",
+        "GHSA-x4gw-5cx5-pgmh": "2026-09-10T03:50:12.401611Z"
+      },
+      "org.apache.commons:commons-compress:1.21": {
+        "GHSA-4265-ccf5-phj5": "2026-09-10T03:50:05.280645Z",
+        "GHSA-4g9r-vxhx-9pgx": "2026-09-10T03:50:05.286961Z"
+      },
+      "org.bitbucket.b_c:jose4j:0.9.5": {
+        "GHSA-3677-xxcr-wjqv": "2026-09-10T03:50:31.318789Z"
+      },
+      "org.bouncycastle:bcpkix-jdk18on:1.79": {
+        "GHSA-wg6q-6289-32hp": "2026-09-10T03:50:45.075900Z"
+      },
+      "org.bouncycastle:bcprov-jdk18on:1.79": {
+        "GHSA-574f-3g2m-x479": "2026-09-24T15:30:06.452617Z",
+        "GHSA-9pwp-9qqc-pr26": "2026-09-18T17:45:06.105254Z",
+        "GHSA-c3fc-8qff-9hwx": "2026-09-10T03:51:01.534612Z",
+        "GHSA-qp49-qgx5-5m26": "2026-09-18T17:45:06.096277Z"
+      },
+      "org.jdom:jdom2:2.0.6": {
+        "GHSA-2363-cqg2-863c": "2025-09-16T15:52:31.388959Z"
+      },
+      "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21": {
+        "GHSA-r937-wjx7-w2jp": "2026-08-12T19:40:59.256901Z"
+      }
+    },
+    "queriedAtUtc": "2026-10-28T16:53:10.777666+00:00",
+    "removedPairs": [],
+    "scope": ":build:classpath"
+  },
+  "buildAfterPluginPatch": {
+    "addedPairs": [],
+    "coordinates": [
+      "androidx.databinding:databinding-common:8.13.2",
+      "androidx.databinding:databinding-compiler-common:8.13.2",
+      "com.android.application:com.android.application.gradle.plugin:8.13.2",
+      "com.android.databinding:baseLibrary:8.13.2",
+      "com.android.test:com.android.test.gradle.plugin:8.13.2",
+      "com.android.tools.analytics-library:crash:31.13.2",
+      "com.android.tools.analytics-library:protos:31.13.2",
+      "com.android.tools.analytics-library:shared:31.13.2",
+      "com.android.tools.analytics-library:tracker:31.13.2",
+      "com.android.tools.build.jetifier:jetifier-core:1.0.0-beta10",
+      "com.android.tools.build.jetifier:jetifier-processor:1.0.0-beta10",
+      "com.android.tools.build:aapt2-proto:8.13.2-14304508",
+      "com.android.tools.build:aaptcompiler:8.13.2",
+      "com.android.tools.build:apksig:8.13.2",
+      "com.android.tools.build:apkzlib:8.13.2",
+      "com.android.tools.build:builder-model:8.13.2",
+      "com.android.tools.build:builder-test-api:8.13.2",
+      "com.android.tools.build:builder:8.13.2",
+      "com.android.tools.build:bundletool:1.18.1",
+      "com.android.tools.build:gradle-api:8.13.2",
+      "com.android.tools.build:gradle-common-api:8.13.2",
+      "com.android.tools.build:gradle-settings-api:8.13.2",
+      "com.android.tools.build:gradle:8.13.2",
+      "com.android.tools.build:manifest-merger:31.13.2",
+      "com.android.tools.build:transform-api:2.0.0-deprecated-use-gradle-api",
+      "com.android.tools.ddms:ddmlib:31.13.2",
+      "com.android.tools.layoutlib:layoutlib-api:31.13.2",
+      "com.android.tools.lint:lint-model:31.13.2",
+      "com.android.tools.lint:lint-typedef-remover:31.13.2",
+      "com.android.tools.utp:android-device-provider-ddmlib-proto:31.13.2",
+      "com.android.tools.utp:android-device-provider-profile-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-additional-test-output-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-apk-installer-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-coverage-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-emulator-control-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-host-logcat-proto:31.13.2",
+      "com.android.tools.utp:android-test-plugin-result-listener-gradle-proto:31.13.2",
+      "com.android.tools:annotations:31.13.2",
+      "com.android.tools:common:31.13.2",
+      "com.android.tools:dvlib:31.13.2",
+      "com.android.tools:repository:31.13.2",
+      "com.android.tools:sdk-common:31.13.2",
+      "com.android.tools:sdklib:31.13.2",
+      "com.android:signflinger:8.13.2",
+      "com.android:zipflinger:8.13.2",
+      "com.google.android:annotations:4.1.1.4",
+      "com.google.api.grpc:proto-google-common-protos:2.48.0",
+      "com.google.auto.value:auto-value-annotations:1.6.2",
+      "com.google.code.findbugs:jsr305:3.0.2",
+      "com.google.code.gson:gson:2.11.0",
+      "com.google.crypto.tink:tink:1.7.0",
+      "com.google.dagger:dagger:2.28.3",
+      "com.google.errorprone:error_prone_annotations:2.50.0",
+      "com.google.flatbuffers:flatbuffers-java:1.12.0",
+      "com.google.guava:failureaccess:1.0.3",
+      "com.google.guava:guava:33.7.2-jre",
+      "com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava",
+      "com.google.j2objc:j2objc-annotations:3.1",
+      "com.google.jimfs:jimfs:1.1",
+      "com.google.protobuf:protobuf-java-util:3.25.5",
+      "com.google.protobuf:protobuf-java:3.25.5",
+      "com.google.testing.platform:core-proto:0.0.9-alpha03",
+      "com.googlecode.juniversalchardet:juniversalchardet:1.0.3",
+      "com.squareup:javapoet:1.10.0",
+      "com.squareup:javawriter:2.5.0",
+      "com.sun.activation:javax.activation:1.2.0",
+      "com.sun.istack:istack-commons-runtime:3.0.8",
+      "com.sun.xml.fastinfoset:FastInfoset:1.2.16",
+      "commons-codec:commons-codec:1.11",
+      "commons-io:commons-io:2.16.1",
+      "commons-logging:commons-logging:1.2",
+      "io.grpc:grpc-api:1.69.1",
+      "io.grpc:grpc-context:1.69.1",
+      "io.grpc:grpc-core:1.69.1",
+      "io.grpc:grpc-inprocess:1.69.1",
+      "io.grpc:grpc-netty:1.69.1",
+      "io.grpc:grpc-protobuf-lite:1.69.1",
+      "io.grpc:grpc-protobuf:1.69.1",
+      "io.grpc:grpc-stub:1.69.1",
+      "io.grpc:grpc-util:1.69.1",
+      "io.netty:netty-buffer:4.1.110.Final",
+      "io.netty:netty-codec-http2:4.1.110.Final",
+      "io.netty:netty-codec-http:4.1.110.Final",
+      "io.netty:netty-codec-socks:4.1.110.Final",
+      "io.netty:netty-codec:4.1.110.Final",
+      "io.netty:netty-common:4.1.110.Final",
+      "io.netty:netty-handler-proxy:4.1.110.Final",
+      "io.netty:netty-handler:4.1.110.Final",
+      "io.netty:netty-resolver:4.1.110.Final",
+      "io.netty:netty-transport-native-unix-common:4.1.110.Final",
+      "io.netty:netty-transport:4.1.110.Final",
+      "io.perfmark:perfmark-api:0.27.0",
+      "jakarta.activation:jakarta.activation-api:1.2.1",
+      "jakarta.xml.bind:jakarta.xml.bind-api:2.3.2",
+      "javax.annotation:javax.annotation-api:1.3.2",
+      "javax.inject:javax.inject:1",
+      "net.java.dev.jna:jna-platform:5.6.0",
+      "net.java.dev.jna:jna:5.6.0",
+      "net.sf.jopt-simple:jopt-simple:4.9",
+      "net.sf.kxml:kxml2:2.3.0",
+      "org.apache.commons:commons-compress:1.21",
+      "org.apache.httpcomponents:httpclient:4.5.14",
+      "org.apache.httpcomponents:httpcore:4.4.16",
+      "org.apache.httpcomponents:httpmime:4.5.6",
+      "org.bitbucket.b_c:jose4j:0.9.5",
+      "org.bouncycastle:bcpkix-jdk18on:1.79",
+      "org.bouncycastle:bcprov-jdk18on:1.79",
+      "org.bouncycastle:bcutil-jdk18on:1.79",
+      "org.checkerframework:checker-qual:2.5.8",
+      "org.codehaus.mojo:animal-sniffer-annotations:1.24",
+      "org.glassfish.jaxb:jaxb-runtime:2.3.2",
+      "org.glassfish.jaxb:txw2:2.3.2",
+      "org.jdom:jdom2:2.0.6",
+      "org.jetbrains.kotlin.android:org.jetbrains.kotlin.android.gradle.plugin:2.2.21",
+      "org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:2.2.21",
+      "org.jetbrains.kotlin:abi-tools-api:2.2.21",
+      "org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.2.21",
+      "org.jetbrains.kotlin:fus-statistics-gradle-plugin:2.2.21",
+      "org.jetbrains.kotlin:kotlin-build-statistics:2.2.21",
+      "org.jetbrains.kotlin:kotlin-build-tools-api:2.2.21",
+      "org.jetbrains.kotlin:kotlin-compiler-runner:2.2.21",
+      "org.jetbrains.kotlin:kotlin-daemon-client:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-annotations:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-idea-proto:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-idea:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin-model:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21",
+      "org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.2.21",
+      "org.jetbrains.kotlin:kotlin-klib-commonizer-api:2.2.21",
+      "org.jetbrains.kotlin:kotlin-native-utils:2.2.21",
+      "org.jetbrains.kotlin:kotlin-reflect:2.0.21",
+      "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.0",
+      "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.0",
+      "org.jetbrains.kotlin:kotlin-stdlib:2.0.21",
+      "org.jetbrains.kotlin:kotlin-tooling-core:2.2.21",
+      "org.jetbrains.kotlin:kotlin-util-io:2.2.21",
+      "org.jetbrains.kotlin:kotlin-util-klib-metadata:2.2.21",
+      "org.jetbrains.kotlin:kotlin-util-klib:2.2.21",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.9.0",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.9.0",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0",
+      "org.jetbrains:annotations:13.0",
+      "org.jspecify:jspecify:1.0.1",
+      "org.jvnet.staxex:stax-ex:1.8.1",
+      "org.ow2.asm:asm-analysis:9.8",
+      "org.ow2.asm:asm-commons:9.8",
+      "org.ow2.asm:asm-tree:9.8",
+      "org.ow2.asm:asm-util:9.8",
+      "org.ow2.asm:asm:9.8",
+      "org.slf4j:slf4j-api:1.7.30",
+      "org.tensorflow:tensorflow-lite-metadata:0.2.0"
+    ],
+    "inventoryArchiveSha256": "81d865c7bb185056606418643972ec6cfddd052e104fa4d48f9d26211c4e2dd9",
+    "inventoryCommit": "a7ec5ca682f98bcf7f409a77cac5777d12798d92",
+    "inventoryRun": "https://github.com/averylicious/muon/actions/runs/40733686915",
+    "limits": "Actual resolved plugin graph; no actual loaded-class probe or Gradle-distribution JAR inventory.",
+    "matchedCoordinates": {
+      "io.netty:netty-codec-http2:4.1.110.Final": {
+        "GHSA-563q-j3cm-6jxm": "2026-09-10T03:50:48.396944Z",
+        "GHSA-5x3r-wrvg-rp6q": "2026-09-10T03:50:48.488084Z",
+        "GHSA-93wv-jw9v-4972": "2026-09-10T03:51:11.318239Z",
+        "GHSA-c2gf-v879-257j": "2026-10-06T19:45:03.555042Z",
+        "GHSA-c69g-56f8-xwqj": "2026-09-10T03:51:11.564389Z",
+        "GHSA-f6hv-jmp6-3vwv": "2026-09-10T03:51:05.447415Z",
+        "GHSA-prj3-ccx8-p6x4": "2026-09-10T03:50:27.396257Z",
+        "GHSA-w9fj-cfpg-grvv": "2026-09-10T03:50:41.535305Z"
+      },
+      "io.netty:netty-codec-http:4.1.110.Final": {
+        "GHSA-38f8-5428-x5cv": "2026-09-10T03:51:04.415985Z",
+        "GHSA-4mp9-239f-g9hg": "2026-09-10T03:51:10.413004Z",
+        "GHSA-57rv-r2g8-2cj3": "2026-09-10T03:51:04.645242Z",
+        "GHSA-6cqp-g7gg-8hr5": "2026-09-10T03:51:10.615779Z",
+        "GHSA-6jqx-86gh-f27w": "2026-09-10T03:51:10.812069Z",
+        "GHSA-84h7-rjj3-6jx4": "2026-09-10T03:50:31.724062Z",
+        "GHSA-8c42-7qj2-3j46": "2026-09-10T03:51:13.389261Z",
+        "GHSA-f6hv-jmp6-3vwv": "2026-09-10T03:51:05.447415Z",
+        "GHSA-fghv-69vj-qj49": "2026-09-10T03:50:28.333050Z",
+        "GHSA-gcjf-9mgh-3p7g": "2026-09-10T03:50:52.172506Z",
+        "GHSA-hvcg-qmg6-jm4c": "2026-09-10T03:50:50.025404Z",
+        "GHSA-jppx-w49h-x2qq": "2026-09-10T03:50:12.368445Z",
+        "GHSA-m4cv-j2px-7723": "2026-09-10T03:51:06.379210Z",
+        "GHSA-mvh2-crg5-v77c": "2026-09-10T03:50:52.830435Z",
+        "GHSA-pwqr-wmgm-9rr8": "2026-09-10T03:50:40.493461Z",
+        "GHSA-q4f6-jm68-57ww": "2026-09-10T03:50:52.883743Z",
+        "GHSA-v8h7-rr48-vmmv": "2026-09-10T03:50:47.637727Z",
+        "GHSA-xxqh-mfjm-7mv9": "2026-09-10T03:51:07.381332Z"
+      },
+      "io.netty:netty-codec:4.1.110.Final": {
+        "GHSA-3p8m-j85q-pgmj": "2026-09-10T03:50:27.942019Z",
+        "GHSA-558v-64gr-wgg4": "2026-09-10T03:50:12.358146Z",
+        "GHSA-mj4r-2hfc-f8p6": "2026-09-10T03:51:06.526589Z"
+      },
+      "io.netty:netty-common:4.1.110.Final": {
+        "GHSA-389x-839f-4rhx": "2026-09-10T03:50:22.454183Z",
+        "GHSA-xq3w-v528-46rv": "2026-09-10T03:50:56.073045Z"
+      },
+      "io.netty:netty-handler-proxy:4.1.110.Final": {
+        "GHSA-45q3-82m4-75jr": "2026-09-10T03:51:04.662453Z"
+      },
+      "io.netty:netty-handler:4.1.110.Final": {
+        "GHSA-3qp7-7mw8-wx86": "2026-09-10T03:50:55.436123Z",
+        "GHSA-4g8c-wm8x-jfhw": "2026-09-10T03:50:22.400091Z",
+        "GHSA-c4c3-7fpv-j4q5": "2026-09-08T18:27:48.571082Z",
+        "GHSA-c653-97m9-rcg9": "2026-09-10T03:51:08.552933Z",
+        "GHSA-fccg-mwvh-qqg4": "2026-09-08T18:27:48.113951Z",
+        "GHSA-x4gw-5cx5-pgmh": "2026-09-10T03:50:12.401611Z"
+      },
+      "org.apache.commons:commons-compress:1.21": {
+        "GHSA-4265-ccf5-phj5": "2026-09-10T03:50:05.280645Z",
+        "GHSA-4g9r-vxhx-9pgx": "2026-09-10T03:50:05.286961Z"
+      },
+      "org.bitbucket.b_c:jose4j:0.9.5": {
+        "GHSA-3677-xxcr-wjqv": "2026-09-10T03:50:31.318789Z"
+      },
+      "org.bouncycastle:bcpkix-jdk18on:1.79": {
+        "GHSA-wg6q-6289-32hp": "2026-09-10T03:50:45.075900Z"
+      },
+      "org.bouncycastle:bcprov-jdk18on:1.79": {
+        "GHSA-574f-3g2m-x479": "2026-09-24T15:30:06.452617Z",
+        "GHSA-9pwp-9qqc-pr26": "2026-09-18T17:45:06.105254Z",
+        "GHSA-c3fc-8qff-9hwx": "2026-09-10T03:51:01.534612Z",
+        "GHSA-qp49-qgx5-5m26": "2026-09-18T17:45:06.096277Z"
+      },
+      "org.jdom:jdom2:2.0.6": {
+        "GHSA-2363-cqg2-863c": "2025-09-16T15:52:31.388959Z"
+      },
+      "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21": {
+        "GHSA-r937-wjx7-w2jp": "2026-08-12T19:40:59.256901Z"
+      }
+    },
+    "paginationTokens": 0,
+    "queriedAtUtc": "2026-10-28T17:16:12.199426+00:00",
+    "removedPairs": [
+      {
+        "id": "GHSA-xxph-c9ww-hj94",
+        "module": "com.google.guava:guava:33.3.1-jre"
+      }
+    ],
+    "responseSha256": "684a4f7555507d9832579e3cb7248d1fff92dec5248a6101c68d2139654e6fa3",
+    "scope": ":build:classpath"
+  },
+  "consultedBuildSources": [
+    {
+      "bytes": 3907136,
+      "coordinate": "com.android.tools.build:gradle:8.13.2",
+      "hits": [
+        {
+          "file": "com/android/build/gradle/internal/tasks/DexArchiveBuilderTaskDelegate.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        },
+        {
+          "file": "com/android/build/gradle/internal/tasks/MergeJavaResourcesDelegate.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        },
+        {
+          "file": "com/android/build/gradle/internal/dexing/DexWorkAction.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        },
+        {
+          "file": "com/android/build/gradle/internal/dependency/ProvidedClasspath.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        },
+        {
+          "file": "com/android/build/gradle/internal/dependency/DexingTransform.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        },
+        {
+          "file": "com/android/build/gradle/internal/dependency/FilteringSpec.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        },
+        {
+          "file": "com/android/build/gradle/internal/dependency/SubtractingArtifactCollection.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        },
+        {
+          "file": "com/android/build/gradle/internal/services/buildServices.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        },
+        {
+          "file": "com/android/build/gradle/internal/profile/AnalyticsResourceManager.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        }
+      ],
+      "sha256": "0693aa79c9231ffd5917be45ca8c5e25049bba3d9503ce60ada8d56c7b9ed1b4",
+      "url": "https://dl.google.com/dl/android/maven2/com/android/tools/build/gradle/8.13.2/gradle-8.13.2-sources.jar"
+    },
+    {
+      "bytes": 283788,
+      "coordinate": "com.android.tools.build:builder:8.13.2",
+      "hits": [],
+      "sha256": "46785fe800dfdc013dd3b294d4bfc57abf8e3880a3f47dd28d85ec9b47d0377d",
+      "url": "https://dl.google.com/dl/android/maven2/com/android/tools/build/builder/8.13.2/builder-8.13.2-sources.jar"
+    },
+    {
+      "bytes": 283283,
+      "coordinate": "com.android.tools:common:31.13.2",
+      "hits": [],
+      "sha256": "1a9ef5e2753f20e822b380825408d967e0fd49dd1f82649dc39713f750766c00",
+      "url": "https://dl.google.com/dl/android/maven2/com/android/tools/common/31.13.2/common-31.13.2-sources.jar"
+    },
+    {
+      "bytes": 707887,
+      "coordinate": "com.android.tools:sdk-common:31.13.2",
+      "hits": [],
+      "sha256": "d628ff3faef817facebd17b6befbc32f13ec8719fc6502ac29c7f8820fcfdff9",
+      "url": "https://dl.google.com/dl/android/maven2/com/android/tools/sdk-common/31.13.2/sdk-common-31.13.2-sources.jar"
+    },
+    {
+      "bytes": 107426,
+      "coordinate": "androidx.databinding:databinding-compiler-common:8.13.2",
+      "hits": [
+        {
+          "file": "android/databinding/tool/store/V1CompatLayoutInfoLoader.kt",
+          "keys": [
+            "ObjectInputStream"
+          ]
+        }
+      ],
+      "sha256": "8e3294128fc73895a0235020766a48cadc3030c18486055e413e607ba77674d3",
+      "url": "https://dl.google.com/dl/android/maven2/androidx/databinding/databinding-compiler-common/8.13.2/databinding-compiler-common-8.13.2-sources.jar"
+    },
+    {
+      "bytes": 182852,
+      "coordinate": "com.android.tools.build:apkzlib:8.13.2",
+      "hits": [],
+      "sha256": "6a6b5982b18e3646a1d1ddd1ab1538798909af3240d87ea4d07465317e2cb0e6",
+      "url": "https://dl.google.com/dl/android/maven2/com/android/tools/build/apkzlib/8.13.2/apkzlib-8.13.2-sources.jar"
+    },
+    {
+      "bytes": 153181,
+      "coordinate": "com.android.tools.build:aaptcompiler:8.13.2",
+      "hits": [],
+      "sha256": "64ee8e3019ff205cc10117106deec65b06492d6944cc894ffee28f18a42da069",
+      "url": "https://dl.google.com/dl/android/maven2/com/android/tools/build/aaptcompiler/8.13.2/aaptcompiler-8.13.2-sources.jar"
+    }
+  ],
+  "consultedGradleCoreCallerSources": [
+    {
+      "path": "platforms/core-runtime/serialization/src/main/java/org/gradle/internal/serialize/DefaultSerializer.java",
+      "selected": [
+        "private ClassLoader classLoader;",
+        "classLoader = getClass().getClassLoader();",
+        "public DefaultSerializer(ClassLoader classLoader) {",
+        "this.classLoader = classLoader != null ? classLoader : getClass().getClassLoader();",
+        "public ClassLoader getClassLoader() {",
+        "public void setClassLoader(ClassLoader classLoader) {",
+        "return Cast.uncheckedNonnullCast(new ClassLoaderObjectInputStream(decoder.getInputStream(), classLoader).readObject());"
+      ],
+      "sha256": "c6a347d9bbd72d021f1d3bac1c15a6ff8b0693371686db73e111f0136b17a921"
+    },
+    {
+      "path": "platforms/core-runtime/messaging/src/main/java/org/gradle/internal/remote/internal/hub/JavaSerializationBackedMethodArgsSerializer.java",
+      "selected": [
+        "private final ClassLoader classLoader;",
+        "public JavaSerializationBackedMethodArgsSerializer(ClassLoader classLoader) {"
+      ],
+      "sha256": "ed29f089980475f8ea25f89f6f323ceed251ad1a4d94e53f160d8bca2673f138"
+    },
+    {
+      "path": "platforms/core-runtime/serialization/src/main/java/org/gradle/tooling/internal/provider/serialization/PayloadSerializer.java",
+      "selected": [
+        "import java.io.ObjectInputStream;",
+        "private final PayloadClassLoaderRegistry classLoaderRegistry;",
+        "public PayloadSerializer(PayloadClassLoaderRegistry registry) {",
+        "Map<Short, ClassLoaderDetails> classLoaders = new HashMap<Short, ClassLoaderDetails>();",
+        "map.collectClassLoaderDefinitions(classLoaders);",
+        "final Map<Short, ClassLoaderDetails> classLoaderDetails = Cast.uncheckedNonnullCast(payload.getHeader());",
+        "final ObjectInputStream objectStream = new PayloadSerializerObjectInputStream(buffer.getInputStream(), getClass().getClassLoader(), classLoaderDetails, map);",
+        "return objectStream.readObject();"
+      ],
+      "sha256": "6849ceec568eb55bce15ff679616212e72f28eedd374e5410b636ab611c81f03"
+    }
+  ],
+  "consultedGradleSources": [
+    {
+      "path": "subprojects/core/src/main/java/org/gradle/initialization/DefaultGradleApiSpecProvider.java",
+      "sha256": "421a7d81f5c7f71e0f9ec57e768b1f6342f34c5f574383a8a7ae26adc185f89c"
+    },
+    {
+      "path": "subprojects/core/src/main/java/org/gradle/initialization/GradleApiSpecAggregator.java",
+      "sha256": "369b2e4b6556b467c02cb570447cabeb947901dc371a52bb36ba545c48a43c90"
+    },
+    {
+      "path": "platforms/core-configuration/kotlin-dsl/src/main/kotlin/org/gradle/kotlin/dsl/provider/KotlinGradleApiSpecProvider.kt",
+      "sha256": "875b62197d7fa0229cf79c5feb4002279740225e012ab945059d5ce66b686635"
+    }
+  ],
+  "inventoryArchiveSha256": "a898d85790f18f2fe68a365c386559ad2aac3d1642226ef0c322fea355bdca2f",
+  "inventoryCommit": "31e98ce4385f42e961de17bc2f8d54f3469f74bf",
+  "inventoryRun": "https://github.com/averylicious/muon/actions/runs/40726453313",
+  "limits": "Selected Maven coordinates only; no full advisory content diff, exploit, publisher authentication, complete APK/tool SBOM or phone test.",
+  "runtime": {
+    "coordinates": [
+      "androidx.activity:activity-compose:1.11.0",
+      "androidx.activity:activity-ktx:1.11.0",
+      "androidx.activity:activity:1.11.0",
+      "androidx.annotation:annotation-experimental:1.4.1",
+      "androidx.annotation:annotation-jvm:1.9.1",
+      "androidx.annotation:annotation:1.9.1",
+      "androidx.arch.core:core-common:2.2.0",
+      "androidx.arch.core:core-runtime:2.2.0",
+      "androidx.autofill:autofill:1.0.0",
+      "androidx.collection:collection-jvm:1.5.0",
+      "androidx.collection:collection-ktx:1.5.0",
+      "androidx.collection:collection:1.5.0",
+      "androidx.compose.animation:animation-android:1.9.3",
+      "androidx.compose.animation:animation-core-android:1.9.3",
+      "androidx.compose.animation:animation-core:1.9.3",
+      "androidx.compose.animation:animation:1.9.3",
+      "androidx.compose.foundation:foundation-android:1.9.3",
+      "androidx.compose.foundation:foundation-layout-android:1.9.3",
+      "androidx.compose.foundation:foundation-layout:1.9.3",
+      "androidx.compose.foundation:foundation:1.9.3",
+      "androidx.compose.material3:material3-android:1.4.0",
+      "androidx.compose.material3:material3:1.4.0",
+      "androidx.compose.material:material-ripple-android:1.9.3",
+      "androidx.compose.material:material-ripple:1.9.3",
+      "androidx.compose.runtime:runtime-android:1.9.3",
+      "androidx.compose.runtime:runtime-annotation-android:1.9.3",
+      "androidx.compose.runtime:runtime-annotation:1.9.3",
+      "androidx.compose.runtime:runtime-saveable-android:1.9.3",
+      "androidx.compose.runtime:runtime-saveable:1.9.3",
+      "androidx.compose.runtime:runtime:1.9.3",
+      "androidx.compose.ui:ui-android:1.9.3",
+      "androidx.compose.ui:ui-geometry-android:1.9.3",
+      "androidx.compose.ui:ui-geometry:1.9.3",
+      "androidx.compose.ui:ui-graphics-android:1.9.3",
+      "androidx.compose.ui:ui-graphics:1.9.3",
+      "androidx.compose.ui:ui-text-android:1.9.3",
+      "androidx.compose.ui:ui-text:1.9.3",
+      "androidx.compose.ui:ui-unit-android:1.9.3",
+      "androidx.compose.ui:ui-unit:1.9.3",
+      "androidx.compose.ui:ui-util-android:1.9.3",
+      "androidx.compose.ui:ui-util:1.9.3",
+      "androidx.compose.ui:ui:1.9.3",
+      "androidx.compose:compose-bom:2025.10.00",
+      "androidx.concurrent:concurrent-futures:1.2.0",
+      "androidx.core:core-ktx:1.15.0",
+      "androidx.core:core-viewtree:1.0.0",
+      "androidx.core:core:1.15.0",
+      "androidx.customview:customview-poolingcontainer:1.0.0",
+      "androidx.emoji2:emoji2:1.4.0",
+      "androidx.exifinterface:exifinterface:1.3.6",
+      "androidx.graphics:graphics-path:1.0.1",
+      "androidx.interpolator:interpolator:1.0.0",
+      "androidx.lifecycle:lifecycle-common-java8:2.9.4",
+      "androidx.lifecycle:lifecycle-common-jvm:2.9.4",
+      "androidx.lifecycle:lifecycle-common:2.9.4",
+      "androidx.lifecycle:lifecycle-livedata-core:2.9.4",
+      "androidx.lifecycle:lifecycle-process:2.9.4",
+      "androidx.lifecycle:lifecycle-runtime-android:2.9.4",
+      "androidx.lifecycle:lifecycle-runtime-compose-android:2.9.4",
+      "androidx.lifecycle:lifecycle-runtime-compose:2.9.4",
+      "androidx.lifecycle:lifecycle-runtime-ktx-android:2.9.4",
+      "androidx.lifecycle:lifecycle-runtime-ktx:2.9.4",
+      "androidx.lifecycle:lifecycle-runtime:2.9.4",
+      "androidx.lifecycle:lifecycle-service:2.9.4",
+      "androidx.lifecycle:lifecycle-viewmodel-android:2.9.4",
+      "androidx.lifecycle:lifecycle-viewmodel-compose-android:2.9.4",
+      "androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4",
+      "androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4",
+      "androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.9.4",
+      "androidx.lifecycle:lifecycle-viewmodel-savedstate:2.9.4",
+      "androidx.lifecycle:lifecycle-viewmodel:2.9.4",
+      "androidx.media3:media3-common:1.11.1",
+      "androidx.media3:media3-container:1.11.1",
+      "androidx.media3:media3-database:1.11.1",
+      "androidx.media3:media3-datasource-okhttp:1.11.1",
+      "androidx.media3:media3-datasource:1.11.1",
+      "androidx.media3:media3-decoder:1.11.1",
+      "androidx.media3:media3-exoplayer:1.11.1",
+      "androidx.media3:media3-extractor:1.11.1",
+      "androidx.media3:media3-session:1.11.1",
+      "androidx.media:media:1.7.0",
+      "androidx.profileinstaller:profileinstaller:1.4.1",
+      "androidx.savedstate:savedstate-android:1.3.3",
+      "androidx.savedstate:savedstate-compose-android:1.3.3",
+      "androidx.savedstate:savedstate-compose:1.3.3",
+      "androidx.savedstate:savedstate-ktx:1.3.3",
+      "androidx.savedstate:savedstate:1.3.3",
+      "androidx.startup:startup-runtime:1.1.1",
+      "androidx.tracing:tracing:1.2.0",
+      "androidx.versionedparcelable:versionedparcelable:1.1.1",
+      "com.google.guava:failureaccess:1.0.3",
+      "com.google.guava:guava:33.7.2-android",
+      "com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava",
+      "com.squareup.okhttp3:okhttp:4.12.0",
+      "com.squareup.okio:okio-jvm:3.6.0",
+      "com.squareup.okio:okio:3.6.0",
+      "org.jetbrains.kotlin:kotlin-stdlib-common:2.2.21",
+      "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.10",
+      "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10",
+      "org.jetbrains.kotlin:kotlin-stdlib:2.2.21",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2",
+      "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+      "org.jetbrains.kotlinx:kotlinx-serialization-bom:1.7.3",
+      "org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.7.3",
+      "org.jetbrains.kotlinx:kotlinx-serialization-core:1.7.3",
+      "org.jetbrains:annotations:23.0.0",
+      "org.jspecify:jspecify:1.0.1"
+    ],
+    "inventory_commit": "31e98ce4385f42e961de17bc2f8d54f3469f74bf",
+    "matches": [],
+    "queried_at_utc": "2026-10-28T16:57:08.316404+00:00",
+    "response_sha256": "bca6412f8698a7d486be68bf82744eb008bc9ac4e2478111ece79ce138792b8d",
+    "scope": ":app:releaseRuntimeClasspath"
+  },
+  "schema": 1
+}

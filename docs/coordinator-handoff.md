@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Updated 2026-10-28. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-29. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
@@ -12,7 +12,7 @@ Updated 2026-10-28. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC auditing continues; root is sole writer.** Main application baseline20579cf1, alphaee7ddb75 and frozen RC remain preserved; documentation-only checkpoint landing can advance main’s ref. Current29-topic#701/80e41af3 / .1637 passed actual1,994cases/variant and inspected signed-release APK gates. It includes the approved64KiB lacing policy and verified light artwork text contrast#746/#747. New repeated-playlist-row selection#748/#749/db401da7 / .1638 passed actual1,822cases/variant separately; carry clicked row index through filtering without changing Search’s full-library queue behavior. Integrate that verified head, then check the new combination. Fresh audit-only Opus remains idle; no unanswered product questions. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) contains exact evidence/ownership/next actions. No phones, main runtime landing, alpha landing, Stable publication/tag or frozen-RC replacement. Continue useful authorized work to live20%-remaining with recovery reserve.
+**Broader post-RC auditing continues; root is sole writer.** Verified33-topic HEIC-inclusive #701/18bc7134 / .1652 passed actual1,997cases/variant and inspected release gates. The user accepted32MiB HEIC rare-preamble disclosure. New standalone #755/a7ec5ca6 / .1653 and inventory129 pass the normal AGP-plugin Guava constraint; refreshed #701/77e217e5 / .1654 awaits Android/reports/APK while its downloaded inventory130 matches both verified graphs; count stays33. Patched selected runtime/plugin graph results are qualified; Gradle's own bundled-source version/caller remains a separate unresolved question. Documentation mainf9263f07/application20579cf1, alpha and frozen RC preserved. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds receipts, ownership and next work. No unanswered questions, phones, runtime main/alpha landing or Stable tag. Continue to live20%-remaining with reserve.
 
 ## Resume order
 
