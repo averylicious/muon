@@ -37,8 +37,9 @@ Updated2026-10-28. [Draft #701](https://github.com/averylicious/muon/pull/701), 
 | #747 | Light artwork-theme normal-text contrast | `f8c06c3a5a9fa71056caea7bb601cc42be3c08b0` | [.1634](https://github.com/averylicious/muon/actions/runs/40701146866) |
 | #749 | Exact repeated-playlist-row selection | `db401da750aa8fd9356daedebe20f34d6b6c308e` | [.1638](https://github.com/averylicious/muon/actions/runs/40707105195) |
 | #751 | Audio-only track defaults, preserving tags and subtitle policy | `9688fb60310e66fdab7bfd136396e0734b86de62` | [.1643](https://github.com/averylicious/muon/actions/runs/40715489798) |
+| #753 | Stable Media3 audio-output lifecycle patch and guard compatibility | `ec3543ba1e1124f8622da50e5916b0072fadf342` | [.1644](https://github.com/averylicious/muon/actions/runs/40717264755) |
 
-#715 raw Vorbis/picture and #721 ordinary/fragmented MP4 characterization are included as test evidence, not additional runtime topics. #721 exact14cc43efeb3cbb2695c7ef913dfd9c6e3e7bbb5a / .1516 passed1,824cases/variant. Raw WAV #724 characterization is also included through #725. Raw Matroska #727 is included through #728. Raw ID3 characterization is included through #729. This candidate now has31 runtime topics, including the newer #703 head. #679 promotion policy, #683 Benchmark tools, raw HEVC #731 and #692 forward sync and all alpha/M3E commits remain excluded. Every input's downloaded test/lint reports passed with zero failures/errors/skips and lint0errors; standalone passes do not verify this combination.
+#715 raw Vorbis/picture and #721 ordinary/fragmented MP4 characterization are included as test evidence, not additional runtime topics. #721 exact14cc43efeb3cbb2695c7ef913dfd9c6e3e7bbb5a / .1516 passed1,824cases/variant. Raw WAV #724 characterization is also included through #725. Raw Matroska #727 is included through #728. Raw ID3 characterization is included through #729. This candidate now has32 runtime topics, including the newer #703 head. #679 promotion policy, #683 Benchmark tools, raw HEVC #731 and #692 forward sync and all alpha/M3E commits remain excluded. Every input's downloaded test/lint reports passed with zero failures/errors/skips and lint0errors; standalone passes do not verify this combination.
 
 ## Current integration boundary
 
@@ -46,7 +47,11 @@ Updated2026-10-28. [Draft #701](https://github.com/averylicious/muon/pull/701), 
 
 The new31-topic runtime merge `2110a79acf676782d2d24fdaae962da5ec1ff9d3` adds verified#751/9688fb60 / [Android .1643](https://github.com/averylicious/muon/actions/runs/40715489798), actual1,822cases/variant and real-selector method in both variants, zero failures/errors/skips/lint errors. The only code conflict was adjacent PlaybackService track policy: preserve VIDEO/IMAGE disabled defaults together with existing TEXT disabled and UNSUPPORTED subtitle decoding. The integration test also supplies a TEXT group so the earlier disabled policy cannot silently be lost. Existing GuardedMetadataRenderers, extractor guards, raw gain/Tracks and nested queue/controller wrappers are retained.
 
-**This31-topic combination needs its own Actions/reports/APK.** Stable Media3 patch#753/ec3543ba / .1644 is separate and pending; current combined dependencies remain unchanged. Frozen M3E RC .1420 remains unchanged; no app installed or promoted.
+The31-topic d4b8b68b / .1645 run is superseded by the new32-topic source; do not call an unfinished/cancelled run verified. The32-topic source merges verified#753/ec3543ba / .1644: actual1,821cases/variant, zero failures/errors/skips, lint0errors/62warnings plus3hints and inspected signed-release gates. APK `37df2eee8ebae0d81fe186e5a448cdd43ae4d4fd10a50c2933125d58b1c265a8` is uninstalled. Downloaded inventory125 resolves all nine Media3 modules per runtime/test scope to1.11.1, retains Activity1.11.0 and matches the source; the APK contains the new MediaLibraryInfo version. This is selection evidence, not complete dependency/tool authentication.
+
+Runtime merge1299523f and follow-up6c14ce84 retain the upstream known-length truncated-ID3 fix as a negative control and unknown-length allocation as a positive control. Source review found the proven-raw MP4 fast path skipped the existing sample-byte policy now that native rechunking accepts a frame above8KiB. The follow-up applies that limit and strengthens the existing test with one modest16KiB native PCM table/format control plus exact admission/refusal. No new test methods, product limits or OOM/decoder claim.
+
+**The32-topic combination requires its own Actions/reports/APK.** Frozen M3E RC .1420 remains unchanged; no app installed or promoted.
 
 The repeated-row#749 integration preserves worker-projection nullability in Songs, Search's full-library queue and all three Snackbar action adapters. Mainf9263f07 was documentation-only#716; its .1641 checks passed with no application change from20579cf1. Earlier documentation conflicts retained current one-page receipts plus later detailed native evidence. Prior29-topic80e/.1637 and28-topic025/.1635 actual reports/APKs passed, but do not verify later changes.
 
@@ -54,7 +59,7 @@ Approved4MiB unfinished-tag/text-packet and64KiB lacing policies and unused-subt
 
 Source/integration checks retain:
 
-- All31 exact input ancestors; alpha/M3E commits excluded. Build/dependency/manifest/workflow/tools/signer/profile surfaces unchanged from main20579cf1.
+- All32 exact input ancestors; alpha/M3E commits excluded. Only the three Media3 dependency pins change on build surfaces; Compose/Activity, manifest/workflows/tools/signer/profile inputs remain unchanged from main20579cf1.
 - Selected-network discovery/stale ownership, Connect cancellation and worker projections; single/bulk/played Delete preparation before exclusive admission and coalesced Move checks.
 - Current-audio ReplayGain identity and finite hints, existing ID3/M4A/Vorbis parsing, bounded reminder labels, notification artwork identity/queue and narrowed external grants. Reminder labels never authorize audio or select gain.
 - Original extractor identity/order; all ID3/FLAC/Ogg/MP4/WAV/Matroska/AVI/FLV read/seek/output guards, AC-4/FLV lookahead and supplied supplemental metadata renderer. The timed output and seek-generation reset are composed with the existing guards; no decoder buffer/global heap guarantee.
@@ -91,3 +96,5 @@ Artwork-contrast integration attribution: GPT-6 / Codex desktop authored#747 and
 Repeated-playlist integration attribution: GPT-6 / Codex desktop implemented#749, inspected actual standalone reports, resolved MuonApp nullability/Search and issue-index conflicts, and integrated the documentation-only main. Author self-check, no independent or device acceptance.
 
 Audio-only integration attribution: GPT-6 / Codex desktop authored#751, verified actual standalone reports, resolved the adjacent TEXT policy conflict and strengthened the existing selector test to retain disabled captions. Author self-check; no independent or device acceptance.
+
+Stable-patch integration attribution: GPT-6 / Codex desktop compared published sources, verified actual standalone reports/inventory/APK, retained both issue-index rows, updated the native ID3 witness and corrected the raw-PCM admission fast path with native controls. Author self-check, not independent or device approval; no new test methods.
