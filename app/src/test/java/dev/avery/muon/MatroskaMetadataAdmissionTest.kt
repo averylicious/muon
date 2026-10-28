@@ -242,10 +242,51 @@ class MatroskaMetadataAdmissionTest {
             }
     }
 
+    @Test fun unfinishedLacingIsRefusedAtItsHeaderAndSmallNativeLacesStillDeliver() {
+        for (codec in listOf("A_AAC", "S_TEXT/UTF8")) for (blockId in listOf(0xa1, 0xa3)) {
+            val lace = byteArrayOf(1) + ByteArray(256) { 0xff.toByte() }
+            val bytes = sampleFixture(codec, 1, 1, 1, blockId, lace.size + 32, lace, flags = 0x82)
+            var deliveredPrefix = 0
+            fun input() = object : ForwardingExtractorInput(opened(bytes)) {
+                override fun readFully(target: ByteArray, offset: Int, length: Int) {
+                    if (length == 1 && offset >= 4) deliveredPrefix = maxOf(deliveredPrefix, offset + length)
+                    super.readFully(target, offset, length)
+                }
+            }
+            val bounded = MetadataBoundedExtractor(actual(), mkvLimits = MatroskaLimits(xiphHeaderBytes = 64))
+            try {
+                bounded.init(Capture())
+                assertThrows(StreamMetadataRefusal::class.java) { finish(bounded, input()) { error("Unexpected seek") } }
+                assertEquals("No over-budget native header read reaches the input", 64, deliveredPrefix)
+                bounded.seek(0, 0)
+                assertThrows(StreamMetadataRefusal::class.java) { finish(bounded, input()) { error("Unexpected seek") } }
+                assertEquals(64, deliveredPrefix)
+            } finally { bounded.release() }
+        }
+        // Two one-byte native AAC samples with a completed Xiph header; extraction, not decoding.
+        val bytes = sampleFixture("A_AAC", 1, 1, 1, 0xa3, 4, byteArrayOf(1, 1, 0, 0), flags = 0x82)
+        val captured = Capture()
+        val sizes = ArrayList<Int>()
+        val output = object : ExtractorOutput by captured {
+            override fun track(id: Int, type: Int): TrackOutput = object : TrackOutput by captured.track(id, type) {
+                override fun sampleMetadata(timeUs: Long, flags: Int, size: Int, offset: Int, cryptoData: TrackOutput.CryptoData?) {
+                    sizes.add(size)
+                }
+            }
+        }
+        val normal = MetadataBoundedExtractor(actual(), mkvLimits = MatroskaLimits(xiphHeaderBytes = 64))
+        try {
+            normal.init(output); finish(normal, opened(bytes)) { opened(bytes, it) }
+            assertEquals(MimeTypes.AUDIO_AAC, captured.format?.sampleMimeType)
+            assertEquals(listOf(1, 1), sizes)
+        } finally { normal.release() }
+    }
+
     @Test fun largeAudioUnknownTracksAndSmallNativeSubtitlesKeepTheirOwnBehavior() {
         for ((codec, body, blockId) in listOf(
             Triple("A_AAC", ByteArray(32 * 1024), 0xa3),
             Triple("S_TEXT/UTF8", "hello".toByteArray(), 0xa1),
+            Triple("S_TEXT/UTF8", "hello ".repeat(128).toByteArray(), 0xa1),
         )) {
             val bytes = sampleFixture(codec, 1, 1, 1, blockId, body.size, body)
             val captured = Capture()
@@ -257,7 +298,9 @@ class MatroskaMetadataAdmissionTest {
                     }
                 }
             }
-            val bounded = MetadataBoundedExtractor(actual(), mkvLimits = MatroskaLimits(elementBytes = 64))
+            val bounded = MetadataBoundedExtractor(actual(), mkvLimits = MatroskaLimits(
+                elementBytes = if (codec == "A_AAC") 64 else maxOf(64, body.size + 8).toLong(),
+                xiphHeaderBytes = 64))
             try {
                 bounded.init(output)
                 finish(bounded, opened(bytes)) { opened(bytes, it) }
@@ -278,13 +321,13 @@ class MatroskaMetadataAdmissionTest {
     }
 
     private fun sampleFixture(codec: String, number: Int?, blockTrack: Int, width: Int, blockId: Int,
-        declared: Int = 32 * 1024, body: ByteArray = byteArrayOf()): ByteArray {
+        declared: Int = 32 * 1024, body: ByteArray = byteArrayOf(), flags: Int = 0x80): ByteArray {
         val entry = element(0xae, (number?.let { element(0xd7, byteArrayOf(it.toByte())) } ?: byteArrayOf()) +
             element(0x83, byteArrayOf(if (codec == "A_AAC") 2 else 17)) + element(0x86, codec.toByteArray()) +
             if (codec == "A_AAC") element(0x63a2, byteArrayOf(0x12, 0x10)) else byteArrayOf())
         val marked = (1L shl (7 * width)) or blockTrack.toLong()
         val track = ByteArray(width) { i -> (marked ushr ((width - 1 - i) * 8)).toByte() }
-        val blockHeader = track + byteArrayOf(0, 0, 0x80.toByte())
+        val blockHeader = track + byteArrayOf(0, 0, flags.toByte())
         val missing = declared - body.size
         var block = header(blockId, blockHeader.size.toLong() + declared) + blockHeader + body
         if (blockId == 0xa1) {

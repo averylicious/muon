@@ -19,9 +19,10 @@ internal class MatroskaLimits(
     val chapters: Int = 4096,
     val cues: Int = 65_536,
     val nativeMasters: Int = 4096,
+    val xiphHeaderBytes: Int = 64 * 1024,
 ) {
     init { require(elementBytes > 0 && metadataBytes > 0 && metadataEntries > 0 && sniffBytes >= 4 &&
-        tracks > 0 && chapters > 0 && cues > 0 && nativeMasters > 0) }
+        tracks > 0 && chapters > 0 && cues > 0 && nativeMasters > 0 && xiphHeaderBytes >= 8) }
 }
 
 /**
@@ -56,6 +57,7 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
     private var textTrackPrefix = 0L
     private var textTrackRemaining = 0
     private var sentMap = false
+    private var blockBody = false
     private val masterEnds = ArrayList<Long>()
 
     fun output(actual: ExtractorOutput): ExtractorOutput = object : ExtractorOutput {
@@ -75,7 +77,7 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
 
     fun seek() {
         expectingSize = false; remaining = 0; prefix = 0; restAt = -1
-        textBlockAt = -1; textTrackRemaining = 0
+        textBlockAt = -1; textTrackRemaining = 0; blockBody = false
         payloadAt = -1 // Retain current track codec state just as native seek retains currentTrack.
         masterEnds.clear() // Native reader.reset clears all master frames.
         if (!sentMap) cueCount = 0 // Native clears only unfinished cue lists on seek.
@@ -115,6 +117,12 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
             return true
         }
         override fun readFully(target: ByteArray, offset: Int, length: Int) {
+            // Pinned Xiph lacing extends native scratch by one byte at offsets4+, before any
+            // sample delivery. Check requested prefix, not retained array capacity: seek/retry
+            // may reuse a larger old array. Audio bodies use DataReader.read; subtitle body
+            // reads have a fixed small prefix or length>1 and keep their separate element cap.
+            // Native may already have doubled its backing array before this callback.
+            if (blockBody && length == 1 && offset >= 4 && offset.toLong() + length > limits.xiphHeaderBytes) refuse()
             val before = position
             val rest = remaining != 0 && target.size == 8 && offset == 1 && length == remaining
             if (rest && position != restAt) refuse(true)
@@ -176,6 +184,7 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
             return
         }
         expectingSize = false
+        blockBody = elementId == 0xa1 || elementId == 0xa3
         payloadAt = -1
         textBlockAt = -1; textTrackRemaining = 0
         if ((elementId == 0xa1 || elementId == 0xa3) && value > limits.elementBytes && textTracks.isNotEmpty())
