@@ -105,13 +105,20 @@ class NestedMp4AdmissionTest {
         val headers = mapOf("Content-Type" to listOf(MimeTypes.IMAGE_JPEG))
         fun drive(at: Long, interrupted: Boolean = false) {
             var source = reader(bytes, at) { _, _, _ -> }
-            var delivered = 0
-            val stop = IOException("Controlled reopen")
+            var physical = at
+            var interruptedOnce = false
+            val nestedStart = bytes.size - movie.size
+            val stop = IOException("Controlled inner-sniff reopen")
             if (interrupted) {
                 val original = source
                 source = DataReader { target, offset, length ->
-                    if (delivered++ == 2) throw stop
-                    original.read(target, offset, length)
+                    // Outer JPEG sniff stops at XMP, before this range. Interrupt the actual inner
+                    // Sniffer after its ftyp peek, while its delivered read position is still start.
+                    if (!interruptedOnce && physical >= nestedStart + 20) {
+                        interruptedOnce = true
+                        throw stop
+                    }
+                    original.read(target, offset, length).also { if (it > 0) physical += it }
                 }
             }
             adapter.init(source, uri, headers, at, bytes.size.toLong(), output)
@@ -150,6 +157,47 @@ class NestedMp4AdmissionTest {
             drive(0)
             assertEquals(MimeTypes.AUDIO_AAC, output.format?.sampleMimeType)
         } finally { adapter.release() }
+    }
+
+    @Test fun nestedLeafBodyReopensAtTheSameAdmittedOffset() {
+        val movie = requireNotNull(javaClass.getResourceAsStream("/mp4-admission/control.m4a")).use { it.readBytes() }
+        val bytes = motion(movie)
+        val nestedStart = bytes.size - movie.size
+        val stop = IOException("Controlled leaf-body reopen before delivery")
+        var interrupted = false
+        fun source(at: Long) = object : ForwardingExtractorInput(DefaultExtractorInput(
+            reader(bytes, at) { _, _, _ -> }, at, bytes.size.toLong())) {
+            override fun readFully(target: ByteArray, offset: Int, length: Int) {
+                if (!interrupted && position >= nestedStart && offset == 8 && length > 0) {
+                    interrupted = true
+                    throw stop // The native atom header is consumed; body delivery has not begun.
+                }
+                super.readFully(target, offset, length)
+            }
+        }
+        val extractor = MetadataBoundedExtractor(JpegExtractor())
+        val output = Capture(); var input = source(0)
+        try {
+            extractor.init(output)
+            val holder = PositionHolder()
+            repeat(512) {
+                try {
+                    when (extractor.read(input, holder)) {
+                        Extractor.RESULT_SEEK -> input = source(holder.position)
+                        Extractor.RESULT_END_OF_INPUT -> {
+                            assertTrue("Actual inner leaf fault must occur", interrupted)
+                            assertEquals(MimeTypes.AUDIO_AAC, output.format?.sampleMimeType)
+                            assertTrue(requireNotNull(output.map).isSeekable)
+                            return
+                        }
+                    }
+                } catch (failure: IOException) {
+                    if (failure !== stop) throw failure
+                    input = source(input.position)
+                }
+            }
+            fail("Nested body control did not finish")
+        } finally { extractor.release() }
     }
 
     @Test fun innerSnifferRefusesFtypBeforeItsPayloadArray() {
