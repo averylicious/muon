@@ -59,6 +59,20 @@ class QueueNoticesTest {
     @Test fun anUndoTapAlreadyChosenSurvivesReplacementAndItsOperationKeepsRunning() = runTest {
         val owner = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
         try {
+            // The default raw-data host misses the action receipt. This is the former player-
+            // overlay wiring: a same-turn replacement loses its already-resumed native action.
+            val rawHost = SnackbarHostState()
+            val rawNotices = QueueNotices(owner, rawHost)
+            val unobserved = async(start = CoroutineStart.UNDISPATCHED) { rawNotices.show("raw", "Undo") }
+            runCurrent()
+            rawHost.currentSnackbarData!!.performAction()
+            val rawNext = async(start = CoroutineStart.UNDISPATCHED) { rawNotices.show("raw replacement") }
+            runCurrent()
+            assertEquals(SnackbarResult.Dismissed, unobserved.await())
+            rawHost.currentSnackbarData!!.dismiss(); runCurrent()
+            assertEquals(SnackbarResult.Dismissed, rawNext.await())
+            assertNull(rawHost.currentSnackbarData)
+
             val host = SnackbarHostState()
             val notices = QueueNotices(owner, host)
             val operation = CompletableDeferred<Unit>()
