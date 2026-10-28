@@ -38,9 +38,9 @@ class PlaybackService : MediaSessionService() {
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK).build()
-        // Muon has no caption output. Avoid unused extraction-time subtitle parsers AND legacy text
-        // selection: raw text still advertises renderer support but would fail when legacy decoding is off.
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+        // Muon has no video/image/caption output. Retain both visual and text selection policy;
+        // raw text would still advertise renderer support while legacy subtitle decoding is off.
+        player.trackSelectionParameters = audioOnlyPlaybackParameters(player.trackSelectionParameters).buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
         // A shuffle that starts from the chosen song and keeps Play next and Add to queue where they
         // were put (see QueueShuffleOrder). Turning shuffle on reshuffles from the playing song, so
