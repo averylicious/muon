@@ -2,6 +2,8 @@
 
 Historical implementation stages follow. Use the maintained [current#720 state](issues/720.md) for the latest verified source and remaining acceptance; old pending-step wording below is historical, not an unfinished current gate.
 
+Historical implementation-step detail: pending/next-step prose below belongs to that earlier step. Use the maintained [current #720 state](issues/720.md) for current verification/remaining work; later fragmented/tail and nested JPEG controls are complete at their recorded heads.
+
 Post-RC work for [#720](issues/720.md); not part of frozen .1420. Main20579cf1, with verified FLAC/Ogg #718 and raw MP4 #721 prerequisites. Source reviewed against official Media3 extractor1.11.0 JAR SHA256 `76404d34549e50b93f16c94119aace19dee06be9068c45a3d4f8ed5289e4eb3e`. No dependency/flag/order/identity changes or library fork. CI is the first Android compile; no phones or user media.
 
 ## Admission before the real parser
