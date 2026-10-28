@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Updated 2026-10-28. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-29. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
@@ -12,7 +12,7 @@ Updated 2026-10-28. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC auditing continues; root is sole writer.** Main application baseline20579cf1, alphaee7ddb75 and frozen RC remain preserved; documentation-only checkpoint landing can advance main’s ref. Current29-topic#701/80e41af3 / .1637 passed actual1,994cases/variant and inspected signed-release APK gates. It includes the approved64KiB lacing policy and verified light artwork text contrast#746/#747. New repeated-playlist-row selection#748/#749/db401da7 / .1638 passed actual1,822cases/variant separately; carry clicked row index through filtering without changing Search’s full-library queue behavior. Integrate that verified head, then check the new combination. Fresh audit-only Opus remains idle; no unanswered product questions. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) contains exact evidence/ownership/next actions. No phones, main runtime landing, alpha landing, Stable publication/tag or frozen-RC replacement. Continue useful authorized work to live20%-remaining with recovery reserve.
+**Broader post-RC audit recovery boundary:** root owns clean pushed33-topic #701/77e217e5 / .1654, verified actual1,997cases/variant plus signed-release/report/inventory gates. HEIC and normal AGP-plugin Guava corrections are included; rare32MiB HEIC preamble restriction is user-accepted. Gradle's separate bundled-source/caller question remains qualified/open. New prose-only checkpoint#756 refreshes this entry and issue files; after it lands, runtime promotion still needs refreshed main ancestry/checks and later acceptance. Main application20579cf1, alpha and frozen RC are preserved. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact receipts/owners/next work. No unanswered questions, phones, active storage operation, runtime main/alpha landing or Stable tag. Continue only within the user's live capacity/permission scope.
 
 ## Resume order
 
