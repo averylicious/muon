@@ -49,11 +49,23 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
     private val trackIds = HashSet<Int>()
     private val chapterIds = HashSet<Long>()
     private var cueCount = 0
+    // Native output track IDs tell us which Block headers may allocate subtitle scratch. No per-
+    // sample ledger/buffer: retain only the already bounded text-track IDs and one pending varint.
+    private val textTracks = HashSet<Int>()
+    private var textBlockAt = -1L
+    private var textTrackPrefix = 0L
+    private var textTrackRemaining = 0
     private var sentMap = false
     private val masterEnds = ArrayList<Long>()
 
     fun output(actual: ExtractorOutput): ExtractorOutput = object : ExtractorOutput {
-        override fun track(id: Int, type: Int): TrackOutput = actual.track(id, type)
+        override fun track(id: Int, type: Int): TrackOutput {
+            if (type == C.TRACK_TYPE_TEXT) {
+                if (id !in textTracks && textTracks.size >= limits.tracks) refuse()
+                textTracks.add(id)
+            } else textTracks.remove(id)
+            return actual.track(id, type)
+        }
         override fun endTracks() = actual.endTracks()
         override fun seekMap(seekMap: SeekMap) {
             actual.seekMap(seekMap)
@@ -63,6 +75,7 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
 
     fun seek() {
         expectingSize = false; remaining = 0; prefix = 0; restAt = -1
+        textBlockAt = -1; textTrackRemaining = 0
         payloadAt = -1 // Retain current track codec state just as native seek retains currentTrack.
         masterEnds.clear() // Native reader.reset clears all master frames.
         if (!sentMap) cueCount = 0 // Native clears only unfinished cue lists on seek.
@@ -93,13 +106,16 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
 
     fun input(actual: ExtractorInput): ExtractorInput = object : ForwardingExtractorInput(actual) {
         override fun readFully(target: ByteArray, offset: Int, length: Int, allowEndOfInput: Boolean): Boolean {
+            val before = position
             val first = target.size == 8 && offset == 0 && length == 1 && (allowEndOfInput || expectingSize)
             if (first && remaining != 0) refuse(true)
             if (!super.readFully(target, offset, length, allowEndOfInput)) return false
             if (first) start(target[0].toInt() and 255, !allowEndOfInput, position, this.length)
+            observeTextBlockTrack(target, offset, length, before)
             return true
         }
         override fun readFully(target: ByteArray, offset: Int, length: Int) {
+            val before = position
             val rest = remaining != 0 && target.size == 8 && offset == 1 && length == remaining
             if (rest && position != restAt) refuse(true)
             super.readFully(target, offset, length)
@@ -113,6 +129,32 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
                 (target.size == payloadSize || (target.size == 8 && isCensusInteger(payloadId)))) {
                 deliveredPayload(target)
             }
+            observeTextBlockTrack(target, offset, length, before)
+        }
+    }
+
+    // Pinned MatroskaExtractor reads a Block's track number through VarintReader's fixed8-byte
+    // scratch before allocating subtitleSample. Observe those successful reads without peeking,
+    // rewriting data, or imposing an audio/Segment/Cluster length cap. The remaining Block bytes
+    // (timestamps/flags/laces/sample payload) still go straight to the native extractor.
+    private fun observeTextBlockTrack(target: ByteArray, offset: Int, length: Int, before: Long) {
+        if (textBlockAt < 0 || target.size != 8) return
+        if (before == textBlockAt && offset == 0 && length == 1) {
+            val first = target[0].toInt() and 255
+            val width = Integer.numberOfLeadingZeros(first) - 24 + 1
+            if (width !in 1..8) refuse(true)
+            textTrackPrefix = (first and (0xff ushr width)).toLong()
+            textTrackRemaining = width - 1
+        } else if (before > textBlockAt && before - textBlockAt == 1L && offset == 1 &&
+            textTrackRemaining > 0 && length == textTrackRemaining) {
+            for (i in offset until offset + length)
+                textTrackPrefix = (textTrackPrefix shl 8) or (target[i].toLong() and 255)
+            textTrackRemaining = 0
+        } else return
+        if (textTrackRemaining == 0) {
+            textBlockAt = -1
+            // Match the pinned native cast, including its accepted default/missing TrackNumber0.
+            if (textTrackPrefix.toInt() in textTracks) refuse()
         }
     }
 
@@ -135,6 +177,9 @@ internal class MatroskaMetadataAdmission(private val limits: MatroskaLimits = Ma
         }
         expectingSize = false
         payloadAt = -1
+        textBlockAt = -1; textTrackRemaining = 0
+        if ((elementId == 0xa1 || elementId == 0xa3) && value > limits.elementBytes && textTracks.isNotEmpty())
+            textBlockAt = at
         if (isMaster(elementId)) {
             if (at > Long.MAX_VALUE - value) refuse(true)
             if (masterEnds.size >= limits.nativeMasters) refuse()
