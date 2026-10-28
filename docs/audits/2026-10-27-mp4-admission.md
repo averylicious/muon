@@ -1,4 +1,6 @@
-# Ordinary MP4 admission candidate
+# MP4 admission implementation evidence
+
+Historical implementation stages follow. Use the maintained [current#720 state](issues/720.md) for the latest verified source and remaining acceptance; old pending-step wording below is historical, not an unfinished current gate.
 
 Post-RC work for [#720](issues/720.md); not part of frozen .1420. Main20579cf1, with verified FLAC/Ogg #718 and raw MP4 #721 prerequisites. Source reviewed against official Media3 extractor1.11.0 JAR SHA256 `76404d34549e50b93f16c94119aace19dee06be9068c45a3d4f8ed5289e4eb3e`. No dependency/flag/order/identity changes or library fork. CI is the first Android compile; no phones or user media.
 

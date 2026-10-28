@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Updated 2026-10-25. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-28. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
@@ -12,9 +12,7 @@ Updated 2026-10-25. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC work is now authorized on separate branches**, while installed RC .1420 stays frozen. CI/security #685/#694 landed; main baseline is `dd8782a0426437093a99ea3f7205878b6af775bc`. Runtime/tool topics now include verified fourteen-input candidate #701 (including #710/#712), separate parser characterization #715 and Benchmark #683, all draft/open for their own acceptance; #692 is the owner-landed main→M3E security/CI sync. Old #641–#644 closed as superseded. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) links maintained issue files, exact heads/checks and pending work. Main app source still matches v0.2.0; no new Stable tag/publication or phone action.
-
-GPT-6 owns the isolated audit/policy/receipt worktrees. The allocated audit Claude completed Opus 5.5 High coding/source reviews and is idle; refresh live quota before reuse. Reviews of code it originally authored are not wholly independent. The original experimental checkout is preserved. Historical phone permission does not extend to this maintenance task. The user resumed broader audits after that handoff, accepting scope expansion. **This cycle has no phone access** while they use both devices. Continue source/CI engineering without installing over RC .1420; save verified boundaries while working. The previous stop request is no longer active.
+**Broader post-RC auditing continues; root is sole writer.** Main application baseline20579cf1, alphaee7ddb75 and frozen RC remain preserved; documentation-only checkpoint landing can advance main’s ref. Current29-topic#701/80e41af3 / .1637 passed actual1,994cases/variant and inspected signed-release APK gates. It includes the approved64KiB lacing policy and verified light artwork text contrast#746/#747. New repeated-playlist-row selection#748/#749/db401da7 / .1638 passed actual1,822cases/variant separately; carry clicked row index through filtering without changing Search’s full-library queue behavior. Integrate that verified head, then check the new combination. Fresh audit-only Opus remains idle; no unanswered product questions. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) contains exact evidence/ownership/next actions. No phones, main runtime landing, alpha landing, Stable publication/tag or frozen-RC replacement. Continue useful authorized work to live20%-remaining with recovery reserve.
 
 ## Resume order
 
