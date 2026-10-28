@@ -2,7 +2,7 @@
 
 GPT-6 / Codex desktop; exact variant/effort not reported. Source/database self-check, not independent review or phone evidence.
 
-Downloaded inventory 128 / [run](https://github.com/averylicious/muon/actions/runs/40726453313), source `31e98ce4385f42e961de17bc2f8d54f3469f74bf`, has the same app/build tree as verified #701/fdf3e269/.1650. Archive SHA256 `a898d85790f18f2fe68a365c386559ad2aac3d1642226ef0c322fea355bdca2f` matches the API. It selects the stable Media3 patch and existing transitive Guava correction. [Evidence](evidence/2026-10-29-dependency-advisories.json) records exact public Maven coordinates, query times and match IDs.
+Downloaded inventory 128 / [run](https://github.com/averylicious/muon/actions/runs/40726453313), source `31e98ce4385f42e961de17bc2f8d54f3469f74bf`, has the same app/build tree as verified #701/fdf3e269/.1650. Archive SHA256 `a898d85790f18f2fe68a365c386559ad2aac3d1642226ef0c322fea355bdca2f` matches the API. It selects the stable Media3 patch and existing transitive Guava correction. [Evidence at the committed maintenance head](https://github.com/averylicious/muon/blob/77e217e509a4d207465b543615604180f39352d2/docs/audits/evidence/2026-10-29-dependency-advisories.json) records exact public Maven coordinates, query times and match IDs.
 
 ## Database result and prior-work comparison
 
