@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Updated 2026-10-28. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-29. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
@@ -12,7 +12,7 @@ Updated 2026-10-28. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC auditing continues; root is sole writer.** Verified32-topic#701/e31ea4e4 / .1646 passed actual1,996cases/variant and inspected signed-release gates, including composed audio-only/subtitle policies, updated ID3 controls and raw-PCM admission correction. Guava advisory#754 / draft#755/3f1575be / .1647 is separate/pending; actual Canary code and API28 source route are assessed with release-R8/no-phone qualifiers. Documentation mainf9263f07 and application baseline20579cf1, alpha and frozen RC remain preserved. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact receipts/next actions. No unanswered questions, phones, runtime main/alpha landing or Stable tag. Continue to live20%-remaining with reserve.
+**Broader post-RC auditing continues; root is sole writer.** Verified32-topic#701/e31ea4e4 / .1646 passed actual1,996cases/variant and inspected signed-release gates. New33-topic7067f7ad adds verified Guava#755/3f1575be / .1647 with actual inventory/reports/packaged-bytecode checks; its own combination is pending. #720/#722 next assesses the source-confirmed HEIC internal-MP4 route, not yet a verified fix. Documentation mainf9263f07/application20579cf1, alpha and frozen RC stay preserved. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds receipts/next actions. No unanswered questions, phones, runtime main/alpha landing or Stable tag. Continue to live20%-remaining with reserve.
 
 ## Resume order
 
