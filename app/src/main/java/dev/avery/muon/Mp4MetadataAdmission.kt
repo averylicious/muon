@@ -358,6 +358,8 @@ internal class Mp4MetadataAdmission(private val limits: Mp4Limits = Mp4Limits(),
             // Proven single raw entry, only known harmless children. PCM can replace an inconsistent stsz
             // size with the format frame size; every supported encoding uses at most8bytes/channel.
             val frame = maxOf(fixed, 8L * entry.channels)
+            // Rechunking can emit one full frame even when it exceeds the target buffer size.
+            if (frame > limits.sampleBytes) throw StreamMetadataRefusal()
             return rows(rechunked(stsc, chunkCount, maxOf(1L, RECHUNK_SAMPLE_BYTES / frame)), chunkCount)
         }
         var largest = if (stsz != null && fixed != 0L) fixed else largest(sizes, stsz != null, count)

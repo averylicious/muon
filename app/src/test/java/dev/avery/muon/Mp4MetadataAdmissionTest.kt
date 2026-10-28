@@ -189,6 +189,25 @@ class Mp4MetadataAdmissionTest {
         val stts = payload(pcm, chain(pcm, *stbl, "stts"))
         assertEquals(1, int(stts, 4))
         assertEquals(MimeTypes.AUDIO_RAW, published(pcm, limits).format?.sampleMimeType)
+        // The stable Media3 patch permits a full fixed sample above its8KiB rechunk target.
+        // Use one modest16KiB declared sample; stop at native format/map publication, no decoder.
+        val largeRaw = fixedCount(pcm, 1)
+        val declared = 16 * 1024
+        put(largeRaw, chain(largeRaw, *stbl, "stsz").last().start + 12, declared)
+        val native = Mp4Extractor(); val nativeOut = Capture(); val nativeFaults = Faults()
+        try {
+            pump(native, start(native, nativeOut, largeRaw, nativeFaults, sniff = false),
+                largeRaw, nativeFaults) { nativeOut.map != null }
+            assertEquals(MimeTypes.AUDIO_RAW, nativeOut.format?.sampleMimeType)
+            assertTrue(requireNotNull(nativeOut.format).maxInputSize >= declared)
+            assertEquals(1, native.getSampleTimestampsUs(0).size)
+        } finally { native.release() }
+        val refusedRaw = Capture()
+        assertFalse(assertThrows(StreamMetadataRefusal::class.java) {
+            published(largeRaw, Mp4Limits(sampleBytes = declared - 1L), refusedRaw)
+        }.contentIsMalformed)
+        assertNull("Oversized raw sample must refuse before table publication", refusedRaw.map)
+        assertNotNull(published(largeRaw, Mp4Limits(sampleBytes = declared.toLong())).map)
         // Two timing entries take the normal per-sample path for the same samples.
         val count = int(stts, 8)
         val split = replace(pcm, chain(pcm, *stbl, "stts"),
