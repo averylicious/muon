@@ -803,7 +803,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
             // Overlay notices stay above the player instead of resizing artwork or hiding behind it.
             if (playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar,
-                Modifier.align(androidx.compose.ui.Alignment.BottomCenter).safeDrawingPadding().padding(12.dp))
+                Modifier.align(androidx.compose.ui.Alignment.BottomCenter).safeDrawingPadding().padding(12.dp)) { data ->
+                Snackbar(queueNotices.observeAction(data))
+            }
             if (loudnessDetails) AlertDialog(onDismissRequest = { loudnessDetails = false },
                 title = { Text("Loudness tags missing") },
                 text = { Text("Add ReplayGain tags to this song on your computer. Muon uses an estimate from other songs when available; otherwise its volume stays unchanged.") },
