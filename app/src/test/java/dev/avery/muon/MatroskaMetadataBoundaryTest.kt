@@ -92,6 +92,36 @@ class MatroskaMetadataBoundaryTest {
         } finally { raw.release() }
     }
 
+    @Test fun subtitleBlockAllocatesExpandedScratchBeforeItsMissingSampleBody() {
+        val bodyBytes = 32 * 1024 // Small actual allocation; never an OOM/heap-pressure probe.
+        val entry = element(0xae, element(0xd7, byteArrayOf(1)) +
+            element(0x83, byteArrayOf(17)) + element(0x86, ascii("S_TEXT/UTF8")))
+        val beforeCluster = element(0x1549a966, byteArrayOf()) + element(0x1654ae6b, entry)
+        val block = header(0xa3, bodyBytes.toLong() + 4) + byteArrayOf(0x81.toByte(), 0, 0, 0)
+        val clusterBody = element(0xe7, byteArrayOf(0)) + block
+        val cluster = header(0x1f43b675, clusterBody.size.toLong() + bodyBytes) + clusterBody
+        val bytes = ebml() + header(0x18538067, beforeCluster.size.toLong() + cluster.size + bodyBytes) +
+            beforeCluster + cluster
+        assertTrue(bytes.size < 128)
+        var observed = 0
+        val input = object : ForwardingExtractorInput(opened(bytes, 0)) {
+            override fun readFully(target: ByteArray, offset: Int, length: Int) {
+                if (length == bodyBytes && offset > 0) observed = target.size
+                super.readFully(target, offset, length)
+            }
+        }
+        val raw = actual()
+        val output = Capture()
+        try {
+            assertTrue(raw.sniff(input)); input.resetPeekPosition()
+            raw.init(output)
+            assertThrows(EOFException::class.java) { finish(raw, input) { error("Unexpected fixture seek") } }
+            assertEquals(MimeTypes.APPLICATION_SUBRIP, output.format?.sampleMimeType)
+            assertTrue("Native subtitle scratch reserves twice the declared sample plus its prefix",
+                observed >= 2 * bodyBytes && observed < 2 * bodyBytes + 128)
+        } finally { raw.release() }
+    }
+
     private fun actual() = DefaultExtractorsFactory().createExtractors().single { it is MatroskaExtractor }
     private fun finish(extractor: Extractor, start: ExtractorInput, reopen: (Long) -> ExtractorInput) {
         var input = start
