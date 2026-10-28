@@ -113,6 +113,11 @@ dependencies {
     // Installs the Baseline Profile shipped in the APK on phones that are not updated through Play.
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    constraints {
+        implementation("com.google.guava:guava:33.7.2-android") {
+            because("GHSA-xxph-c9ww-hj94: bound native deserialization allocation")
+        }
+    }
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")
     // Deterministic cancellation/replacement ordering for the production library-load owner.
