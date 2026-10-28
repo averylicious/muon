@@ -116,7 +116,9 @@ class MatroskaMetadataBoundaryTest {
             assertTrue(raw.sniff(input)); input.resetPeekPosition()
             raw.init(output)
             assertThrows(EOFException::class.java) { finish(raw, input) { error("Unexpected fixture seek") } }
-            assertEquals(MimeTypes.APPLICATION_SUBRIP, output.format?.sampleMimeType)
+            // Default factory keeps its native extraction-time subtitle transcoding enabled.
+            assertEquals(MimeTypes.APPLICATION_MEDIA3_CUES, output.format?.sampleMimeType)
+            assertEquals(MimeTypes.APPLICATION_SUBRIP, output.format?.codecs)
             assertTrue("Native subtitle scratch reserves twice the declared sample plus its prefix",
                 observed >= 2 * bodyBytes && observed < 2 * bodyBytes + 128)
         } finally { raw.release() }
