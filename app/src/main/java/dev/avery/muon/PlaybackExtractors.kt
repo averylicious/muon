@@ -8,12 +8,15 @@ import androidx.media3.common.ParserException
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorInput
+import androidx.media3.extractor.ExtractorOutput
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.ForwardingExtractor
 import androidx.media3.extractor.ForwardingExtractorsFactory
 import androidx.media3.extractor.MpegAudioUtil
 import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.mp3.Mp3Extractor
+import androidx.media3.extractor.ts.AdtsExtractor
+import androidx.media3.extractor.ts.TsExtractor
 import java.io.EOFException
 import java.io.InterruptedIOException
 
@@ -42,10 +45,19 @@ internal class PlaybackExtractors(factory: ExtractorsFactory = DefaultExtractors
 }
 
 internal class MetadataBoundedExtractor(private val actual: Extractor, private val maximum: Int = STREAM_ID3_BYTES,
-    private val id3Limits: Id3FrameLimits = Id3FrameLimits()) :
+    private val id3Limits: Id3FrameLimits = Id3FrameLimits(), timedId3Bytes: Int = STREAM_ID3_BYTES) :
     ForwardingExtractor(actual) {
     init { require(maximum >= ID3_HEADER) }
     private val id3 = Id3FrameAdmission(id3Limits)
+    // Timed ID3 written into a metadata track's SampleQueue (TS PES, mid-stream ADTS; #729).
+    private val timedId3 = actual.underlyingImplementation.let {
+        if (it is TsExtractor || it is AdtsExtractor) TimedId3Admission(timedId3Bytes) else null
+    }
+    override fun init(output: ExtractorOutput) = super.init(timedId3?.output(output) ?: output)
+    override fun seek(position: Long, timeUs: Long) {
+        timedId3?.seek()
+        super.seek(position, timeUs)
+    }
     override fun sniff(input: ExtractorInput): Boolean {
         checkPrefix(input)
         return super.sniff(id3.input(input))
