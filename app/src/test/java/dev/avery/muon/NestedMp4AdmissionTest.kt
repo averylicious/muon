@@ -102,9 +102,12 @@ class NestedMp4AdmissionTest {
         val bytes = motion(movie)
         val adapter = BundledExtractorsAdapter(PlaybackExtractors())
         val output = Capture()
+        val native = BundledExtractorsAdapter(DefaultExtractorsFactory())
+        val expected = Capture()
         val uri = Uri.parse("http://fixture.invalid/stream/1")
         val headers = mapOf("Content-Type" to listOf(MimeTypes.IMAGE_JPEG))
-        fun drive(at: Long, interrupted: Boolean = false) {
+        fun drive(at: Long, interrupted: Boolean = false, target: BundledExtractorsAdapter = adapter,
+            capture: Capture = output) {
             var source = reader(bytes, at) { _, _, _ -> }
             var physical = at
             var interruptedOnce = false
@@ -122,42 +125,62 @@ class NestedMp4AdmissionTest {
                     original.read(target, offset, length).also { if (it > 0) physical += it }
                 }
             }
-            adapter.init(source, uri, headers, at, bytes.size.toLong(), output)
+            target.init(source, uri, headers, at, bytes.size.toLong(), capture)
             val holder = PositionHolder()
             var retried = false
             repeat(512) {
                 try {
-                    when (adapter.read(holder)) {
+                    when (target.read(holder)) {
                         Extractor.RESULT_END_OF_INPUT -> {
                             if (interrupted) assertTrue("Controlled failure must actually occur", retried)
                             return
                         }
-                        Extractor.RESULT_SEEK -> adapter.init(reader(bytes, holder.position) { _, _, _ -> },
-                            uri, headers, holder.position, bytes.size.toLong(), output)
+                        Extractor.RESULT_SEEK -> target.init(reader(bytes, holder.position) { _, _, _ -> },
+                            uri, headers, holder.position, bytes.size.toLong(), capture)
                     }
                 } catch (failure: IOException) {
                     if (failure !== stop) throw failure
                     assertFalse(retried); retried = true
                     // A real interrupted source reopens at the adapter's actual delivered position.
-                    val position = adapter.currentInputPosition
-                    adapter.init(reader(bytes, position) { _, _, _ -> }, uri, headers,
-                        position, bytes.size.toLong(), output)
+                    val position = target.currentInputPosition
+                    target.init(reader(bytes, position) { _, _, _ -> }, uri, headers,
+                        position, bytes.size.toLong(), capture)
                 }
             }
             fail("Nested control did not finish")
         }
         try {
+            drive(0, target = native, capture = expected)
+            assertEquals(MimeTypes.AUDIO_AAC, expected.format?.sampleMimeType)
             drive(0, interrupted = true)
             assertEquals(MimeTypes.AUDIO_AAC, output.format?.sampleMimeType)
-            assertTrue(requireNotNull(output.map).isSeekable)
+            val nativeMap = requireNotNull(expected.map)
+            val guardedMap = requireNotNull(output.map)
+            assertTrue(nativeMap.isSeekable)
+            assertEquals(nativeMap.isSeekable, guardedMap.isSeekable)
+            assertEquals(nativeMap.durationUs, guardedMap.durationUs)
+            assertTrue(nativeMap.durationUs > 0)
+            for (time in listOf(0L, nativeMap.durationUs / 2, nativeMap.durationUs - 1)) {
+                val nativePoints = nativeMap.getSeekPoints(time)
+                val guardedPoints = guardedMap.getSeekPoints(time)
+                assertEquals(nativePoints.first.timeUs, guardedPoints.first.timeUs)
+                assertEquals(nativePoints.first.position, guardedPoints.first.position)
+                assertEquals(nativePoints.second.timeUs, guardedPoints.second.timeUs)
+                assertEquals(nativePoints.second.position, guardedPoints.second.position)
+            }
             val point = requireNotNull(output.map).getSeekPoints(0).first
             assertTrue(point.position >= bytes.size - movie.size)
             adapter.seek(point.position, point.timeUs)
             drive(point.position)
+            val formatsBeforeRestart = output.aacFormats
+            output.format = null // A stale format must not make the restart assertion pass.
+            output.map = null
             adapter.seek(0, 0)
             drive(0)
+            assertTrue("Restart must publish fresh AAC format", output.aacFormats > formatsBeforeRestart)
             assertEquals(MimeTypes.AUDIO_AAC, output.format?.sampleMimeType)
-        } finally { adapter.release() }
+            assertEquals(nativeMap.durationUs, requireNotNull(output.map).durationUs)
+        } finally { try { adapter.release() } finally { native.release() } }
     }
 
     @Test fun nestedLeafBodyReopensAtTheSameAdmittedOffset() {
@@ -289,9 +312,13 @@ class NestedMp4AdmissionTest {
 
     private class Capture : ExtractorOutput {
         var format: Format? = null
+        var aacFormats = 0
         var map: SeekMap? = null
         override fun track(id: Int, type: Int): TrackOutput = object : TrackOutput by DiscardingTrackOutput() {
-            override fun format(format: Format) { this@Capture.format = format }
+            override fun format(format: Format) {
+                this@Capture.format = format
+                if (format.sampleMimeType == MimeTypes.AUDIO_AAC) aacFormats++
+            }
         }
         override fun endTracks() {}
         override fun seekMap(seekMap: SeekMap) { map = seekMap }
