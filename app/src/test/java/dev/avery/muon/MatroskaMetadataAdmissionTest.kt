@@ -258,6 +258,9 @@ class MatroskaMetadataAdmissionTest {
                 bounded.init(Capture())
                 assertThrows(StreamMetadataRefusal::class.java) { finish(bounded, input()) { error("Unexpected seek") } }
                 assertEquals("No over-budget native header read reaches the input", 64, deliveredPrefix)
+                // The prior refusal left a larger native scratch array. Require real delivery
+                // again: its retained capacity must not poison the restarted small reads.
+                deliveredPrefix = 0
                 bounded.seek(0, 0)
                 assertThrows(StreamMetadataRefusal::class.java) { finish(bounded, input()) { error("Unexpected seek") } }
                 assertEquals(64, deliveredPrefix)
