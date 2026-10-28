@@ -5,6 +5,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Workstream | Current state | GitHub owner record |
 | --- | --- | --- |
 | Queue removal notice backlog — post-RC engineering | [#744](744.md) | [Issue #744](https://github.com/averylicious/muon/issues/744) |
+| Artwork-theme normal-text contrast — post-RC correction | [#746](746.md) | [Issue #746](https://github.com/averylicious/muon/issues/746) |
 | Aggregate memory and partition storage — implemented/accepted/released | [#253](253.md) | [Issue #253](https://github.com/averylicious/muon/issues/253) |
 | Saved-card startup and Move latency — explicitly deferred post-release | [#401](401.md) | [Issue #401](https://github.com/averylicious/muon/issues/401) |
 | User removal preparation — post-RC implementation | [#706](706.md) | [Issue #706](https://github.com/averylicious/muon/issues/706) |
