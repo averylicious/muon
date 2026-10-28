@@ -124,6 +124,40 @@ class MatroskaMetadataBoundaryTest {
         } finally { raw.release() }
     }
 
+    @Test fun unfinishedXiphLacingGrowsNativeHeaderScratchBeforeAudioDelivery() {
+        // Native MP3 track setup needs no codec-private data. These are parser/header controls,
+        // not decoded MP3 audio or large-memory probes.
+        val entry = element(0xae, element(0xd7, byteArrayOf(1)) +
+            element(0x83, byteArrayOf(2)) + element(0x86, ascii("A_MPEG/L3")))
+        val before = element(0x1549a966, byteArrayOf()) + element(0x1654ae6b, entry)
+        for (laceBytes in listOf(32, 32 * 1024)) {
+            // Two laced samples, but the first sample's Xiph size never terminates. Every FF
+            // increases its length and requires another byte in the native readScratch array.
+            val block = header(0xa3, laceBytes.toLong() + 32) +
+                byteArrayOf(0x81.toByte(), 0, 0, 2, 1) + ByteArray(laceBytes) { 0xff.toByte() }
+            val cluster = header(0x1f43b675, block.size.toLong() + 32) +
+                element(0xe7, byteArrayOf(0)) + block
+            val bytes = ebml() + header(0x18538067, before.size.toLong() + cluster.size + 32) + before + cluster
+            var scratch = 0
+            val input = object : ForwardingExtractorInput(opened(bytes, 0)) {
+                override fun readFully(target: ByteArray, offset: Int, length: Int) {
+                    if (length == 1 && offset >= 4) scratch = maxOf(scratch, target.size)
+                    super.readFully(target, offset, length)
+                }
+            }
+            val raw = actual()
+            val output = Capture()
+            try {
+                assertTrue(raw.sniff(input)); input.resetPeekPosition(); raw.init(output)
+                assertThrows(EOFException::class.java) { finish(raw, input) { error("Unexpected fixture seek") } }
+                assertEquals(MimeTypes.AUDIO_MPEG, output.format?.sampleMimeType)
+                assertTrue("Actual native header scratch grew with delivered lace bytes", scratch >= laceBytes + 4)
+                assertEquals("No audio bytes reached the output during unfinished lacing", 0, output.sampleWrites)
+                assertTrue(bytes.size < 40 * 1024)
+            } finally { raw.release() }
+        }
+    }
+
     private fun actual() = DefaultExtractorsFactory().createExtractors().single { it is MatroskaExtractor }
     private fun finish(extractor: Extractor, start: ExtractorInput, reopen: (Long) -> ExtractorInput) {
         var input = start
@@ -141,8 +175,16 @@ class MatroskaMetadataBoundaryTest {
     private class Capture : ExtractorOutput {
         var format: Format? = null
         var map: SeekMap? = null
-        override fun track(id: Int, type: Int): TrackOutput = object : TrackOutput by DiscardingTrackOutput() {
-            override fun format(value: Format) { format = value }
+        var sampleWrites = 0
+        override fun track(id: Int, type: Int): TrackOutput {
+            val discarded = DiscardingTrackOutput()
+            return object : TrackOutput by discarded {
+                override fun format(value: Format) { format = value }
+                override fun sampleData(input: DataReader, length: Int, allowEndOfInput: Boolean, sampleDataPart: Int): Int {
+                    sampleWrites++
+                    return discarded.sampleData(input, length, allowEndOfInput, sampleDataPart)
+                }
+            }
         }
         override fun endTracks() {}
         override fun seekMap(seekMap: SeekMap) { map = seekMap }
