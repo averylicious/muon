@@ -1,4 +1,8 @@
-# Ordinary MP4 admission candidate
+# MP4 admission implementation evidence
+
+Historical implementation stages follow. Use the maintained [current#720 state](issues/720.md) for the latest verified source and remaining acceptance; old pending-step wording below is historical, not an unfinished current gate.
+
+Historical implementation-step detail: pending/next-step prose below belongs to that earlier step. Use the maintained [current #720 state](issues/720.md) for current verification/remaining work; later fragmented/tail and nested JPEG controls are complete at their recorded heads.
 
 Historical implementation-step detail: pending/next-step prose below belongs to that earlier step. Use the maintained [current #720 state](issues/720.md) for current verification/remaining work; later fragmented/tail and nested JPEG controls are complete at their recorded heads.
 
