@@ -19,6 +19,7 @@ import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.mp4.Mp4Extractor
+import androidx.media3.extractor.mp4.FragmentedMp4Extractor
 import androidx.media3.extractor.jpeg.JpegExtractor
 import androidx.media3.extractor.heif.HeifExtractor
 import java.io.IOException
@@ -291,6 +292,78 @@ class NestedMp4AdmissionTest {
                 }
                 assertFalse(nativePayload)
             } finally { extractor.release() }
+        }
+    }
+
+    @Test fun cachedNativeSniffsObserveCancellationAcrossDirectAndNestedRoutes() {
+        val movie = requireNotNull(javaClass.getResourceAsStream("/mp4-admission/control.m4a")).use { it.readBytes() }
+        val fragmented = atom("ftyp", "isom".toByteArray() + ByteArray(4) + "isom".toByteArray()) +
+            atom("moof", ByteArray(0))
+        val routes = listOf<Triple<ByteArray, () -> Extractor, Boolean>>(
+            Triple(movie, { Mp4Extractor() }, false),
+            Triple(fragmented, { FragmentedMp4Extractor() }, false),
+            Triple(motion(movie), { JpegExtractor() }, true),
+            Triple(heic(movie), { HeifExtractor() }, true))
+        for ((bytes, create, reading) in routes) for (bounded in listOf(false, true)) {
+            val raw = create()
+            val description = "${raw.javaClass.simpleName}, bounded=$bounded"
+            val extractor = if (bounded) MetadataBoundedExtractor(raw) else raw
+            var upstreamReads = 0
+            val cached = DefaultExtractorInput(reader(bytes, 0) { _, _, _ -> upstreamReads++ },
+                0, bytes.size.toLong())
+            cached.advancePeekPosition(bytes.size)
+            cached.resetPeekPosition()
+            val readsBeforeSniff = upstreamReads
+            var injected = false
+            var payloadPeeks = 0
+            val input = object : ForwardingExtractorInput(cached) {
+                override fun peekFully(target: ByteArray, offset: Int, length: Int,
+                    allowEndOfInput: Boolean): Boolean {
+                    val result = super.peekFully(target, offset, length, allowEndOfInput)
+                    // This is the actual native MP4 Sniffer's first header, after any outer checks.
+                    if (!injected && result && target.size == 64 && offset == 0 && length == 8 && allowEndOfInput) {
+                        injected = true
+                        Thread.currentThread().interrupt()
+                    }
+                    return result
+                }
+                override fun peekFully(target: ByteArray, offset: Int, length: Int) {
+                    if (injected) payloadPeeks++
+                    super.peekFully(target, offset, length)
+                }
+            }
+            fun drive() {
+                if (!reading) {
+                    assertTrue(description, extractor.sniff(input))
+                } else {
+                    val holder = PositionHolder()
+                    var steps = 0
+                    while (!injected && steps++ < 64) {
+                        val result = extractor.read(input, holder)
+                        if (!injected && result != Extractor.RESULT_CONTINUE)
+                            fail("$description: adjacent fixture stopped before the inner sniff")
+                    }
+                }
+                assertTrue("$description: actual native sniff must be reached", injected)
+            }
+            val wasInterrupted = Thread.interrupted()
+            try {
+                extractor.init(Capture())
+                if (bounded) {
+                    assertThrows(InterruptedIOException::class.java) { drive() }
+                    assertTrue(description, injected)
+                    assertEquals("$description: stop before another native payload peek", 0, payloadPeeks)
+                } else {
+                    drive()
+                    assertTrue("$description: native cached sniff continues after cancellation", payloadPeeks > 0)
+                    assertTrue("$description: native input leaves the signal pending", Thread.interrupted())
+                }
+                assertEquals("$description: no upstream read may supply the cancellation", readsBeforeSniff, upstreamReads)
+            } finally {
+                Thread.interrupted()
+                if (wasInterrupted) Thread.currentThread().interrupt()
+                extractor.release()
+            }
         }
     }
 
