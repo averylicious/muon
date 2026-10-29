@@ -44,15 +44,15 @@ Updated2026-10-30. [Draft #701](https://github.com/averylicious/muon/pull/701), 
 | #760 | Neutral outcome wording for unconfirmed queue edits | `994e7f0949b488fb0228b07a9a632ebd7a05920e` | [.1667](https://github.com/averylicious/muon/actions/runs/40911558711) |
 | #761 | Finite remembered-gain median arithmetic | `13f5cce8efbdb1398dc446c0cc4aae2eb9824e30` | [.1668](https://github.com/averylicious/muon/actions/runs/40913729226) |
 
+| #763 | Modern resolve cleanup and weak discovery owner | `fceb47c2515b80baf1560eed27e30a52e0d0358e` | [.1673](https://github.com/averylicious/muon/actions/runs/40921716539) |
+
 ## Current integration boundary
 
 Remote verified34-topic head **db1ee908dc5573da2c870d62e6259f04ea936bf5 / [Android .1666](https://github.com/averylicious/muon/actions/runs/40909630273)** passed downloaded2,000cases/variant, zero failures/errors/skips and lint0errors/62warnings plus3hints. Report SHA256 bc910d45c04a6bffb0be92cf0d3d9b5b3e35671fd87d026b3716198bd01a2248 matched API. Selected cached-sniff cancellation, HEIC cutover, native seek/restart and completed-save uncertainty controls ran in both. Actions APK gates passed; this head's actual APK bytes were not separately inspected. [Canary .1666 artifact](https://github.com/averylicious/muon/actions/runs/40909630273/artifacts/12914466953), app-debug-db1ee908dc5573da2c870d62e6259f04ea936bf5, uninstalled.
 
 The last separately inspected release bytes are prior33-topic d1462a1c970a4b11135bef32d61e457d7a66f067 / [Android .1662](https://github.com/averylicious/muon/actions/runs/40905616983):1,999cases/variant, zero failures/errors/skips; lint0errors/62warnings plus3hints; report SHA256 de93ee7d0129c3a63b92c12cb06040d102c0dad0da9a81168137489c625c8ae0. BUILD/source/checksum/pinned signer/identity/non-debuggable/export/profile checks passed offline; APK SHA2566f8211aba5d27230d1bb1173d7d4b4677ea902579c2a9826748165979d1d02c4, uninstalled. These bytes are not proof of the newer composition.
 
-**Local unpushed candidate56fe8e4c** adds the two verified inputs #760/#761 (36topics) and a direct #702 adapter-cost correction: ignore oversized unrelated descriptions before uppercasing them. Existing negative-control methods gain oversized-name inputs, without new test cases. This composition has not compiled. Preserve QueueNotices rather than restoring the older direct snackbar implementation when resolving #760.
-
-**Pending separate input #763:** fceb47c2515b80baf1560eed27e30a52e0d0358e / [Android .1673](https://github.com/averylicious/muon/actions/runs/40921716539) is checking SDK34+ resolve cleanup and weak discovery ownership. Earlier2180e664/.1672 passed1,828cases/variant and all seven lifecycle methods, but does not verify that final weak-discovery edit. Verify this input before integration, then compile/check the complete37-topic composition. Existing34-topic ancestry must remain intact. Standalone passes do not verify a composition.
+**New37-topic composition is staged after40c0d1f7; its publication/full CI is next.** #760/#761/#763 inputs passed independently. The direct#702 gain-key correction skips case conversion for oversized unrelated ID3/MP4 descriptions, extending existing negative controls without adding test cases. This combination is not verified by old .1666 or by standalone .1673. Root resolved the ServerDiscovery conflict with the complete fceb47c2 source (byte-identical production/test files), preserving prior weak ownership. Queue integration retains QueueNotices, not the older direct snackbar implementation. All37 exact input ancestors were checked; manifest/workflows/tools/signer/Baseline-Profile inputs are unchanged from current main.
 
 ## Integration invariants
 
