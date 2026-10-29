@@ -100,7 +100,9 @@ internal fun typicalGainDb(gains: Collection<Float>): Float? {
     if (gains.isEmpty()) return null
     val sorted = gains.sorted()
     val mid = sorted.size / 2
-    return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2f
+    // Preference history accepts finite floats; adding two in Float can still overflow.
+    return if (sorted.size % 2 == 1) sorted[mid]
+        else ((sorted[mid - 1].toDouble() + sorted[mid].toDouble()) / 2.0).toFloat()
 }
 
 /** The player volume for a gain in dB. */
