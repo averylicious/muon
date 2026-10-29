@@ -1,6 +1,6 @@
 # Combined main-track post-RC acceptance candidate
 
-Updated2026-10-29. [Draft #701](https://github.com/averylicious/muon/pull/701), branch `codex/post-rc-acceptance-oct25`, includes current documentation main `f9263f078b793e06bac3cb29952d118a15cfd330` (application baseline20579cf1). Ordinary merges retain topic ancestry. This uninstalled source/CI staging candidate is **not frozen M3E RC .1420**. Inclusion is not acceptance or permission to land runtime changes. No phone, alpha landing or Stable publication.
+Updated2026-10-29. [Draft #701](https://github.com/averylicious/muon/pull/701), branch `codex/post-rc-acceptance-oct25`, includes current documentation main `b626061a1db86224fd628cef8517c56de785cdd3` (application baseline20579cf1). Ordinary merges retain topic ancestry. This uninstalled source/CI staging candidate is **not frozen M3E RC .1420**. Inclusion is not acceptance or permission to land runtime changes. No phone, alpha landing or Stable publication.
 
 ## Exact verified inputs
 
@@ -23,7 +23,7 @@ Updated2026-10-29. [Draft #701](https://github.com/averylicious/muon/pull/701), 
 | #717 | Weak discovery resolver owner | `522c8c74f236098276386b774dd07b3efded056e` | [.1499](https://github.com/averylicious/muon/actions/runs/40134579673) |
 | #718 | FLAC/Ogg allocation admission | `ef5b632b16b07c0ea39518f54957692ef041ca21` | [.1504](https://github.com/averylicious/muon/actions/runs/40451576758) |
 | #719 | Saved-cover path checks and known-close temporary cleanup | `ccbfa9202a45b04dc0d71157f5e43eab0c4b91cd` | [.1584](https://github.com/averylicious/muon/actions/runs/40582254296) |
-| #722 | Ordinary/fragmented and nested motion-photo MP4 admission | `9576b2f767789e7aeead41640c93a6bb07fc7bc1` | [.1651](https://github.com/averylicious/muon/actions/runs/40729077587) |
+| #722 | Ordinary/fragmented and nested motion-photo MP4 admission | `e22402b5e5ebce3c0e7e1edfa4cdd17b56e85f0d` | [.1661](https://github.com/averylicious/muon/actions/runs/40902775706) |
 | #725 | WAV fmt and writer allocation admission | `d0cdd44a95e975c0869c3b83bbc0c670994b39cc` | [.1534](https://github.com/averylicious/muon/actions/runs/40517654919) |
 | #728 | Matroska metadata/retention, text-packet and lacing-header admission | `8986609865859e7609eb6921aa50fe6947463d0f` | [.1632](https://github.com/averylicious/muon/actions/runs/40697510074) |
 | #729 | Decoded ID3 cost and approved unfinished timed-tag admission | `8c596c758181315aecbc1e4e1abc2cd9d4f58233` | [.1599](https://github.com/averylicious/muon/actions/runs/40656822277) |
@@ -105,3 +105,5 @@ Guava integration attribution: GPT-6 / Codex desktop performed the advisory/sour
 HEIC integration attribution: GPT-6 / Codex desktop authored and self-checked the extension, reviewed native source identity across the stable patch, inspected standalone reports and resolved composed observer conflicts. The earlier scoped Opus JPEG review does not cover this delta; no independent combined review or device claim.
 
 Build-Guava integration attribution: GPT-6 / Codex desktop assessed selected AGP/Gradle published sources, authored the normal classpath constraint, inspected standalone reports/release/inventory and the hash-matched JRE bytecode. The #754 document conflict retains both exact frozen-artifact qualification and later tool evidence. Author self-check, no independent whole-candidate/loaded-class/phone/exploit claim. No new unit methods.
+
+Current integration adds the CI-verified cached-sniff cancellation and HEIC read-stage cutover from#722/e22402b5. Existing raw-PCM frame admission is retained. This integration needs its own CI; the prior4fd5f753/.1659 pass is historical, not proof of this new combination. No phones or frozen-RC change.

@@ -5,6 +5,7 @@ package dev.avery.muon
 import androidx.media3.common.C
 import androidx.media3.extractor.ExtractorInput
 import androidx.media3.extractor.ForwardingExtractorInput
+import java.io.InterruptedIOException
 
 /**
  * Ordinary MP4 metadata admission (#720), engineering proposals pending acceptance, not measured
@@ -491,6 +492,8 @@ internal class Mp4SniffInput(input: ExtractorInput, private val peekBytes: Long)
     }
 
     private fun admit(length: Int) {
+        // DefaultExtractorInput only checks cancellation when it needs upstream bytes.
+        if (Thread.interrupted()) throw InterruptedIOException("Embedded information read cancelled")
         if (peekPosition - start + length > peekBytes) throw StreamMetadataRefusal()
     }
 
