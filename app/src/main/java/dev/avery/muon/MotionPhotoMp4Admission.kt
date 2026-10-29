@@ -72,9 +72,11 @@ internal class MotionPhotoMp4Admission(private val limits: Mp4Limits,
             // Native Sniffer only peeks. The first following read means HEIC's inner sniff succeeded;
             // do not arm early, or a failed sniff's fresh retry view could lose its sniff admission.
             if (!reading && metadataBeforeSniff && sniff != null) reading = true
+            if (reading) sniff = null // The sniff/preamble budgets end when MP4 reading starts.
             return if (reading) mp4.input(Relative(actual)) else actual
         }
         override fun peekFully(target: ByteArray, offset: Int, length: Int, allowEndOfInput: Boolean): Boolean {
+            if (reading) return actual.peekFully(target, offset, length, allowEndOfInput)
             if (!reading && sniff == null && offset == 0 && length == 8 && allowEndOfInput && target.size == 64) {
                 if (actual.peekPosition != actual.position) throw StreamMetadataRefusal(true)
                 if (metadataBeforeSniff && announcedStart != actual.position) throw StreamMetadataRefusal(true)
@@ -86,16 +88,19 @@ internal class MotionPhotoMp4Admission(private val limits: Mp4Limits,
                 ?: super.peekFully(target, offset, length, allowEndOfInput)
         }
         override fun peekFully(target: ByteArray, offset: Int, length: Int) {
+            if (reading) { actual.peekFully(target, offset, length); return }
             val selected = sniff
             if (selected == null) super.peekFully(target, offset, length)
             else selected.peekFully(target, offset, length)
         }
         override fun advancePeekPosition(length: Int) {
+            if (reading) { actual.advancePeekPosition(length); return }
             val selected = sniff
             if (selected == null) super.advancePeekPosition(length) else selected.advancePeekPosition(length)
         }
         override fun advancePeekPosition(length: Int, allowEndOfInput: Boolean): Boolean =
-            sniff?.advancePeekPosition(length, allowEndOfInput) ?: super.advancePeekPosition(length, allowEndOfInput)
+            if (reading) actual.advancePeekPosition(length, allowEndOfInput)
+            else sniff?.advancePeekPosition(length, allowEndOfInput) ?: super.advancePeekPosition(length, allowEndOfInput)
         override fun readFully(target: ByteArray, offset: Int, length: Int, allowEndOfInput: Boolean): Boolean =
             reader().readFully(target, offset, length, allowEndOfInput)
         override fun readFully(target: ByteArray, offset: Int, length: Int) = reader().readFully(target, offset, length)

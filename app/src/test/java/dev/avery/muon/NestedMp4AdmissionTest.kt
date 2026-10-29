@@ -415,6 +415,52 @@ class NestedMp4AdmissionTest {
         } finally { guarded.release() }
     }
 
+    @Test fun heicReadPeeksStopUsingPreambleAndSniffBudgetsAfterCutover() {
+        val original = requireNotNull(javaClass.getResourceAsStream("/mp4-admission/control.m4a")).use { it.readBytes() }
+        val ftypSize = ByteBuffer.wrap(original).getInt(0)
+        val moovSize = ByteBuffer.wrap(original).getInt(ftypSize)
+        assertEquals("moov", String(original, ftypSize + 4, 4, Charsets.US_ASCII))
+        val padding = atom("free", ByteArray(8192)) // Native skips this without returning a source seek.
+        val meta = atom("meta", ByteArray(4) + atom("hdlr", ByteArray(8) + "mdta".toByteArray() + ByteArray(13)))
+        val moov = atom("moov", meta + original.copyOfRange(ftypSize + 8, ftypSize + moovSize))
+        val stco = String(moov, Charsets.ISO_8859_1).indexOf("stco")
+        assertTrue(stco > 0)
+        val table = ByteBuffer.wrap(moov)
+        assertEquals("The controlled fixture has one chunk offset", 1, table.getInt(stco + 8))
+        table.putInt(stco + 12, table.getInt(stco + 12) + padding.size + meta.size)
+        val movie = original.copyOfRange(0, ftypSize) + padding + moov +
+            original.copyOfRange(ftypSize + moovSize, original.size)
+        val bytes = heic(movie)
+        val nestedStart = bytes.size - movie.size
+        var expectedDuration = 0L
+        for (bounded in listOf(false, true)) {
+            val output = Capture()
+            val admission = MotionPhotoMp4Admission(Mp4Limits(retainedBytes = 4096),
+                preambleBytes = 128, metadataBeforeSniff = true)
+            val cached = DefaultExtractorInput(reader(bytes, 0) { _, _, _ -> }, 0, bytes.size.toLong())
+            cached.advancePeekPosition(bytes.size)
+            cached.resetPeekPosition()
+            var lateReadPeek = false
+            val observing = object : ForwardingExtractorInput(cached) {
+                override fun peekFully(target: ByteArray, offset: Int, length: Int) {
+                    if (length == 8 && position > nestedStart + padding.size) lateReadPeek = true
+                    super.peekFully(target, offset, length)
+                }
+            }
+            val raw = HeifExtractor()
+            try {
+                raw.init(if (bounded) admission.output(output) else output)
+                val result = raw.read(if (bounded) admission.input(observing) else observing, PositionHolder())
+                assertEquals("The late read peek must occur in the same native call", Extractor.RESULT_CONTINUE, result)
+                assertTrue("Actual native meta-header peek past both injected budgets", lateReadPeek)
+                assertEquals(1, output.aacFormats)
+                val map = requireNotNull(output.map)
+                assertTrue(map.durationUs > 0)
+                if (bounded) assertEquals(expectedDuration, map.durationUs) else expectedDuration = map.durationUs
+            } finally { raw.release() }
+        }
+    }
+
     @Test fun heicPreambleSniffsAreBoundedAndPlainImageRouteIsPreserved() {
         val bytes = heic(ByteArray(0), padding = 256)
         fun source() = DefaultExtractorInput(reader(bytes, 0) { _, _, _ -> }, 0, bytes.size.toLong())
