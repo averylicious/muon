@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Updated 2026-10-29. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-30. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
@@ -12,7 +12,7 @@ Updated 2026-10-29. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC audit recovery boundary:** root owns clean pushed33-topic #701/77e217e5 / .1654, verified actual1,997cases/variant plus signed-release/report/inventory gates. HEIC and normal AGP-plugin Guava corrections are included; rare32MiB HEIC preamble restriction is user-accepted. Gradle's separate bundled-source/caller question remains qualified/open. New prose-only checkpoint#756 refreshes this entry and issue files; after it lands, runtime promotion still needs refreshed main ancestry/checks and later acceptance. Main application20579cf1, alpha and frozen RC are preserved. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact receipts/owners/next work. No unanswered questions, phones, active storage operation, runtime main/alpha landing or Stable tag. Continue only within the user's live capacity/permission scope.
+**Broader post-RC audit recovery boundary:** root owns clean pushed39-topic #701/80348c145d15e1acd4f1e6e4a81b1057a5f28970 / .1681, passed downloaded2,010cases/variant and actual signed-release gates. Previous37-topic0fe9d08b/.1675 passed downloaded2,007cases/variant and actual signed-release gates; the new combination was verified separately. Lyrics#765/.1678 and Settings#766/.1680 passed standalone; all allocated writers/reviewers are terminal/idle. Docs-only#762 maintains current receipts. Main app20579cf1, alpha and frozen RC are preserved. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact inputs/checks/artifacts, source limits and next actions. No unanswered questions, phones, active storage operation, runtime main/alpha landing or Stable tag. Continue only within live user scope/capacity.
 
 ## Resume order
 
