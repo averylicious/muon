@@ -180,7 +180,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                 QueueRemovalUndo.removeAwait(p, entry.index, entry.item) else null
             if (removal == null) {
                 refused()
-                notices.show("Queue changed; “$title” wasn't removed.")
+                notices.show("Couldn't confirm removal. Check the queue.")
                 return@launch
             }
             try {
@@ -190,7 +190,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                 // and acknowledges the mutation before we report success.
                 if (result == SnackbarResult.ActionPerformed &&
                     (currentPlayer !== p || !removal.undoAwait())) {
-                    notices.show("Queue changed; removal wasn't undone.")
+                    notices.show("Couldn't confirm Undo. Check the queue.")
                 }
             } finally { removal.close() }
         }
