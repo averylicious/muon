@@ -34,6 +34,7 @@ class ReplayGainMetadataTest {
             TextInformationFrame("TIT2", "REPLAYGAIN_TRACK_GAIN", listOf("-8 dB")),
             TextInformationFrame("TXXX", "REPLAYGAIN_ALBUM_GAIN", listOf("-8 dB")),
             TextInformationFrame("TXXX", "R128_TRACK_GAIN", listOf("-1280")),
+            TextInformationFrame("TXXX", "x".repeat(4096), listOf("-8 dB")),
             TextInformationFrame("TXXX", "REPLAYGAIN_TRACK_GAIN", listOf("-8 dB", "-18 dB")))
         assertNull(trackLoudness(unrelated))
         for (value in listOf("NaN", "Infinity", "-90 dB", "not a gain")) {

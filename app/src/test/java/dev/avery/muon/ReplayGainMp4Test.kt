@@ -73,7 +73,8 @@ class ReplayGainMp4Test {
     @Test fun onlyRecognizedMp4TrackFieldsUseTheExistingFiniteAndNoAmplificationRules() {
         val unrelated = Metadata(InternalFrame("other.example", "replaygain_track_gain", "-8 dB"),
             InternalFrame("com.apple.iTunes", "replaygain_album_gain", "-12 dB"),
-            InternalFrame("com.apple.iTunes", "R128_TRACK_GAIN", "-1280"))
+            InternalFrame("com.apple.iTunes", "R128_TRACK_GAIN", "-1280"),
+            InternalFrame("com.apple.iTunes", "x".repeat(4096), "-8 dB"))
         assertNull(trackLoudness(unrelated))
         for (value in listOf("NaN", "Infinity", "-90 dB", "not a gain"))
             assertNull(trackLoudness(Metadata(InternalFrame("com.apple.iTunes", "REPLAYGAIN_TRACK_GAIN", value))))

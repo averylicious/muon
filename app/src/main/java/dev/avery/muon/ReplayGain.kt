@@ -49,6 +49,11 @@ internal fun trackLoudness(tags: Map<String, String>): TrackLoudness? {
     return TrackLoudness(r128 / 256f + 5f).takeIf { it.gainDb in -GAIN_LIMIT_DB..GAIN_LIMIT_DB }
 }
 
+// Neither supported ID3/MP4 description is longer than this. Avoid copying an unrelated
+// large field name just to discover that it cannot be a track gain or peak key.
+private fun replayGainDescriptionKey(description: String?): String? =
+    description?.takeIf { it.length <= "REPLAYGAIN_TRACK_GAIN".length }?.uppercase(Locale.ROOT)
+
 /** The tags among a track format's metadata, or null when it has no ReplayGain. */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun trackLoudness(metadata: Metadata?): TrackLoudness? {
@@ -63,11 +68,11 @@ internal fun trackLoudness(metadata: Metadata?): TrackLoudness? {
             }
             is InternalFrame -> if (entry.domain == "com.apple.iTunes") {
                 // rsgain's M4A namespace. Other internal fields and Opus-only R128 are unrelated.
-                val key = entry.description.uppercase(Locale.ROOT)
+                val key = replayGainDescriptionKey(entry.description)
                 if (key == "REPLAYGAIN_TRACK_GAIN" || key == "REPLAYGAIN_TRACK_PEAK") put(key, entry.text)
             }
             is TextInformationFrame -> if (entry.id == "TXXX") {
-                val key = entry.description?.uppercase(Locale.ROOT)
+                val key = replayGainDescriptionKey(entry.description)
                 // rsgain ID3 uses scalar user-text values. Never interpret a title, album gain,
                 // ambiguous multi-value frame or an Opus-only R128 field as an MP3 track gain.
                 if (key == "REPLAYGAIN_TRACK_GAIN" || key == "REPLAYGAIN_TRACK_PEAK")
