@@ -146,6 +146,25 @@ class ServerDiscoveryLifecycleTest {
     }
 
     @Test @Config(sdk = [34])
+    fun throwingResolveStillRequestsCleanupForItsPossiblyRegisteredListener() {
+        nsd.throwOnResolve = true
+        discovery.start(); idle()
+        offer("A")
+        val a = listenerAt(0)
+        assertEquals(listOf(a), nsd.stopResolutions)
+        assertTrue(found.isEmpty())
+
+        nsd.throwOnResolve = false
+        offer("B")
+        assertEquals(2, nsd.resolves.size)
+        a.onResolutionStopped(service("A")); idle()
+        assertEquals("A's cleanup cannot retire B", 2, nsd.resolves.size)
+        succeed(1, "192.168.1.21")
+        assertEquals(listOf("B=http://192.168.1.21:7814"), found)
+        assertEquals(listOf(a), nsd.stopResolutions)
+    }
+
+    @Test @Config(sdk = [34])
     fun scanTimeoutKeepsManualFallbackAndStopsAResolveWhoseResultWouldBeDiscarded() {
         discovery.start(); idle()
         advance(6_000)
@@ -227,6 +246,7 @@ class RecordingNsdManager {
     val resolves = mutableListOf<Pair<NsdServiceInfo, NsdManager.ResolveListener>>()
     val stopResolutions = mutableListOf<NsdManager.ResolveListener>()
     var throwOnStopResolution = false
+    var throwOnResolve = false
 
     @Suppress("unused", "FunctionName", "UNUSED_PARAMETER")
     @Implementation
@@ -243,6 +263,7 @@ class RecordingNsdManager {
     @Implementation
     fun resolveService(serviceInfo: NsdServiceInfo, listener: NsdManager.ResolveListener) {
         resolves += serviceInfo to listener
+        if (throwOnResolve) throw IllegalStateException("resolve failed after registration")
     }
 
     // AOSP may throw for an unknown listener on older module builds; the caller must tolerate it.

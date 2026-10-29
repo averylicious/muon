@@ -102,7 +102,9 @@ class ServerDiscovery(
             @Suppress("DEPRECATION")
             manager.resolveService(request.value, callback)
         } catch (_: RuntimeException) {
-            resolveListener = null // Never registered: nothing native to stop.
+            // AOSP registers the listener before its binder call, which can then throw.
+            // Request cleanup even here; a not-registered/stopping failure stays best effort.
+            requestResolutionStop()
             // Post instead of recursing through a whole queue if the platform refuses resolves.
             handler.post { resolved(request, null) }
         }
