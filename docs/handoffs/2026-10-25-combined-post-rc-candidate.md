@@ -1,6 +1,6 @@
 # Combined main-track post-RC acceptance candidate
 
-Updated2026-10-29. [Draft #701](https://github.com/averylicious/muon/pull/701), branch `codex/post-rc-acceptance-oct25`, includes current documentation main `b626061a1db86224fd628cef8517c56de785cdd3` (application baseline20579cf1). Ordinary merges retain topic ancestry. This uninstalled source/CI staging candidate is **not frozen M3E RC .1420**. Inclusion is not acceptance or permission to land runtime changes. No phone, alpha landing or Stable publication.
+Updated2026-10-29. [Draft #701](https://github.com/averylicious/muon/pull/701), branch `codex/post-rc-acceptance-oct25`, includes current documentation main `2ec8b69892beda2ef691e0c4b3ac01f1b9e462ef` (application baseline20579cf1). Ordinary merges retain topic ancestry. This uninstalled source/CI staging candidate is **not frozen M3E RC .1420**. Inclusion is not acceptance or permission to land runtime changes. No phone, alpha landing or Stable publication.
 
 ## Exact verified inputs
 
@@ -39,6 +39,7 @@ Updated2026-10-29. [Draft #701](https://github.com/averylicious/muon/pull/701), 
 | #751 | Audio-only track defaults, preserving tags and subtitle policy | `9688fb60310e66fdab7bfd136396e0734b86de62` | [.1643](https://github.com/averylicious/muon/actions/runs/40715489798) |
 | #753 | Stable Media3 audio-output lifecycle patch and guard compatibility | `ec3543ba1e1124f8622da50e5916b0072fadf342` | [.1644](https://github.com/averylicious/muon/actions/runs/40717264755) |
 | #755 | Existing transitive Guava deserialization-allocation patch | `a7ec5ca682f98bcf7f409a77cac5777d12798d92` | [.1653](https://github.com/averylicious/muon/actions/runs/40733686893) |
+| #758 | Preserve uncertain completed-save cleanup ownership | `5f5e76fb739b414ce6a3122489669b4331dfc01b` | [.1663](https://github.com/averylicious/muon/actions/runs/40906829125) |
 
 #715 raw Vorbis/picture and #721 ordinary/fragmented MP4 characterization are included as test evidence, not additional runtime topics. #721 exact14cc43efeb3cbb2695c7ef913dfd9c6e3e7bbb5a / .1516 passed1,824cases/variant. Raw WAV #724 characterization is also included through #725. Raw Matroska #727 is included through #728. Raw ID3 characterization is included through #729. This candidate now has33 runtime topics, including the newer #703 head. #679 promotion policy, #683 Benchmark tools, raw HEVC #731 and #692 forward sync and all alpha/M3E commits remain excluded. Every input's downloaded test/lint reports passed with zero failures/errors/skips and lint0errors; standalone passes do not verify this combination.
 
@@ -106,4 +107,4 @@ HEIC integration attribution: GPT-6 / Codex desktop authored and self-checked th
 
 Build-Guava integration attribution: GPT-6 / Codex desktop assessed selected AGP/Gradle published sources, authored the normal classpath constraint, inspected standalone reports/release/inventory and the hash-matched JRE bytecode. The #754 document conflict retains both exact frozen-artifact qualification and later tool evidence. Author self-check, no independent whole-candidate/loaded-class/phone/exploit claim. No new unit methods.
 
-Current integration adds the CI-verified cached-sniff cancellation and HEIC read-stage cutover from#722/e22402b5. Existing raw-PCM frame admission is retained. This integration needs its own CI; the prior4fd5f753/.1659 pass is historical, not proof of this new combination. No phones or frozen-RC change.
+Last verified33-topic combination d1462a1c / [Android .1662](https://github.com/averylicious/muon/actions/runs/40905616983) passed actual1,999cases/variant with zero failures/errors/skips and lint0errors/62warnings plus3hints. Report ZIP digest de93ee7d0129c3a63b92c12cb06040d102c0dad0da9a81168137489c625c8ae0 matches API; actual release BUILD/source/checksum/pinned signer/manifest/export/non-debuggable/profile gates passed, APK6f8211aba5d27230d1bb1173d7d4b4677ea902579c2a9826748165979d1d02c4, uninstalled. Current34-topic integration adds verified#758 and documentation main2ec8b698, so it requires new CI. No phones or frozen-RC change.
