@@ -33,22 +33,30 @@ class ServerDiscovery(
         val token = scan.begin()
         publish()
         message("Looking for Tauon on your LAN…")
+        // A failed platform stop can leave its listener registered. Do not let that native
+        // lifetime retain the screen's owner/callbacks; delivery still runs on main.
+        val owner = WeakReference(this)
+        val delivery = handler
         val callback = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(type: String) = Unit
-            override fun onServiceFound(info: NsdServiceInfo) { handler.post {
+            override fun onServiceFound(info: NsdServiceInfo) { delivery.post {
+                val current = owner.get() ?: return@post
                 if (normalizedDiscoveryType(info.serviceType) != "_tauon-remote._tcp") return@post
-                scan.found(token, key(info), info)
-                drain()
+                current.scan.found(token, current.key(info), info)
+                current.drain()
             } }
-            override fun onServiceLost(info: NsdServiceInfo) { handler.post {
-                if (!scan.accepts(token)) return@post
-                scan.lost(token, key(info)); publish()
+            override fun onServiceLost(info: NsdServiceInfo) { delivery.post {
+                val current = owner.get() ?: return@post
+                if (!current.scan.accepts(token)) return@post
+                current.scan.lost(token, current.key(info)); current.publish()
             } }
-            override fun onDiscoveryStopped(type: String) { handler.post {
-                if (scan.accepts(token)) finish(token)
+            override fun onDiscoveryStopped(type: String) { delivery.post {
+                val current = owner.get() ?: return@post
+                if (current.scan.accepts(token)) current.finish(token)
             } }
-            override fun onStartDiscoveryFailed(type: String, code: Int) { handler.post {
-                if (scan.accepts(token)) finish(token, unavailable = true)
+            override fun onStartDiscoveryFailed(type: String, code: Int) { delivery.post {
+                val current = owner.get() ?: return@post
+                if (current.scan.accepts(token)) current.finish(token, unavailable = true)
             } }
             override fun onStopDiscoveryFailed(type: String, code: Int) = Unit
         }

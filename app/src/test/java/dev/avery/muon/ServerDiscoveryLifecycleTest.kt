@@ -79,6 +79,7 @@ class ServerDiscoveryLifecycleTest {
         val a = listenerAt(0)
         val published = snapshots.size; val said = messages.size
 
+        nsd.throwOnStopDiscovery = true
         discovery.stop(); discovery.stop(); idle()
         assertEquals(listOf(a), nsd.stopResolutions)
         assertEquals(listOf(firstScan), nsd.stoppedDiscoveries)
@@ -87,6 +88,14 @@ class ServerDiscoveryLifecycleTest {
 
         discovery.start(); idle()
         offer("B")
+        val beforeLate = snapshots.size; val messagesBeforeLate = messages.size
+        firstScan.onServiceFound(service("stale"))
+        firstScan.onServiceLost(service("B"))
+        firstScan.onDiscoveryStopped("_tauon-remote._tcp.")
+        firstScan.onStartDiscoveryFailed("_tauon-remote._tcp.", NsdManager.FAILURE_INTERNAL_ERROR)
+        idle()
+        assertEquals("An old discovery callback cannot publish to the restarted scan", beforeLate, snapshots.size)
+        assertEquals(messagesBeforeLate, messages.size)
         assertEquals("Restart does not resubmit the same stop", listOf(a), nsd.stopResolutions)
         assertEquals("A keeps the slot until the platform answers", 1, nsd.resolves.size)
 
@@ -245,6 +254,7 @@ class RecordingNsdManager {
     val stoppedDiscoveries = mutableListOf<NsdManager.DiscoveryListener>()
     val resolves = mutableListOf<Pair<NsdServiceInfo, NsdManager.ResolveListener>>()
     val stopResolutions = mutableListOf<NsdManager.ResolveListener>()
+    var throwOnStopDiscovery = false
     var throwOnStopResolution = false
     var throwOnResolve = false
 
@@ -258,7 +268,10 @@ class RecordingNsdManager {
     }
 
     @Implementation
-    fun stopServiceDiscovery(listener: NsdManager.DiscoveryListener) { stoppedDiscoveries += listener }
+    fun stopServiceDiscovery(listener: NsdManager.DiscoveryListener) {
+        stoppedDiscoveries += listener
+        if (throwOnStopDiscovery) throw IllegalStateException("stop discovery failed after registration")
+    }
 
     @Implementation
     fun resolveService(serviceInfo: NsdServiceInfo, listener: NsdManager.ResolveListener) {
