@@ -25,10 +25,28 @@ class LiveQueueTest {
         assertEquals(3, plan.items.map(::queueOccurrenceKey).toSet().size)
         assertEquals("Song 2", plan.items[1].mediaMetadata.title)
     }
+    @Test fun selectedRowKeepsTheExactDuplicateAfterUnplayableRowsAreFiltered() {
+        val repeated = song(1)
+        // Deliberately the same instance twice: object identity/equality cannot select this row.
+        val tracks = listOf(repeated, song(9, false), song(2), repeated)
+        val plan = requireNotNull(prepareLiveQueue(tracks, endpoint, selected = 1, selectedIndex = 3))
+        assertEquals(listOf(1L, 2L, 1L), plan.items.map { decodeSong(it.mediaMetadata.extras!!.getByteArray(SONG_EXTRA)!!)!!.id })
+        assertEquals(2, plan.startIndex)
+        assertEquals(3, plan.items.map(::queueOccurrenceKey).toSet().size)
+        assertTrue(playbackInputFits(plan.items))
+        assertEquals(2, requireNotNull(prepareLiveQueue(tracks, endpoint, selectedIndex = 3)).startIndex)
+        assertEquals(0, requireNotNull(prepareLiveQueue(tracks, endpoint, selected = 1)).startIndex)
+        for (index in listOf(-1, 1, tracks.size))
+            assertNull(prepareLiveQueue(tracks, endpoint, selectedIndex = index))
+        assertNull(prepareLiveQueue(tracks, endpoint, selected = 2, selectedIndex = 3))
+    }
+
     @Test fun countRefusalPrecedesAnyMetadataEncodingAndNeverReturnsAPrefix() {
         val oversizedText = "x".repeat(100)
         refused { prepareLiveQueue(listOf(song(1, title = oversizedText), song(2), song(3)), endpoint,
             limits = SavedQueueLimits(2, 1000)) }
+        refused { prepareLiveQueue(listOf(song(1, title = oversizedText), song(2), song(3)), endpoint,
+            selected = 2, limits = SavedQueueLimits(2, 1000), selectedIndex = 1) }
         assertNull(prepareLiveQueue(listOf(song(1, false)), endpoint))
         assertNull(prepareLiveQueue(listOf(song(1)), endpoint, 9))
     }

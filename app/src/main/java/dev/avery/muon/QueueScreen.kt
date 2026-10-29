@@ -77,6 +77,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
     val snapshot = remember(player, rev) { player?.let { queueSnapshot(it, rev) } ?: QueueSnapshot(null, emptyList()) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val notices = remember(scope, snackbar) { QueueNotices(scope, snackbar) }
     val currentPlayer by rememberUpdatedState(player)
     val colors = MaterialTheme.colorScheme
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
@@ -179,18 +180,17 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                 QueueRemovalUndo.removeAwait(p, entry.index, entry.item) else null
             if (removal == null) {
                 refused()
-                snackbar.showSnackbar("Queue changed; “$title” wasn't removed.")
+                notices.show("Couldn't confirm removal. Check the queue.")
                 return@launch
             }
-            snackbar.currentSnackbarData?.dismiss()
             try {
-                val result = snackbar.showSnackbar("Removed “$title”",
+                val result = notices.show("Removed “$title”",
                     actionLabel = if (removal.restorable) "Undo" else null, duration = SnackbarDuration.Short)
                 // The service restores the original shuffled slot as well as the playlist index,
                 // and acknowledges the mutation before we report success.
                 if (result == SnackbarResult.ActionPerformed &&
                     (currentPlayer !== p || !removal.undoAwait())) {
-                    snackbar.showSnackbar("Queue changed; removal wasn't undone.")
+                    notices.show("Couldn't confirm Undo. Check the queue.")
                 }
             } finally { removal.close() }
         }
@@ -200,7 +200,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
         modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = colors.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbar) { data -> Snackbar(notices.observeAction(data)) } },
         topBar = {
             LargeTopAppBar(
                 title = { QueueTitle() },

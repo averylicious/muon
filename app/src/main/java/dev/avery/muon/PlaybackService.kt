@@ -15,6 +15,7 @@ import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
@@ -29,13 +30,18 @@ class PlaybackService : MediaSessionService() {
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply {
             setSmallIcon(R.drawable.ic_notification)
         })
-        val player = ExoPlayer.Builder(this)
+        val player = ExoPlayer.Builder(this, GuardedMetadataRenderers(this))
             // A live song streams; a saved copy plays from its own shelf, cache-only (#112, #213).
             .setMediaSourceFactory(DefaultMediaSourceFactory(
-                OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client))))
+                OfflineStore.playbackSource(this, OkHttpDataSource.Factory(Transport.client)), PlaybackExtractors())
+                .setSubtitleParserFactory(SubtitleParser.Factory.UNSUPPORTED))
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK).build()
+        // Muon has no video/image/caption output. Retain both visual and text selection policy;
+        // raw text would still advertise renderer support while legacy subtitle decoding is off.
+        player.trackSelectionParameters = audioOnlyPlaybackParameters(player.trackSelectionParameters).buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
         // A shuffle that starts from the chosen song and keeps Play next and Add to queue where they
         // were put (see QueueShuffleOrder). Turning shuffle on reshuffles from the playing song, so
         // everything else is still to come rather than wherever an old shuffle had left it.
@@ -70,37 +76,26 @@ class PlaybackService : MediaSessionService() {
         // Volume normalization (#97): each song at its ReplayGain level, set as the player's volume.
         val loudnessPrefs = getSharedPreferences(ReplayGainSettings.FILE, MODE_PRIVATE)
         val loudness = ReplayGainSettings(loudnessPrefs)
-        var checkedLoudnessId: String? = null
-        var currentHasLoudnessTags = false
         fun applyLoudness() {
-            val id = player.currentMediaItem?.mediaId
-            val gain = loudness.effectiveGainFor(id)
-            player.volume = if (loudness.enabled && gain != null) volumeForGain(gain) else 1f
-            PlaybackLoudness.current = loudnessPlayback(id, id != null && id == checkedLoudnessId,
-                currentHasLoudnessTags, gain, player.isPlaying)
+            val item = player.currentMediaItem
+            val id = item?.mediaId
+            // ExoPlayer publishes its current Tracks before dispatching these callbacks. Read the
+            // snapshot directly: repeat-one can transition without a new onTracksChanged event.
+            val tracks = player.currentTracks
+            val found = selectedTrackLoudness(tracks)
+            val applied = found?.let(::appliedGainDb)
+            if (id != null && applied != null) loudness.remember(id, applied)
+            val gain = loudness.playbackGainFor(id, applied)
+            player.volume = loudness.volumeFor(id, applied)
+            val selectedAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+            // Empty/unselected tracks still mean loading, not evidence of missing tags.
+            PlaybackLoudness.current = loudnessPlayback(id, id != null && selectedAudio,
+                found != null, gain, player.isPlaying, item?.let(::loudnessNoticeKey))
         }
         player.addListener(object : Player.Listener {
-            // A song already heard starts at its level; one not yet heard plays unchanged until its
-            // tags are read, rather than at the previous song's gain.
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                checkedLoudnessId = null
-                currentHasLoudnessTags = false
-                applyLoudness()
-            }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = applyLoudness()
             override fun onIsPlayingChanged(isPlaying: Boolean) = applyLoudness()
-            override fun onTracksChanged(tracks: Tracks) {
-                val id = player.currentMediaItem?.mediaId
-                val found = tracks.groups.asSequence().filter { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
-                    .flatMap { group -> (0 until group.length).asSequence().filter(group::isTrackSelected)
-                        .map { group.getTrackFormat(it) } }
-                    .firstNotNullOfOrNull { trackLoudness(it.metadata) }
-                // An empty/unselected track list is still loading, not evidence of missing tags.
-                val selectedAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
-                checkedLoudnessId = id.takeIf { selectedAudio }
-                currentHasLoudnessTags = found != null
-                if (id != null && found != null) loudness.remember(id, appliedGainDb(found))
-                applyLoudness()
-            }
+            override fun onTracksChanged(tracks: Tracks) = applyLoudness()
         })
         loudnessListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == ReplayGainSettings.KEY_ENABLED) { loudness.reload(); applyLoudness() }
@@ -124,10 +119,11 @@ class PlaybackService : MediaSessionService() {
                     })
                 }
             })
-        session = MediaSession.Builder(this, PlaybackQueuePlayer(player, refused = {
+        // Controllers and the platform session get bounded song metadata (#738); queue guards stay inside.
+        session = MediaSession.Builder(this, ControlMetadataPlayer(PlaybackQueuePlayer(player, refused = {
             android.widget.Toast.makeText(this, "The queue is full. Choose fewer songs or remove some queued songs.",
                 android.widget.Toast.LENGTH_LONG).show()
-        }))
+        })))
             .setBitmapLoader(CacheBitmapLoader(notificationBitmapLoader(this,
                 OkHttpDataSource.Factory(Transport.metadataClient))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
@@ -153,7 +149,7 @@ fun TauonTrack.mediaItem(endpoint: ServerEndpoint): MediaItem = MediaItem.Builde
         .setAlbumArtist(displayCredits(albumArtist))
         // Queue display only. Seek/Now Playing must keep using the player's stream duration.
         .setDurationMs(durationMs.takeIf { it > 0 })
-        .setArtworkUri(android.net.Uri.parse(endpoint.url("/api1/pic/medium/$id")))
+        .setArtworkUri(android.net.Uri.parse(liveArtworkUrl(endpoint)))
         // The song's own record, so the service can keep a played copy the offline library can list.
         .setExtras(android.os.Bundle().apply { putByteArray(SONG_EXTRA, encodeSong(this@mediaItem)) }).build())
     .build().let(::queueOccurrence)

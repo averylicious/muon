@@ -33,10 +33,11 @@ internal fun libraryCollator(locale: Locale = Locale.getDefault()): Collator = C
  * fall back to the track number so the order is the same every time.
  */
 internal fun sortSongs(tracks: List<TauonTrack>, order: SongOrder,
-    collator: Collator = libraryCollator()): List<TauonTrack> = when (order) {
-    SongOrder.Added -> tracks.sortedByDescending { it.id }
-    SongOrder.Title -> tracks.map { SortKey(it, it.title, it.artist, collator) }
-        .sortedWith(byName<TauonTrack>().thenByDescending { it.item.id }).map { it.item }
+    collator: Collator = libraryCollator(), checkpoint: () -> Unit = {}): List<TauonTrack> = when (order) {
+    SongOrder.Added -> tracks.sortedWith(compareByDescending<TauonTrack> { it.id }.checked(checkpoint))
+    SongOrder.Title -> tracks.map { checkpoint(); SortKey(it, it.title, it.artist, collator) }
+        .sortedWith(byName<TauonTrack>().thenByDescending { it.item.id }.checked(checkpoint))
+        .map { checkpoint(); it.item }
 }
 
 /**
@@ -44,15 +45,23 @@ internal fun sortSongs(tracks: List<TauonTrack>, order: SongOrder,
  * equals. The unknown artist, a blank name, goes last in either order: it is not somebody to look for.
  */
 internal fun sortArtists(artists: List<LibraryArtist>, order: ArtistOrder,
-    collator: Collator = libraryCollator()): List<LibraryArtist> {
-    val keyed = artists.map { SortKey(it, it.name, "", collator) }
+    collator: Collator = libraryCollator(), checkpoint: () -> Unit = {}): List<LibraryArtist> {
+    val keyed = artists.map { checkpoint(); SortKey(it, it.name, "", collator) }
     val comparator: Comparator<SortKey<LibraryArtist>> = when (order) {
         ArtistOrder.MostSongs -> compareBy<SortKey<LibraryArtist>> { it.blank }
             .thenByDescending { it.item.tracks.size }.then(byName<LibraryArtist>())
         ArtistOrder.Name -> byName<LibraryArtist>()
     }
-    return keyed.sortedWith(comparator.thenBy { it.item.key }).map { it.item }
+    return keyed.sortedWith(comparator.thenBy { it.item.key }.checked(checkpoint)).map { checkpoint(); it.item }
 }
+
+/**
+ * [checkpoint] before every comparison, so a superseded sort of a large library stops promptly
+ * (#639): a check only before the sort would leave the whole sort to run. A cancellation thrown
+ * here propagates out of the sort unchanged; the input list is never modified.
+ */
+internal fun <T> Comparator<T>.checked(checkpoint: () -> Unit): Comparator<T> =
+    Comparator { a, b -> checkpoint(); compare(a, b) }
 
 /** A name compared by collation key, computed once per item rather than on every comparison. */
 private class SortKey<T>(val item: T, name: String, second: String, collator: Collator) {

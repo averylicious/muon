@@ -40,7 +40,7 @@ internal fun ArtworkTheme(item: MediaItem?, content: @Composable () -> Unit) {
         }
     }
     // Keep the established fade between URLs, but do not keep a reused URL's previous song colour.
-    val usableSeed = seed.takeUnless { seededRequest?.url == url && seededRequest != request }
+    val usableSeed = seed.takeUnless { seededRequest?.url == request?.url && seededRequest != request }
     val dark = base.background.luminance() < 0.5f
     val target = usableSeed?.let { artworkScheme(base, it, dark, pureBlack = base.background == Color.Black) } ?: base
     MaterialTheme(colorScheme = animated(target), typography = MaterialTheme.typography, content = content)
@@ -120,7 +120,8 @@ internal fun artworkScheme(base: ColorScheme, seed: Int, dark: Boolean, pureBlac
         secondary = tone(0.30f, 0.76f), onSecondary = tone(0.30f, 0.16f),
         secondaryContainer = tone(0.30f, 0.26f), onSecondaryContainer = tone(0.30f, 0.90f),
     ) else base.copy(
-        primary = tone(0.60f, 0.34f), onPrimary = Color.White,
+        // Primary also colors small Lyrics/Queue labels; yellow needs normal-text contrast.
+        primary = tone(0.60f, 0.28f), onPrimary = Color.White,
         primaryContainer = tone(0.50f, 0.86f), onPrimaryContainer = tone(0.60f, 0.14f),
         secondary = tone(0.30f, 0.38f), onSecondary = Color.White,
         secondaryContainer = tone(0.40f, 0.87f), onSecondaryContainer = tone(0.40f, 0.14f),

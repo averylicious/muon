@@ -57,6 +57,7 @@ class DownloadMoveCharacterizationTest {
     private lateinit var card: Shelf
     private lateinit var sourceIndex: DefaultDownloadIndex
     private lateinit var targetIndex: DefaultDownloadIndex
+    private lateinit var cardIndex: CensusFaults
     /** The phone's index as its manager and every census see it: [sourceIndex], failing only when asked. */
     private lateinit var phoneIndex: CensusFaults
     private val storeField = OfflineStore::class.java.getDeclaredField("store").apply { isAccessible = true }
@@ -75,10 +76,11 @@ class DownloadMoveCharacterizationTest {
         database = StandaloneDatabaseProvider(app)
         sourceIndex = DefaultDownloadIndex(database, "move_source")
         targetIndex = DefaultDownloadIndex(database, "move_target")
+        cardIndex = CensusFaults(targetIndex)
         phoneIndex = CensusFaults(sourceIndex)
         phone = shelf("phone", phoneIndex, MuonDownloadService::class.java)
         // Every card availability check also runs [onCardCheck], so a test can act at a counted point.
-        card = shelf("card", targetIndex, MuonCardDownloadService::class.java) { onCardCheck(); true }
+        card = shelf("card", cardIndex, MuonCardDownloadService::class.java) { onCardCheck(); true }
         val prefs = app.getSharedPreferences("move-fixture", Context.MODE_PRIVATE)
         val fixture = OfflineStore.Store(phone, DownloadArt(folders.newFolder("art")),
             PlayedSongEvictor(DEFAULT_CACHE_LIMIT) {}, prefs, database, {}, {})
@@ -340,6 +342,59 @@ class DownloadMoveCharacterizationTest {
             OfflineStore.move(app,toCard=true); awaitMover(); shadowOf(Looper.getMainLooper()).idle()
             assertTrue(startedCommands().isEmpty()); assertEquals(1,unknownCloses)
         } finally { actual.forEach { it.close() } }
+    }
+
+    @Test fun repeatedCompletionCallbacksDoNotQueueDuplicateChecksBehindOrDuringTheSaver() {
+        completeSource(bytes)
+        OfflineStore.move(app, toCard = true)
+        awaitMover(); shadowOf(Looper.getMainLooper()).idle()
+        startedCommands() // The target Add is captured, not delivered in this fixture.
+        val completed = Download(request, Download.STATE_COMPLETED, 0L, 0L, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE)
+        targetIndex.putDownload(completed)
+        admitCopiedAdd()
+        val store = OfflineStore.get(app)
+        val finish = OfflineStore::class.java.getDeclaredMethod("finishReadyMoves", Context::class.java,
+            OfflineStore.Store::class.java).apply { isAccessible = true }
+        val saver = saverField.get(null) as ExecutorService
+        val held = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val active = java.util.concurrent.CountDownLatch(1)
+        val finishActive = java.util.concurrent.CountDownLatch(1)
+        saver.execute { held.countDown(); check(release.await(10, TimeUnit.SECONDS)) }
+        try {
+            assertTrue(held.await(10, TimeUnit.SECONDS))
+            cardIndex.singleReads.set(0)
+            onCardCheck = { active.countDown(); check(finishActive.await(10, TimeUnit.SECONDS)) }
+            repeat(20) { finish.invoke(OfflineStore, app, store) }
+            assertTrue(store.moveCompletionPending.get())
+            assertEquals(0, cardIndex.singleReads.get())
+            release.countDown()
+            assertTrue(active.await(10, TimeUnit.SECONDS))
+            repeat(20) { finish.invoke(OfflineStore, app, store) }
+            finishActive.countDown()
+            awaitSaver(); shadowOf(Looper.getMainLooper()).idle(); awaitSaver()
+            assertFalse(store.moveCompletionPending.get())
+            // One initial lookup and one guarded full-record reread, not forty queued lookups.
+            assertEquals(2, cardIndex.singleReads.get())
+            assertEquals(1, startedCommands().count { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD })
+            assertArrayEquals(bytes, keyedBytes(phone.cache, id))
+            assertArrayEquals(bytes, targetBytes()) // Captured handoff, not actual source deletion.
+            // A later independently admitted receipt must still get its own sweep.
+            val receipt = requireNotNull(store.moves.find(card, id))
+            store.moves.finish(receipt)
+            assertTrue(store.moves.remember(phone, card, request))
+            admitCopiedAdd()
+            onCardCheck = {}
+            finish.invoke(OfflineStore, app, store)
+            awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(store.moveCompletionPending.get())
+            assertEquals(4, cardIndex.singleReads.get())
+            assertEquals(1, startedCommands().count { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD })
+        } finally {
+            release.countDown(); finishActive.countDown(); onCardCheck = {}
+            awaitSaver(); shadowOf(Looper.getMainLooper()).idle(); awaitSaver()
+        }
     }
 
     @Test fun onlyTrackedByteIdenticalCompletionRequestsSourceRemoval() {
@@ -842,10 +897,15 @@ class DownloadMoveCharacterizationTest {
         sourceIndex.putDownload(Download(other, Download.STATE_COMPLETED, 1, 1, 0,
             Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
         phoneIndex.failAtRow = 2 // Every whole read of the phone's index now fails at its second row.
-        assertEquals(OfflineStore.SavedRemoval.NotOwned, OfflineStore.removeSavedNow(app,
+        // A failed read is unavailable storage, not evidence of shared ownership (#646).
+        assertEquals(OfflineStore.SavedRemoval.Unavailable, OfflineStore.removeSavedNow(app,
             requireNotNull(SavedRef.download(SavedShelf.Phone, id, id))))
-        assertEquals("The card's census still runs; the phone's sends nothing", OfflineStore.RemoveAllPlan(0, 0),
+        assertEquals("The card's census still runs; the phone's sends nothing", OfflineStore.RemoveAllPlan(0, 0, unreadableShelves = 1),
             OfflineStore.removeAllNow(app))
+        OfflineStore.removeAll(app)
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(startedCommands().isEmpty())
+        assertEquals("Couldn't check all saved copies. Check storage and retry.", ShadowToast.getTextOfLatestToast())
         val namingFailure = assertThrows(java.util.concurrent.ExecutionException::class.java) {
             (saverField.get(null) as ExecutorService).submit {
                 OfflineStore.takenNames(app, OfflineStore.get(app)).use { }
@@ -876,11 +936,32 @@ class DownloadMoveCharacterizationTest {
         assertEquals(request, sourceIndex.getDownload(id)?.request)
         assertEquals(request, targetIndex.getDownload(id)?.request)
         // Removal, Remove all, names, claims, move and completion: each failed read closed its cursor.
-        assertEquals(6, phoneIndex.failing.size)
+        assertEquals(7, phoneIndex.failing.size)
         assertTrue(phoneIndex.failing.all { it.isClosed })
         phoneIndex.failAtRow = 0
         claims.read(phoneIndex)
         assertTrue("Read whole, the claims are known", claims.known)
+    }
+
+    @Test fun bulkRemovalReportsUnreadablePhoneWithoutSuppressingTheReadableCardSelection() {
+        completeSource(bytes)
+        seed(card.cache, 0, bytes); setLength(card.cache, bytes.size.toLong())
+        targetIndex.putDownload(Download(request, Download.STATE_COMPLETED, 1, 1, bytes.size.toLong(),
+            Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
+        phoneIndex.failAtRow = 1
+        OfflineStore.removeAll(app)
+        awaitSaver(); shadowOf(Looper.getMainLooper()).idle()
+        val removal = startedCommands().single { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD }
+        assertEquals(MuonCardDownloadService::class.java.name, removal.component?.className)
+        assertEquals(id, removal.getStringExtra(DownloadService.KEY_CONTENT_ID))
+        assertEquals("Couldn't check all saved copies. Check storage and retry.", ShadowToast.getTextOfLatestToast())
+        assertEquals(request, sourceIndex.getDownload(id)?.request)
+        assertArrayEquals(bytes, keyedBytes(phone.cache, id))
+        // Delivery is captured, not run by a service: the selected card copy also remains unchanged.
+        assertEquals(request, targetIndex.getDownload(id)?.request)
+        assertArrayEquals(bytes, targetBytes())
+        assertEquals(1, phoneIndex.failing.size)
+        assertTrue(phoneIndex.failing.single().isClosed)
     }
 
     // ---- #253: a batch copies no more than its free move receipts can hand over ----
@@ -1082,6 +1163,11 @@ class DownloadMoveCharacterizationTest {
     /** Delegates to [actual]; while [failAtRow] is set, a whole-index read fails at that row. */
     private class CensusFaults(private val actual: DefaultDownloadIndex) : WritableDownloadIndex by actual {
         @Volatile var failAtRow = 0
+        val singleReads = java.util.concurrent.atomic.AtomicInteger()
+        override fun getDownload(id: String): Download? {
+            singleReads.incrementAndGet()
+            return actual.getDownload(id)
+        }
         /** The real cursors of the reads made to fail. */
         val failing = java.util.concurrent.CopyOnWriteArrayList<DownloadCursor>()
         override fun getDownloads(vararg states: Int): DownloadCursor {
@@ -1226,6 +1312,28 @@ class DownloadMoveCharacterizationTest {
         val retried = startedCommands().filter { it.action == DownloadService.ACTION_ADD_DOWNLOAD }.map(::addRequest)
         assertEquals(1, retried.size)
         assertArrayEquals(encodeSong(track.copy(id = 43)), retried.single().data)
+    }
+
+    @Test fun failedRemovalPreparationPreservesBytesAndReleasesTheSlotForRetry() {
+        val (request, payload) = completeKeyed("saved/removal-check")
+        val ref = SavedRef.download(SavedShelf.Phone, request.id, request.customCacheKey!!)!!
+        val store = OfflineStore.get(app)
+        phoneIndex.failAtRow = 1
+        OfflineStore.removeSaved(app, ref)
+        awaitSaver()
+        assertFalse(store.removalPreparation.get())
+        assertTrue(startedCommands().isEmpty())
+        assertEquals(request, sourceIndex.getDownload(request.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, ref.key))
+        phoneIndex.failAtRow = 0
+        OfflineStore.removeSaved(app, ref)
+        awaitSaver()
+        assertFalse(store.removalPreparation.get())
+        val command = startedCommands().single { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD }
+        assertEquals(request.id, command.getStringExtra(DownloadService.KEY_CONTENT_ID))
+        // This fixture captures delivery only; no service has removed the bytes.
+        assertEquals(request, sourceIndex.getDownload(request.id)?.request)
+        assertArrayEquals(payload, keyedBytes(phone.cache, ref.key))
     }
 
     @Test fun failedPreparationReleasesTheSlotAndLeavesOriginalsForAValidRetry() {
