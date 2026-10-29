@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Updated 2026-10-29. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-10-30. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
@@ -12,7 +12,7 @@ Updated 2026-10-29. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC audit recovery boundary:** root owns clean pushed33-topic #701/77e217e5 / .1654, verified actual1,997cases/variant plus signed-release/report/inventory gates. HEIC and normal AGP-plugin Guava corrections are included; rare32MiB HEIC preamble restriction is user-accepted. Gradle's separate bundled-source/caller question remains qualified/open. New prose-only checkpoint#756 refreshes this entry and issue files; after it lands, runtime promotion still needs refreshed main ancestry/checks and later acceptance. Main application20579cf1, alpha and frozen RC are preserved. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact receipts/owners/next work. No unanswered questions, phones, active storage operation, runtime main/alpha landing or Stable tag. Continue only within the user's live capacity/permission scope.
+**Broader post-RC audit recovery boundary:** root owns verified34-topic#701/db1ee908 / .1666 (actual2,000cases/variant, zero failures/errors/skips, lint0errors). Prior d1462a1c/.1662 also has separately inspected signed-release bytes. MP4 cached cancellation/HEIC read cutover and completed-save cleanup uncertainty are verified inputs; queue outcome wording#760 passed .1667, median arithmetic#761 is running .1668. Root is preparing their next composition, preserving all notice adapters/guards. Documentation#759 landed at main2ec8b698 with checksum-verified Gradle bundled-binary evidence; the unresolved upstream/provenance disposition is retained. Main application's20579cf1 baseline, alpha and frozen RC stay unchanged. No phones, runtime landing, Stable tag or unanswered user question. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact owners/checks, pending work and recovery instructions. A checkpoint is a recovery boundary, not a one-slice stopping rule; use the normal20%-remaining reserve after the user's reset.
 
 ## Resume order
 

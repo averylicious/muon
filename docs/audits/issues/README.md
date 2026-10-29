@@ -4,6 +4,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 
 | Workstream | Current state | GitHub owner record |
 | --- | --- | --- |
+| Completed-save cleanup uncertainty — post-RC correction | [#757](757.md) | [Issue #757](https://github.com/averylicious/muon/issues/757) |
 | Audio-only playback defaults — approved post-RC implementation | [#750](750.md) | [Issue #750](https://github.com/averylicious/muon/issues/750) |
 | Stable Media3 audio-output lifecycle patch — post-RC proposal | [#752](752.md) | [Issue #752](https://github.com/averylicious/muon/issues/752) |
 | Guava deserialization advisory — post-RC dependency correction | [#754](754.md) | [Issue #754](https://github.com/averylicious/muon/issues/754) |
