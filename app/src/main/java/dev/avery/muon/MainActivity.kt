@@ -44,11 +44,18 @@ class MainActivity : ComponentActivity() {
         future = f
         f.addListener({
             if (future === f) runCatching { controller = f.get(); controllerError = null }
-                .onFailure { controllerError = "Playback service could not connect. Reopen Muon to retry." }
+                // Only a failed connection leaves the app without a controller (see onStop).
+                .onFailure { controller = null; controllerError = "Playback service could not connect. Reopen Muon to retry." }
         }, ContextCompat.getMainExecutor(this))
     }
     override fun onStop() {
-        controller = null; future?.let { MediaController.releaseFuture(it) }; future = null
+        // The controller is released here, but stays published until onStart's replacement has
+        // connected. Publishing null instead reached the first frame after every return to the app,
+        // before the new controller: the mini player left and came back, an open Now Playing began to
+        // close, and every control was disabled for a frame or two (the user's report, 2026-11-10).
+        // A released controller ignores commands and answers with empty defaults, and nothing is drawn
+        // while stopped; the position ticker stops with the connection (PlaybackState).
+        future?.let { MediaController.releaseFuture(it) }; future = null
         super.onStop()
     }
 }

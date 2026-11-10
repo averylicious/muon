@@ -16,7 +16,13 @@ internal data class PlaybackUi(val item: MediaItem? = null, val playing: Boolean
     val duration: Long = 0, val seekable: Boolean = false,
     val buffering: Boolean = false, val error: String? = null, val previous: Boolean = false,
     val next: Boolean = false, val shuffle: Boolean = false,
-    @Player.RepeatMode val repeatMode: Int = Player.REPEAT_MODE_OFF)
+    @Player.RepeatMode val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    /**
+     * Whether the Previous button does anything: it restarts the song, or goes to the one before when
+     * the song has only just begun (Media3's `seekToPrevious`). [previous] stays "there is a song
+     * before this one", which the swipes need: they show that song and never restart this one.
+     */
+    val previousOrRestart: Boolean = false)
 
 /** Playback state split so that the ticking position invalidates only the widgets that draw it. */
 @Stable
@@ -37,10 +43,11 @@ internal class PlaybackState {
 /**
  * Whether an open Now Playing overlay should close itself.
  *
- * Only a live controller can answer this. `MainActivity` releases the controller in `onStop`, and a
- * rotation restores the overlay's saved flag before the new controller has connected, so "no
- * controller" means "not known yet", never "nothing is playing". Closing on that would throw away
- * the user's place every time the app went to the background.
+ * Only a live controller can answer this. A rotation or a restored process brings back the overlay's
+ * saved flag before the new controller has connected, so "no controller" means "not known yet",
+ * never "nothing is playing". Closing on that would throw away the user's place. (Going to the
+ * background no longer shows as "no controller" at all: `MainActivity.onStop` keeps the released one
+ * published until its replacement connects.)
  */
 internal fun overlayShouldClose(controllerAttached: Boolean, hasCurrentItem: Boolean): Boolean =
     controllerAttached && !hasCurrentItem
@@ -55,7 +62,7 @@ internal fun rememberPlayback(player: MediaController?): PlaybackState {
                 player.isCurrentMediaItemSeekable, player.playbackState == Player.STATE_BUFFERING,
                 player.playerError?.let { "${it.errorCodeName}: ${it.cause?.let(::friendlyError) ?: it.message}" },
                 player.hasPreviousMediaItem(), player.hasNextMediaItem(), player.shuffleModeEnabled,
-                player.repeatMode)
+                player.repeatMode, player.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS))
             state.position = player?.currentPosition?.coerceAtLeast(0) ?: 0L
         }
         val listener = object : Player.Listener {
@@ -74,7 +81,10 @@ internal fun rememberPlayback(player: MediaController?): PlaybackState {
     val playing = state.ui.playing
     LaunchedEffect(player, playing) {
         if (player == null || !playing) return@LaunchedEffect
-        while (true) {
+        // Ends with the connection: in the background the controller is released but still published
+        // (MainActivity.onStop), and would answer 0 for the position on every tick. Its replacement is
+        // a new key, which starts this again.
+        while (player.isConnected) {
             state.position = player.currentPosition.coerceAtLeast(0)
             delay(POSITION_TICK_MS)
         }

@@ -178,7 +178,10 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically) {
         if (!narrow) ShuffleControl(p, player)
-        Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
+        // The Previous button restarts the song first, and goes back a song when pressed again within
+        // Media3's three seconds (seekToPrevious); the swipes and their TalkBack actions still go
+        // straight to the song before, which is the cover they show.
+        Control("previous", "Previous", p.previousOrRestart && player != null) { player?.seekToPrevious() }
         // Round while paused, a rounded square while playing (motion pass 2).
         FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
             shape = playButtonShape(p.playing, 72.dp),
@@ -497,13 +500,13 @@ private fun ExpressiveTransport(p: PlaybackUi, player: MediaController?, toggles
         ) {
             customItem({
                 val press = remember { MutableInteractionSource() }
-                FilledTonalIconButton(onClick = { player?.seekToPreviousMediaItem() }, shapes = IconButtonDefaults.shapes(),
-                    enabled = p.previous && player != null, interactionSource = press,
+                FilledTonalIconButton(onClick = { player?.seekToPrevious() }, shapes = IconButtonDefaults.shapes(),
+                    enabled = p.previousOrRestart && player != null, interactionSource = press,
                     modifier = Modifier.animateWidth(press).size(TransportSideWidth, TransportHeight)
-                        .semantics { contentDescription = "Previous track" }) { MuonIcon("previous") }
+                        .semantics { contentDescription = "Previous" }) { MuonIcon("previous") }
             }, { menu ->
-                DropdownMenuItem(text = { Text("Previous track") }, enabled = p.previous && player != null,
-                    onClick = { menu.dismiss(); player?.seekToPreviousMediaItem() })
+                DropdownMenuItem(text = { Text("Previous") }, enabled = p.previousOrRestart && player != null,
+                    onClick = { menu.dismiss(); player?.seekToPrevious() })
             })
             customItem({
                 val press = remember { MutableInteractionSource() }
