@@ -57,7 +57,7 @@ internal fun PlayerPanel(p: PlaybackUi, position: () -> Long, revision: () -> In
             PanelProgress(position, p.duration, p.playing)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically) {
-                Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
+                Control("previous", "Previous", p.previousOrRestart && player != null) { player?.seekToPrevious() }
                 FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
                     shape = playButtonShape(p.playing, 56.dp),
                     modifier = Modifier.size(56.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
