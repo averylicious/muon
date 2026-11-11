@@ -1,8 +1,6 @@
 package dev.avery.muon
 
 import androidx.activity.BackEventCompat
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -87,10 +85,7 @@ class PageBackPeekTest {
     @Test fun aBackWithNoProgressShowsNoCard() = runTest {
         val peek = BackPeek()
         val gesture = peek.begin()
-        var shown = 0
-        assertFalse(peek.follow(emptyFlow()) { shown++ })
         assertFalse(peek.active)
-        assertEquals(0, shown)
         assertTrue(peek.owns(gesture))
     }
 
@@ -99,9 +94,8 @@ class PageBackPeekTest {
         val peek = BackPeek()
         peek.begin()
         val activeWhenShown = mutableListOf<Boolean>()
-        val events = flowOf(BackEventCompat(0f, 400f, 0.2f, BackEventCompat.EDGE_RIGHT),
-            BackEventCompat(30f, 340f, 0.6f, BackEventCompat.EDGE_RIGHT))
-        assertTrue(peek.follow(events) { activeWhenShown += peek.active })
+        peek.follow(BackEventCompat(0f, 400f, 0.2f, BackEventCompat.EDGE_RIGHT)) { activeWhenShown += peek.active }
+        peek.follow(BackEventCompat(30f, 340f, 0.6f, BackEventCompat.EDGE_RIGHT)) { activeWhenShown += peek.active }
         assertEquals(listOf(true), activeWhenShown)
         assertTrue(peek.active)
         assertEquals(0.6f, peek.progress.value, 0f)
@@ -110,23 +104,39 @@ class PageBackPeekTest {
         assertEquals(-60f, peek.drag, 0f)
     }
 
-    /** A second Back over a cancelled card still settling, even one with no progress, finishes as that card. */
+    /** A second Back over a cancelled card still settling finishes as that card, even with no progress of its own. */
     @Test fun aGestureTakingOverASettlingCardCarriesOnFromIt() = runTest {
         val peek = BackPeek()
         peek.begin()
-        peek.follow(flowOf(BackEventCompat(0f, 400f, 0.5f, BackEventCompat.EDGE_LEFT)))
+        peek.follow(BackEventCompat(0f, 400f, 0.5f, BackEventCompat.EDGE_LEFT))
+        peek.begin()
+        assertTrue(peek.active)
+        // If it does send progress, what is underneath is put in place again and the finger is measured afresh.
+        var shown = 0
+        peek.follow(BackEventCompat(0f, 900f, 0.1f, BackEventCompat.EDGE_LEFT)) { shown++ }
+        assertEquals(1, shown)
+        assertEquals(0f, peek.drag, 0f)
+        assertEquals(0.1f, peek.progress.value, 0f)
+    }
+
+    /** A logical navigation during a held gesture puts the card away, and the rest of that gesture leaves it away. */
+    @Test fun aCardPutAwayUnderAGestureStaysAway() = runTest {
+        val peek = BackPeek()
         peek.begin()
         var shown = 0
-        assertTrue(peek.follow(emptyFlow()) { shown++ })
+        peek.follow(BackEventCompat(0f, 400f, 0.3f, BackEventCompat.EDGE_LEFT)) { shown++ }
+        peek.interrupt()
+        peek.reset()
+        peek.follow(BackEventCompat(0f, 400f, 0.4f, BackEventCompat.EDGE_LEFT)) { shown++ }
+        assertFalse(peek.active)
         assertEquals(1, shown)
-        assertTrue(peek.active)
     }
 
     @Test fun aSettledCardIsFullyPutBack() = runTest {
         val peek = BackPeek()
         peek.begin(alone = true)
-        peek.follow(flowOf(BackEventCompat(0f, 400f, 0.2f, BackEventCompat.EDGE_LEFT),
-            BackEventCompat(0f, 450f, 0.5f, BackEventCompat.EDGE_LEFT)))
+        peek.follow(BackEventCompat(0f, 400f, 0.2f, BackEventCompat.EDGE_LEFT))
+        peek.follow(BackEventCompat(0f, 450f, 0.5f, BackEventCompat.EDGE_LEFT))
         assertTrue(peek.alone)
         peek.reset()
         assertFalse(peek.active)

@@ -2,7 +2,6 @@ package dev.avery.muon
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import androidx.activity.BackEventCompat
 import androidx.compose.animation.ContentTransform
@@ -46,6 +45,8 @@ internal class BackPeek {
     /** How far the finger has moved up or down since the gesture's first event, in pixels. */
     var drag by mutableFloatStateOf(0f)
     private var startY = Float.NaN
+    /** The gesture in hand has sent no progress yet. */
+    private var fresh = false
     /**
      * Back leaves for a screen that is not composed underneath (Search): the page on show is the
      * card, over the app's own ground, and stays hidden once the card has gone.
@@ -70,39 +71,37 @@ internal class BackPeek {
     fun begin(alone: Boolean = false): Long {
         interrupt()
         this.alone = alone
+        startY = Float.NaN
+        fresh = true
         return generation
     }
 
     /**
-     * Follows one gesture until it is let go, and returns whether there is a card to finish with.
+     * Takes one progress event of the gesture that last called [begin].
      *
-     * The card appears with the first progress event, not when the gesture starts. A button or
-     * hardware Back completes with no events at all (activity-compose 1.11.0 closes the flow
-     * without sending any), and then gets the page's ordinary transition, its slide and its cover
+     * The card appears with the first of them, not when the gesture starts. A button or hardware
+     * Back completes with no events at all (activity-compose 1.11.0 closes the flow without sending
+     * any), so the card stays off and the page gets its ordinary transition, its slide and its cover
      * flying home, like the arrow in the app, rather than a card fading in place. A gesture that
-     * takes over a cancelled one still settling carries on from that card.
+     * takes over a cancelled one still settling carries on from that card, and one whose card was
+     * put away under it by a logical navigation does not bring it back.
      *
-     * [show] puts what is underneath in place. It runs once, after [active] is set, because a
-     * seeking transition waits for the composition that has to see it.
+     * [show] puts what is underneath in place. It runs with the first event only, after [active] is
+     * set, because a seeking transition waits for the composition that has to see it. The handler
+     * collects the events itself and calls this for each: activity-compose's lint requires the
+     * `collect` to be written in the handler's own lambda.
      */
-    suspend fun follow(events: Flow<BackEventCompat>, show: suspend () -> Unit = {}): Boolean {
-        startY = Float.NaN
-        var shown = active
-        if (shown) { commit.snapTo(0f); show() }
-        events.collect { event ->
-            if (!shown) {
-                shown = true
-                drag = 0f
-                active = true
-                commit.snapTo(0f)
-                show()
-            }
-            edge = event.swipeEdge
-            if (startY.isNaN()) startY = event.touchY
-            drag = event.touchY - startY
-            progress.snapTo(event.progress)
+    suspend fun follow(event: BackEventCompat, show: suspend () -> Unit = {}) {
+        if (fresh) {
+            fresh = false
+            if (!active) { drag = 0f; active = true }
+            commit.snapTo(0f)
+            show()
         }
-        return shown
+        edge = event.swipeEdge
+        if (startY.isNaN()) startY = event.touchY
+        drag = event.touchY - startY
+        progress.snapTo(event.progress)
     }
 
     fun owns(token: Long): Boolean = generation == token

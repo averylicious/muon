@@ -688,8 +688,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                         try {
                                             // A Back with no progress (a button) shows no card, and the
                                             // step's own slide plays instead (BackPeek.follow).
-                                            if (savedPeek.follow(events) { savedState.seekTo(0f, false) })
-                                                savedPeek.commit.animateTo(1f, motionShort())
+                                            events.collect { event -> savedPeek.follow(event) { savedState.seekTo(0f, false) } }
+                                            if (savedPeek.active) savedPeek.commit.animateTo(1f, motionShort())
                                             if (savedPeek.owns(gesture)) savedOpen = false
                                         } catch (cancelled: CancellationException) {
                                             if (savedPeek.active) savedPeek.restore(savedPeekScope, gesture) {
@@ -767,8 +767,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                             // Let go: the card fades away, and the page it covered is already
                                             // there. A Back with no progress (a button) shows no card, and the
                                             // page's own transition plays instead (BackPeek.follow).
-                                            if (peek.follow(events) { if (to != null) pageState.seekTo(0f, to) })
-                                                peek.commit.animateTo(1f, motionShort())
+                                            events.collect { event -> peek.follow(event) { if (to != null) pageState.seekTo(0f, to) } }
+                                            if (peek.active) peek.commit.animateTo(1f, motionShort())
                                             if (peek.owns(gesture)) closePage()
                                         } catch (cancelled: CancellationException) {
                                             if (peek.active) peek.restore(peekScope, gesture) {
@@ -1128,7 +1128,8 @@ private fun FullScreenOverlay(state: MutableTransitionState<Boolean>, peeking: (
             val gesture = peek.begin()
             try {
                 // A Back with no progress (a button) shows no card, and the overlay's own exit plays.
-                if (peek.follow(events) { currentPeeking(true) }) peek.commit.animateTo(1f, motionShort())
+                events.collect { event -> peek.follow(event) { currentPeeking(true) } }
+                if (peek.active) peek.commit.animateTo(1f, motionShort())
                 if (peek.owns(gesture)) currentClose()
             } catch (cancelled: CancellationException) {
                 if (peek.active) peek.restore(peekScope, gesture) {
