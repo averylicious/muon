@@ -686,14 +686,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     PredictiveBackHandler(savedOpen && tab == Tab.Settings && !overlayOpen && !sheet.previewing) { events ->
                                         val gesture = savedPeek.begin()
                                         try {
-                                            savedPeek.commit.snapTo(0f)
-                                            savedState.seekTo(0f, false)
-                                            events.collect { event -> savedPeek.edge = event.swipeEdge; savedPeek.progress.snapTo(event.progress) }
-                                            savedPeek.commit.animateTo(1f, motionShort())
+                                            // A Back with no progress (a button) shows no card, and the
+                                            // step's own slide plays instead (BackPeek.follow).
+                                            if (savedPeek.follow(events) { savedState.seekTo(0f, false) })
+                                                savedPeek.commit.animateTo(1f, motionShort())
                                             if (savedPeek.owns(gesture)) savedOpen = false
                                         } catch (cancelled: CancellationException) {
-                                            savedPeek.restore(savedPeekScope, gesture) {
-                                                savedPeek.progress.animateTo(0f, motionSpatial())
+                                            if (savedPeek.active) savedPeek.restore(savedPeekScope, gesture) {
+                                                // Not the spatial spring's overshoot: the card's size is
+                                                // clamped at full, so it would stop dead instead of settling.
+                                                savedPeek.progress.animateTo(0f, motionSpatialFull())
                                                 savedState.snapTo(true)
                                                 savedPeek.reset()
                                             }
@@ -742,28 +744,36 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     // underneath while the page on show shrinks away (issue #658).
                                     val pageState = remember { SeekableTransitionState(page) }
                                     val peek = remember { BackPeek() }
-                                    LaunchedEffect(page) { peek.interrupt(); pageState.animateTo(page); if (peek.active) peek.reset() }
+                                    // Keyed on the tab as well: a card that left for Search stays gone
+                                    // while this tab fades out, and is put right if the tab comes back.
+                                    LaunchedEffect(page, tab) {
+                                        peek.interrupt(); pageState.animateTo(page)
+                                        if (peek.active && tab == Tab.Library) peek.reset()
+                                    }
                                     val pageTransition = rememberTransition(pageState, label = "library page")
                                     val backTo = libraryBackPage(page, fromSearch)
+                                    // Back to Search has no Library page to show underneath: the page on
+                                    // show shrinks as a card over the app's ground.
+                                    val backToSearch = libraryBackLeavesForSearch(page, fromSearch)
                                     val peekScope = rememberCoroutineScope()
                                     // Registered after the app's own Back handler, so it takes the gesture
                                     // while a Library page is open; never while the player is open or
                                     // being carried up, which have Back of their own.
-                                    PredictiveBackHandler(target == BackTarget.Playlist && backTo != null && !sheet.previewing) { events ->
+                                    PredictiveBackHandler(target == BackTarget.Playlist && (backTo != null || backToSearch) && !sheet.previewing) { events ->
                                         val from = page
-                                        val to = backTo ?: return@PredictiveBackHandler
-                                        val gesture = peek.begin()
+                                        val to = backTo
+                                        val gesture = peek.begin(alone = to == null)
                                         try {
-                                            peek.commit.snapTo(0f)
-                                            pageState.seekTo(0f, to)
-                                            events.collect { event -> peek.edge = event.swipeEdge; peek.progress.snapTo(event.progress) }
-                                            // Let go: the card fades away, and the page it covered is already there.
-                                            peek.commit.animateTo(1f, motionShort())
+                                            // Let go: the card fades away, and the page it covered is already
+                                            // there. A Back with no progress (a button) shows no card, and the
+                                            // page's own transition plays instead (BackPeek.follow).
+                                            if (peek.follow(events) { if (to != null) pageState.seekTo(0f, to) })
+                                                peek.commit.animateTo(1f, motionShort())
                                             if (peek.owns(gesture)) closePage()
                                         } catch (cancelled: CancellationException) {
-                                            peek.restore(peekScope, gesture) {
-                                                peek.progress.animateTo(0f, motionSpatial())
-                                                pageState.snapTo(from)
+                                            if (peek.active) peek.restore(peekScope, gesture) {
+                                                peek.progress.animateTo(0f, motionSpatialFull())
+                                                if (to != null) pageState.snapTo(from)
                                                 peek.reset()
                                             }
                                             throw cancelled
@@ -779,7 +789,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                         // and would come apart from the card as it shrinks.
                                         CompositionLocalProvider(LocalSharedMotion provides if (peek.active) null else SharedMotion(shared, this)) {
                                         Box(Modifier.fillMaxSize().leaving(leaving)
-                                            .then(if (!peek.active) Modifier else if (leaving) Modifier.peekCard(peek, colors.background) else Modifier.peekParent(peek))) {
+                                            .then(when {
+                                                !peek.active -> Modifier
+                                                peek.alone -> Modifier.peekBackdrop(peek).peekCard(peek, colors.background)
+                                                leaving -> Modifier.peekCard(peek, colors.background)
+                                                else -> Modifier.peekParent(peek)
+                                            })) {
                                             when (shown) {
                                                 is LibraryPage.Album -> {
                                                     val album = keptWhileLeaving(leaving,
@@ -1096,7 +1111,8 @@ private fun FullScreenOverlay(state: MutableTransitionState<Boolean>, peeking: (
         enter = slideInVertically(motionSpatialFull()) { it } + fadeIn(motionShort()),
         exit = slideOutVertically(motionSpatialFull()) { it } + fadeOut(motionShort())) {
         // A held Back gesture shrinks the overlay to a card over Now Playing, like a Library page
-        // (issue #658). After a commit the card has already faded, so the slide out shows nothing.
+        // (issue #658). After a commit the card has already faded, so the slide out shows nothing;
+        // a Back with no gesture behind it shows no card and slides out like the close button.
         val peek = remember { BackPeek() }
         val peekScope = rememberCoroutineScope()
         val currentClose by rememberUpdatedState(close)
@@ -1110,15 +1126,13 @@ private fun FullScreenOverlay(state: MutableTransitionState<Boolean>, peeking: (
         // Composed after the app's own handlers and the player's, so it takes Back while on show.
         PredictiveBackHandler(visible) { events ->
             val gesture = peek.begin()
-            currentPeeking(true)
             try {
-                peek.commit.snapTo(0f)
-                events.collect { event -> peek.edge = event.swipeEdge; peek.progress.snapTo(event.progress) }
-                peek.commit.animateTo(1f, motionShort())
+                // A Back with no progress (a button) shows no card, and the overlay's own exit plays.
+                if (peek.follow(events) { currentPeeking(true) }) peek.commit.animateTo(1f, motionShort())
                 if (peek.owns(gesture)) currentClose()
             } catch (cancelled: CancellationException) {
-                peek.restore(peekScope, gesture) {
-                    peek.progress.animateTo(0f, motionSpatial())
+                if (peek.active) peek.restore(peekScope, gesture) {
+                    peek.progress.animateTo(0f, motionSpatialFull())
                     peek.reset()
                     currentPeeking(false)
                 }
@@ -1159,11 +1173,15 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean, covered: Boolean, back
     val colors = MaterialTheme.colorScheme
     val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
     val ground = colors.background
+    // The flying cover is drawn outside this surface and has to follow the preview's layer, so the
+    // morph is told about it; and the preview lets go as the sheet closes (playerBackHeld).
+    val back = preview()
+    DisposableEffect(morph, back) { morph.back = back; onDispose { if (morph.back === back) morph.back = null } }
     // The panel paints its own ground: Now Playing's, or, while it grows out of the mini player, the
     // mini player's [miniColor] turning into it (PlayerMorph), over the mini player's glass when the
     // bars are frosted ([frost]). Read in the draw phase.
     Surface(Modifier.fillMaxSize()
-        .playerSheet(sheet, WindowInsets.safeDrawing, edge, morph).playerBackPreview(preview())
+        .playerSheet(sheet, WindowInsets.safeDrawing, edge, morph).playerBackPreview(back) { morph.backHeld() }
         .frostedPanel(frost, libraryGround) { morph.growing() }
         .drawBehind { drawRect(morph.panelColor(miniColor, ground)) },
         color = Color.Transparent, contentColor = colors.onBackground) {
