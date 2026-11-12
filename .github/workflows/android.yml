@@ -249,6 +249,44 @@ jobs:
         if: always() && steps.scope.outputs.build_apks == 'true'
         run: rm -rf "$RUNNER_TEMP/muon-signing"
 
+
+  verify-release-handoff:
+    name: Verify artifact handoff (${{ matrix.channel }})
+    needs: build
+    if: github.ref == 'refs/heads/codex/artifact-handoff-proof-nov12'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    strategy:
+      matrix:
+        channel: [canary, stable]
+    steps:
+      - name: Download verified APK artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: app-${{ matrix.channel == 'canary' && 'debug' || 'release' }}-${{ github.sha }}
+          path: release-input
+
+      - name: Check publisher inputs without publishing
+        working-directory: release-input
+        env:
+          CHANNEL: ${{ matrix.channel }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          variant=release
+          display_version="$VERSION"
+          if [[ "$CHANNEL" == canary ]]; then
+            variant=debug
+            display_version="$VERSION-canary.$GITHUB_RUN_NUMBER"
+          fi
+          expected="app-$variant.apk"
+          [[ -s "$expected" && -f SHA256SUMS && -f BUILD.txt ]]
+          [[ "$(find . -mindepth 1 | wc -l)" == 3 ]]
+          sha256sum --strict --check SHA256SUMS
+          sha256sum "$expected" | cmp - SHA256SUMS
+          printf 'Commit: %s\nRun: %s\nVersion: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$display_version" | cmp - BUILD.txt
+
   publish:
     name: Publish private release
     needs: build
