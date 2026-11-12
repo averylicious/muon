@@ -65,7 +65,10 @@ internal object ArtworkIdentities {
     // Observable by Artwork and ArtworkTheme; an equal library snapshot does not restart loads.
     private var current by mutableStateOf<Map<String, String>>(emptyMap())
     @Synchronized fun publish(identities: Map<String, String>) { current = identities }
-    fun request(url: String) = ArtworkRequest(url, current[url])
+    fun request(url: String): ArtworkRequest {
+        val canonical = canonicalArtworkUrl(url)
+        return ArtworkRequest(canonical, current[canonical])
+    }
 
     /** Short memory/publication operations only. Disk IO stays outside this lock. */
     @Synchronized fun <T> ifCurrent(request: ArtworkRequest, block: () -> T): T? =
