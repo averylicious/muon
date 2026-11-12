@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import android.content.Context
 import java.io.File
+import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -44,10 +45,19 @@ internal const val ARTWORK_MAX_AGE_MS = 90L * 24 * 60 * 60 * 1000
 internal fun artworkIdentities(endpoint: ServerEndpoint, tracks: List<TauonTrack>): Map<String, String> {
     val identities = HashMap<String, String>(tracks.size)
     for (track in tracks) {
-        val identity = "${track.title}\u0000${track.artist}\u0000${track.album}"
+        val identity = buildString {
+            appendArtworkField(track.title)
+            appendArtworkField(track.artist)
+            appendArtworkField(track.album)
+        }
         identities[endpoint.url("/api1/pic/medium/${track.id}")] = identity
     }
     return identities
+}
+
+// A length belongs to the field it precedes, even when the field contains a colon or NUL.
+private fun StringBuilder.appendArtworkField(value: String) {
+    append(value.length).append(':').append(value)
 }
 
 internal data class ArtworkRequest(val url: String, val identity: String?) {
@@ -182,8 +192,20 @@ internal class ArtworkDiskCache(private val dir: File, private val maxBytes: Lon
     private fun file(url: String, identity: String) = File(dir, key(url, identity))
 
     companion object {
-        fun key(url: String, identity: String): String = MessageDigest.getInstance("SHA-256")
-            .digest("$url\u0000$identity".toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        fun key(url: String, identity: String): String {
+            val input = ByteBuffer.allocate(1 + 2 * Int.SIZE_BYTES + (url.length + identity.length) * Char.SIZE_BYTES)
+            input.put(2) // Derived cache key version. Old ambiguous names are intentionally misses.
+            input.putArtworkField(url)
+            input.putArtworkField(identity)
+            return MessageDigest.getInstance("SHA-256").digest(input.array()).joinToString("") { "%02x".format(it) }
+        }
+
+        // Write raw UTF-16 code units. Charset encoders can replace different unpaired surrogates
+        // with the same bytes, even when the original strings compare unequal.
+        private fun ByteBuffer.putArtworkField(value: String) {
+            putInt(value.length)
+            for (unit in value) putChar(unit)
+        }
     }
 }
 
