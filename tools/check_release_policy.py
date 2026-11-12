@@ -24,8 +24,11 @@ def check(ref_type, ref_name, head):
         raise ValueError('Stable tag no longer resolves to the workflow commit.')
     main = branches.git('rev-parse', '--verify', 'refs/remotes/origin/main^{commit}')
     branches.git('cat-file', '-e', branches.EXPERIMENT_START + '^{commit}')
-    if branches.ancestor(branches.EXPERIMENT_START, head):
-        raise ValueError('Stable tag contains the alpha experiment.')
+    # Tags from before the experiment stay valid. One containing it needs the approved promotion,
+    # in the tagged commit and in main, which contains it below.
+    if branches.ancestor(branches.EXPERIMENT_START, head) and not (
+            branches.promoted(head) and branches.promoted(main)):
+        raise ValueError('Stable tag contains the alpha experiment without its approved promotion.')
     if not branches.ancestor(head, main):
         raise ValueError('Stable tag must be a commit already included in fetched main.')
     return main

@@ -14,6 +14,8 @@ concurrency:
 
 jobs:
   direction:
+    # Receipt edits on already-merged PRs cannot satisfy freshness against their own merge.
+    if: github.event.pull_request.state == 'open'
     name: Branch direction
     runs-on: ubuntu-24.04
     timeout-minutes: 5
