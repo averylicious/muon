@@ -36,22 +36,24 @@ class ArtworkRequestIntegrationTest {
         forgetArtwork(disk)
     }
 
-    @Test fun lateBodyCannotPublishOldIdentityAndReplacementIsThenCached() = runBlocking(Dispatchers.IO) {
+    @Test fun aNulInDifferentTagFieldsCannotPublishAnOldCoverForTheReplacement() = runBlocking(Dispatchers.IO) {
         forgetArtwork(disk)
         HeldArtworkServer(png()).use { server ->
-            ArtworkIdentities.publish(mapOf(server.url to "old"))
+            val track = TauonTrack(1, "a\u0000b", "c", "d", 0, true, false)
+            ArtworkIdentities.publish(artworkIdentities(server.endpoint, listOf(track)))
             val old = ArtworkIdentities.request(server.url)
             val pending = async { artworkBitmap(context, old) }
             try {
                 assertTrue("first body did not start", server.firstBody.await(8, TimeUnit.SECONDS))
-                ArtworkIdentities.publish(mapOf(server.url to "replacement"))
+                val changed = track.copy(title = "a", artist = "b\u0000c")
+                ArtworkIdentities.publish(artworkIdentities(server.endpoint, listOf(changed)))
                 server.release.countDown()
                 assertNull(withTimeout(8_000) { pending.await() })
-                assertNull(disk.read("${server.url}#128", "old"))
+                assertNull(disk.read("${server.url}#128", requireNotNull(old.identity)))
                 val replacement = ArtworkIdentities.request(server.url)
                 val bitmap = withTimeout(8_000) { artworkBitmap(context, replacement) }
                 assertNotNull(bitmap)
-                assertNotNull(disk.read("${server.url}#128", "replacement"))
+                assertNotNull(disk.read("${server.url}#128", requireNotNull(replacement.identity)))
                 assertSame(bitmap, artworkBitmap(context, replacement))
                 assertEquals(2, server.requests.get())
             } finally { server.release.countDown(); pending.cancelAndJoin() }
@@ -119,7 +121,8 @@ class ArtworkRequestIntegrationTest {
     private class HeldArtworkServer(private val bytes: ByteArray) : Closeable {
         private val listener = ServerSocket(0, 2, InetAddress.getByName("127.0.0.1"))
         private val peer = AtomicReference<Socket?>()
-        val url = "http://127.0.0.1:${listener.localPort}/art"
+        val endpoint = ServerEndpoint.parse("http://127.0.0.1:${listener.localPort}")
+        val url = endpoint.url("/api1/pic/medium/1")
         val firstBody = CountDownLatch(1)
         val release = CountDownLatch(1)
         val requests = AtomicInteger()
