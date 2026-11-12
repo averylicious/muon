@@ -119,16 +119,18 @@ class PlaybackService : MediaSessionService() {
                     })
                 }
             })
-        // Controllers and the platform session get bounded song metadata (#738); queue guards stay inside.
-        session = MediaSession.Builder(this, ControlMetadataPlayer(PlaybackQueuePlayer(player, refused = {
+        val queuePlayer = PlaybackQueuePlayer(player, refused = {
             android.widget.Toast.makeText(this, "The queue is full. Choose fewer songs or remove some queued songs.",
                 android.widget.Toast.LENGTH_LONG).show()
-        })))
+        })
+        // Controllers and the platform session get bounded song metadata (#738); queue guards stay inside.
+        session = MediaSession.Builder(this, ControlMetadataPlayer(queuePlayer))
             .setBitmapLoader(CacheBitmapLoader(notificationBitmapLoader(this,
                 OkHttpDataSource.Factory(Transport.metadataClient))))
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            .setCallback(PlaybackSessionCallback({ OfflineStore.admitsSaved(this, it) }, admission, diagnosticTiming, player)).build()
+            .setCallback(PlaybackSessionCallback({ OfflineStore.admitsSaved(this, it) },
+                admission, diagnosticTiming, player, queuePlayer)).build()
     }
     // Saved-copy admission reads an index row, so it is kept off the session's main thread (#213).
     private val admission = java.util.concurrent.Executors.newSingleThreadExecutor()

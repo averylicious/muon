@@ -30,6 +30,7 @@ internal class PlaybackSessionCallback(
     private val background: Executor = Executor { it.run() },
     private val timing: SavedStartupTiming = SavedStartupTiming.DISABLED,
     private val shufflePlayer: ExoPlayer? = null,
+    private val queuePlayer: PlaybackQueuePlayer? = null,
 ) : MediaSession.Callback {
     override fun onConnectAsync(
         session: MediaSession,
@@ -59,8 +60,11 @@ internal class PlaybackSessionCallback(
             return super.onCustomCommand(session, controller, customCommand, args)
         if (!ownsQueue(session, controller)) return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+        // The session may project a cached timeline for controllers. Inspect and edit the
+        // forwarding queue guard, whose getters read the native player's actual state.
+        val editPlayer = queuePlayer ?: session.player
         if (action == UNDO_QUEUE_INSERTION.customAction) return Futures.immediateFuture(
-            SessionResult(if (applyInsertionUndo(session.player, args)) SessionResult.RESULT_SUCCESS
+            SessionResult(if (applyInsertionUndo(editPlayer, args)) SessionResult.RESULT_SUCCESS
                 else SessionError.ERROR_INVALID_STATE))
         if (action == INSERT_QUEUE_ITEM.customAction) {
             val insertion = QueueInsertionRequest.fromBundle(args) ?: return Futures.immediateFuture(
@@ -70,7 +74,7 @@ internal class PlaybackSessionCallback(
             return Futures.transform(admitted, { items ->
                 val item = items?.singleOrNull()
                 val exo = shufflePlayer ?: (session.player as? ExoPlayer)
-                SessionResult(if (item != null && insertion.applyTo(session.player, exo, item))
+                SessionResult(if (item != null && insertion.applyTo(editPlayer, exo, item))
                     SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE)
             }, MoreExecutors.directExecutor())
         }
