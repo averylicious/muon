@@ -1,10 +1,10 @@
 # Combined main-track post-RC acceptance candidate
 
-Updated2026-10-30. [Draft #701](https://github.com/averylicious/muon/pull/701), branch `codex/post-rc-acceptance-oct25`, includes current documentation main `2ec8b69892beda2ef691e0c4b3ac01f1b9e462ef` (application baseline20579cf1). Ordinary merges retain topic ancestry. This uninstalled source/CI staging candidate is **not frozen M3E RC .1420**. Inclusion is not acceptance or permission to land runtime changes. No phone, alpha landing or Stable publication.
+Updated 2026-11-12. [Draft #701](https://github.com/averylicious/muon/pull/701), branch `codex/post-rc-acceptance-oct25`, includes current documentation main `046db9ad790a581f64f0e1d5bee95ea353460c88` (application baseline20579cf1). Ordinary merges retain topic ancestry. This uninstalled source/CI staging candidate is **not frozen M3E RC .1420**. Inclusion is not acceptance or permission to land runtime changes. No phone, alpha landing or Stable publication.
 
-## Exact verified inputs
+## Exact topic inputs
 
-| PR | Fix | Included topic head | Passed standalone Android run |
+| PR | Fix | Included topic head | Standalone Android run |
 | --- | --- | --- | --- |
 | #682 | Selected-network discovery | `b80ef8966f92d6c70a2f3b523313dde8cb4203e2` | [.1457](https://github.com/averylicious/muon/actions/runs/40110501457) |
 | #691 | Cancel initial Connect | `6a489a1baf0f05e37f23dcb985b8be872ba7831f` | [.1456](https://github.com/averylicious/muon/actions/runs/40110471543) |
@@ -43,15 +43,17 @@ Updated2026-10-30. [Draft #701](https://github.com/averylicious/muon/pull/701), 
 | #760 | Neutral outcome wording for unconfirmed queue edits | `994e7f0949b488fb0228b07a9a632ebd7a05920e` | [.1667](https://github.com/averylicious/muon/actions/runs/40911558711) |
 | #761 | Finite remembered-gain median arithmetic | `13f5cce8efbdb1398dc446c0cc4aae2eb9824e30` | [.1668](https://github.com/averylicious/muon/actions/runs/40913729226) |
 | #763 | Modern resolve cleanup and weak discovery owner | `fceb47c2515b80baf1560eed27e30a52e0d0358e` | [.1673](https://github.com/averylicious/muon/actions/runs/40921716539) |
-
 | #765 | Lyrics ownership for changed queued labels at a reused ID | `a3e2a00577bfacb18a956eae5b0f547f200c5652` | [.1678](https://github.com/averylicious/muon/actions/runs/40925859155) |
 | #766 | Off-main, non-overlapping Settings move-offer count | `87889a8f8e388ff82751eac191f63f87019fc32e` | [.1680](https://github.com/averylicious/muon/actions/runs/40929064542) |
+| #770 | Unambiguous live artwork cache identity | `6659712772b756d78e78aaf1357b2a7864da6899` | [.1693](https://github.com/averylicious/muon/actions/runs/43192856537) |
 
 ## Current integration boundary
 
+The current 40-topic composition includes November main documentation and #770. See the latest #701 head and checks for this composition. The previous receipt below covers its own source only.
+
 **Verified37-topic head0fe9d08b7d05200bb157d6fdc12a33cdcd596a1c / [Android .1675](https://github.com/averylicious/muon/actions/runs/40924150068)** passed downloaded2,007cases/variant, zero failures/errors/skips; lint0errors/62warnings plus3hints. All seven NSD lifecycle methods, ID3/M4A oversized-name negative controls, finite median, cached native MP4 cancellation, HEIC cutover/seek and uncertain-cleanup methods ran in both. Report SHA256a7c6be60323541eb4f87f7886544a69587f222422671a5b394c3f4c651dfefde matched API. Actual signed-release BUILD/source/checksum/pinned signer/identity/non-debuggable/compiled-export/profile checks passed offline; APK657f3fc9456fb8570c8afa33b3fdaf3d491fecddda4bf2bcad072907fb85cf9d, uninstalled. [Canary .1675 artifact](https://github.com/averylicious/muon/actions/runs/40924150068/artifacts/12920178100), app-debug-0fe9d08b7d05200bb157d6fdc12a33cdcd596a1c. This is not phone/decoding/whole-heap acceptance.
 
-**Current39-topic head80348c145d15e1acd4f1e6e4a81b1057a5f28970 / [Android .1681](https://github.com/averylicious/muon/actions/runs/40931457152) passed.** Downloaded2,010cases/variant, zero failures/errors/skips; lint0errors/62warnings plus3hints. All20 selected lifecycle, metadata, median, native cancellation/cutover/seek, cleanup, Settings-count and lyric methods ran in both variants. Report ZIP SHA2566b4ab427d1aa01f53685d3bf15aa2665018b5ff353625e77ac79e8a3c0563550 matched API. Actual release ZIP SHA25650450d8631012018ad8c762774b934caad50ec5a8ba8818ccc8668f3a112a75a matched API; BUILD/source/checksum/pinned signer/identity/non-debuggable/compiled-export/profile-header gates passed offline. APK SHA256b708f4fc1869009344c183cb5897c1586f14ec708bc1b8f83db930c9cbd7908d, uninstalled. [Canary0.1.0-canary.1681 artifact](https://github.com/averylicious/muon/actions/runs/40931457152/artifacts/12923806964), app-debug-80348c145d15e1acd4f1e6e4a81b1057a5f28970. Static artifact/report inspection is not decoding, performance, whole-heap or device acceptance.
+**Previous 39-topic head80348c145d15e1acd4f1e6e4a81b1057a5f28970 / [Android .1681](https://github.com/averylicious/muon/actions/runs/40931457152) passed.** Downloaded2,010cases/variant, zero failures/errors/skips; lint0errors/62warnings plus3hints. All20 selected lifecycle, metadata, median, native cancellation/cutover/seek, cleanup, Settings-count and lyric methods ran in both variants. Report ZIP SHA2566b4ab427d1aa01f53685d3bf15aa2665018b5ff353625e77ac79e8a3c0563550 matched API. Actual release ZIP SHA25650450d8631012018ad8c762774b934caad50ec5a8ba8818ccc8668f3a112a75a matched API; BUILD/source/checksum/pinned signer/identity/non-debuggable/compiled-export/profile-header gates passed offline. APK SHA256b708f4fc1869009344c183cb5897c1586f14ec708bc1b8f83db930c9cbd7908d, uninstalled. [Canary0.1.0-canary.1681 artifact](https://github.com/averylicious/muon/actions/runs/40931457152/artifacts/12923806964), app-debug-80348c145d15e1acd4f1e6e4a81b1057a5f28970. Static artifact/report inspection is not decoding, performance, whole-heap or device acceptance.
 
 Lyrics .1678 and Settings .1680 passed standalone. The composition preserves all39 exact topic ancestors above. LyricsScreen and Settings/count/test regions match the verified inputs; the only lyrics merge conflict was issue-index prose, retaining both#757/#764 rows. No manifest/workflow/tool/signing/profile input diff from2ec8b698. Existing invariants below were preserved.
 
