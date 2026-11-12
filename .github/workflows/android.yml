@@ -152,13 +152,14 @@ jobs:
       # Explicit unit tests and full lint run before any Muon signing material is on this runner, so
       # they never see the keys or password directly. Not an isolation boundary: earlier code can
       # still leave changes in the workspace, and the signed assemble below runs AGP's own implicit
-      # checks (docs/ci.md).
+      # checks (docs/ci.md). Lint is requested first: it needs minutes less than the two unit-test
+      # variants, so a lint error ends the run before them instead of after.
       - name: Run unit tests and lint before signing
         if: steps.scope.outputs.build_apks == 'true'
         run: >-
           ./gradlew --no-daemon --console=plain
-          :app:testDebugUnitTest :app:testReleaseUnitTest
           :app:lintDebug :app:lintRelease
+          :app:testDebugUnitTest :app:testReleaseUnitTest
 
       - name: Restore signing keys
         if: steps.scope.outputs.build_apks == 'true'
@@ -211,6 +212,26 @@ jobs:
             printf 'Commit: %s\nRun: %s\nVersion: %s-canary.%s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" "$GITHUB_RUN_NUMBER" > artifacts/debug/BUILD.txt
           fi
           printf 'Commit: %s\nRun: %s\nVersion: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" "$MUON_VERSION_NAME" > artifacts/release/BUILD.txt
+
+      # Informational: names what this run built, because the run number is one counter shared by
+      # every branch (docs/ci.md). It only reads the files prepared above; a failure here is reported
+      # as a warning and never fails the job.
+      - name: Summarize build identity
+        if: steps.scope.outputs.build_apks == 'true'
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          CHANNEL: ${{ steps.version.outputs.channel }}
+        run: |
+          {
+            printf '## Build identity\n\n'
+            printf -- '- Source: %s `%s`, commit `%s`\n' "$REF_TYPE" "$REF_NAME" "$GITHUB_SHA"
+            printf -- '- Source tree: `%s`. Runs that show the same tree built the same source, as a merge commit and the pull request head it merged usually do.\n' "$(git rev-parse 'HEAD^{tree}')"
+            printf -- '- Run number and Android versionCode: **%s**. Every branch shares this counter, so builds of one branch are rarely consecutive.\n' "$GITHUB_RUN_NUMBER"
+            printf -- '- Publication channel: `%s` (`none` means workflow artifacts only)\n\n' "$CHANNEL"
+            printf 'Canary artifact `BUILD.txt`:\n\n```\n%s\n```\n\n' "$(cat artifacts/debug/BUILD.txt)"
+            printf 'Release artifact `BUILD.txt`:\n\n```\n%s\n```\n' "$(cat artifacts/release/BUILD.txt)"
+          } >> "$GITHUB_STEP_SUMMARY" || echo '::warning::Build identity summary unavailable'
 
       - name: Upload debug APK
         if: steps.scope.outputs.build_apks == 'true'

@@ -1,6 +1,6 @@
 # Muon current state
 
-Updated 2026-11-10. [Current release/cleanup checkpoint](handoffs/2026-10-23-stable-020-release.md) · [Issue state](audits/issues/README.md) · [Release plan](release-plan.md).
+Updated 2026-11-12. [Current release/cleanup checkpoint](handoffs/2026-10-23-stable-020-release.md) · [Issue state](audits/issues/README.md) · [Release plan](release-plan.md).
 
 ## Shipped and integrated
 
@@ -16,7 +16,7 @@ Updated 2026-11-10. [Current release/cleanup checkpoint](handoffs/2026-10-23-sta
 - #650 is closed not planned at user request after independent agents opposed numerical test-suite reduction. No tests removed.
 - **M3E focused UAT passed** by user report on 2026-10-24. Frozen RC source `6b1a767c180a8b9e531bf1468c9e72e348635b74` (#678) matches accepted .1415 app code. [Frozen RC receipt and remaining release gates](handoffs/2026-10-24-frozen-m3e-rc.md). #671 has not recurred and stays open/unresolved as a non-blocking follow-up. #679 prepares a bounded promotion guard; main still has the v0.2.0 app. No new Stable release/tag.
 
-- **M3E RC2 (.1685) built 2026-11-10 at the user's request:** [#767](https://github.com/averylicious/muon/pull/767) fixes the return-to-app player blink and makes Previous restart the song first; merged to the experiment as `47ca080f`. The jump from RC1 .1420 is other branches' CI runs, not skipped RCs. User QA pending; not installed; RC1 remains the promotion pin (#679). [RC2 note](handoffs/2026-11-10-m3e-rc2.md).
+- **M3E RC2 (.1685) built 2026-11-10 at the user's request:** [#767](https://github.com/averylicious/muon/pull/767) fixes the return-to-app player blink and makes Previous restart the song first; merged to the experiment as `47ca080f`. The jump from RC1 .1420 is other branches' CI runs, not skipped RCs. **User QA, partly reported:** installed, "Blink is gone" and "So far I have no issues with the latest RC build" (2026-11-11); the Previous button, swipes and notification/headset checks were not reported individually. Predictive-Back polish [#769](https://github.com/averylicious/muon/pull/769), head `bdfbe3a8` (.1690), user "LGTM" from initial testing on 2026-11-12, merged to the experiment that day as `b36b4b7a`; not a new RC. RC1 remains the promotion pin (#679). [RC2 note and quoted QA](handoffs/2026-11-10-m3e-rc2.md); [how to identify a build](ci.md#identifying-a-build).
 
 ## Working rules
 
