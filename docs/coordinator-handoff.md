@@ -12,7 +12,7 @@ Updated 2026-11-12. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC audit.** Draft #701 includes 40 topic heads and the separate in-app and notification artwork repairs. [Android .1705](https://github.com/averylicious/muon/actions/runs/43202550664) passed at `9f492fba` with 2,011 cases per variant and both signed APKs inspected offline. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) records ownership, exact checks, build-tool PRs and pending acceptance.
+**Broader post-RC audit.** Draft #701 includes 41 topic heads, artwork repairs and acknowledged queue edits. The verified [.1716](https://github.com/averylicious/muon/actions/runs/43213763256) build ran 2,012 cases per variant, including the removal/restore follow-up. Both signed APKs passed offline checks. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) records ownership, exact checks, build-tool PRs and pending acceptance.
 
 **M3E RC2 and later experimental build:** #767 produced .1685 and #769 merged predictive Back changes at `b36b4b7a` (.1691). Downloaded reports and signed release APKs passed offline inspection on both. User QA is pending. #679 still pins RC1 `6b1a767c`. [Artifact receipts and QA](handoffs/2026-11-10-m3e-rc2.md) · [UI / QoL map](audits/2026-11-10-ui-qol-map.md).
 

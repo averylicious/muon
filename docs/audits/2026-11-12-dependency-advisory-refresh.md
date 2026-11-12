@@ -1,0 +1,19 @@
+# Selected dependency advisory refresh — 2026-11-12
+
+Rechecked 393 distinct public Maven coordinates at 11:40 UTC through [OSV querybatch](https://google.github.io/osv.dev/post-v1-querybatch/). All queries returned a matching result slot without pagination. A match is a database range result. Application, build and test graphs have distinct reachability.
+
+| Inventory evidence | Release runtime coordinates / matching pairs | Build coordinates / matching pairs |
+| --- | --- | --- |
+| Main-track Gradle draft `89cc6ddd`, [inventory .132](https://github.com/averylicious/muon/actions/runs/43198601206) | 109 / 1 | 151 / 50 |
+| Experimental Gradle sync `2e0cb9da`, [inventory .133](https://github.com/averylicious/muon/actions/runs/43201536970) | 118 / 1 | 117 / 8 |
+| Combined maintenance head `5d369218`, [inventory .134](https://github.com/averylicious/muon/actions/runs/43212041063) and [prior public coordinates](https://github.com/averylicious/muon/blob/77e217e509a4d207465b543615604180f39352d2/docs/audits/evidence/2026-10-29-dependency-advisories.json) | 109 / 0 | 152 / 49 |
+
+The downloaded .134 report names exact source `5d3692182e122b9e12ebd3ffa315188a9d76747d` and matches its GitHub archive SHA-256 `2dde668054aa619ef3d3a0ed71cf8497915be801f951a209a698a96042f34889`. Both queried coordinate sets equal the earlier [inventory .130](https://github.com/averylicious/muon/actions/runs/40736018700) evidence. The main-track and experimental runtime match remains Guava 33.3.1-android. The combined graph includes the app and plugin constraints from #755, whose scope is described in [#754](issues/754.md).
+
+Compared with the October 29 query, the main-track and combined build graphs each gained one match. AGP selects `org.bouncycastle:bcprov-jdk18on:1.79` via apkzlib, builder, sdk-common and the paired BC libraries. The match is CVE-2026-5598, which the maintainer limits to FrodoKEM decapsulation. The existing LDAP certificate-store advisory changed its database record. The experimental graph selects the fixed 1.80.2 line for both. Neither Bouncy Castle coordinate occurs in the three selected app-runtime graphs. [FrodoKEM maintainer advisory](https://github.com/bcgit/bc-java/wiki/CVE%E2%80%902026%E2%80%905598) · [LDAP certificate-store maintainer advisory](https://github.com/bcgit/bc-java/wiki/CVE%E2%80%902026%E2%80%900636)
+
+Prior source inspection identified local RSA key/certificate generation in sdk-common and UTP. The 90 apkzlib and 125 apksig Java/Kotlin files at the pinned AGP line contain no explicit FrodoKEM or LDAP certificate-store references. This is limited caller/source evidence. It leaves dynamic provider selection and other build/test tools outside its scope. The official Gradle distributions separately contain BC provider artifacts labelled 1.85 (8.14.7) and 1.86-min (9.9.1), distinct from AGP’s resolved modules. [Prior caller review](2026-10-01-build-crypto.md) · [Published apkzlib sources](https://dl.google.com/dl/android/maven2/com/android/tools/build/apkzlib/8.13.2/apkzlib-8.13.2-sources.jar) · [Published apksig sources](https://dl.google.com/dl/android/maven2/com/android/tools/build/apksig/8.13.2/apksig-8.13.2-sources.jar)
+
+Defined-only DEX inspection of Canary .1701, .1703 and .1713 found zero classes in the `org.bouncycastle` namespace. Name matches in that output are OkHttp adapter code. This check does not identify any renamed or native implementation.
+
+This refresh supports keeping the new match on the build-dependency follow-up. Application reachability, an affected build invocation, and a reason to force AGP’s crypto dependencies were not established. Test graphs, native/platform code and shaded libraries are outside the query. Existing provenance decisions remain in the release plan. Source and database check by GPT-6 in Codex desktop, exact variant and effort not reported.
