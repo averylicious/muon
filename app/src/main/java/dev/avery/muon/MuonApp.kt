@@ -474,14 +474,19 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }
                 p.setMediaItems(listOf(item)); p.prepare(); p.play(); return
             }
-            val at = if (next) p.currentMediaItemIndex + 1 else p.mediaItemCount
             val insertion = queueInsertion(item)
             if (!playbackEditFits(p, 0, 0, listOf(insertion.item))) {
                 scope.launch { queueNotices.show("The queue is full. Remove some queued songs or choose fewer songs.") }
                 return
             }
-            p.addMediaItem(at, insertion.item)
+            val request = QueueInsertionRequest.capture(p, insertion, next)
             scope.launch {
+                val confirmed = request?.confirm(p) == true
+                if (currentPlayer !== p) return@launch
+                if (!confirmed) {
+                    queueNotices.show("Couldn't confirm the addition. Check the queue.")
+                    return@launch
+                }
                 val result = queueNotices.show(queuedMessage(track.title, next), actionLabel = "Undo",
                     duration = SnackbarDuration.Short)
                 if (result != SnackbarResult.ActionPerformed) return@launch

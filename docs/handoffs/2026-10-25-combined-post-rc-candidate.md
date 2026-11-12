@@ -1,6 +1,6 @@
 # Combined main-track post-RC acceptance candidate
 
-Updated 2026-11-12. [Draft #701](https://github.com/averylicious/muon/pull/701), branch `codex/post-rc-acceptance-oct25`, includes current documentation main `046db9ad790a581f64f0e1d5bee95ea353460c88` (application baseline20579cf1). Ordinary merges retain topic ancestry. This uninstalled source/CI staging candidate is **not frozen M3E RC .1420**. Inclusion is not acceptance or permission to land runtime changes. No phone, alpha landing or Stable publication.
+Updated 2026-11-12. [Draft #701](https://github.com/averylicious/muon/pull/701), branch `codex/post-rc-acceptance-oct25`, includes main `1b9e508f9819e01acd8aec5cf7296bf77a3ad69f` (application baseline20579cf1). Ordinary merges retain topic ancestry. This uninstalled source/CI staging candidate is **not frozen M3E RC .1420**. Inclusion is not acceptance or permission to land runtime changes. No phone, alpha landing or Stable publication.
 
 ## Exact topic inputs
 
@@ -46,10 +46,11 @@ Updated 2026-11-12. [Draft #701](https://github.com/averylicious/muon/pull/701),
 | #765 | Lyrics ownership for changed queued labels at a reused ID | `a3e2a00577bfacb18a956eae5b0f547f200c5652` | [.1678](https://github.com/averylicious/muon/actions/runs/40925859155) |
 | #766 | Off-main, non-overlapping Settings move-offer count | `87889a8f8e388ff82751eac191f63f87019fc32e` | [.1680](https://github.com/averylicious/muon/actions/runs/40929064542) |
 | #770 | Unambiguous live artwork cache identity | `6659712772b756d78e78aaf1357b2a7864da6899` | [.1693](https://github.com/averylicious/muon/actions/runs/43192856537) |
+| #776 | Confirm live queue insertions and Play next order | `3a59d63841fa91b498632098a8bb8ec40c417a36` | [.1710](https://github.com/averylicious/muon/actions/runs/43209190001) |
 
 ## Current integration boundary
 
-The refreshed 40-topic composition includes #689’s notification encoding correction and the latest main documentation. See #701 for its exact head, CI and artifacts.
+The 41-topic composition adds #776’s queue confirmation. It keeps the existing notification-controller grants and coalesced notices. The new session regression uses the combined player wrappers. See #701 for its exact head, CI and artifacts.
 
 **Prior 40-topic build `d9db04bf0c7a2ffc96ea401fa03317a89a4341d3` / [Android .1694](https://github.com/averylicious/muon/actions/runs/43193754370).** Downloaded 2,011 cases per variant, zero failures, errors or skips. Lint reported zero errors, 63 warnings and three hints per variant. Both variants ran 15 selected artwork, discovery, gain, MP4/HEIC, save-cleanup, Settings-count and lyrics controls. Report ZIP SHA-256 `9bc0768f197fc38a18865b2950229b9fb9b6c787064a56285dc6785331bf0375`. Release ZIP SHA-256 `3efdcafe41f49dce4bb0e779b9598d8e3a3e5238bea6682dafbeac4a53646f1f`. Offline checks passed for BUILD, SHA256SUMS, pinned sole signer, package, version, launcher label, non-debuggable flag, compiled exports and profile headers. Release APK SHA-256 `6fa6a77d07881f76b3cb85acf8d0669a611d0aa045cfe705610a575c743cca6f`. [Canary 0.1.0-canary.1694](https://github.com/averylicious/muon/actions/runs/43193754370/artifacts/13933235719), `app-debug-d9db04bf0c7a2ffc96ea401fa03317a89a4341d3`, expires 2026-11-26. User acceptance is pending.
 
