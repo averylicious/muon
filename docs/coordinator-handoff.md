@@ -16,6 +16,8 @@ Later audits/RCs may use separate branches and Diagnostic builds while the user 
 
 **M3E RC2 and later experimental build:** #767 produced .1685 and #769 merged predictive Back changes at `b36b4b7a` (.1691). Downloaded reports and signed release APKs passed offline inspection on both. User QA is pending. #679 still pins RC1 `6b1a767c`. [Artifact receipts and QA](handoffs/2026-11-10-m3e-rc2.md) · [UI / QoL map](audits/2026-11-10-ui-qol-map.md).
 
+[Phone QA queue](handoffs/phone-qa-queue.md) records the pending checks and build prerequisites for the next authorized device session.
+
 ## Resume order
 
 1. Read [current state](STATE.md), [fixed release gates](release-plan.md) and only the relevant [#253](audits/issues/253.md) / [#401](audits/issues/401.md) snapshot. Open the latest execution checkpoint and specific supporting evidence as needed; do not stream the entire issue timeline.
