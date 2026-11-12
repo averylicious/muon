@@ -14,6 +14,7 @@ import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionError
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
 import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
@@ -29,6 +30,7 @@ internal class PlaybackSessionCallback(
     private val background: Executor = Executor { it.run() },
     private val timing: SavedStartupTiming = SavedStartupTiming.DISABLED,
     private val shufflePlayer: ExoPlayer? = null,
+    private val queuePlayer: PlaybackQueuePlayer? = null,
 ) : MediaSession.Callback {
     // Cancellation does not free a task that is still queued/running on the admission worker.
     private val savedAdmissionPending = java.util.concurrent.atomic.AtomicBoolean()
@@ -40,7 +42,9 @@ internal class PlaybackSessionCallback(
             // Includes Media3's in-process notification controller. Package names are not identity.
             controller.uid == Process.myUid() -> MediaSession.ConnectionResult.accept(
                 MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                    .add(REMOVE_QUEUE_ITEM).add(RESTORE_QUEUE_REMOVAL).build(),
+                    .add(REMOVE_QUEUE_ITEM).add(RESTORE_QUEUE_REMOVAL).apply {
+                        if (!session.isMediaNotificationController(controller)) add(INSERT_QUEUE_ITEM).add(UNDO_QUEUE_INSERTION)
+                    }.build(),
                 MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
             )
             controller.isTrusted -> MediaSession.ConnectionResult.accept(
@@ -54,16 +58,35 @@ internal class PlaybackSessionCallback(
     override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo,
         customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
         val action = customCommand.customAction
-        if (action != REMOVE_QUEUE_ITEM.customAction && action != RESTORE_QUEUE_REMOVAL.customAction)
+        val insertionCommand = action == INSERT_QUEUE_ITEM.customAction || action == UNDO_QUEUE_INSERTION.customAction
+        if (!insertionCommand && action != REMOVE_QUEUE_ITEM.customAction && action != RESTORE_QUEUE_REMOVAL.customAction)
             return super.onCustomCommand(session, controller, customCommand, args)
-        if (controller.uid != Process.myUid()) return Futures.immediateFuture(
-            SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+        if (controller.uid != Process.myUid() || (insertionCommand && session.isMediaNotificationController(controller)))
+            return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+        // The session may project a cached timeline for controllers. Inspect and edit the
+        // forwarding queue guard, whose getters read the native player's actual state.
+        val editPlayer = queuePlayer ?: session.player
+        if (action == UNDO_QUEUE_INSERTION.customAction) return Futures.immediateFuture(
+            SessionResult(if (applyInsertionUndo(editPlayer, args)) SessionResult.RESULT_SUCCESS
+                else SessionError.ERROR_INVALID_STATE))
+        if (action == INSERT_QUEUE_ITEM.customAction) {
+            val insertion = QueueInsertionRequest.fromBundle(args) ?: return Futures.immediateFuture(
+                SessionResult(SessionError.ERROR_BAD_VALUE))
+            // This request admits one live item only, so ordinary admission completes on this thread.
+            val admitted = onAddMediaItems(session, controller, mutableListOf(insertion.item))
+            return Futures.transform(admitted, { items ->
+                val item = items?.singleOrNull()
+                val exo = shufflePlayer ?: (session.player as? ExoPlayer)
+                SessionResult(if (item != null && insertion.applyTo(editPlayer, exo, item))
+                    SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE)
+            }, MoreExecutors.directExecutor())
+        }
         if (action == REMOVE_QUEUE_ITEM.customAction) {
             // Removal and the order Undo needs come from the actual player in this one operation, on
             // its thread; a controller's pending edits leave its own timeline unshuffled.
             val removal = QueueRemovalRequest.fromBundle(args) ?: return Futures.immediateFuture(
                 SessionResult(SessionError.ERROR_BAD_VALUE))
-            val ticket = removal.applyTo(session.player) ?: return Futures.immediateFuture(
+            val ticket = removal.applyTo(editPlayer) ?: return Futures.immediateFuture(
                 SessionResult(SessionError.ERROR_INVALID_STATE))
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, ticket))
         }
@@ -71,14 +94,14 @@ internal class PlaybackSessionCallback(
             SessionResult(SessionError.ERROR_BAD_VALUE))
         val exo = shufflePlayer ?: (session.player as? ExoPlayer) ?: return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_NOT_SUPPORTED))
-        if (!request.matches(session.player)) return Futures.immediateFuture(
+        if (!request.matches(editPlayer)) return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_INVALID_STATE))
         // Reuse the ordinary URI, metadata-budget and asynchronous saved-copy admission gate.
         val admitted = onAddMediaItems(session, controller, mutableListOf(request.item))
-        val handler = Handler(session.player.applicationLooper)
+        val handler = Handler(editPlayer.applicationLooper)
         return Futures.transform(admitted, { items ->
             val item = items?.singleOrNull()
-            SessionResult(if (item != null && request.apply(session.player, exo, item))
+            SessionResult(if (item != null && request.apply(editPlayer, exo, item))
                 SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE)
         }, Executor { work ->
             // Guava propagates a rejection to the result; another exception would leave it pending.
