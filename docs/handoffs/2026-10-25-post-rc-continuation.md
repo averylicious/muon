@@ -10,8 +10,8 @@ Refreshed local main to `046db9ad790a581f64f0e1d5bee95ea353460c88` and experimen
 
 | Worktree / branch | Source and checks |
 | --- | --- |
-| `/home/avery/.codex/worktrees/artwork-key-nov12/muon`, `codex/artwork-key-nov12` | [#770](https://github.com/averylicious/muon/pull/770), `6659712772b756d78e78aaf1357b2a7864da6899`, [Android .1693](https://github.com/averylicious/muon/actions/runs/43192856537) running. |
-| `/home/avery/.codex/worktrees/muon-post-rc-acceptance-oct25`, `codex/post-rc-acceptance-oct25` | [#701](https://github.com/averylicious/muon/pull/701), `d9db04bf0c7a2ffc96ea401fa03317a89a4341d3`, 40 topic ancestors. [Android .1694](https://github.com/averylicious/muon/actions/runs/43193754370) running. |
+| `/home/avery/.codex/worktrees/artwork-key-nov12/muon`, `codex/artwork-key-nov12` | [#770](https://github.com/averylicious/muon/pull/770), `6659712772b756d78e78aaf1357b2a7864da6899`, [Android .1693](https://github.com/averylicious/muon/actions/runs/43192856537) passed. |
+| `/home/avery/.codex/worktrees/muon-post-rc-acceptance-oct25`, `codex/post-rc-acceptance-oct25` | [#701](https://github.com/averylicious/muon/pull/701), `d9db04bf0c7a2ffc96ea401fa03317a89a4341d3`, 40 topic ancestors. [Android .1694](https://github.com/averylicious/muon/actions/runs/43193754370) passed. |
 | `/home/avery/.codex/worktrees/settings-move-count-oct30/muon`, `codex/settings-move-count-oct30` | #766 at `87889a8f8e388ff82751eac191f63f87019fc32e` remains available for QA. [Android .1680](https://github.com/averylicious/muon/actions/runs/40929064542) passed 1,824 tests per variant. |
 | `/home/avery/.codex/worktrees/muon-post-rc-state-oct25`, `codex/audit-nov12-checkpoint` | Documentation checkpoint. Prior #762 merged at `ff242defd1b9d15490a11b0279dd1cc9a01fb708`. |
 
@@ -27,7 +27,7 @@ LyricsScreen matches standalonea3e2 exactly; SettingsScreen/count/test code matc
 
 Standalone lyrics .1678 and Settings .1680 have zero failures/errors/skips and lint0errors/65warnings plus3hints. Report ZIP hashes:51813358c46849e0cf60f4efa15023cdb3175c8ce2fdfa5466db87755bde7faa and ee3e027592b272bcd2b5a4e438cbd9e40ec9f3727f33bdfb9afdc73b9d46549f respectively. Selected methods ran in both; Actions APK gates passed, standalone APK bytes not separately inspected. See [#764](../audits/issues/764.md) and [#401](../audits/issues/401.md) for artifacts, source contracts, attribution and later acceptance. No local Android build, Compose UI, physical latency or device claim.
 
-[Current 40-topic inventory](https://github.com/averylicious/muon/blob/codex/post-rc-acceptance-oct25/docs/handoffs/2026-10-25-combined-post-rc-candidate.md) lists each input. The [previous receipt](2026-10-25-combined-post-rc-candidate.md) records historical proof and the acceptance checklist. Branch artifacts expire after14days and update existing Canary; none installed or published as a release.
+[Current combined receipt](2026-10-25-combined-post-rc-candidate.md) holds the 40 inputs, artifacts and acceptance checklist. .1694 passed 2,011 cases per variant and offline release inspection. .1693 passed 1,822 cases per variant and offline release inspection. Both artwork methods ran in all four reports. Branch artifacts expire after 14 days.
 
 ## Additional source outcomes
 
@@ -38,9 +38,9 @@ Standalone lyrics .1678 and Settings .1680 have zero failures/errors/skips and l
 
 ## Next actions
 
-1. Check .1693 and .1694 at the recorded heads. Download reports and release APKs after success and inspect the targeted regressions, signing and package identity. Keep runtime drafts open for later acceptance.
+1. Keep #770 and #701 draft for later acceptance. The exact recorded builds and targeted tests passed.
 2. Continue source review on the main track. The next experimental device pass should exercise rapid Play/Pause on resume, button Back, predictive Back cancellation and the full-player landing. Device authorization is task-specific.
-3. Preserve the reviewed forward-sync route for main's signing-verifier and signing-material ordering changes. Recheck destination ancestry and required checks before any future integration.
+3. Carry main's signing-verifier and signing-material ordering changes in the next reviewed forward sync. The current Android runs also flag the old upload-artifact action declaration. GitHub runs it on Node 24. Review the upstream Node 24 pin and ZIP compatibility in a separate CI-only branch.
 
 ## Questions and accepted dispositions
 
