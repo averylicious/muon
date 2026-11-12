@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Updated 2026-11-10. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-11-12. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
@@ -12,9 +12,11 @@ Updated 2026-11-10. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC audit recovery boundary:** root owns clean pushed39-topic #701/80348c145d15e1acd4f1e6e4a81b1057a5f28970 / .1681, passed downloaded2,010cases/variant and actual signed-release gates. Previous37-topic0fe9d08b/.1675 passed downloaded2,007cases/variant and actual signed-release gates; the new combination was verified separately. Lyrics#765/.1678 and Settings#766/.1680 passed standalone; all allocated writers/reviewers are terminal/idle. Docs-only#762 maintains current receipts. Main app20579cf1, alpha and frozen RC are preserved. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact inputs/checks/artifacts, source limits and next actions. No unanswered questions, phones, active storage operation, runtime main/alpha landing or Stable tag. Continue only within live user scope/capacity.
+**Broader post-RC audit:** draft #701 now includes 40 topic heads, including #770's unusual-tag artwork identity repair, and current main documentation `046db9ad`. [Android .1694](https://github.com/averylicious/muon/actions/runs/43193754370) passed at `d9db04bf` with 2,011 cases per variant and an inspected signed release APK. The previous 39-topic .1681 passed 2,010 tests per variant and offline release checks. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) records ownership, exact checks and pending acceptance.
 
-**M3E RC2, 2026-11-10:** the user's Claude session landed [#767](https://github.com/averylicious/muon/pull/767) on the experiment (`47ca080f`) and built RC2 as run .1685, at the user's request. The experiment head is now past RC1's frozen source; RC1 `6b1a767c` is unchanged and still what #679 pins. RC numbers are shared workflow run numbers, so .1420 to .1685 is not a skipped series. User QA is pending and nothing was installed. [RC2 note](handoffs/2026-11-10-m3e-rc2.md); [UI / QoL map](audits/2026-11-10-ui-qol-map.md).
+**M3E RC2 and later experimental build:** #767 produced .1685 and #769 merged predictive Back changes at `b36b4b7a` (.1691). Downloaded reports and signed release APKs passed offline inspection on both. User QA is pending. #679 still pins RC1 `6b1a767c`. [Artifact receipts and QA](handoffs/2026-11-10-m3e-rc2.md) · [UI / QoL map](audits/2026-11-10-ui-qol-map.md).
+
+[Phone QA queue](handoffs/phone-qa-queue.md) records the pending checks and build prerequisites for the next authorized device session.
 
 ## Resume order
 

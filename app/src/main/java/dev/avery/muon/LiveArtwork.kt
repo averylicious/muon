@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import java.nio.ByteBuffer
 import java.security.MessageDigest
 
 private const val ARTWORK_REVISION = "#muon-artwork-v1="
@@ -11,14 +12,17 @@ private const val ARTWORK_REVISION = "#muon-artwork-v1="
  * This is cover invalidation, never proof that audio bytes or saved copies are the same song.
  */
 internal fun TauonTrack.liveArtworkUrl(endpoint: ServerEndpoint): String {
-    val hash = MessageDigest.getInstance("SHA-256")
+    val tagUnits = title.length + artist.length + album.length
+    val input = ByteBuffer.allocate(1 + 3 * Int.SIZE_BYTES + tagUnits * Char.SIZE_BYTES)
+    // Version the digest input. Keep the marker so existing queued URIs still canonicalize.
+    input.put(2)
     for (field in listOf(title, artist, album)) {
-        val bytes = field.toByteArray(Charsets.UTF_8)
-        for (shift in intArrayOf(24, 16, 8, 0)) hash.update((bytes.size ushr shift).toByte())
-        hash.update(bytes)
+        input.putInt(field.length)
+        // Charset encoding can replace distinct unpaired surrogates with the same bytes.
+        for (unit in field) input.putChar(unit)
     }
     val revision = buildString(64) {
-        for (byte in hash.digest()) {
+        for (byte in MessageDigest.getInstance("SHA-256").digest(input.array())) {
             append("0123456789abcdef"[(byte.toInt() ushr 4) and 15])
             append("0123456789abcdef"[byte.toInt() and 15])
         }
