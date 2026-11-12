@@ -29,7 +29,7 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | WAV format/writer admission — post-RC candidate | [#723](723.md) | [Issue #723](https://github.com/averylicious/muon/issues/723) |
 | MP4 retained-box and sample-table admission — source finding | [#720](720.md) | [Issue #720](https://github.com/averylicious/muon/issues/720) |
 | Notification/platform command grants — post-RC hardening | [#711](711.md) | [Issue #711](https://github.com/averylicious/muon/issues/711) |
-| Notification artwork revision — post-RC acceptance | [#207](207.md) | [Issue #207](https://github.com/averylicious/muon/issues/207) |
+| Artwork revision / unusual-tag identity follow-up — post-RC | [#207](207.md) | [Issue #207](https://github.com/averylicious/muon/issues/207) |
 | Initial connection cancellation — post-RC acceptance | [#690](690.md) | [Issue #690](https://github.com/averylicious/muon/issues/690) |
 | Live ReplayGain ID reuse — post-RC implementation | [#695](695.md) | [Issue #695](https://github.com/averylicious/muon/issues/695) |
 | ReplayGain container metadata — post-RC implementation | [#702](702.md) | [Issue #702](https://github.com/averylicious/muon/issues/702) |

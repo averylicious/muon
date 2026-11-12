@@ -1,6 +1,6 @@
 # Coordinator handoff
 
-Updated 2026-10-29. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
+Updated 2026-11-10. This short resume entry points to maintained [issue state](audits/issues/README.md); history is evidence, not permission.
 
 ## Current boundary
 
@@ -12,7 +12,9 @@ Updated 2026-10-29. This short resume entry points to maintained [issue state](a
 
 Later audits/RCs may use separate branches and Diagnostic builds while the user daily-drives the frozen RC. A confirmed serious security/privacy/data-loss/crash regression can still block final Stable; ordinary maintenance does not silently expand this frozen scope. No test-count target remains (#650 closed not planned).
 
-**Broader post-RC audit resumed2026-10-29:** root owns33-topic#701, previously verified77e217e5/.1654 and inventory130. Main documentation#756/b626061a/.1658 is verified and being included without application/build changes; the refreshed head needs its own CI. The user authorizes a **one-cycle5%-remaining reserve**, overriding the older20% goal text this cycle only. No phones. Fresh audit-only Opus5.5/High may assist without resuming the oversized old or user's other sessions. HEIC rare32MiB preamble policy remains accepted, tool-core Guava follow-up stays qualified, frozen RC/main runtime/alpha remain unchanged. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md). No unanswered questions or Stable publication.
+**Broader post-RC audit recovery boundary:** root owns clean pushed39-topic #701/80348c145d15e1acd4f1e6e4a81b1057a5f28970 / .1681, passed downloaded2,010cases/variant and actual signed-release gates. Previous37-topic0fe9d08b/.1675 passed downloaded2,007cases/variant and actual signed-release gates; the new combination was verified separately. Lyrics#765/.1678 and Settings#766/.1680 passed standalone; all allocated writers/reviewers are terminal/idle. Docs-only#762 maintains current receipts. Main app20579cf1, alpha and frozen RC are preserved. [Current continuation](handoffs/2026-10-25-post-rc-continuation.md) holds exact inputs/checks/artifacts, source limits and next actions. No unanswered questions, phones, active storage operation, runtime main/alpha landing or Stable tag. Continue only within live user scope/capacity.
+
+**M3E RC2, 2026-11-10:** the user's Claude session landed [#767](https://github.com/averylicious/muon/pull/767) on the experiment (`47ca080f`) and built RC2 as run .1685, at the user's request. The experiment head is now past RC1's frozen source; RC1 `6b1a767c` is unchanged and still what #679 pins. RC numbers are shared workflow run numbers, so .1420 to .1685 is not a skipped series. User QA is pending and nothing was installed. [RC2 note](handoffs/2026-11-10-m3e-rc2.md); [UI / QoL map](audits/2026-11-10-ui-qol-map.md).
 
 ## Resume order
 
