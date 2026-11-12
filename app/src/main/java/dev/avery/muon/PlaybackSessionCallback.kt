@@ -86,7 +86,7 @@ internal class PlaybackSessionCallback(
             // its thread; a controller's pending edits leave its own timeline unshuffled.
             val removal = QueueRemovalRequest.fromBundle(args) ?: return Futures.immediateFuture(
                 SessionResult(SessionError.ERROR_BAD_VALUE))
-            val ticket = removal.applyTo(session.player) ?: return Futures.immediateFuture(
+            val ticket = removal.applyTo(editPlayer) ?: return Futures.immediateFuture(
                 SessionResult(SessionError.ERROR_INVALID_STATE))
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, ticket))
         }
@@ -94,14 +94,14 @@ internal class PlaybackSessionCallback(
             SessionResult(SessionError.ERROR_BAD_VALUE))
         val exo = shufflePlayer ?: (session.player as? ExoPlayer) ?: return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_NOT_SUPPORTED))
-        if (!request.matches(session.player)) return Futures.immediateFuture(
+        if (!request.matches(editPlayer)) return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_INVALID_STATE))
         // Reuse the ordinary URI, metadata-budget and asynchronous saved-copy admission gate.
         val admitted = onAddMediaItems(session, controller, mutableListOf(request.item))
-        val handler = Handler(session.player.applicationLooper)
+        val handler = Handler(editPlayer.applicationLooper)
         return Futures.transform(admitted, { items ->
             val item = items?.singleOrNull()
-            SessionResult(if (item != null && request.apply(session.player, exo, item))
+            SessionResult(if (item != null && request.apply(editPlayer, exo, item))
                 SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE)
         }, Executor { work ->
             // Guava propagates a rejection to the result; another exception would leave it pending.
