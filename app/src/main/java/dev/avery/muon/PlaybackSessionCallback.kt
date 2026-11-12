@@ -14,6 +14,7 @@ import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionError
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
 import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
@@ -40,7 +41,9 @@ internal class PlaybackSessionCallback(
             // Includes Media3's in-process notification controller. Package names are not identity.
             controller.uid == Process.myUid() -> MediaSession.ConnectionResult.accept(
                 MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                    .add(REMOVE_QUEUE_ITEM).add(RESTORE_QUEUE_REMOVAL).build(),
+                    .add(REMOVE_QUEUE_ITEM).add(RESTORE_QUEUE_REMOVAL).apply {
+                        if (!session.isMediaNotificationController(controller)) add(INSERT_QUEUE_ITEM)
+                    }.build(),
                 MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
             )
             controller.isTrusted -> MediaSession.ConnectionResult.accept(
@@ -54,10 +57,25 @@ internal class PlaybackSessionCallback(
     override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo,
         customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
         val action = customCommand.customAction
-        if (action != REMOVE_QUEUE_ITEM.customAction && action != RESTORE_QUEUE_REMOVAL.customAction)
+        if (action != INSERT_QUEUE_ITEM.customAction && action != REMOVE_QUEUE_ITEM.customAction &&
+            action != RESTORE_QUEUE_REMOVAL.customAction)
             return super.onCustomCommand(session, controller, customCommand, args)
         if (controller.uid != Process.myUid()) return Futures.immediateFuture(
             SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+        if (action == INSERT_QUEUE_ITEM.customAction) {
+            if (session.isMediaNotificationController(controller)) return Futures.immediateFuture(
+                SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+            val insertion = QueueInsertionRequest.fromBundle(args) ?: return Futures.immediateFuture(
+                SessionResult(SessionError.ERROR_BAD_VALUE))
+            // This request admits one live item only, so ordinary admission completes on this thread.
+            val admitted = onAddMediaItems(session, controller, mutableListOf(insertion.item))
+            return Futures.transform(admitted, { items ->
+                val item = items?.singleOrNull()
+                val exo = shufflePlayer ?: (session.player as? ExoPlayer)
+                SessionResult(if (item != null && insertion.applyTo(session.player, exo, item))
+                    SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE)
+            }, MoreExecutors.directExecutor())
+        }
         if (action == REMOVE_QUEUE_ITEM.customAction) {
             // Removal and the order Undo needs come from the actual player in this one operation, on
             // its thread; a controller's pending edits leave its own timeline unshuffled.

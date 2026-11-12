@@ -53,7 +53,7 @@ class PlaybackSessionCallbackTest {
         val second = player.getMediaItemAt(1)
         // A valid removal request; both commands must check the caller before parsing their payload.
         val valid = QueueRemovalRequest.capture(player, 1, second).toBundle()
-        for (command in listOf(REMOVE_QUEUE_ITEM, RESTORE_QUEUE_REMOVAL)) {
+        for (command in listOf(INSERT_QUEUE_ITEM, REMOVE_QUEUE_ITEM, RESTORE_QUEUE_REMOVAL)) {
             assertTrue(callback.onConnectAsync(session, own).get().availableSessionCommands.contains(command))
             assertFalse(callback.onConnectAsync(session, controller()).get().availableSessionCommands.contains(command))
             assertEquals(androidx.media3.session.SessionError.ERROR_PERMISSION_DENIED,
