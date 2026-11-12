@@ -17,7 +17,9 @@ import java.util.UUID
 /** Snackbar Undo identifies this insertion, not another occurrence of the same song. */
 internal class QueueInsertion(val item: MediaItem, val token: String)
 internal val INSERT_QUEUE_ITEM = SessionCommand("dev.avery.muon.INSERT_QUEUE_ITEM", Bundle.EMPTY)
+internal val UNDO_QUEUE_INSERTION = SessionCommand("dev.avery.muon.UNDO_QUEUE_INSERTION", Bundle.EMPTY)
 private const val INSERTION_EXTRA = "dev.avery.muon.queueInsertion"
+private const val UNDO_TOKEN = "token"
 
 internal fun queueInsertion(item: MediaItem): QueueInsertion {
     val token = UUID.randomUUID().toString()
@@ -97,12 +99,26 @@ private fun insertionToken(item: MediaItem): String? =
     }
 
 internal suspend fun QueueInsertionRequest.confirm(player: MediaController): Boolean =
+    player.confirmQueueCommand(INSERT_QUEUE_ITEM, toBundle())
+
+internal suspend fun QueueInsertion.undo(player: MediaController): Boolean =
+    player.confirmQueueCommand(UNDO_QUEUE_INSERTION, Bundle().apply { putString(UNDO_TOKEN, token) })
+
+/** The receipt can arrive before the controller's timeline update. Undo uses the service queue. */
+internal fun applyInsertionUndo(player: Player, args: Bundle): Boolean {
+    val token = runCatching {
+        args.getString(UNDO_TOKEN)?.takeIf { UUID.fromString(it).toString() == it }
+    }.getOrNull() ?: return false
+    return undoQueueInsertion(player, token)
+}
+
+private suspend fun MediaController.confirmQueueCommand(command: SessionCommand, args: Bundle): Boolean =
     suspendCancellableCoroutine { continuation ->
-        if (!player.isConnected || !player.availableSessionCommands.contains(INSERT_QUEUE_ITEM)) {
+        if (!isConnected || !availableSessionCommands.contains(command)) {
             continuation.resume(false)
             return@suspendCancellableCoroutine
         }
-        val future = player.sendCustomCommand(INSERT_QUEUE_ITEM, toBundle())
+        val future = sendCustomCommand(command, args)
         future.addListener({
             continuation.resume(runCatching { future.get().resultCode == SessionResult.RESULT_SUCCESS }
                 .getOrDefault(false))
@@ -111,11 +127,14 @@ internal suspend fun QueueInsertionRequest.confirm(player: MediaController): Boo
     }
 
 /** Only the exact surviving insertion may be removed; an absent/ambiguous token is a no-op. */
-internal fun undoQueueInsertion(player: Player, insertion: QueueInsertion): Boolean {
+internal fun undoQueueInsertion(player: Player, insertion: QueueInsertion): Boolean =
+    undoQueueInsertion(player, insertion.token)
+
+private fun undoQueueInsertion(player: Player, token: String): Boolean {
     if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) return false
     var index = -1
     for (i in 0 until player.mediaItemCount) {
-        if (player.getMediaItemAt(i).mediaMetadata.extras?.getString(INSERTION_EXTRA) != insertion.token) continue
+        if (player.getMediaItemAt(i).mediaMetadata.extras?.getString(INSERTION_EXTRA) != token) continue
         if (index != -1) return false
         index = i
     }

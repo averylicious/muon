@@ -42,7 +42,7 @@ internal class PlaybackSessionCallback(
             controller.uid == Process.myUid() -> MediaSession.ConnectionResult.accept(
                 MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                     .add(REMOVE_QUEUE_ITEM).add(RESTORE_QUEUE_REMOVAL).apply {
-                        if (!session.isMediaNotificationController(controller)) add(INSERT_QUEUE_ITEM)
+                        if (!session.isMediaNotificationController(controller)) add(INSERT_QUEUE_ITEM).add(UNDO_QUEUE_INSERTION)
                     }.build(),
                 MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
             )
@@ -57,14 +57,15 @@ internal class PlaybackSessionCallback(
     override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo,
         customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
         val action = customCommand.customAction
-        if (action != INSERT_QUEUE_ITEM.customAction && action != REMOVE_QUEUE_ITEM.customAction &&
-            action != RESTORE_QUEUE_REMOVAL.customAction)
+        val insertionCommand = action == INSERT_QUEUE_ITEM.customAction || action == UNDO_QUEUE_INSERTION.customAction
+        if (!insertionCommand && action != REMOVE_QUEUE_ITEM.customAction && action != RESTORE_QUEUE_REMOVAL.customAction)
             return super.onCustomCommand(session, controller, customCommand, args)
-        if (controller.uid != Process.myUid()) return Futures.immediateFuture(
-            SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+        if (controller.uid != Process.myUid() || (insertionCommand && session.isMediaNotificationController(controller)))
+            return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+        if (action == UNDO_QUEUE_INSERTION.customAction) return Futures.immediateFuture(
+            SessionResult(if (applyInsertionUndo(session.player, args)) SessionResult.RESULT_SUCCESS
+                else SessionError.ERROR_INVALID_STATE))
         if (action == INSERT_QUEUE_ITEM.customAction) {
-            if (session.isMediaNotificationController(controller)) return Futures.immediateFuture(
-                SessionResult(SessionError.ERROR_PERMISSION_DENIED))
             val insertion = QueueInsertionRequest.fromBundle(args) ?: return Futures.immediateFuture(
                 SessionResult(SessionError.ERROR_BAD_VALUE))
             // This request admits one live item only, so ordinary admission completes on this thread.
