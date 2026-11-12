@@ -122,7 +122,7 @@ class PlaybackQueuePlayerTest {
         native.shuffleModeEnabled = true
         native.setShuffleOrder(QueueShuffleOrder.restored(listOf(2, 0, 1)))
         val session = MediaSession.Builder(context, player)
-            .setCallback(PlaybackSessionCallback(shufflePlayer = native)).build()
+            .setCallback(PlaybackSessionCallback(shufflePlayer = native, queuePlayer = player)).build()
         var controller: MediaController? = null
         try {
             val connection = MediaController.Builder(context, session.token).buildAsync()
@@ -149,6 +149,7 @@ class PlaybackQueuePlayerTest {
             val append = capture(4, next = false)
             val staleNext = capture(5, next = true)
             native.seekToDefaultPosition(0)
+            assertEquals(0, native.currentMediaItemIndex)
             assertFalse(confirm(staleNext))
             assertTrue(confirm(append)) // The same queue can still accept an append after a track transition.
             assertEquals(listOf(2, 3, 0, 1, 4), queueShuffledOrder(native))
