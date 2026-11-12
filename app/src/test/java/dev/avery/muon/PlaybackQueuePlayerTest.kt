@@ -130,12 +130,15 @@ class PlaybackQueuePlayerTest {
             val connected = connection.get(1, TimeUnit.SECONDS).also { controller = it }
             fun capture(id: Long, next: Boolean) =
                 requireNotNull(QueueInsertionRequest.capture(connected, queueInsertion(song(id)), next))
-            fun confirm(request: QueueInsertionRequest): Boolean {
-                val receipt = CoroutineScope(Dispatchers.Main.immediate).async { request.confirm(connected) }
+            fun awaitReceipt(action: suspend () -> Boolean): Boolean {
+                val receipt = CoroutineScope(Dispatchers.Main.immediate).async { action() }
                 pump { receipt.isCompleted }
                 return runBlocking { receipt.await() }
             }
-            val next = capture(2, next = true)
+            fun confirm(request: QueueInsertionRequest) = awaitReceipt { request.confirm(connected) }
+
+            val insertedNext = queueInsertion(song(2))
+            val next = requireNotNull(QueueInsertionRequest.capture(connected, insertedNext, next = true))
             assertTrue(confirm(next))
             assertEquals(listOf(2, 3, 0, 1), queueShuffledOrder(native))
             assertEquals(3, native.nextMediaItemIndex)
@@ -153,6 +156,11 @@ class PlaybackQueuePlayerTest {
             assertFalse(confirm(full))
             assertEquals(5, native.mediaItemCount)
             assertEquals(1, refusals)
+
+            assertTrue(awaitReceipt { insertedNext.undo(connected) })
+            assertEquals(4, native.mediaItemCount)
+            assertEquals(1, ids().count { it == song(2).mediaId })
+            assertFalse(awaitReceipt { insertedNext.undo(connected) })
 
             player.setMediaItems(listOf(song(1), song(2), song(3)))
             assertFalse(confirm(full)) // A new queue of the same songs has different occurrences.

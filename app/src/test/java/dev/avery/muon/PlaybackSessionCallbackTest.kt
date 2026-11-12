@@ -75,6 +75,8 @@ class PlaybackSessionCallbackTest {
         assertTrue(ui.availableCommands.contains(Player.COMMAND_CHANGE_MEDIA_ITEMS))
         assertTrue(ui.availableSessionCommands.contains(INSERT_QUEUE_ITEM))
         assertFalse(notification.availableSessionCommands.contains(INSERT_QUEUE_ITEM))
+        assertTrue(ui.availableSessionCommands.contains(UNDO_QUEUE_INSERTION))
+        assertFalse(notification.availableSessionCommands.contains(UNDO_QUEUE_INSERTION))
         assertTrue(ui.availableCommands.contains(Player.COMMAND_SET_VOLUME))
         for (command in listOf(Player.COMMAND_SET_MEDIA_ITEM, Player.COMMAND_CHANGE_MEDIA_ITEMS,
             Player.COMMAND_SET_VOLUME, Player.COMMAND_SET_SPEED_AND_PITCH)) {
@@ -88,7 +90,7 @@ class PlaybackSessionCallbackTest {
         val grant = callback.onConnectAsync(session, internal).get()
         assertEquals(SessionCommands.EMPTY, grant.availableSessionCommands)
         assertFailure(callback.onAddMediaItems(session, internal, mutableListOf(item(1))), UnsupportedOperationException::class.java)
-        for (command in listOf(INSERT_QUEUE_ITEM, REMOVE_QUEUE_ITEM, RESTORE_QUEUE_REMOVAL))
+        for (command in listOf(INSERT_QUEUE_ITEM, UNDO_QUEUE_INSERTION, REMOVE_QUEUE_ITEM, RESTORE_QUEUE_REMOVAL))
             assertEquals(androidx.media3.session.SessionError.ERROR_PERMISSION_DENIED,
                 callback.onCustomCommand(session, internal, command, Bundle.EMPTY).get().resultCode)
         // Exercise the pinned framework path after its real notification connection. Synthetic
@@ -121,13 +123,15 @@ class PlaybackSessionCallbackTest {
         val second = player.getMediaItemAt(1)
         // A valid removal request; both commands must check the caller before parsing their payload.
         val valid = QueueRemovalRequest.capture(player, 1, second).toBundle()
-        for (command in listOf(INSERT_QUEUE_ITEM, REMOVE_QUEUE_ITEM, RESTORE_QUEUE_REMOVAL)) {
+        for (command in listOf(INSERT_QUEUE_ITEM, UNDO_QUEUE_INSERTION, REMOVE_QUEUE_ITEM, RESTORE_QUEUE_REMOVAL)) {
             assertTrue(callback.onConnectAsync(session, own).get().availableSessionCommands.contains(command))
             assertFalse(callback.onConnectAsync(session, controller()).get().availableSessionCommands.contains(command))
             assertEquals(androidx.media3.session.SessionError.ERROR_PERMISSION_DENIED,
                 callback.onCustomCommand(session, controller(), command, valid).get().resultCode)
-            assertEquals(androidx.media3.session.SessionError.ERROR_BAD_VALUE,
-                callback.onCustomCommand(session, own, command, Bundle.EMPTY).get().resultCode)
+            val invalidRequest = if (command == UNDO_QUEUE_INSERTION)
+                androidx.media3.session.SessionError.ERROR_INVALID_STATE
+                else androidx.media3.session.SessionError.ERROR_BAD_VALUE
+            assertEquals(invalidRequest, callback.onCustomCommand(session, own, command, Bundle.EMPTY).get().resultCode)
         }
         assertEquals(listOf(1L, 2L).map { TauonTrack(it, "S", "A", "B", 1000L, true, false).mediaItem(endpoint).mediaId },
             (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId })

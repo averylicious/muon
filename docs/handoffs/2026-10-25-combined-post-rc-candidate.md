@@ -46,7 +46,7 @@ Updated 2026-11-12. [Draft #701](https://github.com/averylicious/muon/pull/701),
 | #765 | Lyrics ownership for changed queued labels at a reused ID | `a3e2a00577bfacb18a956eae5b0f547f200c5652` | [.1678](https://github.com/averylicious/muon/actions/runs/40925859155) |
 | #766 | Off-main, non-overlapping Settings move-offer count | `87889a8f8e388ff82751eac191f63f87019fc32e` | [.1680](https://github.com/averylicious/muon/actions/runs/40929064542) |
 | #770 | Unambiguous live artwork cache identity | `6659712772b756d78e78aaf1357b2a7864da6899` | [.1693](https://github.com/averylicious/muon/actions/runs/43192856537) |
-| #776 | Confirm live queue insertions and Play next order | `3a59d63841fa91b498632098a8bb8ec40c417a36` | [.1710](https://github.com/averylicious/muon/actions/runs/43209190001) |
+| #776 | Confirm live queue insertions and Play next order | `da32210d957e0478bd8f776e4c45374daf785abb` | [.1711](https://github.com/averylicious/muon/actions/runs/43209857820) |
 
 ## Current integration boundary
 

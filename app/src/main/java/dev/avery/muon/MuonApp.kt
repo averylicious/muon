@@ -490,7 +490,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 val result = queueNotices.show(queuedMessage(track.title, next), actionLabel = "Undo",
                     duration = SnackbarDuration.Short)
                 if (result != SnackbarResult.ActionPerformed) return@launch
-                if (currentPlayer === p) undoQueueInsertion(p, insertion)
+                if (currentPlayer === p && !insertion.undo(p) && currentPlayer === p) {
+                    queueNotices.show("Couldn't confirm Undo. Check the queue.")
+                }
             }
         }
         // Go to album and Go to artist open the page over the one on show: an album over an open artist
