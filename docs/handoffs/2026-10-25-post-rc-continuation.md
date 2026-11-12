@@ -25,6 +25,8 @@ The first queue integration at `c0053fc8` failed [.1712](https://github.com/aver
 
 The refreshed dependency inventory [.134](https://github.com/averylicious/muon/actions/runs/43212041063) resolved at the previous combined head `5d369218`. The selected combined release runtime had zero OSV matches at query time. A new Bouncy Castle match was confined to AGP's resolved build graph in the main-track inventories. No affected invocation was established. [Advisory refresh](../audits/2026-11-12-dependency-advisory-refresh.md).
 
+The main candidate still clears the playback snapshot while replacing its controller. The experimental build retains a released controller during the same window, which can leave its actions enabled. The QA queue compares those paths. A possible follow-up would keep a display snapshot while routing actions only through the active connection, with failure and empty-session handling. No change to either runtime path is in this checkpoint. The eight existing playback-mode preferences tests passed in both .1716 variants. They use in-memory preferences, so the QA queue covers actual persistence after a settled force-stop or reboot if authorized. [Experimental resume evidence](2026-11-10-m3e-rc2.md#remaining) · [Playback mode design](2026-09-24-playback-mode-preferences.md).
+
 ## Next actions
 
 1. Keep the [phone QA queue](phone-qa-queue.md) pending until the user authorizes a device and the exact package. Start with the rapid resume tap and predictive Back, then the combined maintenance candidate. Isolated CI drafts do not need phone testing.
