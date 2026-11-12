@@ -98,7 +98,7 @@ jobs:
       # Public coordinates/edges/file names/sizes/hashes only, after exact-head schema validation.
       # Preserve portable evidence when very long structured log lines are unavailable.
       - name: Upload public dependency inventory
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dependency-inventory-${{ github.sha }}
           path: app/build/reports/dependency-inventory.json
@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload untrusted public verification candidate for review
         if: github.event_name == 'workflow_dispatch' && inputs.verification_candidate == true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: untrusted-verification-candidate-${{ github.sha }}
           path: |
@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload public runtime artifact receipt
         if: github.event_name == 'workflow_dispatch' && inputs.runtime_inventory == true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runtime-inventory-${{ github.sha }}
           path: ${{ runner.temp }}/muon-runtime-inventory.json
