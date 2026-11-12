@@ -10,9 +10,24 @@ import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.offline.DefaultDownloadIndex
 import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadCursor
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloaderFactory
+import androidx.media3.exoplayer.offline.WritableDownloadIndex
+import android.os.Looper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -49,6 +64,7 @@ class CardAvailabilityRouteTest {
     private lateinit var cardDownloads: File
     private var presenceChecks = 0
     private val shelves = mutableListOf<Shelf>()
+    private val indexes = mutableMapOf<Shelf, GatedIndex>()
     private val storeField = OfflineStore::class.java.getDeclaredField("store").apply { isAccessible = true }
     private var previousStore: Any? = null
     private val app get() = RuntimeEnvironment.getApplication()
@@ -156,6 +172,102 @@ class CardAvailabilityRouteTest {
         assertTrue(card.completed(id(onCard)))
     }
 
+    /**
+     * #401: the Settings move count runs its real index read on a worker. A caller cancelled while that read
+     * is held does not finish, and does not release the gate, until the read actually returns and closes its
+     * cursor; meanwhile another request is refused without reading. Afterwards a new count runs.
+     */
+    @Test fun aCancelledMoveCountHoldsItsGateUntilTheHeldReadReturns() {
+        val index = indexes.getValue(card)
+        val release = CountDownLatch(1)
+        index.hold = release
+        val callerJob = SupervisorJob()
+        val caller = CoroutineScope(callerJob + Dispatchers.Default)
+        try {
+            val first = caller.async { OfflineStore.moveOfferCount(card = true) }
+            assertTrue(index.entered.tryAcquire(10, TimeUnit.SECONDS))
+            first.cancel()
+            assertFalse(first.isCompleted)
+            assertEquals(0, index.returned.get())
+            assertSame(OfflineStore.MoveOfferCount.Busy, runBlocking { OfflineStore.moveOfferCount(card = true) })
+            // The gate is process-wide: a count of the other shelf does not overlap it either.
+            assertSame(OfflineStore.MoveOfferCount.Busy, runBlocking { OfflineStore.moveOfferCount(card = false) })
+            assertEquals(1, index.reads.get())
+            assertEquals(0, indexes.getValue(phone).reads.get())
+            release.countDown()
+            runBlocking { withTimeout(10_000) { first.join() } }
+            assertTrue(first.isCancelled)
+            assertEquals(1, index.returned.get())
+            assertEquals(1, index.closed.get())
+            index.hold = null
+            val callerThread = Thread.currentThread()
+            assertEquals(OfflineStore.MoveOfferCount.Counted(1), runBlocking { OfflineStore.moveOfferCount(card = true) })
+            assertEquals(2, index.reads.get())
+            assertEquals(2, index.closed.get())
+            // Read off the calling (here, Robolectric's main) thread.
+            assertNotSame(callerThread, index.thread)
+            assertEquals(false, index.onMain)
+        } finally {
+            release.countDown()
+            caller.cancel()
+            runBlocking { withTimeout(10_000) { callerJob.join() } }
+        }
+    }
+
+    @Test fun aFailedOrUnavailableMoveCountIsNotZeroCopies() {
+        val index = indexes.getValue(card)
+        index.fail = true
+        assertSame(OfflineStore.MoveOfferCount.Unavailable, runBlocking { OfflineStore.moveOfferCount(card = true) })
+        assertEquals(1, index.returned.get())
+        assertNull(OfflineStore.downloadsOn(app, card = true))
+        index.fail = false
+        // A failed read released the gate; a real empty shelf counts zero.
+        (card.manager.downloadIndex as WritableDownloadIndex).removeDownload(id(onCard))
+        assertEquals(OfflineStore.MoveOfferCount.Counted(0), runBlocking { OfflineStore.moveOfferCount(card = true) })
+        assertEquals(0, OfflineStore.downloadsOn(app, card = true))
+        // Four reads: two failed before opening a cursor, and both cursors that were opened closed.
+        assertEquals(4, index.reads.get())
+        assertEquals(4, index.returned.get())
+        assertEquals(2, index.closed.get())
+        // An unavailable card is not read at all.
+        remove()
+        val reads = index.reads.get()
+        assertSame(OfflineStore.MoveOfferCount.Unavailable, runBlocking { OfflineStore.moveOfferCount(card = true) })
+        assertEquals(reads, index.reads.get())
+        val phoneReads = indexes.getValue(phone).reads.get()
+        assertSame(OfflineStore.MoveOfferCount.Unavailable, runBlocking { OfflineStore.moveOfferCount(card = false) })
+        assertEquals("No phone count is needed when its destination is unavailable", phoneReads, indexes.getValue(phone).reads.get())
+        restore()
+    }
+
+    @Test fun aMoveCountIsNotReportedForAShelfReplacedDuringTheRead() {
+        // Card can be either source or destination; a phone count must not offer a move to a card
+        // that disappeared or was replaced while that phone cursor was being read.
+        for (sourceCard in listOf(true, false)) {
+            val index = indexes.getValue(if (sourceCard) card else phone)
+            val release = CountDownLatch(1)
+            index.hold = release
+            val store = storeField.get(null) as OfflineStore.Store
+            val callerJob = SupervisorJob()
+            val caller = CoroutineScope(callerJob + Dispatchers.Default)
+            try {
+                val pending = caller.async { OfflineStore.moveOfferCount(card = sourceCard) }
+                assertTrue(index.entered.tryAcquire(10, TimeUnit.SECONDS))
+                store.card = null
+                release.countDown()
+                assertSame(OfflineStore.MoveOfferCount.Unavailable,
+                    runBlocking { withTimeout(10_000) { pending.await() } })
+                assertEquals(1, index.closed.get())
+            } finally {
+                release.countDown()
+                caller.cancel()
+                runBlocking { withTimeout(10_000) { callerJob.join() } }
+                store.card = card
+                index.hold = null
+            }
+        }
+    }
+
     private fun saved(entry: SavedEntry): DataSpec = DataSpec.Builder().setUri(Uri.parse(entry.ref.handle)).build()
 
     private fun id(track: TauonTrack) = downloadId(endpoint.origin, track.id)
@@ -178,8 +290,42 @@ class CardAvailabilityRouteTest {
         present: () -> Boolean): Shelf {
         val cache = SimpleCache(folder, NoOpCacheEvictor(), database)
         cache.checkInitialization()
-        return Shelf(cache, DownloadManager(app, DefaultDownloadIndex(database, name),
-            DownloaderFactory { error("Fixture must not start a downloader/network") }), service, present).also(shelves::add)
+        val index = GatedIndex(DefaultDownloadIndex(database, name))
+        return Shelf(cache, DownloadManager(app, index,
+            DownloaderFactory { error("Fixture must not start a downloader/network") }), service, present)
+            .also(shelves::add).also { indexes[it] = index }
+    }
+
+    /**
+     * The real index, with its completed-row reads (the Settings move count's query) observable and, when
+     * armed, held on whichever thread runs them or failed. Other reads, such as the manager's own, pass through.
+     */
+    private class GatedIndex(private val inner: DefaultDownloadIndex) : WritableDownloadIndex by inner {
+        @Volatile var hold: CountDownLatch? = null
+        @Volatile var fail = false
+        @Volatile var thread: Thread? = null
+        @Volatile var onMain: Boolean? = null
+        val entered = Semaphore(0)
+        val reads = AtomicInteger()
+        val returned = AtomicInteger()
+        val closed = AtomicInteger()
+        override fun getDownloads(vararg states: Int): DownloadCursor {
+            if (!states.contentEquals(intArrayOf(Download.STATE_COMPLETED))) return inner.getDownloads(*states)
+            reads.incrementAndGet()
+            thread = Thread.currentThread()
+            onMain = Looper.myLooper() == Looper.getMainLooper()
+            entered.release()
+            try {
+                // Not interruptible by coroutine cancellation: it returns only when released.
+                hold?.let { check(it.await(10, TimeUnit.SECONDS)) { "Held count was never released" } }
+                if (fail) throw IOException("Fixture index failure")
+                return ClosingCursor(inner.getDownloads(*states), closed)
+            } finally { returned.incrementAndGet() }
+        }
+    }
+
+    private class ClosingCursor(private val inner: DownloadCursor, private val closed: AtomicInteger) : DownloadCursor by inner {
+        override fun close() { closed.incrementAndGet(); inner.close() }
     }
 
     private fun complete(shelf: Shelf, track: TauonTrack) {
@@ -194,7 +340,7 @@ class CardAvailabilityRouteTest {
         } finally { shelf.cache.releaseHoleSpan(hole) }
         val request = DownloadRequest.Builder(id, Uri.parse(endpoint.url("/api1/fileopus/${track.id}")))
             .setCustomCacheKey(id).setData(encodeSong(track)).build()
-        (shelf.manager.downloadIndex as DefaultDownloadIndex).putDownload(Download(request, Download.STATE_COMPLETED,
+        (shelf.manager.downloadIndex as WritableDownloadIndex).putDownload(Download(request, Download.STATE_COMPLETED,
             1, 1, bytes.size.toLong(), Download.STOP_REASON_NONE, Download.FAILURE_REASON_NONE))
     }
 }

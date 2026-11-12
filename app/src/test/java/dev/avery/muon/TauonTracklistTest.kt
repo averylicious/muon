@@ -24,6 +24,8 @@ class TauonTracklistTest {
         for(text in listOf(
             """{"tracks":[{"id":-1}],"ignored":[0,1],"tracks":[{"id":1},{"id":2}]}""",
             "{tracks:[{id=1;title:'Separators'},{id:2}]}",
+            // Discarded outer trees, unused record fields and records after a projection failure.
+            """{"x":{"a":[1,{"b":2}]},"tracks":[{"id":-1},{"y":[3]},4],"tracks":[{"id":1,"z":{"w":[5]}}]}""",
         )) {
             var boundaries=0
             assertEquals(previous(text),parseTauonTracklist(text,checkpoint={boundaries++}))
@@ -82,6 +84,38 @@ class TauonTracklistTest {
             """{"tracks":[{"id":-1}],"tracks":[]}""",
         )) assertEquals(previous(text),parseTauonTracklist(text))
         assertThrows(Exception::class.java) {parseTauonTracklist("""{"tracks":[{"id":2}],"tracks":null}""")}
+    }
+    @Test fun discardedTreesAndUnusedRecordFieldsProjectLikeTheFullObject() {
+        for(text in listOf(
+            // Known fields keep their complete nested shape for optString/opt; unknown ones are dropped.
+            """{"version":{"n":[1,{"deep":[true,null,"s"]}]},"tracks":[
+                {"id":1,"title":"One","extra":{"nested":[{"x":1}],"y":"z"},"artist":{"id":9,"name":[1,2]},
+                 "album":[1,{"x":2}],"track_number":{"n":3},"album_artist":["A"]},
+                {"id":2,"path":"/a/Two.flac","ignored":[[[]]],"duration":"5","has_lyrics":"true","id":3}
+            ],"after":[{"a":1}]}""",
+            // Records after a deferred failure are only validated; the last tracks property wins.
+            """{"tracks":[{"id":-1},{"x":[1e999],"y":{"z":[2]}},7,[{"id":3}]],"meta":[-1e999],"tracks":[{"id":4,"note":{"deep":[1]}}]}""",
+            """{"tracks":{"id":1,"x":{"y":2}},"tracks":[{"id":5}]}""",
+        )) assertEquals(text,previous(text),parseTauonTracklist(text))
+    }
+    @Test fun nonFiniteNumbersFollowTheirParentLikeJSONObjectAndJSONArray() {
+        // JSONObject.put rejects a non-finite member, also in discarded root/record/nested objects.
+        for(text in listOf(
+            """{"tracks":[{"id":1}],"x":1e999}""",
+            """{"tracks":-1e999,"tracks":[{"id":1}]}""",
+            """{"tracks":[{"id":1,"x":1e999}]}""",
+            """{"tracks":[{"id":-1},{"x":1e999}],"tracks":[{"id":2}]}""",
+            """{"tracks":[],"x":{"y":[{"z":-1e999}]}}""",
+            """{"tracks":[{"id":1,"artist":{"x":1e999}}]}""",
+        )) {
+            assertThrows(text,org.json.JSONException::class.java) {previous(text)}
+            assertThrows(text,org.json.JSONException::class.java) {parseTauonTracklist(text)}
+        }
+        // JSONArray.put(Object) accepts the same primitives.
+        for(text in listOf(
+            """{"tracks":[{"id":1}],"x":[1e999,-1e999]}""",
+            """{"tracks":[{"id":1,"x":[1e999]}]}""",
+        )) assertEquals(text,previous(text),parseTauonTracklist(text))
     }
     @Test fun ignoredExtensionsStillReceiveTheSameStructuralLimitsBeforeProjection() {
         val wide="""{"tracks":[{"id":1}],"ignored":[1,2,3]}"""

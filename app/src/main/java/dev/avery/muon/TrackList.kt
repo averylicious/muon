@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
     playing: Boolean, emptyText: String, loading: Boolean = false, state: LazyListState = rememberLazyListState(),
     sections: ((TauonTrack) -> String)? = null, header: (LazyListScope.() -> Unit)? = null,
-    actions: ((TauonTrack) -> Unit)? = null, play: (TauonTrack) -> Unit) {
+    actions: ((TauonTrack) -> Unit)? = null, play: (TauonTrack, Int) -> Unit) {
     if (tracks.isEmpty() && loading) PlaceholderRows()
     // A list of one full-height item rather than a plain box: an empty library is exactly when a
     // refresh is wanted, and a pull gesture needs something scrollable to pull.
@@ -49,9 +49,9 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
                 minLength = if (grabbable) SCROLLER_MIN_LENGTH else INDICATOR_MIN_LENGTH),
                 state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
                 header?.invoke(this)
-                itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { _, t ->
+                itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { index, t ->
                     TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", playing, ready,
-                        Modifier.animateItem(placementSpec = motionMedium()), actions = actions?.let { { it(t) } }) { play(t) }
+                        Modifier.animateItem(placementSpec = motionMedium()), actions = actions?.let { { it(t) } }) { play(t, index) }
                 }
             }
             if (sections != null) AlphabetScroller(indicator, tracks.size) { i ->

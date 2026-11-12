@@ -42,14 +42,24 @@ internal class PlayedClaimDisk(private val file: File) : Closeable {
     }
 
     /** Eviction never proceeds when the census or this exact lookup cannot be trusted. */
-    @Synchronized fun removable(key: String): Boolean {
-        if (!known) return false
-        val statement = lookup ?: return false
-        return try {
+    fun removable(key: String): Boolean = removalAllowed(key) == true
+
+    /** Explicit Delete distinguishes an unreadable census from a confirmed competing owner. */
+    fun removableForRemoval(key: String): Boolean = removalAllowed(key) ?: throw PlayedClaimsUnavailable()
+
+    /** Null means unavailable. The query and binding cleanup are one synchronized observation. */
+    @Synchronized private fun removalAllowed(key: String): Boolean? {
+        if (!known) return null
+        val statement = lookup ?: return null
+        var allowed: Boolean? = null
+        try {
             statement.bindBlob(1, savedCatalogSortKey(key))
-            statement.simpleQueryForLong() == 0L
-        } catch (_: Exception) { known = false; false }
-        finally { runCatching { statement.clearBindings() }.onFailure { known = false } }
+            allowed = statement.simpleQueryForLong() == 0L
+        } catch (_: Exception) { known = false }
+        finally {
+            runCatching { statement.clearBindings() }.onFailure { known = false; allowed = null }
+        }
+        return allowed
     }
 
     @Synchronized override fun close() {

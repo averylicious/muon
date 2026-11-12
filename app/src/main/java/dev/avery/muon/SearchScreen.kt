@@ -24,7 +24,10 @@ import androidx.compose.ui.unit.dp
 /** Results plus enough state to tell "nothing typed" from "still searching" from "no matches". */
 @Immutable
 internal data class SearchResults(val tracks: List<TauonTrack> = emptyList(),
-    val searching: Boolean = false, val completed: String = "")
+    val searching: Boolean = false, val completed: String = "",
+    /** Matched against [completed], and shown only while their source is still the current one. */
+    val artists: List<LibraryArtist> = emptyList(), val artistSource: ArtistGroups? = null,
+    val albums: List<LibraryAlbum> = emptyList(), val albumSource: Projection<AlbumProjectionKey, List<LibraryAlbum>>? = null)
 
 /**
  * The Search tab (#48, mockups 07 to 09): a Material 3 search bar, a filled pill at rest, over a
@@ -173,11 +176,12 @@ internal fun searchSuggestions(artists: List<LibraryArtist>, albums: List<Librar
 }
 
 /** The browse at rest and the suggestions: the artists with the most songs, and the newest albums. */
-internal fun topArtists(artists: List<LibraryArtist>, count: Int = 10): List<LibraryArtist> =
-    artists.filter { it.name.isNotBlank() }.sortedByDescending { it.tracks.size }.take(count)
+internal fun topArtists(artists: List<LibraryArtist>, count: Int = 10, checkpoint: () -> Unit = {}): List<LibraryArtist> =
+    artists.filter { checkpoint(); it.name.isNotBlank() }
+        .sortedWith(compareByDescending<LibraryArtist> { it.tracks.size }.checked(checkpoint)).take(count)
 
-internal fun newestAlbums(albums: List<LibraryAlbum>, count: Int = 9): List<LibraryAlbum> =
-    sortAlbums(albums.filter { it.title.isNotBlank() }, AlbumOrder.Added).take(count)
+internal fun newestAlbums(albums: List<LibraryAlbum>, count: Int = 9, checkpoint: () -> Unit = {}): List<LibraryAlbum> =
+    sortAlbums(albums.filter { checkpoint(); it.title.isNotBlank() }, AlbumOrder.Added, checkpoint = checkpoint).take(count)
 
 /**
  * Above a search's songs: the artists and albums it matched, each opening its page, so an album can

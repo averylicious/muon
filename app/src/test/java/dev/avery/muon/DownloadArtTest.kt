@@ -42,6 +42,48 @@ class DownloadArtTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun linkedCoverFilesAndDirectoriesAreNotReadFetchedOrRemoved() {
+        for(kind in listOf("file", "directory", "parent", "empty-directory")) {
+            val root=Files.createTempDirectory("cover-linked").toFile()
+            try {
+                val outside=java.io.File(root,"outside").apply {mkdirs()}
+                val id="saved/disposable"
+                val name="entry-"+java.security.MessageDigest.getInstance("SHA-256")
+                    .digest("muon-saved-entry\u0000$id".toByteArray()).joinToString("") {"%02x".format(it)}
+                val bytes=byteArrayOf(8,7,6)
+                val original=java.io.File(outside,name)
+                if(kind!="empty-directory") original.writeBytes(bytes)
+                val link=java.io.File(root,"linked")
+                val dir=when(kind) {
+                    "file" -> java.io.File(root,"art").apply {
+                        mkdirs();Files.createSymbolicLink(java.io.File(this,name).toPath(),original.toPath())
+                    }
+                    "parent" -> {
+                        val nested=java.io.File(outside,"art").apply {mkdirs()}
+                        original.renameTo(java.io.File(nested,name))
+                        Files.createSymbolicLink(link.toPath(),outside.toPath())
+                        java.io.File(link,"art")
+                    }
+                    else -> {Files.createSymbolicLink(link.toPath(),outside.toPath());link}
+                }
+                var requests=0
+                val art=DownloadArt(dir,okhttp3.Call.Factory { requests++;throw java.io.IOException("No network") })
+                assertFalse(kind,art.hasEntry(id))
+                assertNull(kind,art.forEntry(id))
+                art.fetchEntry(id,"http://127.0.0.1:1/fixture-no-network")
+                assertEquals(kind,0,requests)
+                assertThrows(java.io.IOException::class.java) {art.removeEntry(id)}
+                if(kind=="parent") assertArrayEquals(bytes,java.io.File(outside,"art/$name").readBytes())
+                else if(kind!="empty-directory") assertArrayEquals(bytes,original.readBytes())
+                else assertTrue(outside.listFiles()!!.isEmpty())
+                assertTrue(kind,Files.isSymbolicLink(if(kind=="file") java.io.File(dir,name).toPath() else link.toPath()))
+            } finally {
+                // The walk does not follow links, even in cleanup of these disposable fixtures.
+                Files.walk(root.toPath()).use { paths -> paths.sorted(java.util.Comparator.reverseOrder()).forEach(Files::delete) }
+            }
+        }
+    }
+
     @Test fun aSavedCoverAddressNamesOnlyItsEntry() {
         val entry = "saved/2f1c3a8e-0f4e-4b8e-9b0e-6c1d2e3f4a5b"
         assertEquals(entry, savedArtRequest(savedArtUrl(entry)))

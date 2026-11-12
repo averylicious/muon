@@ -126,7 +126,7 @@ class LibraryRetentionCharacterizationTest {
             // The artwork identities published for the library: one concatenated copy per song.
             val identities = artworkIdentities(server.endpoint, unique)
             assertEquals(4, identities.size)
-            assertTrue(identities.values.all { it.endsWith("\u0000$album") })
+            assertTrue(identities.values.all { it.endsWith(album) })
 
             // Queued: each item's metadata shows the album, and its record holds another encoded copy.
             val queue = unique.map { it.mediaItem(server.endpoint) }

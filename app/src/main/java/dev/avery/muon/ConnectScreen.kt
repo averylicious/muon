@@ -15,6 +15,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
@@ -25,10 +28,12 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     // Discovery, and a direct question to every host on the network, which finds Tauon even when it
     // is not advertising itself. Null while the probe is still asking.
     var probe by remember { mutableStateOf<List<DiscoveredServer>?>(null) }
+    var networkCurrent by remember { mutableStateOf(true) }
+    var activeRound by remember { mutableStateOf<LanProbeRound?>(null) }
     var round by remember { mutableIntStateOf(0) }
     // Check the actual grant as well as the observable resume/prompt snapshot.
     val allowed = LocalNetworkState.granted && localNetworkGranted(context)
-    val scan = combineDiscovery(nsd, probe, allowed)
+    val scan = combineDiscovery(nsd, probe, allowed, networkCurrent)
     // Downloads open without a server (#112): offered whenever any are on the phone.
     val storage by OfflineStore.availability.collectAsState()
     LaunchedEffect(Unit) {
@@ -50,6 +55,9 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     var typed by rememberSaveable { mutableStateOf(false) }
     // Nothing is looked for until Android 17 allows it; granting access starts the scan.
     LaunchedEffect(discovery, round, allowed) {
+        // Replacement effects can start before old suspended cleanup finishes.
+        activeRound?.close()
+        activeRound = null
         val granted = localNetworkGranted(context)
         if (!allowed || !granted) {
             discovery.stop()
@@ -58,12 +66,43 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
             if (!granted) LocalNetworkState.granted = false
             return@LaunchedEffect
         }
-        discovery.start()
         probe = null
-        probe = LanProbe.find(context)
+        networkCurrent = true
+        fun invalidateResults() {
+            networkCurrent = false
+            discovery.stop() // Existing generation checks also reject late NSD callbacks.
+            nsd = DiscoverySnapshot(DiscoveryStatus.IDLE)
+            probe = emptyList()
+        }
+        val owner = LanProbe.open(context)
+        if (owner == null) { invalidateResults(); return@LaunchedEffect }
+        activeRound = owner
+        try {
+            discovery.start()
+            coroutineScope {
+                // This child resumes on Main; the platform callback only invalidates the owner.
+                launch {
+                    owner.awaitInvalidation()
+                    invalidateResults()
+                    owner.close()
+                }
+                val found = owner.find()
+                if (owner.isCurrent()) probe = found else invalidateResults()
+                // A fast probe can finish while NSD is still active. Keep the one callback until
+                // rescan/disposal/permission loss, so later changes also hide completed results.
+                awaitCancellation()
+            }
+        } finally {
+            owner.close()
+            // Do not stop shared discovery here: delayed old cleanup must not stop a new round.
+        }
     }
-    LaunchedEffect(scan, model.busy, allowed) {
-        if (!allowed || model.busy) return@LaunchedEffect
+    // Keep each displayed result/effect tied to the owner that produced this composition. A
+    // replacement round can begin before the old visible row's click/effect is dispatched.
+    val scanOwner = activeRound
+    LaunchedEffect(scan, model.busy, allowed, scanOwner) {
+        if (!allowed || model.busy || scanOwner !== activeRound || scanOwner?.isCurrent() != true)
+            return@LaunchedEffect
         autoConnectTarget(scan, autoTried, typed)?.let { server ->
             autoTried = true
             model.address = server.origin
@@ -91,10 +130,17 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
                     placeholder = { Text("192.168.1.10:7814") }, singleLine = true, shape = RoundedCornerShape(16.dp),
                     enabled = !model.busy, modifier = Modifier.fillMaxWidth())
                 // Without local network access, Connect asks for it first and connects once granted.
-                Button(onClick = { if (allowed) model.connect() else allowLocalNetwork() },
-                    enabled = !model.busy && model.address.isNotBlank(),
+                // Separate controls cancel a pressed gesture when the loading state changes;
+                // a released Cancel must not turn into a new Connect action at completion.
+                if (model.busy) OutlinedButton(onClick = {
+                    autoTried = true // A discovery result must not immediately restart a cancelled load.
+                    model.cancelLoad()
+                }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                    Text("Cancel", style = MaterialTheme.typography.titleMedium)
+                } else Button(onClick = { if (allowed) model.connect() else allowLocalNetwork() },
+                    enabled = model.address.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                    Text(if (model.busy) "Connecting…" else "Connect", style = MaterialTheme.typography.titleMedium)
+                    Text("Connect", style = MaterialTheme.typography.titleMedium)
                 }
                 if (model.busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -123,7 +169,12 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
         val rows = found.size + 1
         found.forEachIndexed { i, server ->
             // Choosing a server connects to it: there is nothing left to confirm.
-            GroupRow(groupShape(i, rows), onClick = { model.address = server.origin; model.connect() },
+            GroupRow(groupShape(i, rows), onClick = {
+                if (scanOwner === activeRound && scanOwner?.isCurrent() == true) {
+                    model.address = server.origin
+                    model.connect()
+                }
+            },
                 enabled = !model.busy, label = "Connect") {
                 Column(Modifier.weight(1f)) {
                     Text(server.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)

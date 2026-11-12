@@ -74,6 +74,7 @@ class PlayedClaimDiskTest {
             }
             claims.read(failure); assertFalse(claims.known)
             assertFalse(claims.removable("played:free")); assertFalse(claims.removable("played:kept"))
+            assertThrows(PlayedClaimsUnavailable::class.java) { claims.removableForRemoval("played:free") }
             val closeFailure = object : DownloadIndex by index {
                 override fun getDownloads(vararg states: Int): DownloadCursor {
                     val cursor = index.getDownloads(*states)
@@ -83,6 +84,7 @@ class PlayedClaimDiskTest {
                 }
             }
             claims.read(closeFailure); assertFalse(claims.known); assertFalse(claims.removable("played:free"))
+            assertThrows(PlayedClaimsUnavailable::class.java) { claims.removableForRemoval("played:free") }
             claims.read(index); assertTrue(claims.known); assertFalse(claims.removable("played:kept"))
         }
     }

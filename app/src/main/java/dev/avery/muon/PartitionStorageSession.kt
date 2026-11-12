@@ -518,8 +518,12 @@ internal class PartitionStorageSession(private val catalog:CachePartitionCatalog
             if(candidate!=null && candidate.generation!=playedChanges.get())
                 return OwnedPlayedRemoval(OfflineStore.SavedRemoval.Busy)
             val expected=native.savedReadRoute(key)
-            if(expected !is PartitionReadRoute.NewSave || expected.record.phase!=PartitionSavePhase.Closed ||
-                !removable(key) || completionIndex.holdsName(key)) return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
+            if(expected !is PartitionReadRoute.NewSave || expected.record.phase!=PartitionSavePhase.Closed)
+                return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
+            val allowed=try { removable(key) } catch(_:PlayedClaimsUnavailable) {
+                return OwnedPlayedRemoval(OfflineStore.SavedRemoval.Unavailable)
+            }
+            if(!allowed || completionIndex.holdsName(key)) return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
             if(native.savedReadRoute(key)!=expected || candidate!=null && expected.record!=candidate.record)
                 return OwnedPlayedRemoval(OfflineStore.SavedRemoval.NotOwned)
             writers.trimIdle(); published.trimIdle(); completed.trimIdle()

@@ -1,8 +1,16 @@
 package dev.avery.muon
 
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], manifest = Config.NONE)
 class LoudnessNoticeTest {
     @Test fun onlyExaminedSelectedAudioCanBeCalledMissing() {
         assertEquals(LoudnessSource.Checking, loudnessPlayback(null, true, false, null, true).source)
@@ -38,4 +46,22 @@ class LoudnessNoticeTest {
         assertFalse(history.shouldShow(playing("c")))
         assertTrue(history.shouldShow(playing("a"))) // Outside the bounded recent window, it may remind again.
     }
+    @Test fun reusedIdWithNewQueuedLabelsGetsItsOwnReminderButDuplicateOccurrencesDoNotSpam() {
+        fun state(title: String, artist: String = "Artist", album: String = "Album", playing: Boolean = true) =
+            loudnessPlayback("same-origin-and-id", true, false, -12f, playing,
+                loudnessNoticeKey(MediaItem.Builder().setMediaId("same-origin-and-id")
+                    .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist).setAlbumTitle(album).build()).build()))
+        val history = LoudnessNoticeHistory(2)
+        val first = state("First")
+        val second = state("Second")
+        assertNotEquals("Compose's state/effect key must observe the reused-ID change", first, second)
+        assertTrue(history.shouldShow(first))
+        assertFalse(history.shouldShow(state("First"))) // Newly constructed duplicate queue item.
+        assertFalse(history.shouldShow(state("Second", playing = false)))
+        assertTrue(history.shouldShow(second))
+        assertFalse(history.shouldShow(state("Second")))
+        assertTrue(history.shouldShow(state("Second", artist = "Other artist")))
+        assertTrue(history.shouldShow(first)) // Evicted by the existing bounded two-entry policy.
+    }
+
 }

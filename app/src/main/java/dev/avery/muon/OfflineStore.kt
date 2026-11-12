@@ -32,6 +32,8 @@ import java.util.concurrent.atomic.AtomicReference
 import okhttp3.Call
 import okhttp3.Request
 
+private const val BULK_REMOVAL_UNREADABLE = "Couldn't check all saved copies. Check storage and retry."
+
 /**
  * Where downloads are kept: the phone's own storage, or a removable SD card (#112, mockup 01). Each has
  * its own cache, its own download index and its own service. A card that is unavailable is skipped by
@@ -150,6 +152,11 @@ internal object OfflineStore {
         val moveCommandEpoch = java.util.concurrent.atomic.AtomicLong()
         /** Only one bounded new-save preparation may wait on/run in the saver at a time. */
         val savePreparation = java.util.concurrent.atomic.AtomicBoolean()
+        /** One user removal check may wait on/run in saver, shared by single and Remove all. */
+        val removalPreparation = java.util.concurrent.atomic.AtomicBoolean()
+        // Manager callbacks coalesce before reaching the saver; a slow check owns its slot until exit.
+        val moveCompletionPending = java.util.concurrent.atomic.AtomicBoolean()
+        val moveCompletionRequested = java.util.concurrent.atomic.AtomicBoolean()
         /** At most one bounded new-save batch awaiting exact service delivery. */
         val saveDelivery = DownloadSaveDelivery()
         /** At most one bounded batch of checked removals awaiting exact service delivery (#253). */
@@ -504,17 +511,39 @@ internal object OfflineStore {
         } finally { bootstrap.shutdown() }
     }
 
-    /** Serial cleanup starts after both managers settle, not during another target Add/source Remove. */
+    /** Serial cleanup starts after both managers settle. Coalesce callbacks before enqueue, retaining
+     * one pending/running sweep and a retry bit, never one queued closure per receipt per callback.
+     */
     private fun finishReadyMoves(context: Context, store: Store) {
-        if (!store.shelves.all { quiet(it.manager) }) return
-        for (receipt in store.moves.ready()) saver.execute {
-            val completed = runCatching { receipt.to.manager.downloadIndex.getDownload(receipt.request.id) }.getOrNull()
-            if (completed == null || completed.state != Download.STATE_COMPLETED) {
-                store.moves.finish(receipt)
-            } else if (!completeMovedCopyNow(context, store, receipt.to, completed) &&
-                store.moves.find(receipt.to, receipt.request.id) == null) {
-                notice(context, "The original copy was kept: Muon couldn't confirm the move finished safely.")
+        if (!store.shelves.all { quiet(it.manager) } || store.moves.ready().isEmpty()) return
+        store.moveCompletionRequested.set(true)
+        if (!store.moveCompletionPending.compareAndSet(false, true)) return
+        val app = context.applicationContext
+        try {
+            saver.execute {
+                try {
+                    store.moveCompletionRequested.set(false)
+                    for (receipt in store.moves.ready()) {
+                        val completed = runCatching { receipt.to.manager.downloadIndex.getDownload(receipt.request.id) }.getOrNull()
+                        if (completed == null || completed.state != Download.STATE_COMPLETED) {
+                            store.moves.finish(receipt)
+                        } else if (!completeMovedCopyNow(app, store, receipt.to, completed) &&
+                            store.moves.find(receipt.to, receipt.request.id) == null) {
+                            notice(app, "The original copy was kept: Muon couldn't confirm the move finished safely.")
+                        }
+                    }
+                } finally {
+                    store.moveCompletionPending.set(false)
+                    // A completion can arrive while this worker exits. Re-enter on main to recheck
+                    // manager quiet/receipt state. A concurrent new owner still keeps a single slot.
+                    if (store.moveCompletionRequested.get()) Handler(Looper.getMainLooper()).post {
+                        if (current() === store) finishReadyMoves(app, store)
+                    }
+                }
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            store.moveCompletionPending.set(false) // The fixed saver rejects before accepting work.
+            notice(app, "Move check couldn't be queued. The original copy was kept; try again later.")
         }
     }
 
@@ -888,6 +917,27 @@ internal object OfflineStore {
         }
     }.getOrDefault(false)
 
+    /** The fixed saver rejects before accepting work. Do not release admission merely because the
+     * UI closes; it covers the pending task and its actual exit, before bounded service delivery.
+     */
+    private fun prepareRemoval(app: Context, store: Store, work: () -> Unit) {
+        // Delivery keeps its existing route-specific checks below: played/partition copies do not
+        // need a legacy service batch, so do not add a blanket refusal for those routes here.
+        if (!store.removalPreparation.compareAndSet(false, true)) {
+            notice(app, "A removal is already pending. Try again when it finishes.")
+            return
+        }
+        try {
+            saver.execute {
+                try { work() }
+                finally { store.removalPreparation.set(false) }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            store.removalPreparation.set(false)
+            notice(app, "Muon couldn't queue that removal. Try again.")
+        }
+    }
+
     /**
      * Removes one saved copy, and only it (#213). A download row goes only when its shelf is available and
      * a census of that shelf's index finds it the sole owner of its bytes ([soleOwner]); a played copy only
@@ -897,22 +947,24 @@ internal object OfflineStore {
      * removes the bytes is set out at [soleOwner].
      */
     fun removeSaved(context: Context, ref: SavedRef) {
-        if(commandStore(context)==null) return
-        saver.execute {
-            when (removeSavedNow(context, ref)) {
+        val store = commandStore(context) ?: return
+        val app = context.applicationContext
+        prepareRemoval(app, store) {
+            when (removeSavedNow(app, ref)) {
                 // Its outcome is said once the service has answered ([removalDeliveryMessage]).
                 SavedRemoval.Sent -> Unit
                 SavedRemoval.Waiting ->
-                    notice(context, "Saved copies are still being removed, so that copy wasn't. " +
+                    notice(app, "Saved copies are still being removed, so that copy wasn't. " +
                         "Try again when that finishes.")
-                SavedRemoval.Unavailable ->
-                    notice(context, "That copy is on the SD card, which isn't available, so it wasn't removed.")
+                SavedRemoval.Unavailable -> notice(app, if (ref.shelf == SavedShelf.Card)
+                    "SD card unavailable or unreadable. Check the card and try again."
+                    else "Saved copies couldn't be read. Try again or restart Muon.")
                 SavedRemoval.NotOwned ->
-                    notice(context, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
+                    notice(app, "Muon can't tell that copy's bytes belong to it alone, so it was kept.")
                 SavedRemoval.Busy ->
-                    notice(context, "Saved storage is busy, so that copy wasn't removed. Try again later.")
+                    notice(app, "Saved storage is busy, so that copy wasn't removed. Try again later.")
                 SavedRemoval.Failed ->
-                    notice(context, "Muon couldn't confirm that saved copy was removed. Restart Muon before retrying.")
+                    notice(app, "Muon couldn't confirm that saved copy was removed. Restart Muon before retrying.")
             }
         }
     }
@@ -943,7 +995,8 @@ internal object OfflineStore {
         var uncertain=false
         try {
             permit.check()
-            if(!removable(key)) return SavedRemoval.NotOwned
+            val allowed=try { removable(key) } catch(_:PlayedClaimsUnavailable) { return SavedRemoval.Unavailable }
+            if(!allowed) return SavedRemoval.NotOwned
             cache.removeResource(key)
             permit.check()
             return SavedRemoval.Sent
@@ -961,10 +1014,13 @@ internal object OfflineStore {
         if (store.moves.removalInFlight) return SavedRemoval.Busy
         store.moves.invalidate(ref.requestId)
         if (ref.source == SavedSource.Played) {
+            // Manager indexes admit their own shared cursor. Rebuild BEFORE partition removal
+            // takes exclusive access; the final callback still refuses any unavailable lookup.
+            store.playedClaims.prepareRemoval(store.phone.manager.downloadIndex)
             store.phone.partition?.let { partition ->
-                return partition.removePlayed(ref.key,store.playedClaims::removable)
+                return partition.removePlayed(ref.key,store.playedClaims::removableForRemoval)
             }
-            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removable) {
+            return removePlayedCopy(ref.key,store.cache,store.storageBarrier,store.playedClaims::removableForRemoval) {
                 store.played.quarantine()
             }
         }
@@ -997,11 +1053,7 @@ internal object OfflineStore {
             }
             return outcome
         }
-        // One candidate, every index row: do not retain unrelated names just to remove this copy (#253).
-        val owner = runCatching { IndexNameProbe.read(shelf.manager.downloadIndex, ref.requestId) }
-            .getOrNull() ?: return SavedRemoval.NotOwned
-        val row = owner.row
-        if (row == null || row.key != ref.key || !owner.soleOwner) return SavedRemoval.NotOwned
+        legacyRemovalRefusal(shelf.manager.downloadIndex, ref)?.let { return it }
         if (store.removalDelivery.busy) return SavedRemoval.Waiting
         // Its own move, if one is under way, loses its hand-over too (#234).
         moveOwnership.remove(listOf(ref.requestId))
@@ -1010,6 +1062,20 @@ internal object OfflineStore {
             removalDeliveryMessage(result, single = true)?.let { notice(app, it) }
         }
         return if (begun) SavedRemoval.Sent else SavedRemoval.Waiting
+    }
+
+    /**
+     * [removeSavedNow]'s ownership check for a legacy shelf: null only when [ref]'s own row is the sole owner
+     * of its bytes. A missing, mismatched or shared row is [SavedRemoval.NotOwned]. A census that could not be
+     * read or closed says nothing about ownership, so it is [SavedRemoval.Unavailable] (#646): refused just
+     * the same, but not reported as shared bytes. Reads only; no row or byte is changed.
+     */
+    internal fun legacyRemovalRefusal(index: androidx.media3.exoplayer.offline.DownloadIndex, ref: SavedRef): SavedRemoval? {
+        // One candidate, every index row: do not retain unrelated names just to remove this copy (#253).
+        val owner = runCatching { IndexNameProbe.read(index, ref.requestId) }
+            .getOrElse { return SavedRemoval.Unavailable }
+        val row = owner.row
+        return if (row == null || row.key != ref.key || !owner.soleOwner) SavedRemoval.NotOwned else null
     }
 
     /** One tagged removal for the delivery batch; true only when Android accepted the start request. */
@@ -1329,11 +1395,55 @@ internal object OfflineStore {
      * How many finished downloads are on the card ([card]) or the phone. Reads the index. Null for a
      * card that is missing or unavailable, which is not the same as one with nothing on it (#179 S1).
      */
-    fun downloadsOn(context: Context, card: Boolean): Int? {
+    fun downloadsOn(@Suppress("UNUSED_PARAMETER") context: Context, card: Boolean): Int? {
         val store = current() ?: return null
         val shelf = (if (card) store.card else store.phone) ?: return null
         if (!shelf.available()) return null
-        return runCatching { shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { it.count } }.getOrDefault(0)
+        return completedCount(shelf)
+    }
+
+    /** One completed-index count; the cursor always closes. A failed read is null, never zero copies. */
+    private fun completedCount(shelf: Shelf): Int? =
+        runCatching { shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { it.count } }.getOrNull()
+
+    /** What Settings may say after asking whether a shelf still holds copies to offer moving (#401). */
+    sealed interface MoveOfferCount {
+        data class Counted(val count: Int) : MoveOfferCount
+        /** A competing count never waits; a count or move prevents offering another move. */
+        object Busy : MoveOfferCount
+        /** Missing/unavailable shelf, a changed store or a failed read. Not the same as zero. */
+        object Unavailable : MoveOfferCount
+    }
+
+    /** Process-owned, non-waiting: held until the physical index read actually returns (#401). */
+    private val moveOfferCounting = java.util.concurrent.atomic.AtomicBoolean()
+
+    /**
+     * [downloadsOn] for the Settings move offer, with the index read on IO rather than the caller's thread.
+     * At most one physical count runs at a time; a request arriving meanwhile is refused as [MoveOfferCount.Busy]
+     * rather than queued. Cancelling the caller cancels only its delivery: withContext does not return until
+     * a blocked read itself returns and closes its cursor, so the gate stays held until then. The store,
+     * shelf identity and availability are rechecked before a count is reported. A count is only an
+     * observation; [move] still makes every one of its own checks.
+     */
+    suspend fun moveOfferCount(card: Boolean): MoveOfferCount {
+        if (!moveOfferCounting.compareAndSet(false, true)) return MoveOfferCount.Busy
+        try {
+            return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val store = current() ?: return@withContext MoveOfferCount.Unavailable
+                val shelf = (if (card) store.card else store.phone) ?: return@withContext MoveOfferCount.Unavailable
+                val destination = (if (card) store.phone else store.card) ?: return@withContext MoveOfferCount.Unavailable
+                if (moveExclusion.held) return@withContext MoveOfferCount.Busy
+                // Availability can itself inspect storage; keep it off the caller's UI thread too.
+                if (!shelf.available() || !destination.available()) return@withContext MoveOfferCount.Unavailable
+                val count = completedCount(shelf)
+                val same = current() === store && (if (card) store.card else store.phone) === shelf &&
+                    (if (card) store.phone else store.card) === destination
+                if (!same || !shelf.available() || !destination.available()) return@withContext MoveOfferCount.Unavailable
+                if (moveExclusion.held) return@withContext MoveOfferCount.Busy
+                count?.let { MoveOfferCount.Counted(it) } ?: MoveOfferCount.Unavailable
+            }
+        } finally { moveOfferCounting.set(false) }
     }
 
     /**
@@ -1872,18 +1982,22 @@ internal object OfflineStore {
                 "Remove all again when the move finishes.")
             return
         }
-        saver.execute {
-            val plan = removeAllNow(context)
-            if (plan.busy) notice(context, "Saved storage is busy, so some copies could not be removed. Try again later.")
-            if (store.shelves.any { !it.available() })
-                notice(context, "The SD card isn't available, so its saved copies weren't removed.")
-            if (plan.kept > 0) notice(context, "${plan.kept} saved ${if (plan.kept == 1) "copy was" else "copies were"} kept: " +
+        val app = context.applicationContext
+        prepareRemoval(app, store) {
+            val plan = removeAllNow(app)
+            if (plan.busy) notice(app, "Saved storage is busy, so some copies could not be removed. Try again later.")
+            if (!store.phone.available())
+                notice(app, "Saved copies couldn't be read. Try again or restart Muon.")
+            else if (store.card?.available() == false)
+                notice(app, "The SD card isn't available, so its saved copies weren't removed.")
+            if (plan.kept > 0) notice(app, "${plan.kept} saved ${if (plan.kept == 1) "copy was" else "copies were"} kept: " +
                 "Muon can't safely remove them in their current state.")
-            if(plan.removed>0) notice(context,"${plan.removed} saved ${if(plan.removed==1) "copy was" else "copies were"} removed.")
-            if(plan.unconfirmed>0) notice(context,"Muon couldn't confirm a saved-copy removal. Restart Muon before retrying; remaining copies were not sent for removal.")
-            if (plan.later > 0 && plan.sent == 0) notice(context, "${plan.later} saved " +
+            if(plan.removed>0) notice(app,"${plan.removed} saved ${if(plan.removed==1) "copy was" else "copies were"} removed.")
+            if(plan.unconfirmed>0) notice(app,"Muon couldn't confirm a saved-copy removal. Restart Muon before retrying; remaining copies were not sent for removal.")
+            if (plan.later > 0 && plan.sent == 0) notice(app, "${plan.later} saved " +
                 "${if (plan.later == 1) "copy wasn't" else "copies weren't"} removed and " +
                 "${if (plan.later == 1) "is" else "are"} unchanged. Try again later.")
+            if (plan.unreadableShelves > 0) notice(app, BULK_REMOVAL_UNREADABLE)
         }
     }
 
@@ -1892,10 +2006,11 @@ internal object OfflineStore {
      * removed; [kept]: rows not the sole owner of their bytes; [later]: sole owners beyond the batch's bounds,
      * unchanged and left for another Remove all; [busy]: storage/another removal was busy. [removed]:
      * partition copies whose actual bytes and row were already removed; [unconfirmed]: attempted partition
-     * removals with unknown outcome. An unknown mutation is never reported as unchanged.
+     * removals with unknown outcome. [unreadableShelves] counts failed whole censuses, not guessed
+     * copy counts: those shelves sent no removals. An unknown mutation is never reported as unchanged.
      */
     internal data class RemoveAllPlan(val sent: Int, val kept: Int, val later: Int = 0, val busy: Boolean = false,
-        val removed:Int=0,val unconfirmed:Int=0)
+        val removed:Int=0,val unconfirmed:Int=0,val unreadableShelves:Int=0)
 
     /**
      * [removeAll]'s commands, on the calling thread: every row on each available shelf that a census finds
@@ -1909,6 +2024,7 @@ internal object OfflineStore {
         val selection = RemovalSelection()
         var kept = 0
         var later = 0
+        var unreadable = 0
         for (shelf in availableShelves(store.shelves)) {
             // A whole, closed disk census is required; a partial read/close sends nothing from this shelf.
             val local = RemovalSelection()
@@ -1925,7 +2041,7 @@ internal object OfflineStore {
                     }
                 }
             }.isSuccess
-            if (!complete) continue
+            if (!complete) { unreadable++; continue }
             kept += localKept
             later += localLater
             for (target in local.targets) if (!selection.take(target.shelf, target.id)) later++
@@ -1949,15 +2065,17 @@ internal object OfflineStore {
                 SavedRemoval.Failed -> {unconfirmed++; stopped=true}
             }
         }
-        if(stopped) {later+=legacy.size; return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed)}
-        if(legacy.isEmpty()) return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed)
+        if(stopped) {later+=legacy.size; return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed,unreadable)}
+        if(legacy.isEmpty()) return RemoveAllPlan(0,kept,later,busy,removed,unconfirmed,unreadable)
         val app = context.applicationContext
         val count = legacy.size
         val begun = store.removalDelivery.begin(legacy, sendRemoval(context)) { result ->
-            removalDeliveryMessage(result, single = false, later = later)?.let { notice(app, it) }
+            removalDeliveryMessage(result, single = false, later = later)?.let {
+                notice(app, it + if (unreadable > 0) " $BULK_REMOVAL_UNREADABLE" else "")
+            }
         }
-        return if (begun) RemoveAllPlan(count,kept,later,busy,removed,unconfirmed)
-            else RemoveAllPlan(0,kept,later+count,true,removed,unconfirmed)
+        return if (begun) RemoveAllPlan(count,kept,later,busy,removed,unconfirmed,unreadable)
+            else RemoveAllPlan(0,kept,later+count,true,removed,unconfirmed,unreadable)
     }
 }
 

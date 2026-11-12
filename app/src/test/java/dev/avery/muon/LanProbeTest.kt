@@ -89,4 +89,18 @@ class LanProbeTest {
         assertEquals(a, autoConnectTarget(ready, false, false))
     }
 
+    @Test fun invalidatedRoundHidesStaleNsdAndProbeResultsAndFinishesInsteadOfSearching() {
+        for (status in DiscoveryStatus.entries) {
+            val stale = DiscoverySnapshot(status, listOf(a), 2)
+            for (probe in listOf(null, emptyList(), listOf(probed))) {
+                val invalid = combineDiscovery(stale, probe, networkCurrent = false)
+                assertEquals(DiscoverySnapshot(DiscoveryStatus.UNAVAILABLE), invalid)
+                assertNull(autoConnectTarget(invalid, false, false))
+                assertNotEquals(DiscoveryStatus.SEARCHING, invalid.status)
+            }
+        }
+        val fresh = combineDiscovery(DiscoverySnapshot(DiscoveryStatus.COMPLETE), listOf(probed))
+        assertEquals(probed, autoConnectTarget(fresh, false, false))
+    }
+
 }

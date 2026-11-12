@@ -93,7 +93,13 @@ internal class PartitionCompletedAudio(private val owner:PartitionNativeOwner,
         val cache=owner.openClosedSavePlayback(key)
         try { checked(cache,expected,requireFull=expected.complete!=null); cache }
         catch(failure:Throwable) {
-            try { cache.release() } catch(cleanup:Throwable) { if(cleanup!==failure) failure.addSuppressed(cleanup) }
+            try { cache.release() } catch(cleanup:Throwable) {
+                // The pool must retain its opening slot if native cleanup is not known to finish.
+                val unknown=if(cleanup is PartitionOwnershipUncertain) cleanup
+                    else PartitionOwnershipUncertain(cache,cleanup)
+                if(unknown!==failure) unknown.addSuppressed(failure)
+                throw unknown
+            }
             throw failure
         }
     },capacity=capacity)

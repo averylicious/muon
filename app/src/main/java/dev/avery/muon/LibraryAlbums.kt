@@ -16,12 +16,23 @@ internal fun albumLabel(title: String): String = title.ifBlank { "Unknown album"
  * the same Tauon track numbering as Songs. A–Z is by title, then album artist; untitled albums go last.
  */
 internal fun sortAlbums(albums: List<LibraryAlbum>, order: AlbumOrder,
-    collator: Collator = libraryCollator()): List<LibraryAlbum> = when (order) {
-    AlbumOrder.Added -> albums.sortedByDescending { album -> album.tracks.maxOfOrNull { it.id } ?: -1L }
+    collator: Collator = libraryCollator(), checkpoint: () -> Unit = {}): List<LibraryAlbum> = when (order) {
+    AlbumOrder.Added -> {
+        // Each album's newest track once, checking inside the scan of its songs; a stable sort keeps
+        // equal albums in their given order, as sorting by this value directly did.
+        val keyed = albums.map { album ->
+            checkpoint()
+            var newest: Long? = null
+            for (track in album.tracks) { checkpoint(); if (newest == null || track.id > newest) newest = track.id }
+            album to (newest ?: -1L)
+        }
+        keyed.sortedWith(compareByDescending<Pair<LibraryAlbum, Long>> { it.second }.checked(checkpoint))
+            .map { checkpoint(); it.first }
+    }
     AlbumOrder.Title -> {
-        val keyed = albums.map { Triple(it, collator.getCollationKey(it.title.trim()), collator.getCollationKey(it.artist.trim())) }
+        val keyed = albums.map { checkpoint(); Triple(it, collator.getCollationKey(it.title.trim()), collator.getCollationKey(it.artist.trim())) }
         keyed.sortedWith(compareBy<Triple<LibraryAlbum, java.text.CollationKey, java.text.CollationKey>> { it.first.title.isBlank() }
-            .thenBy { it.second }.thenBy { it.third }.thenBy { it.first.key }).map { it.first }
+            .thenBy { it.second }.thenBy { it.third }.thenBy { it.first.key }.checked(checkpoint)).map { checkpoint(); it.first }
     }
 }
 

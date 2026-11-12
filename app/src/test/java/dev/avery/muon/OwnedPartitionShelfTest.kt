@@ -1877,6 +1877,69 @@ class OwnedPartitionShelfTest {
             assertArrayEquals(payload,f.f.original.readBytes()); assertTrue(f.f.barrier.quiescent)
         } finally {f.close()}
     }
+    @Test fun savedMoveIntentRejectsEitherJournalReplacementInsideNativeReadAndCanRetry() {
+        for (destinationJournal in listOf(false,true)) {
+            // These scenarios share the provider's named index within this one test method.
+            val f=LocalPublicationFixture("saved/intent-source-"+destinationJournal)
+            val back="saved/intent-journal-"+destinationJournal
+            val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)
+            val journal=File(if(destinationJournal) f.f.root else f.targetRoot,"partition-moves-v1.db")
+            val held=File(folders.newFolder(),"held-move-journal"); var replaced=false; var changedInsideRead=false; var primary:Throwable?=null
+            try {
+                val original=f.prepare(); onWorker {f.source.publishCopiedOriginalTo(f.target,original,true,{true},10)}
+                coverFile(art,f.key).writeBytes(byteArrayOf(2,4,6))
+                val copy=onWorker {f.target.copyCompletedSavedTo(f.source,f.key,back,true)}
+                val completed=onWorker {f.target.publishCopiedSavedTo(f.source,copy,true,{true},20)}
+                val source=File(f.targetRoot,"resources/"+copy.source.ticket.allocation.directory)
+                    .walkTopDown().single {it.name.endsWith(".v3.exo")}
+                val target=File(f.f.root,"resources/"+copy.destination.allocation.directory)
+                    .walkTopDown().single {it.name.endsWith(".v3.exo")}
+                // Invalidate the OTHER shelf's journal while this native owner is open. Changing
+                // the active owner's own journal correctly makes release uncertain/quarantined.
+                val activeBytes=File(if(destinationJournal)
+                    File(f.targetRoot,"resources/"+copy.source.ticket.allocation.directory)
+                    else File(f.f.root,"resources/"+copy.destination.allocation.directory),"bytes")
+                assertEquals(0,f.f.budget.resident)
+                try {
+                    assertThrows(IOException::class.java) {onWorker {
+                        f.target.beginCoveredSavedMove(f.source,copy,completed,true,art,work) {
+                            if(!replaced && f.f.budget.resident>0 && SimpleCache.isCacheFolderLocked(activeBytes)) {
+                                java.nio.file.Files.move(journal.toPath(),held.toPath());replaced=true
+                                java.nio.file.Files.createSymbolicLink(journal.toPath(),held.toPath());changedInsideRead=true
+                            }
+                        }
+                    }}
+                } finally {
+                    if(replaced) {
+                        java.nio.file.Files.deleteIfExists(journal.toPath())
+                        java.nio.file.Files.move(held.toPath(),journal.toPath());replaced=false
+                    }
+                }
+                assertTrue(changedInsideRead);assertFalse(held.exists())
+                assertEquals(0,f.f.budget.resident);assertTrue(f.f.barrier.quiescent)
+                assertArrayEquals(payload,source.readBytes());assertArrayEquals(payload,target.readBytes())
+                assertNotNull(PartitionCompletionIndex(f.f.provider,"publication_target").find(f.key))
+                assertNotNull(PartitionCompletionIndex(f.f.provider,"owned_partition").find(back))
+                assertArrayEquals(byteArrayOf(2,4,6),coverFile(art,f.key).readBytes())
+                assertTrue(onWorker {f.target.moveRecoveryPage().isEmpty()})
+                assertEquals(PartitionSavedMovePhase.Pending,onWorker {
+                    f.target.beginCoveredSavedMove(f.source,copy,completed,true,art,work)
+                }.phase)
+                assertEquals(0,f.f.budget.resident);assertTrue(f.f.barrier.quiescent)
+            } catch(failure:Throwable) {primary=failure;throw failure}
+            finally {
+                if(replaced) {
+                    java.nio.file.Files.deleteIfExists(journal.toPath())
+                    java.nio.file.Files.move(held.toPath(),journal.toPath())
+                }
+                try {f.close()} catch(cleanup:Throwable) {
+                    val first=primary
+                    if(first==null) throw cleanup else first.addSuppressed(cleanup)
+                }
+            }
+        }
+    }
+
     @Test fun savedMoveIntentRefusesNoConsentOrActualReaderBeforePersistingAnyIntent() {
         val f=LocalPublicationFixture(); val back="saved/move-intent-refusal"
         val art=DownloadArt(folders.newFolder(),barrier=f.f.barrier); val work=coverWork(art,f.f.barrier)

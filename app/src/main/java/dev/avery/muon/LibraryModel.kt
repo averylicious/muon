@@ -232,6 +232,14 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Cancel a pending online/offline load, retaining the last published library and address. */
+    internal fun cancelLoad() {
+        if (!busy) return
+        loads.cancel() // Revoke publication before cancellation can finish an old callback inline.
+        error = null
+        progress = if (endpoint != null) "Showing last loaded library" else "Loading cancelled"
+    }
+
     fun disconnect() {
         savedLoad?.cancel(); cancelSavedPlayback(); savedRevision++; savedBusy = false
         savedPages.clear(); saved = emptyList(); savedSnapshot = null; savedOffset = 0; savedError = null

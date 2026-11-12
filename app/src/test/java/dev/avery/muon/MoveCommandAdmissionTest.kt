@@ -80,6 +80,7 @@ class MoveCommandAdmissionTest {
         try {
             holds.forEach { it.countDown() }
             awaitMover()
+            awaitSaver()
             shadowOf(Looper.getMainLooper()).idle()
             services.asReversed().forEach { it.destroy() }
             storeField.set(null, previousStore)
@@ -498,6 +499,51 @@ class MoveCommandAdmissionTest {
 
     // New-save delivery: actual producer/receipt and real service/Media3 admission. Managers are paused
     // after service creation so accepted requests reach the real index without starting network work.
+    @Test fun repeatedRemovalRequestsCannotWaitBehindTheFirstAndRunAfterItsDelivery() {
+        val controller = service()
+        val other = "saved/unrelated"
+        complete(phone, other)
+        val store = OfflineStore.get(app)
+        val executor = OfflineStore::class.java.getDeclaredField("saver").apply { isAccessible = true }
+            .get(null) as ExecutorService
+        fun blocker(): Pair<CountDownLatch, CountDownLatch> {
+            val started = CountDownLatch(1)
+            val release = CountDownLatch(1).also(holds::add)
+            executor.execute { started.countDown(); check(release.await(30, TimeUnit.SECONDS)) }
+            return started to release
+        }
+        val first = blocker()
+        assertTrue(first.first.await(5, TimeUnit.SECONDS))
+        val ref = SavedRef.download(SavedShelf.Phone, kept, kept)!!
+        val unrelated = SavedRef.download(SavedShelf.Phone, other, other)!!
+        drainStarts()
+        OfflineStore.removeSaved(app, ref)
+        assertTrue(store.removalPreparation.get())
+        // This second hold sits after the first accepted check, before any wrongly queued retry.
+        val afterFirst = blocker()
+        OfflineStore.removeSaved(app, unrelated)
+        OfflineStore.removeAll(app)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("A removal is already pending. Try again when it finishes.", ShadowToast.getTextOfLatestToast())
+        assertTrue(phone.cache.isCached(kept, 0, payload.size.toLong()))
+        assertTrue(phone.cache.isCached(other, 0, payload.size.toLong()))
+        first.second.countDown()
+        assertTrue(afterFirst.first.await(10, TimeUnit.SECONDS))
+        shadowOf(Looper.getMainLooper()).idle()
+        val command = drainStarts().single { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD }
+        assertEquals(kept, command.getStringExtra(DownloadService.KEY_CONTENT_ID))
+        assertFalse(store.removalPreparation.get())
+        controller.get().onStartCommand(command, 0, 1)
+        awaitSettled(phone.manager)
+        assertNull(phone.manager.downloadIndex.getDownload(kept))
+        assertFalse(store.removalDelivery.busy)
+        afterFirst.second.countDown()
+        awaitSaver()
+        assertTrue(drainStarts().none { it.action == DownloadService.ACTION_REMOVE_DOWNLOAD })
+        assertEquals(Download.STATE_COMPLETED, phone.manager.downloadIndex.getDownload(other)?.state)
+        assertArrayEquals(payload, phone.cache.getCachedSpans(other).single().file!!.readBytes())
+    }
+
     @Test fun newSaveWaitsForActualServiceBeforeReleasingProducerAndReplayDoesNothing() {
         val service = pausedSaveService()
         val store = OfflineStore.get(app)

@@ -212,6 +212,40 @@ class PartitionCompletedAudioTest {
         reader.close(); reader.open(spec()); assertEquals(5,reader.read(ByteArray(5),0,5)); reader.close()
         assertEquals(closed,f.saves.find("saved/one")); assertEquals(row.request,f.index.getDownload("saved/one")?.request)
     }
+    @Test fun failedValidationAndUncertainCleanupRetainPoolSlotAndSavedBytes() {
+        for(useReader in listOf(false,true)) {
+            val f=fixture(1); val closed=seed(f); val request=request()
+            f.index.putDownload(row(request)); val original=bytes(f,closed)
+            val completion=PartitionCompletionIndex(database,f.indexName)
+            var nativeOpened=false
+            val audio=PartitionCompletedAudio(f.owner,{ key ->
+                val result=completion.find(key)
+                // Lose the logical volume only after the real native instance has opened.
+                if(f.budget.resident==1) { nativeOpened=true; f.volume=null }
+                result
+            },capacity=1)
+            val reader=if(useReader) audio.source.createDataSource() else null
+            try {
+                val failure=assertThrows(PartitionOwnershipUncertain::class.java) {
+                    if(reader!=null) reader.open(spec()) else audio.inspect(request.id)
+                }
+                assertTrue(nativeOpened)
+                assertTrue("Keep the original validation error",failure.suppressed.isNotEmpty())
+                assertEquals(1,audio.resident); assertEquals(1,audio.active)
+                assertEquals(1,f.budget.resident)
+                assertThrows(IOException::class.java) { audio.trimIdle() }
+                assertThrows(IOException::class.java) { audio.inspect(request.id) }
+                if(reader!=null) assertThrows(IOException::class.java) { reader.close() }
+                f.volume="card"
+                assertEquals(closed,f.saves.find(request.id))
+                assertEquals(request,f.index.getDownload(request.id)?.request)
+                original.forEach { (file,data) -> assertArrayEquals(data,file.readBytes()) }
+            } finally { audio.close() }
+            assertEquals(1,audio.resident); assertEquals(1,audio.active)
+            assertEquals(1,f.budget.resident)
+        }
+    }
+
     @Test fun shutdownStopsAdmissionButDoesNotForceCloseActiveReaderAtEof() {
         val f=fixture(1); seed(f); f.index.putDownload(row(request()))
         val reader=f.audio.source.createDataSource(); reader.open(spec()); f.audio.close()

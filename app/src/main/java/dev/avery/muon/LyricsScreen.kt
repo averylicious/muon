@@ -42,13 +42,16 @@ internal fun lyricsHeaderHeight(windowHeight: Float, fontScale: Float): Float? {
 /**
  * Lyrics for the playing track.
  *
- * Keyed on the track, so a song changing underneath — from the queue moving on, or from a swipe —
- * starts its own words at the top with the title expanded, rather than inheriting a scroll
- * position that meant something about different words.
+ * Keyed on the ID and queued song labels: Tauon can reuse a live ID while the queue still holds
+ * an older item. Changed labels start fresh words, scroll and header state; identical duplicate
+ * songs keep their place. Labels are a display revision, not proof of the server's audio identity.
  */
 @Composable
 internal fun LyricsScreen(item: MediaItem?, back: () -> Unit) {
-    key(item?.mediaId) { Lyrics(item, back) }
+    key(item?.mediaId, item?.mediaMetadata?.title?.toString(),
+        item?.mediaMetadata?.artist?.toString(), item?.mediaMetadata?.albumTitle?.toString()) {
+        Lyrics(item, back)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

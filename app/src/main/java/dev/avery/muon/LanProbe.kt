@@ -2,16 +2,10 @@ package dev.avery.muon
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.net.NetworkCapabilities
 import java.net.Inet4Address
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
-import okhttp3.Request
 
 /**
  * The addresses worth asking on this phone's own network: the other hosts of the /24 around its
@@ -43,46 +37,67 @@ internal fun probeCandidates(own: String, prefix: Int): List<String> {
  * Finds Tauon by asking every host on the local network for its remote API (#39). Tauon advertises
  * itself over mDNS only when its optional zeroconf package is installed and the desktop's firewall
  * lets the announcement out, so discovery alone often finds nothing; a direct question on port 7814
- * works wherever typing the address would. Only on Wi-Fi or Ethernet, never a carrier network.
+ * works wherever typing the address would. Automatic probes require a current Wi-Fi/Ethernet
+ * default with no reported cellular transport. Capabilities/callbacks are asynchronous: a VPN can
+ * change its underlying route before reporting it, so this is not a zero-cellular-packet guarantee.
  */
 internal object LanProbe {
-    private val client by lazy {
-        Transport.client.newBuilder().connectTimeout(700, TimeUnit.MILLISECONDS)
-            .readTimeout(1500, TimeUnit.MILLISECONDS).callTimeout(2500, TimeUnit.MILLISECONDS).build()
-    }
-
-    /** This phone's IPv4 address and prefix on its local network, or null off Wi-Fi and Ethernet. */
-    private fun ownAddress(context: Context): Pair<String, Int>? {
+    /** Observe the selected default, including a VPN; never select an underlying network. */
+    fun open(context: Context): LanProbeRound? {
         val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return null
         val network = connectivity.activeNetwork ?: return null
-        val capabilities = connectivity.getNetworkCapabilities(network) ?: return null
-        if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
-            !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return null
-        val link = connectivity.getLinkProperties(network)?.linkAddresses
-            ?.firstOrNull { it.address is Inet4Address && !it.address.isLoopbackAddress } ?: return null
-        return (link.address.hostAddress ?: return null) to link.prefixLength
-    }
-
-    suspend fun find(context: Context): List<DiscoveredServer> = withContext(Dispatchers.IO) {
-        val (own, prefix) = ownAddress(context) ?: return@withContext emptyList()
-        val lanes = Dispatchers.IO.limitedParallelism(48)
-        coroutineScope {
-            probeCandidates(own, prefix).map { host -> async(lanes) { answer(host) } }.awaitAll().filterNotNull()
+        if (!probeNetworkEligible(connectivity.getNetworkCapabilities(network))) return null
+        val properties = connectivity.getLinkProperties(network) ?: return null
+        val link = properties.linkAddresses
+            .firstOrNull { it.address is Inet4Address && !it.address.isLoopbackAddress }
+        // IPv4 enumeration is optional. IPv6-only LANs still need the observed owner so NSD can
+        // discover trusted ULA endpoints. A changed/appearing IPv4 subnet invalidates this round.
+        fun sameSubnet(current: LinkProperties?): Boolean {
+            if (current == null) return false
+            return if (link == null) current.linkAddresses.none {
+                it.address is Inet4Address && !it.address.isLoopbackAddress
+            } else current.linkAddresses.any {
+                it.address == link.address && it.prefixLength == link.prefixLength
+            }
         }
-    }
-
-    /** Tauon at [host], if its remote API answers there as version 1. */
-    internal suspend fun answer(host: String): DiscoveredServer? = try {
-        val endpoint = ServerEndpoint.parse(host)
-        client.newCall(Request.Builder().url(endpoint.url("/api1/version")).build()).readCancellable { response ->
-            val source = response.body?.source()
-            if (!response.isSuccessful || source == null || source.request(4097)) return@readCancellable null
-            if (parseTauonJson(source.readUtf8()).optInt("version") != 1) return@readCancellable null
-            DiscoveredServer("Tauon", endpoint.origin)
+        lateinit var callback: ConnectivityManager.NetworkCallback
+        val round = LanProbeRound(network.socketFactory, eligible = {
+            connectivity.activeNetwork == network &&
+                probeNetworkEligible(connectivity.getNetworkCapabilities(network)) &&
+                sameSubnet(connectivity.getLinkProperties(network))
+        }, unregister = { runCatching { connectivity.unregisterNetworkCallback(callback) }; Unit },
+            hosts = link?.let { probeCandidates(it.address.hostAddress.orEmpty(), it.prefixLength) }.orEmpty())
+        callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(available: Network) {
+                if (available != network) round.invalidate()
+            }
+            override fun onLost(lost: Network) {
+                if (lost == network) round.invalidate()
+            }
+            override fun onCapabilitiesChanged(changed: Network, capabilities: NetworkCapabilities) {
+                if (changed != network || !probeNetworkEligible(capabilities)) round.invalidate()
+            }
+            override fun onLinkPropertiesChanged(changed: Network, properties: LinkProperties) {
+                if (changed != network || !sameSubnet(properties)) round.invalidate()
+            }
         }
-    } catch (cancelled: CancellationException) { throw cancelled }
-    catch (_: Exception) { null }
+        try {
+            // This public API is available before minSdk 28. Its callback observes the app's
+            // default (including VPN), and must remain registered through the visible scan.
+            connectivity.registerDefaultNetworkCallback(callback)
+        } catch (_: RuntimeException) {
+            round.close()
+            return null // Unsupported/refused observation must not start an unowned probe.
+        }
+        if (!round.isCurrent()) { round.close(); return null }
+        return round
+    }
 }
+
+internal fun probeNetworkEligible(capabilities: NetworkCapabilities?): Boolean = capabilities != null &&
+    (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) &&
+    !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
 
 /**
  * Discovery and the direct probe as one answer. A finished probe has asked every host on the network,
@@ -90,9 +105,12 @@ internal object LanProbe {
  * result stands, as it may reach a server the probe could not. Discovery's names are kept for servers
  * both found.
  */
-internal fun combineDiscovery(nsd: DiscoverySnapshot, probe: List<DiscoveredServer>?, allowed: Boolean = true): DiscoverySnapshot {
+internal fun combineDiscovery(nsd: DiscoverySnapshot, probe: List<DiscoveredServer>?, allowed: Boolean = true,
+    networkCurrent: Boolean = true): DiscoverySnapshot {
     // No running probe and no usable discoveries while local-network permission is missing.
     if (!allowed) return DiscoverySnapshot(DiscoveryStatus.IDLE)
+    // Network invalidation is terminal, not an empty successful probe that can revive old NSD.
+    if (!networkCurrent) return DiscoverySnapshot(DiscoveryStatus.UNAVAILABLE)
     val servers = (nsd.servers + probe.orEmpty()).distinctBy { it.origin }
     return when {
         probe == null -> DiscoverySnapshot(DiscoveryStatus.SEARCHING, servers, nsd.unresolvedCount)
