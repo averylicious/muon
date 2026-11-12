@@ -1,23 +1,34 @@
-# Post-RC maintenance continuation — 2026-10-24
+# Post-RC maintenance continuation
 
-User authorized broad audits/fixes separately from the installed frozen M3E RC .1420. That RC and current finite release gates stay unchanged. Published Stable remains v0.2.0. No phone action, profile replacement, Stable tag or new Stable release this task.
+Updated 2026-10-25. Broad source/CI audits and fixes continue separately from installed frozen M3E RC .1420. Published Stable remains v0.2.0. **No phones this cycle**, no installation, profile replacement, Stable tag/publication or moving experimental owner checkout.
 
-## Current work
+## Current verified baseline
 
-| Work | Exact candidate / result | Remaining action |
+Main `f0a744273e58645490a1f918a807ad2447d64662` includes CI #685 and Gradle-security #694. Main [Android .1452](https://github.com/averylicious/muon/actions/runs/40109801615), tools .37 and inventory .116 passed; downloaded main XML1,821cases/variant, zero failures/errors/skips, lint0errors/65warnings. [Canary .1452](https://github.com/averylicious/muon/releases/tag/0.1.0-canary.1452) auto-published at that source, not installed. BUILD/checksum/release metadata agree on APK digest `d97a4cc16cd96357512c63d9b0f6e934cfcb830fade9e64d1ddd2984ac8d415d`.
+
+Remote M3E remains `ee7ddb7521855a7422036d7cd4f384d11b308caa`. Forward sync #692 at `212b9997f29052421bdc8c118000f28f3564b757` includes patched main, retains its app/library trees exactly and uses verified Gradle9.8.2. Combined .1454 passed1,883cases/variant, lint0errors/71warnings. Experimental owner lands it with a merge commit at their clean boundary; root must not advance their branch. #693 stays open until then.
+
+## Draft runtime/tool candidates
+
+All include patched main above. Downloaded XML for .1453–.1459 confirms no failures/errors/skips and lint0errors/65warnings. Exact artifacts and attribution live on each PR; these are separate candidates, not a single installed acceptance build.
+
+| Work / maintained state | Exact candidate / Android run | Remaining action |
 | --- | --- | --- |
-| [CI #685](../audits/issues/685.md) | Head `4b7b92094c5338ec5d3f17504b1e2a38d3d6eac1`, merged `7eca9e54f15ef2d25be400464c78cfc249318fbf`; .1434 and tools .27 passed; actual APKs/XML verified | Main .1436 passed/published Canary; Stable v0.2.0 remains Latest. Forward-sync at an owner boundary |
-| [Network #638 / PR #682](../audits/issues/638.md) | `6e7991cab0dab02ed592d2667fb3137db5100b16`, .1431 passed, 1,832 cases per variant | Later selected-network/permission/VPN/IPv6/handover acceptance; draft/open |
-| [Recorder #83 / PR #683](../audits/issues/83.md) | `c0cedc6b053799cf7e0c575be860bef87bc688cf`, .1430 + tools .26 passed; no new profile | Later Benchmark traversal, then matched measurement; draft/open |
-| [Collections #639 / PR #684](../audits/issues/639.md) | `845d606f118acd2dbc0b2286c93d58aba7f6947f`, .1432 passed, 1,825 cases per variant | Later loading/focus/scroll/query/order/source acceptance; draft/open |
-| [Delete errors #646 / PR #686](../audits/issues/646.md) | `3fdc4e4a6cf7aad272ba4cbcc84f93811abc8229`, .1435 failed an old outcome expectation; corrected; [.1437](https://github.com/averylicious/muon/actions/runs/40099598616)/tools .29 passed, 1,823 cases per variant | Later acceptance; historical reset refusal stays unresolved |
+| [Network #638 / PR #682](../audits/issues/638.md) | `b80ef8966f92d6c70a2f3b523313dde8cb4203e2`, .1457,1,832cases/variant | LAN/permission/VPN/IPv6/handover acceptance |
+| [Recorder/measurement #83 / PR #683](../audits/issues/83.md) | `a22c9c8ac59b676f48b459cc5a65d748cef15bbd`, .1453,1,821cases/variant; tools .38 recording/.39 measurement passed | Physical recorder traversal; controlled minified first-frame pilot; wider journeys remain future engineering |
+| [Collections #639 / PR #684](../audits/issues/639.md) | `15a545f01fefa6db4be8a98f647ce0d369832778`, .1458,1,825cases/variant | Loading/focus/scroll/query/order/source acceptance |
+| [Delete errors #646 / PR #686](../audits/issues/646.md) | `e8bd003086e2b9fcf5cc464fc1349e5e3c557eb1`, .1459,1,823cases/variant | Error-notice acceptance; historical reset/SD refusal stays unresolved |
+| [Notification revision #207 / PR #689](../audits/issues/207.md) | `966fcfe9d5a4c5aed5def5e326b5731e7ba20482`, .1455,1,825cases/variant | Reused-ID notification/Compose/saved-cover acceptance |
+| [Connect cancellation #690 / PR #691](../audits/issues/690.md) | `6a489a1baf0f05e37f23dcb985b8be872ba7831f`, .1456,1,823cases/variant | Initial Cancel/retry/auto-connect/pointer-completion acceptance |
+| [ReplayGain identity #695 / PR #696](../audits/issues/695.md) | `061d1b9918e1007d0c0c8c91f5e96aeb220975fc`, fresh CI pending; earlier b828/.1460 passed | Verify callback-state correction, then tagged/untagged/repeat/toggle/saved acceptance |
+| [Notification queue #697 / PR #698](../audits/issues/697.md) | `613cf0667a10c7c131b813da90a648c9822c1e8f`, first .1461 pending | First compile/tests/lint; then source/notification acceptance |
 
-The app drafts started from main `bfcaa4d2`; main later advanced through CI-only #685. #686 already includes that merge; the others need a base refresh before landing. Refresh base/checks in each isolated branch before a future merge. Do not call old checks proof of a newly merged head. PRs carry exact report/artifact/review receipts; issue files are the maintained context. Do not replay old timelines.
+Benchmark pairs were downloaded and checked for checksums, exact pinned signers, package/instrumentation, selected recording/measurement mode, target API37 and non-debuggable/profileable target. No new profile or timing measurement. The earlier ephemeral helper signer was corrected only in this tool PR; do not silently uninstall any helper to bypass its signature.
 
-## Ownership and recovery
+## Ownership and next work
 
-One writer per branch/worktree. Root owns `muon-{discovery-network-audit,profile-recorder-validation,collection-worker-audit,ci-signing-audit,saved-delete-errors,post-rc-audit-state}-oct24`; candidate/promotion worktrees remain separate. All app code is committed/pushed; four app/tool PRs remain draft/open for acceptance. This documentation-only checkpoint is the final writer; its PR records final checks/merge. No active phone/test-storage operation or coding agent remains. Allocated audit Claude completed its scoped High-effort work and is idle; no user experimental session was resumed. Original checkout stays at its own branch/head.
+Root owns the listed isolated candidate branches and `codex/post-rc-evidence-oct25`; current documentation edits are in that PR until merged. Allocated audit Claude is idle; check the user's reset time and actual model/session state before reuse. No other allocated audit worker or phone/storage operation is active. The original experimental checkout is preserved. Fresh live branch/check/protection verification still precedes any future merge; a later docs-only main commit does not make old-head CI a new-head pass.
 
-Old #641/#642/#643/#644 closed as superseded by focused current-main ports, with history retained. Do not merge their old inherited stacks or delete their unmerged refs as if ancestry proved equivalence. No numeric test target/matrix reduction was adopted. #679 promotion policy remains draft/open and needs refreshed main at the actual promotion boundary; it is not a current guard bypass.
+Continue useful source engineering while allowance permits. Next: verify #696/#698 current CI; review the notification executor's concurrency/closure policy; consider one narrowly justified #401 read-checkpoint optimization without weakening full ownership/destination/source-retirement proofs. #401 latency is not measured anew and remains deferred from the frozen RC. A blocker in one area does not end other authorized work. Save current evidence in place before capacity becomes low, then continue if useful work remains.
 
-**User requested stopping after current verification/handoff to adjust model settings. Next cycle: no phones; the user will be using both.** Do not infer device permission from older instructions. On takeover, recheck live heads/checks; main publication and the final delete-fix build completed successfully. No full build remains running at this checkpoint; only lightweight documentation verification remains before the requested stop. Next cycle may prepare a separate tested main→M3E CI/docs sync, leaving the experimental owner to land it. It was not started while wrapping up. If frozen M3E is promoted before app drafts land, reconcile the focused code onto that UI rather than replacing whole files from the old main. Keep frozen RC .1420's app tree unchanged in that CI/docs-only sync. For the next audit choose known actionable source work; phone checks need a fresh explicit request.
+[Latest selected Maven advisory scan](../audits/2026-10-25-dependency-advisory-refresh.md):288coordinates,13matched/47IDs, unchanged pairs; this is not vulnerability absence or publisher authentication. Gradle remediation is separate. #679 future promotion policy remains draft/open for an actual explicit promotion. No numerical suite reduction is authorized (#650 closed not planned). Old #641–#644 remain superseded, not new blockers.
