@@ -27,6 +27,17 @@ class ArtworkDiskCacheTest {
         assertArrayEquals(bytes(10, 7), cache().read(a, song))
     }
 
+    @Test fun unpairedSurrogatesDoNotShareAStoredCover() {
+        val old = "Title\uD800"
+        val replacement = "Title\uD801"
+        cache().write(a, old, bytes(10, 1))
+        val reopened = cache()
+        assertNull(reopened.read(a, replacement))
+        reopened.write(a, replacement, bytes(10, 2))
+        assertArrayEquals(bytes(10, 1), cache().read(a, old))
+        assertArrayEquals(bytes(10, 2), cache().read(a, replacement))
+    }
+
     @Test fun twoServersNeverShareAPicture() {
         val cache = cache()
         cache.write(a, song, bytes(10, 1))
