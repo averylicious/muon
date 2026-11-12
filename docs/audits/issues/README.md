@@ -14,7 +14,6 @@ Start here when resuming the main audit. These are **maintained current snapshot
 | Queue feedback backlog — post-RC engineering | [#744](744.md) | [Issue #744](https://github.com/averylicious/muon/issues/744) |
 | Unused strict tracklist JSON graphs — post-RC implementation | [#740](740.md) | [Issue #740](https://github.com/averylicious/muon/issues/740) |
 | Aggregate memory and partition storage — implemented/accepted/released | [#253](253.md) | [Issue #253](https://github.com/averylicious/muon/issues/253) |
-| Notification artwork after a reused track ID — post-RC implementation | [#207](207.md) | [Issue #207](https://github.com/averylicious/muon/issues/207) |
 | Saved-card startup and Move latency — explicitly deferred post-release | [#401](401.md) | [Issue #401](https://github.com/averylicious/muon/issues/401) |
 | User removal preparation — post-RC implementation | [#706](706.md) | [Issue #706](https://github.com/averylicious/muon/issues/706) |
 | Saved-copy Delete refusal and reset compatibility | [#646](646.md) | [Issue #646](https://github.com/averylicious/muon/issues/646) |

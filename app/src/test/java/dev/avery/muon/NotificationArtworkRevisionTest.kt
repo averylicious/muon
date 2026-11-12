@@ -106,6 +106,13 @@ class NotificationArtworkRevisionTest {
         // Length framing keeps an embedded separator from aliasing a different field combination.
         assertNotEquals(old.copy(title = "a\u0000b", artist = "c").liveArtworkUrl(endpoint),
             old.copy(title = "a", artist = "b\u0000c").liveArtworkUrl(endpoint))
+        val firstMalformed = old.copy(title = "\uD800").mediaItem(endpoint)
+        val secondMalformed = old.copy(title = "\uD801").mediaItem(endpoint)
+        assertNotEquals(firstMalformed.mediaMetadata.artworkUri, secondMalformed.mediaMetadata.artworkUri)
+        assertEquals(firstMalformed.mediaId, secondMalformed.mediaId)
+        assertEquals(firstMalformed.localConfiguration?.uri, secondMalformed.localConfiguration?.uri)
+        assertEquals(canonicalArtworkUrl(firstMalformed.mediaMetadata.artworkUri.toString()),
+            canonicalArtworkUrl(secondMalformed.mediaMetadata.artworkUri.toString()))
         val identities = artworkIdentities(endpoint, listOf(old))
         ArtworkIdentities.publish(identities)
         assertEquals(1, identities.size)
