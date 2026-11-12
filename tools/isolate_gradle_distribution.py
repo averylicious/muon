@@ -11,7 +11,7 @@ import shutil
 import sys
 
 
-PROPERTIES_SHA256 = 'c6e65563fc4da89deafdaa8fe9172366e883aa0ae93bb62079e27e90b9b211b7'
+PROPERTIES_SHA256 = '85b19363323ef6686ed0f7cb2c60d9f31524b71795c738d6762f10361a7d74ce'
 QUARANTINE = 'muon-restored-gradle-distributions'
 
 
