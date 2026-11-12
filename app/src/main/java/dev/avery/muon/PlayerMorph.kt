@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.util.lerp
 
 /** The mini player's top corners, which the growing player starts from. */
@@ -117,6 +118,12 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
     var coverSize by mutableStateOf(IntSize.Zero)
     /** The top system inset, which the player's content gives back as its edge leaves the status bar. */
     var topInset = 0f
+    /**
+     * The Back gesture's preview of the open player (PlayerBack.kt), while the player is on screen.
+     * It scales and moves the panel in a layer of its own, which the flying cover is drawn outside,
+     * so the cover is placed through it here.
+     */
+    var back: PlayerBackPreview? by mutableStateOf(null)
 
     private fun LayoutCoordinates?.live(): LayoutCoordinates? = this?.takeIf { it.isAttached }
 
@@ -149,6 +156,9 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
      * so there is never a frame with neither.
      */
     fun covering(): Boolean = sheet.position.value < 1f && travel() != null && body.live() != null
+
+    /** How much of a Back preview the panel still holds as it shrinks into the mini player ([playerBackHeld]). */
+    fun backHeld(): Float = playerBackHeld(sheet.position.value, morphing = travel() != null)
 
     /** The panel's colour: the mini player's [from] turning into Now Playing's [to] as it grows. */
     fun panelColor(from: Color, to: Color): Color {
@@ -206,7 +216,13 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
         val from = root.localBoundingBoxOf(miniCover, clipBounds = false).translate(0f, -miniBox.top)
         val to = body.localBoundingBoxOf(cover, clipBounds = false)
         val bottom = lerp(miniBox.bottom, root.size.height.toFloat(), open)
-        return MorphFrame(morphCoverRect(from, to, edge, open), open, edge, bottom)
+        // Placed in the panel first and moved to its edge afterwards, as the panel's two layers do:
+        // the Back preview scales and shifts inside the sheet's own translation.
+        val held = backHeld()
+        val surface = body.size.toSize()
+        val inPanel = morphCoverRect(from, to, 0f, open)
+        val placed = back?.placed(inPanel, surface, held) ?: inPanel
+        return MorphFrame(placed.translate(0f, edge), open, edge, bottom, back?.scale(surface.width, held) ?: 1f)
     }
 
     /** Hides the mini player's own cover while the flying one stands in for it. */
@@ -218,8 +234,11 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
         .graphicsLayer { alpha = if (frame() != null) 0f else 1f }
 }
 
-/** The flying cover's [cover] rectangle, how far [open] the player is, and its [top] and [bottom] edges. */
-internal class MorphFrame(val cover: Rect, val open: Float, val top: Float, val bottom: Float)
+/**
+ * The flying cover's [cover] rectangle, how far [open] the player is, and its [top] and [bottom] edges.
+ * [shrunk] is the scale a Back preview still holds the panel at, which the cover's corners share.
+ */
+internal class MorphFrame(val cover: Rect, val open: Float, val top: Float, val bottom: Float, val shrunk: Float = 1f)
 
 /**
  * The cover flying between the mini player and Now Playing, drawn above the player and clipped to it,
@@ -246,7 +265,7 @@ internal fun MorphingCover(morph: PlayerMorph, url: String?) {
                 translationY = frame.cover.top
                 scaleX = scale
                 scaleY = frame.cover.height / laidOut.height
-                val corner = lerp(MINI_COVER_CORNER.toPx(), NOW_PLAYING_COVER_CORNER.toPx(), frame.open)
+                val corner = lerp(MINI_COVER_CORNER.toPx(), NOW_PLAYING_COVER_CORNER.toPx(), frame.open) * frame.shrunk
                 shape = RoundedCornerShape(corner / scale.coerceAtLeast(0.01f))
                 clip = true
             })
