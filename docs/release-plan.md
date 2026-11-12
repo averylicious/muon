@@ -31,7 +31,7 @@ Latest publication/integration/cleanup receipts: [release checkpoint](handoffs/2
 
 ## M3E RC preparation — 2026-10-24
 
-The user reports all [focused M3E UAT](handoffs/2026-10-24-m3e-focused-acceptance.md) passed and requests an RC for the next Stable. Accepted combined source: `209247be9634cd60145525ed15a98af46b5f47fc` / Diagnostic .1415, containing #674 and #675. Integrate without app changes, produce the signed non-Diagnostic candidate, and prepare reviewed promotion policy/integration. Distribute the RC through existing Canary artifacts; no new RC channel/tag or Stable publication is implied. #671 has not recurred and stays open/unresolved as a non-blocking follow-up. #646, #83 and all other recorded deferrals stay outside this finite RC gate. Do not resume maintenance drafts as a prerequisite.
+The user reports all [focused M3E UAT](handoffs/2026-10-24-m3e-focused-acceptance.md) passed and requests an RC for the next Stable. Accepted combined source: `209247be9634cd60145525ed15a98af46b5f47fc` / Diagnostic .1415, containing #674 and #675. Frozen #678 was integrated on M3E, and minified release-package .1420 was verified/installed on both phones. [Exact RC receipt](handoffs/2026-10-24-frozen-m3e-rc.md). Promotion policy #679 is CI-passed/open; final release-configuration acceptance and separately checked main integration remain. Distribute the RC through existing Canary artifacts; no new RC channel/tag or Stable publication is implied. #671 has not recurred and stays open/unresolved as a non-blocking follow-up. #646, #83 and all other recorded deferrals stay outside this finite RC gate. Do not resume maintenance drafts as a prerequisite.
 
 ## Next cycle
 

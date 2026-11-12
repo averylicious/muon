@@ -61,7 +61,8 @@ class StorageTimingModeTest(unittest.TestCase):
                              'diagnostic=false\nstorage_timings=true\n')
             summary = paths['GITHUB_STEP_SUMMARY'].read_text()
             for text in ['non-debuggable', 'package/data', '-timings', 'no song/server/path/error text',
-                         'not an uninstrumented benchmark', 'Release/benchmark timing remains disabled']:
+                         'not an uninstrumented benchmark', 'Release/benchmark timing remains disabled',
+                         'app-timings-<commit>']:
                 self.assertIn(text, summary)
 
     def test_invalid_request_does_not_partially_write_any_selection(self):

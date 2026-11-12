@@ -1,0 +1,131 @@
+{
+  "batches": [
+    {
+      "coordinates": 100,
+      "responseSha256": "944db654f4a1bde30f0266bfad6de1f77f99d4db288b2d45764262cb91b25686"
+    },
+    {
+      "coordinates": 100,
+      "responseSha256": "7af3e182cade03c89cfaf65a6f53bb7046283c420796828e352dbd582ac4410f"
+    },
+    {
+      "coordinates": 88,
+      "responseSha256": "4a4660f71dd68465d85fb436c07145f8d90cf8e66d31071807c88cc530d5e65c"
+    }
+  ],
+  "ecosystem": "Maven",
+  "inspectedCommit": "f29f87323c57c8552e759502c38784ad80732056",
+  "inventoryCanonicalSha256": "f2d5dc0340c0e1f16074145157caf5a276ddb016b83bef7d207096ccfa9dea1a",
+  "matchedCoordinates": {
+    "io.netty:netty-codec-http2:4.1.110.Final": {
+      "GHSA-563q-j3cm-6jxm": "2026-09-10T03:50:48.396944Z",
+      "GHSA-5x3r-wrvg-rp6q": "2026-09-10T03:50:48.488084Z",
+      "GHSA-93wv-jw9v-4972": "2026-09-10T03:51:11.318239Z",
+      "GHSA-c2gf-v879-257j": "2026-10-06T19:45:03.555042Z",
+      "GHSA-c69g-56f8-xwqj": "2026-09-10T03:51:11.564389Z",
+      "GHSA-f6hv-jmp6-3vwv": "2026-09-10T03:51:05.447415Z",
+      "GHSA-prj3-ccx8-p6x4": "2026-09-10T03:50:27.396257Z",
+      "GHSA-w9fj-cfpg-grvv": "2026-09-10T03:50:41.535305Z"
+    },
+    "io.netty:netty-codec-http:4.1.110.Final": {
+      "GHSA-38f8-5428-x5cv": "2026-09-10T03:51:04.415985Z",
+      "GHSA-4mp9-239f-g9hg": "2026-09-10T03:51:10.413004Z",
+      "GHSA-57rv-r2g8-2cj3": "2026-09-10T03:51:04.645242Z",
+      "GHSA-6cqp-g7gg-8hr5": "2026-09-10T03:51:10.615779Z",
+      "GHSA-6jqx-86gh-f27w": "2026-09-10T03:51:10.812069Z",
+      "GHSA-84h7-rjj3-6jx4": "2026-09-10T03:50:31.724062Z",
+      "GHSA-8c42-7qj2-3j46": "2026-09-10T03:51:13.389261Z",
+      "GHSA-f6hv-jmp6-3vwv": "2026-09-10T03:51:05.447415Z",
+      "GHSA-fghv-69vj-qj49": "2026-09-10T03:50:28.333050Z",
+      "GHSA-gcjf-9mgh-3p7g": "2026-09-10T03:50:52.172506Z",
+      "GHSA-hvcg-qmg6-jm4c": "2026-09-10T03:50:50.025404Z",
+      "GHSA-jppx-w49h-x2qq": "2026-09-10T03:50:12.368445Z",
+      "GHSA-m4cv-j2px-7723": "2026-09-10T03:51:06.379210Z",
+      "GHSA-mvh2-crg5-v77c": "2026-09-10T03:50:52.830435Z",
+      "GHSA-pwqr-wmgm-9rr8": "2026-09-10T03:50:40.493461Z",
+      "GHSA-q4f6-jm68-57ww": "2026-09-10T03:50:52.883743Z",
+      "GHSA-v8h7-rr48-vmmv": "2026-09-10T03:50:47.637727Z",
+      "GHSA-xxqh-mfjm-7mv9": "2026-09-10T03:51:07.381332Z"
+    },
+    "io.netty:netty-codec:4.1.110.Final": {
+      "GHSA-3p8m-j85q-pgmj": "2026-09-10T03:50:27.942019Z",
+      "GHSA-558v-64gr-wgg4": "2026-09-10T03:50:12.358146Z",
+      "GHSA-mj4r-2hfc-f8p6": "2026-09-10T03:51:06.526589Z"
+    },
+    "io.netty:netty-common:4.1.110.Final": {
+      "GHSA-389x-839f-4rhx": "2026-09-10T03:50:22.454183Z",
+      "GHSA-xq3w-v528-46rv": "2026-09-10T03:50:56.073045Z"
+    },
+    "io.netty:netty-handler-proxy:4.1.110.Final": {
+      "GHSA-45q3-82m4-75jr": "2026-09-10T03:51:04.662453Z"
+    },
+    "io.netty:netty-handler:4.1.110.Final": {
+      "GHSA-3qp7-7mw8-wx86": "2026-09-10T03:50:55.436123Z",
+      "GHSA-4g8c-wm8x-jfhw": "2026-09-10T03:50:22.400091Z",
+      "GHSA-c4c3-7fpv-j4q5": "2026-09-08T18:27:48.571082Z",
+      "GHSA-c653-97m9-rcg9": "2026-09-10T03:51:08.552933Z",
+      "GHSA-fccg-mwvh-qqg4": "2026-09-08T18:27:48.113951Z",
+      "GHSA-x4gw-5cx5-pgmh": "2026-09-10T03:50:12.401611Z"
+    },
+    "org.apache.commons:commons-compress:1.21": {
+      "GHSA-4265-ccf5-phj5": "2026-09-10T03:50:05.280645Z",
+      "GHSA-4g9r-vxhx-9pgx": "2026-09-10T03:50:05.286961Z"
+    },
+    "org.bitbucket.b_c:jose4j:0.9.5": {
+      "GHSA-3677-xxcr-wjqv": "2026-09-10T03:50:31.318789Z"
+    },
+    "org.bouncycastle:bcpkix-jdk18on:1.79": {
+      "GHSA-wg6q-6289-32hp": "2026-09-10T03:50:45.075900Z"
+    },
+    "org.bouncycastle:bcprov-jdk18on:1.79": {
+      "GHSA-574f-3g2m-x479": "2026-09-24T15:30:06.452617Z",
+      "GHSA-9pwp-9qqc-pr26": "2026-09-18T17:45:06.105254Z",
+      "GHSA-c3fc-8qff-9hwx": "2026-09-10T03:51:01.534612Z",
+      "GHSA-qp49-qgx5-5m26": "2026-09-18T17:45:06.096277Z"
+    },
+    "org.bouncycastle:bcprov-jdk18on:1.81": {
+      "GHSA-574f-3g2m-x479": "2026-09-24T15:30:06.452617Z",
+      "GHSA-9pwp-9qqc-pr26": "2026-09-18T17:45:06.105254Z",
+      "GHSA-c3fc-8qff-9hwx": "2026-09-10T03:51:01.534612Z",
+      "GHSA-qp49-qgx5-5m26": "2026-09-18T17:45:06.096277Z"
+    },
+    "org.jdom:jdom2:2.0.6": {
+      "GHSA-2363-cqg2-863c": "2025-09-16T15:52:31.388959Z"
+    },
+    "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21": {
+      "GHSA-r937-wjx7-w2jp": "2026-08-12T19:40:59.256901Z"
+    }
+  },
+  "paginationTokens": 0,
+  "queriedAtUtc": "2026-10-24T16:18:16.236417+00:00",
+  "queryCount": 288,
+  "schema": 1,
+  "scopeCounts": [
+    {
+      "coordinates": 109,
+      "matchedCoordinates": 0,
+      "scope": ":app:debugRuntimeClasspath"
+    },
+    {
+      "coordinates": 109,
+      "matchedCoordinates": 0,
+      "scope": ":app:releaseRuntimeClasspath"
+    },
+    {
+      "coordinates": 143,
+      "matchedCoordinates": 1,
+      "scope": ":app:debugUnitTestRuntimeClasspath"
+    },
+    {
+      "coordinates": 143,
+      "matchedCoordinates": 1,
+      "scope": ":app:releaseUnitTestRuntimeClasspath"
+    },
+    {
+      "coordinates": 151,
+      "matchedCoordinates": 12,
+      "scope": ":build:classpath"
+    }
+  ],
+  "service": "https://api.osv.dev/v1/querybatch"
+}
