@@ -20,6 +20,7 @@ import androidx.media3.common.util.BitmapLoader
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionError
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import java.io.IOException
@@ -219,9 +220,11 @@ class ControlMetadataPlayerTest {
             native.setShuffleOrder(QueueShuffleOrder.restored(listOf(0, 2, 3, 1)))
             native.shuffleModeEnabled = true
             // The production stack: the session player is the wrapper, not an ExoPlayer.
-            val controlled = ControlMetadataPlayer(PlaybackQueuePlayer(native)).also { projected = it }
+            val guard = PlaybackQueuePlayer(native)
+            val controlled = ControlMetadataPlayer(guard).also { projected = it }
             val made = MediaSession.Builder(context, controlled)
-                .setBitmapLoader(NoArtwork).setCallback(PlaybackSessionCallback(shufflePlayer = native)).build()
+                .setBitmapLoader(NoArtwork)
+                .setCallback(PlaybackSessionCallback(shufflePlayer = native, queuePlayer = guard)).build()
             session = made
             val pending = MediaController.Builder(context, made.token).buildAsync()
             connection = pending
@@ -230,6 +233,15 @@ class ControlMetadataPlayerTest {
             val ids = (0 until native.mediaItemCount).map { native.getMediaItemAt(it).mediaId }
             val order = queueShuffledOrder(native)
             val removed = p.getMediaItemAt(2) // A duplicate occurrence; index 0 is playing.
+            val stale = QueueRemovalRequest.capture(p, 2, removed)
+            native.seekToDefaultPosition(2)
+            assertEquals(2, native.currentMediaItemIndex)
+            val refused = p.sendCustomCommand(REMOVE_QUEUE_ITEM, stale.toBundle())
+            pump { refused.isDone }
+            assertEquals(SessionError.ERROR_INVALID_STATE, refused.get(1, TimeUnit.SECONDS).resultCode)
+            assertEquals(ids, (0 until native.mediaItemCount).map { native.getMediaItemAt(it).mediaId })
+            native.seekToDefaultPosition(0)
+            pump { p.currentMediaItemIndex == 0 }
             val result = QueueRemovalUndo.remove(p, 2, removed)
             pump { result.isDone }
             removal = requireNotNull(result.get(1, TimeUnit.SECONDS))
