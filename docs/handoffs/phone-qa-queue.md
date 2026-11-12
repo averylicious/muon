@@ -11,9 +11,9 @@ Updated 2026-11-12. All checks below are pending. The user is using their phones
 | Scope | Verified build | Artifact and receipt |
 | --- | --- | --- |
 | Experimental resume, Previous and predictive Back | `b36b4b7ac293d3b5952b8fd5ffef997755630c80`, .1691 | [Canary .1691](https://github.com/averylicious/muon/actions/runs/43182415510/artifacts/13926634216) · [RC2 and later evidence](2026-11-10-m3e-rc2.md) |
-| Main audit candidate, including #770 artwork | `d9db04bf0c7a2ffc96ea401fa03317a89a4341d3`, .1694 | [Canary .1694](https://github.com/averylicious/muon/actions/runs/43193754370/artifacts/13933235719) · [40-topic receipt](2026-10-25-combined-post-rc-candidate.md) |
+| Main audit candidate, including #770 and #689 artwork | `9f492fba26a0b0cf0ff7b3d3478cf04f6cb3efa4`, .1705 | [Canary .1705](https://github.com/averylicious/muon/actions/runs/43202550664/artifacts/13937520477) · [Current #701 receipt](https://github.com/averylicious/muon/pull/701) |
 
-The experimental .1691 build includes RC2's player changes. Use the [original .1685 receipt](2026-11-10-m3e-rc2.md) if the session is specifically accepting RC2's exact release package.
+The experimental .1691 build includes RC2's player changes. Use the [original .1685 receipt](2026-11-10-m3e-rc2.md) if the session is specifically accepting RC2's exact release package. The [#692 Gradle sync](https://github.com/averylicious/muon/pull/692) builds the same experimental app sources on the patched toolchain and has its own .1703 receipt.
 
 ## Experimental first pass
 
@@ -21,6 +21,7 @@ The experimental .1691 build includes RC2's player changes. Use the [original .1
 | --- | --- | --- |
 | Play/Pause at resume | Start playback, background Muon and return. Tap Play/Pause immediately while the mini player is visible. Repeat with a paused track and compare a tap after reconnect. | One tap changes playback once. Capture the tap and resulting state. Mark the timing check inconclusive if the reconnect window could not be observed. |
 | Resume surfaces and track changes | Return with the mini player, full player, Queue and Lyrics open in turn. Let a track change while backgrounded. | The previous surface stays open as appropriate. The current track and controls catch up without a visible player blink or an empty overlay. Record the visible transition. |
+| Library artwork after full player | Warm the visible thumbnails in a populated list, open the full player with artwork on both adjacent tracks, then return. Repeat on a large display or high-density phone if available. | Compare time to repaint thumbnails and watch for placeholder flashes. The player can preload three full-size covers into the shared LRU. The magnitude of any device impact is unmeasured. |
 | Previous button and adjacent-track gestures | On a seekable track with a predecessor, press Previous after three seconds, then press it near the start. Repeat rapidly and test the first track. Try the artwork swipe and its accessibility action. | The button restarts first and moves to the previous track near the start when one exists. Adjacent-track gestures skip directly to the previous track. Record track and position after each action. |
 | Button Back and normal navigation | Use in-app Back and system button Back on an album opened from an artist, a playlist, On this device, Queue and Lyrics. | Each returns to its correct parent with the expected transition. Queue and Lyrics reveal the full player. Library scroll position survives return. |
 | Predictive Back cancel and commit | Start from either edge, move partway, cancel, then immediately commit. Repeat on a Library detail, a detail opened from Search, On this device, Queue and Lyrics. | Cancel restores the same screen. Commit reveals the correct parent or Search without a stale card or transient Library root. Record the gesture and landing screen. |
