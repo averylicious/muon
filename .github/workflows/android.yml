@@ -149,6 +149,17 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+      # Explicit unit tests and full lint run before any Muon signing material is on this runner, so
+      # they never see the keys or password directly. Not an isolation boundary: earlier code can
+      # still leave changes in the workspace, and the signed assemble below runs AGP's own implicit
+      # checks (docs/ci.md).
+      - name: Run unit tests and lint before signing
+        if: steps.scope.outputs.build_apks == 'true'
+        run: >-
+          ./gradlew --no-daemon --console=plain
+          :app:testDebugUnitTest :app:testReleaseUnitTest
+          :app:lintDebug :app:lintRelease
+
       - name: Restore signing keys
         if: steps.scope.outputs.build_apks == 'true'
         env:
@@ -167,15 +178,14 @@ jobs:
           echo "MUON_DEBUG_KEYSTORE=$RUNNER_TEMP/muon-signing/debug.keystore" >> "$GITHUB_ENV"
           echo "MUON_RELEASE_KEYSTORE=$RUNNER_TEMP/muon-signing/release.p12" >> "$GITHUB_ENV"
 
-      - name: Build APKs and run checks
+      # Only packaging and signing need the keys; tests and full lint already ran above.
+      - name: Build signed APKs
         if: steps.scope.outputs.build_apks == 'true'
         env:
           MUON_RELEASE_PASSWORD: ${{ secrets.MUON_RELEASE_PASSWORD }}
         run: >-
           ./gradlew --no-daemon --console=plain
           :app:assembleDebug :app:assembleRelease
-          :app:testDebugUnitTest :app:testReleaseUnitTest
-          :app:lintDebug :app:lintRelease
 
       - name: Verify APK signatures and prepare artifacts
         if: steps.scope.outputs.build_apks == 'true'
@@ -206,7 +216,8 @@ jobs:
         if: steps.scope.outputs.build_apks == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: app-${{ steps.diagnostic.outputs.diagnostic == 'true' && 'diagnostic' || 'debug' }}-${{ github.sha }}
+          # Diagnostic wins when both test modes were requested, as its version suffix and banner do.
+          name: app-${{ steps.diagnostic.outputs.diagnostic == 'true' && 'diagnostic' || steps.diagnostic.outputs.storage_timings == 'true' && 'timings' || 'debug' }}-${{ github.sha }}
           path: artifacts/debug/
           if-no-files-found: error
           compression-level: 0

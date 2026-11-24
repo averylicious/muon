@@ -77,6 +77,7 @@ def main(env=os.environ):
                 'is published to Canary or Stable. Package `dev.avery.muon.diagnostic` installs beside '
                 'Canary and Stable, with separate settings and download indexes (see docs/ci.md).\n')
     if timings and 'GITHUB_STEP_SUMMARY' in env:
+        sha = env.get('GITHUB_SHA', '<commit>')
         with Path(env['GITHUB_STEP_SUMMARY']).open('a') as out:
             out.write('## Storage timing test build\n\n'
                       'Requested explicitly for a non-publishing branch. Normal Canary stays '
@@ -84,7 +85,10 @@ def main(env=os.environ):
                       '`-timings` version suffix (unless separate diagnostic debugging was also '
                       'requested). Only bounded constant-label root/projection counters and durations '
                       'are added; no song/server/path/error text. These are diagnostic observations, '
-                      'not an uninstrumented benchmark. Release/benchmark timing remains disabled.\n')
+                      'not an uninstrumented benchmark. Release/benchmark timing remains disabled.\n\n'
+                      + (f'Debugging was also requested, so the APK is in `app-diagnostic-{sha}`.\n'
+                         if diagnostic else
+                         f'The timing APK is in `app-timings-{sha}`, not the ordinary `app-debug-{sha}`.\n'))
     print(f'Diagnostic build: {value}; storage timings: {timing_value}')
 
 
