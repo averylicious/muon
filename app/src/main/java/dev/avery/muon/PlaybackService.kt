@@ -36,6 +36,7 @@ class PlaybackService : MediaSessionService() {
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK).build()
+        player.trackSelectionParameters = audioOnlyPlaybackParameters(player.trackSelectionParameters)
         // A shuffle that starts from the chosen song and keeps Play next and Add to queue where they
         // were put (see QueueShuffleOrder). Turning shuffle on reshuffles from the playing song, so
         // everything else is still to come rather than wherever an old shuffle had left it.
