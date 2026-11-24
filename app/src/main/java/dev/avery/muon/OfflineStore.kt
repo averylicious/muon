@@ -1329,11 +1329,55 @@ internal object OfflineStore {
      * How many finished downloads are on the card ([card]) or the phone. Reads the index. Null for a
      * card that is missing or unavailable, which is not the same as one with nothing on it (#179 S1).
      */
-    fun downloadsOn(context: Context, card: Boolean): Int? {
+    fun downloadsOn(@Suppress("UNUSED_PARAMETER") context: Context, card: Boolean): Int? {
         val store = current() ?: return null
         val shelf = (if (card) store.card else store.phone) ?: return null
         if (!shelf.available()) return null
-        return runCatching { shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { it.count } }.getOrDefault(0)
+        return completedCount(shelf)
+    }
+
+    /** One completed-index count; the cursor always closes. A failed read is null, never zero copies. */
+    private fun completedCount(shelf: Shelf): Int? =
+        runCatching { shelf.manager.downloadIndex.getDownloads(Download.STATE_COMPLETED).use { it.count } }.getOrNull()
+
+    /** What Settings may say after asking whether a shelf still holds copies to offer moving (#401). */
+    sealed interface MoveOfferCount {
+        data class Counted(val count: Int) : MoveOfferCount
+        /** A competing count never waits; a count or move prevents offering another move. */
+        object Busy : MoveOfferCount
+        /** Missing/unavailable shelf, a changed store or a failed read. Not the same as zero. */
+        object Unavailable : MoveOfferCount
+    }
+
+    /** Process-owned, non-waiting: held until the physical index read actually returns (#401). */
+    private val moveOfferCounting = java.util.concurrent.atomic.AtomicBoolean()
+
+    /**
+     * [downloadsOn] for the Settings move offer, with the index read on IO rather than the caller's thread.
+     * At most one physical count runs at a time; a request arriving meanwhile is refused as [MoveOfferCount.Busy]
+     * rather than queued. Cancelling the caller cancels only its delivery: withContext does not return until
+     * a blocked read itself returns and closes its cursor, so the gate stays held until then. The store,
+     * shelf identity and availability are rechecked before a count is reported. A count is only an
+     * observation; [move] still makes every one of its own checks.
+     */
+    suspend fun moveOfferCount(card: Boolean): MoveOfferCount {
+        if (!moveOfferCounting.compareAndSet(false, true)) return MoveOfferCount.Busy
+        try {
+            return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val store = current() ?: return@withContext MoveOfferCount.Unavailable
+                val shelf = (if (card) store.card else store.phone) ?: return@withContext MoveOfferCount.Unavailable
+                val destination = (if (card) store.phone else store.card) ?: return@withContext MoveOfferCount.Unavailable
+                if (moveExclusion.held) return@withContext MoveOfferCount.Busy
+                // Availability can itself inspect storage; keep it off the caller's UI thread too.
+                if (!shelf.available() || !destination.available()) return@withContext MoveOfferCount.Unavailable
+                val count = completedCount(shelf)
+                val same = current() === store && (if (card) store.card else store.phone) === shelf &&
+                    (if (card) store.phone else store.card) === destination
+                if (!same || !shelf.available() || !destination.available()) return@withContext MoveOfferCount.Unavailable
+                if (moveExclusion.held) return@withContext MoveOfferCount.Busy
+                count?.let { MoveOfferCount.Counted(it) } ?: MoveOfferCount.Unavailable
+            }
+        } finally { moveOfferCounting.set(false) }
     }
 
     /**
