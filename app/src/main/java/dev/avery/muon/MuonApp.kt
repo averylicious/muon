@@ -87,6 +87,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         val scope = rememberCoroutineScope()
         val snackbar = remember { SnackbarHostState() }
+        val queueNotices = remember(scope, snackbar) { QueueNotices(scope, snackbar) }
         val loudnessNotices = remember { LoudnessNoticeHistory() }
         var loudnessDetails by remember { mutableStateOf(false) }
         val loudnessPlayback = PlaybackLoudness.current
@@ -342,7 +343,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         if (plan != null) {
                             choice.shuffle?.let { original.shuffleModeEnabled = it }
                             original.setMediaItems(plan.items, 0, 0L); original.prepare(); original.play()
-                        } else scope.launch { snackbar.showSnackbar("This song has too much metadata to queue.") }
+                        } else scope.launch { queueNotices.show("This song has too much metadata to queue.") }
                     }
                 }) { Text("Play this song") } },
                 dismissButton = { TextButton(onClick = { liveQueueChoice = null }) { Text("Cancel") } })
@@ -450,23 +451,22 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
             val insertion = queueInsertion(item)
             if (!playbackEditFits(p, 0, 0, listOf(insertion.item))) {
-                scope.launch { snackbar.showSnackbar("The queue is full. Remove some queued songs or choose fewer songs.") }
+                scope.launch { queueNotices.show("The queue is full. Remove some queued songs or choose fewer songs.") }
                 return
             }
             val request = QueueInsertionRequest.capture(p, insertion, next)
             scope.launch {
                 val confirmed = request?.confirm(p) == true
                 if (currentPlayer !== p) return@launch
-                snackbar.currentSnackbarData?.dismiss()
                 if (!confirmed) {
-                    snackbar.showSnackbar("Couldn't confirm the addition. Check the queue.")
+                    queueNotices.show("Couldn't confirm the addition. Check the queue.")
                     return@launch
                 }
-                val result = snackbar.showSnackbar(queuedMessage(track.title, next), actionLabel = "Undo",
+                val result = queueNotices.show(queuedMessage(track.title, next), actionLabel = "Undo",
                     duration = SnackbarDuration.Short)
                 if (result != SnackbarResult.ActionPerformed) return@launch
                 if (currentPlayer === p && !insertion.undo(p) && currentPlayer === p) {
-                    snackbar.showSnackbar("Couldn't confirm Undo. Check the queue.")
+                    queueNotices.show("Couldn't confirm Undo. Check the queue.")
                 }
             }
         }
@@ -514,7 +514,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     }
                 }
                 // The rail takes the start inset itself, so the content leaves it out.
-                Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { if (!playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar) },
+                Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { if (!playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar) { data -> Snackbar(queueNotices.observeAction(data)) } },
                     // The player panel, when it is there, takes the end inset in the same way.
                     contentWindowInsets = if (rail && connected) ScaffoldDefaults.contentWindowInsets
                         .only(if (ui.item != null) WindowInsetsSides.Top + WindowInsetsSides.Bottom
@@ -810,7 +810,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             }
             // Overlay notices stay above the player instead of resizing artwork or hiding behind it.
             if (playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar,
-                Modifier.align(androidx.compose.ui.Alignment.BottomCenter).safeDrawingPadding().padding(12.dp))
+                Modifier.align(androidx.compose.ui.Alignment.BottomCenter).safeDrawingPadding().padding(12.dp)) { data ->
+                Snackbar(queueNotices.observeAction(data))
+            }
             if (loudnessDetails) AlertDialog(onDismissRequest = { loudnessDetails = false },
                 title = { Text("Loudness tags missing") },
                 text = { Text("Add ReplayGain tags to this song on your computer. Muon uses an estimate from other songs when available; otherwise its volume stays unchanged.") },
