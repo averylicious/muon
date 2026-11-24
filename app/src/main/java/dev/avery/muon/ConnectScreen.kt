@@ -91,10 +91,17 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
                     placeholder = { Text("192.168.1.10:7814") }, singleLine = true, shape = RoundedCornerShape(16.dp),
                     enabled = !model.busy, modifier = Modifier.fillMaxWidth())
                 // Without local network access, Connect asks for it first and connects once granted.
-                Button(onClick = { if (allowed) model.connect() else allowLocalNetwork() },
-                    enabled = !model.busy && model.address.isNotBlank(),
+                // Separate controls cancel a pressed gesture when the loading state changes;
+                // a released Cancel must not turn into a new Connect action at completion.
+                if (model.busy) OutlinedButton(onClick = {
+                    autoTried = true // A discovery result must not immediately restart a cancelled load.
+                    model.cancelLoad()
+                }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                    Text("Cancel", style = MaterialTheme.typography.titleMedium)
+                } else Button(onClick = { if (allowed) model.connect() else allowLocalNetwork() },
+                    enabled = model.address.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                    Text(if (model.busy) "Connecting…" else "Connect", style = MaterialTheme.typography.titleMedium)
+                    Text("Connect", style = MaterialTheme.typography.titleMedium)
                 }
                 if (model.busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
