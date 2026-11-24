@@ -129,4 +129,9 @@ kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarg
 // Keep a failing assertion's source line visible even if report-artifact upload is unavailable.
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    // Fetch Robolectric Android SDK runtime jars from Google's Maven Central mirror to avoid
+    // repo1.maven.org HTTP 429 rate-limiting on shared GitHub Actions runners. The dispatch-only
+    // dependency-audit init script overrides this in gradle.projectsEvaluated when auditing upstream.
+    systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2")
+    systemProperty("robolectric.dependency.repo.id", "gcs-maven-central")
 }
