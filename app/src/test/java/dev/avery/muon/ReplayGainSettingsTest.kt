@@ -2,6 +2,13 @@ package dev.avery.muon
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.Metadata
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.Tracks
+import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -24,14 +31,14 @@ class ReplayGainSettingsTest {
     @Test fun freshSettingsAreOffAndUnknownTracksStayAtUnityUntilAGainExists() {
         val settings = ReplayGainSettings(prefs)
         assertFalse(settings.enabled)
-        assertNull(settings.effectiveGainFor(A))
-        assertFalse(loudnessPlayback(A, true, false, settings.effectiveGainFor(A), true).usable)
+        assertNull(settings.playbackGainFor(A, null))
+        assertFalse(loudnessPlayback(A, true, false, settings.playbackGainFor(A, null), true).usable)
         assertEquals(1f, settings.volumeFor(A), 0f)
         settings.choose(true)
         assertEquals(1f, settings.volumeFor(A), 0f)
         settings.remember(A, -6f)
-        assertEquals(-6f, settings.effectiveGainFor(B)!!, 0f)
-        assertTrue(loudnessPlayback(B, true, false, settings.effectiveGainFor(B), true).usable)
+        assertEquals(-6f, settings.playbackGainFor(B, null)!!, 0f)
+        assertTrue(loudnessPlayback(B, true, false, settings.playbackGainFor(B, null), true).usable)
         assertEquals(volumeForGain(-6f), settings.volumeFor(A), 0.00001f)
         assertEquals(volumeForGain(-6f), settings.volumeFor(null), 0.00001f)
     }
@@ -46,8 +53,10 @@ class ReplayGainSettingsTest {
         assertTrue(restored.enabled)
         assertEquals(-6f, restored.gainFor(A)!!, 0f)
         assertEquals(-18f, restored.gainFor(B)!!, 0f)
-        assertEquals(volumeForGain(-6f), restored.volumeFor(A), 0.00001f)
-        assertEquals(volumeForGain(-18f), restored.volumeFor(B), 0.00001f)
+        assertEquals(volumeForGain(-12f), restored.volumeFor(A), 0.00001f)
+        assertEquals(volumeForGain(-12f), restored.volumeFor(B), 0.00001f)
+        assertEquals(volumeForGain(-6f), restored.volumeFor(A, -6f), 0.00001f)
+        assertEquals(volumeForGain(-18f), restored.volumeFor(B, -18f), 0.00001f)
         assertEquals("kept", prefs.getString("unrelated", null))
     }
 
@@ -60,7 +69,8 @@ class ReplayGainSettingsTest {
         assertEquals(volumeForGain(-10f), settings.volumeFor("unknown"), 0.00001f)
         settings.remember(B, -22f)
         assertEquals(volumeForGain(-14f), settings.volumeFor("unknown"), 0.00001f)
-        assertEquals(volumeForGain(-6f), settings.volumeFor(A), 0.00001f)
+        assertEquals(volumeForGain(-14f), settings.volumeFor(A), 0.00001f)
+        assertEquals(volumeForGain(-6f), settings.volumeFor(A, -6f), 0.00001f)
     }
 
     @Test fun aSeparateSettingsOwnerReloadsTheToggleAndRetainsRememberedGain() {
@@ -122,6 +132,87 @@ class ReplayGainSettingsTest {
         assertEquals(-12f, restored.gainFor(B)!!, 0f)
         assertEquals(volumeForGain(-9f), restored.volumeFor("unknown"), 0.00001f)
         assertEquals("kept", prefs.getString("unrelated", null))
+    }
+
+    @Test fun liveIdReuseUsesTheLibraryEstimateUntilCurrentAudioSuppliesTags() {
+        val original = ReplayGainSettings(prefs)
+        original.remember(A, -30f)
+        original.remember(B, -6f)
+        original.choose(true)
+        val restored = ReplayGainSettings(prefs)
+        // A later untagged song at A must not inherit that old song's -30 dB attenuation.
+        assertEquals(-18f, restored.playbackGainFor(A, null)!!, 0f)
+        assertEquals(volumeForGain(-18f), restored.volumeFor(A), 0.00001f)
+        assertEquals(volumeForGain(-9f), restored.volumeFor(A, -9f), 0.00001f)
+        assertEquals(-18f, restored.playbackGainFor("new-live-id", null)!!, 0f)
+        val tagged = Tracks(listOf(audioGroup("-9 dB", true), audioGroup("-40 dB", false)))
+        repeat(2) {
+            // The same current Tracks can serve repeat-one without another tracks-change callback.
+            val current = selectedTrackLoudness(tagged)?.let(::appliedGainDb)
+            assertEquals(-9f, restored.playbackGainFor(A, current)!!, 0f)
+        }
+        // Re-evaluating empty/unselected or untagged audio must not retain that selected value.
+        for (current in listOf(Tracks.EMPTY, Tracks(listOf(audioGroup(null, true))),
+                Tracks(listOf(audioGroup("-9 dB", false))))) {
+            assertEquals(-18f, restored.playbackGainFor(A, selectedTrackLoudness(current)?.let(::appliedGainDb))!!, 0f)
+        }
+        assertEquals(-30f, restored.gainFor(A)!!, 0f)
+        assertEquals(-6f, restored.gainFor(B)!!, 0f)
+        assertTrue(restored.enabled)
+    }
+
+    @Test fun savedCopyHintsRemainAvailableButOnlyCurrentTagsOverrideThem() {
+        val saved = SavedRef.download(SavedShelf.Phone, "saved-request", "saved-key")!!.handle
+        val malformed = "muon-saved:not-a-canonical-handle"
+        val settings = ReplayGainSettings(prefs)
+        settings.remember(saved, -24f)
+        settings.remember(A, -6f)
+        settings.remember(malformed, -12f)
+        assertEquals(-24f, settings.playbackGainFor(saved, null)!!, 0f)
+        assertEquals(-3f, settings.playbackGainFor(saved, -3f)!!, 0f)
+        assertEquals(-12f, settings.playbackGainFor(malformed, null)!!, 0f)
+        // A malformed prefix has an old exact hint, so distinguish it from the median below.
+        settings.remember(malformed, -40f)
+        assertEquals(-24f, settings.playbackGainFor(malformed, null)!!, 0f)
+        assertEquals(-40f, settings.gainFor(malformed)!!, 0f)
+        // Gain selection also works while off; the service still chooses unity when disabled.
+        assertFalse(settings.enabled)
+        assertEquals(1f, settings.volumeFor(saved), 0f)
+        assertEquals(-24f, settings.playbackGainFor(saved, null)!!, 0f)
+    }
+
+    @Test fun nonFiniteSavedHintsAreAbsentAndKeepTheFiniteFallbackWithoutRewritingHistory() {
+        val saved = SavedRef.download(SavedShelf.Phone, "saved-request", "saved-key")!!.handle
+        for (bad in listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {
+            assertTrue(prefs.edit().clear().putBoolean(ReplayGainSettings.KEY_ENABLED, true)
+                .putFloat("gain:" + saved, bad).commit())
+            val empty = ReplayGainSettings(prefs)
+            assertNull(empty.playbackGainFor(saved, null))
+            assertEquals(1f, empty.volumeFor(saved), 0f)
+            assertFalse(loudnessPlayback(saved, true, false, empty.playbackGainFor(saved, null), true).usable)
+            assertTrue(prefs.edit().putBoolean(ReplayGainSettings.KEY_ENABLED, true)
+                .putFloat("gain:" + saved, bad).putFloat("gain:" + B, -12f)
+                .putString("unrelated", "kept").commit())
+            val settings = ReplayGainSettings(prefs)
+            assertNull(settings.gainFor(saved))
+            assertEquals(-12f, settings.playbackGainFor(saved, null)!!, 0f)
+            assertEquals(volumeForGain(-12f), settings.volumeFor(saved), 0.00001f)
+            assertEquals(volumeForGain(-3f), settings.volumeFor(saved, -3f), 0.00001f)
+            assertEquals(bad.toBits(), prefs.getFloat("gain:" + saved, 0f).toBits())
+            assertEquals(-12f, settings.gainFor(B)!!, 0f)
+            assertEquals("kept", prefs.getString("unrelated", null))
+            settings.choose(false)
+            assertEquals(1f, settings.volumeFor(saved), 0f)
+        }
+        val settings = ReplayGainSettings(prefs)
+        settings.remember(saved, -6f)
+        assertEquals(-6f, ReplayGainSettings(prefs).gainFor(saved)!!, 0f)
+    }
+
+    private fun audioGroup(tag: String?, selected: Boolean): Tracks.Group {
+        val format = Format.Builder().setSampleMimeType(MimeTypes.AUDIO_FLAC)
+            .setMetadata(tag?.let { Metadata(VorbisComment("REPLAYGAIN_TRACK_GAIN", it)) }).build()
+        return Tracks.Group(TrackGroup(format), false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(selected))
     }
 
     private companion object {

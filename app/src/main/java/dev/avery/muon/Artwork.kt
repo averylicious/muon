@@ -142,7 +142,7 @@ private suspend fun fetchArtwork(request: ArtworkRequest, size: Int, disk: Artwo
         val url = request.url
         val key = request.memoryKey(size)
         val identity = request.identity
-        // Preserve existing disk filenames while the memory key also includes identity.
+        // Keep the requested decode size in the disk address as well as the memory key.
         val diskKey = if (size >= ARTWORK_ORIGINAL_SIZE) url else "$url#$size"
         fun keep(art: Bitmap): Bitmap? = ArtworkIdentities.ifCurrent(request) { artCache.put(key, art); art }
         // A saved copy's own cover is read from that entry's file and nowhere else, never fetched (#213).

@@ -40,7 +40,7 @@ internal fun ArtworkTheme(item: MediaItem?, content: @Composable () -> Unit) {
         }
     }
     // Keep the established fade between URLs, but do not keep a reused URL's previous song colour.
-    val usableSeed = seed.takeUnless { seededRequest?.url == url && seededRequest != request }
+    val usableSeed = seed.takeUnless { seededRequest?.url == request?.url && seededRequest != request }
     val dark = base.background.luminance() < 0.5f
     val target = usableSeed?.let { artworkScheme(base, it, dark, pureBlack = base.background == Color.Black) } ?: base
     MaterialTheme(colorScheme = animated(target), typography = MaterialTheme.typography, content = content)
