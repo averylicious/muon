@@ -32,8 +32,6 @@ internal class PlaybackSessionCallback(
     private val shufflePlayer: ExoPlayer? = null,
     private val queuePlayer: PlaybackQueuePlayer? = null,
 ) : MediaSession.Callback {
-    // Cancellation does not free a task that is still queued/running on the admission worker.
-    private val savedAdmissionPending = java.util.concurrent.atomic.AtomicBoolean()
     override fun onConnectAsync(
         session: MediaSession,
         controller: MediaSession.ControllerInfo,
@@ -173,6 +171,10 @@ internal class PlaybackSessionCallback(
         controller.uid == Process.myUid() && !session.isMediaNotificationController(controller)
 
     private companion object {
+        // Service replacement must not bypass the pending-work bound: its old executor shuts down
+        // gracefully, so cancelled/queued/running work can outlive that callback. Release only on
+        // actual worker exit (or the production executor's known pre-submission rejection).
+        private val savedAdmissionPending = java.util.concurrent.atomic.AtomicBoolean()
         // An allowlist also keeps future Media3 commands from expanding external capabilities.
         // Read access supplies system metadata/position; transport includes shuffle/repeat and
         // selecting an entry already in the queue. Volume/gain, configuration and queue edits stay

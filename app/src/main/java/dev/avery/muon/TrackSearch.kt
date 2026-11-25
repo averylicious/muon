@@ -4,10 +4,11 @@ package dev.avery.muon
 internal const val SEARCH_DEBOUNCE_MS = 120L
 
 /** Filters the loaded library. Called off the main thread; keep it allocation-light. */
-internal fun searchTracks(tracks: List<TauonTrack>, query: String): List<TauonTrack> {
+internal fun searchTracks(tracks: List<TauonTrack>, query: String, checkpoint: () -> Unit = {}): List<TauonTrack> {
     val needle = query.trim()
     if (needle.isEmpty()) return emptyList()
     return tracks.filter {
+        checkpoint()
         it.title.contains(needle, ignoreCase = true) ||
             it.artist.contains(needle, ignoreCase = true) ||
             it.album.contains(needle, ignoreCase = true)
@@ -34,19 +35,22 @@ internal const val SEARCH_ALBUM_LIMIT = 12
  * The artists whose name holds the query, those whose name starts with it first, then the ones with
  * more songs. Stable otherwise, so equal matches keep the order they were given in.
  */
-internal fun searchArtists(artists: List<LibraryArtist>, query: String, limit: Int = SEARCH_ARTIST_LIMIT): List<LibraryArtist> {
+internal fun searchArtists(artists: List<LibraryArtist>, query: String, limit: Int = SEARCH_ARTIST_LIMIT,
+    checkpoint: () -> Unit = {}): List<LibraryArtist> {
     val needle = query.trim()
     if (needle.isEmpty()) return emptyList()
-    return artists.filter { it.name.contains(needle, ignoreCase = true) }
-        .sortedWith(compareBy<LibraryArtist> { !it.name.trim().startsWith(needle, ignoreCase = true) }.thenByDescending { it.tracks.size })
+    return artists.filter { checkpoint(); it.name.contains(needle, ignoreCase = true) }
+        .sortedWith(compareBy<LibraryArtist> { !it.name.trim().startsWith(needle, ignoreCase = true) }
+            .thenByDescending { it.tracks.size }.checked(checkpoint))
         .take(limit)
 }
 
 /** The albums whose title or album artist holds the query, titles starting with it first. */
-internal fun searchAlbums(albums: List<LibraryAlbum>, query: String, limit: Int = SEARCH_ALBUM_LIMIT): List<LibraryAlbum> {
+internal fun searchAlbums(albums: List<LibraryAlbum>, query: String, limit: Int = SEARCH_ALBUM_LIMIT,
+    checkpoint: () -> Unit = {}): List<LibraryAlbum> {
     val needle = query.trim()
     if (needle.isEmpty()) return emptyList()
-    return albums.filter { it.title.contains(needle, ignoreCase = true) || it.artist.contains(needle, ignoreCase = true) }
-        .sortedBy { !it.title.trim().startsWith(needle, ignoreCase = true) }
+    return albums.filter { checkpoint(); it.title.contains(needle, ignoreCase = true) || it.artist.contains(needle, ignoreCase = true) }
+        .sortedWith(compareBy<LibraryAlbum> { !it.title.trim().startsWith(needle, ignoreCase = true) }.checked(checkpoint))
         .take(limit)
 }
