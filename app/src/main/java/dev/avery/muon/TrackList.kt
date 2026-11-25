@@ -30,10 +30,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
+internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentIndex: Int, ready: Boolean,
     playing: Boolean, emptyText: String, loading: Boolean = false, state: LazyListState = rememberLazyListState(),
     sections: ((TauonTrack) -> String)? = null, header: (LazyListScope.() -> Unit)? = null,
-    actions: ((TauonTrack) -> Unit)? = null, play: (TauonTrack) -> Unit) {
+    actions: ((TauonTrack) -> Unit)? = null, play: (TauonTrack, Int) -> Unit) {
     if (tracks.isEmpty() && loading) PlaceholderRows()
     // A list of one full-height item rather than a plain box: an empty library is exactly when a
     // refresh is wanted, and a pull gesture needs something scrollable to pull.
@@ -59,9 +59,9 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
                 state = state, contentPadding = PaddingValues(bottom = 12.dp + under)) {
                 header?.invoke(this)
                 itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { i, t ->
-                    TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", playing, ready,
+                    TrackRow(t, endpoint, i == currentIndex, playing, ready,
                         Modifier.animateItem(placementSpec = motionSpatial()), actions = actions?.let { { it(t) } },
-                        place = groupPlace(i, tracks.size)) { play(t) }
+                        place = groupPlace(i, tracks.size)) { play(t, i) }
                 }
             }
             if (sections != null) Box(Modifier.matchParentSize().padding(bottom = under)) {

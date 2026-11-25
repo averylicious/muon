@@ -84,8 +84,8 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndpoint?, currentId: String?,
-    playing: Boolean, ready: Boolean, backLabel: String = "Back to albums", actions: (TauonTrack) -> Unit, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
+internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndpoint?, currentIndex: Int,
+    playing: Boolean, ready: Boolean, backLabel: String = "Back to albums", actions: (TauonTrack) -> Unit, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack, Int) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = album?.tracks?.any { it.playable } == true && ready
     val state = rememberLazyListState()
@@ -132,7 +132,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
             if (album == null) item(key = "waiting", contentType = "waiting") {
                 Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
             } else itemsIndexed(album.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { i, track ->
-                val current = currentId == "${endpoint?.origin}/${track.id}"
+                val current = i == currentIndex
                 // With Expressive motion the tracks are one joined group, numbered (the Refined mockup).
                 val place = if (Expressive.motion) groupPlace(i, album.tracks.size) else null
                 val shape = place?.let { groupShape(it, current) } ?: RoundedCornerShape(16.dp)
@@ -150,7 +150,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                     .clip(shape)
                     .background(ground)
                     .combinedClickable(enabled = track.playable && ready, onClickLabel = "Play",
-                        onLongClickLabel = "Song actions", onLongClick = { actions(track) }) { play(track) }
+                        onLongClickLabel = "Song actions", onLongClick = { actions(track) }) { play(track, i) }
                     .padding(start = 12.dp, end = 0.dp, top = 8.dp, bottom = 8.dp)
                     .semantics { if (current) stateDescription = "Now playing" },
                     verticalAlignment = Alignment.CenterVertically) {

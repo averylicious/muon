@@ -16,16 +16,16 @@ class ArtworkThemeTest {
     }
 
     @Test fun textKeepsItsContrastWhateverTheCover() {
-        for (dark in listOf(false, true)) for (hue in 0 until 360 step 15) {
+        for (dark in listOf(false, true)) for (hue in 0 until 360) for (saturation in listOf(0f, 0.1f, 0.3f, 0.6f, 1f)) {
             val base = if (dark) darkColorScheme() else lightColorScheme()
-            val s = artworkScheme(base, hsl(hue.toFloat(), 1f, 0.5f), dark, pureBlack = false)
-            val where = "hue $hue, dark $dark"
+            val s = artworkScheme(base, hsl(hue.toFloat(), saturation, 0.5f), dark, pureBlack = false)
+            val where = "hue $hue, saturation $saturation, dark $dark"
             assertTrue(where, contrast(s.onSurface, s.background) >= 7f)
             assertTrue(where, contrast(s.onSurfaceVariant, s.background) >= 4.5f)
             assertTrue(where, contrast(s.onPrimaryContainer, s.primaryContainer) >= 4.5f)
             assertTrue(where, contrast(s.onSecondaryContainer, s.secondaryContainer) >= 4.5f)
-            assertTrue(where, contrast(s.onPrimary, s.primary) >= 3f)
-            assertTrue(where, contrast(s.primary, s.background) >= 3f)
+            assertTrue(where, contrast(s.onPrimary, s.primary) >= 4.5f)
+            assertTrue(where, contrast(s.primary, s.background) >= 4.5f)
         }
     }
 

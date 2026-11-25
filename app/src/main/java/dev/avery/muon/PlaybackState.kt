@@ -22,7 +22,10 @@ internal data class PlaybackUi(val item: MediaItem? = null, val playing: Boolean
      * the song has only just begun (Media3's `seekToPrevious`). [previous] stays "there is a song
      * before this one", which the swipes need: they show that song and never restart this one.
      */
-    val previousOrRestart: Boolean = false)
+    val previousOrRestart: Boolean = false,
+    // MediaItem.equals ignores Bundle extras; carry the occurrence UUID explicitly so switching
+    // between duplicate occurrences of the same song recomposes list highlights (#783).
+    val occurrenceKey: String? = null)
 
 /** Playback state split so that the ticking position invalidates only the widgets that draw it. */
 @Stable
@@ -57,12 +60,14 @@ internal fun rememberPlayback(player: MediaController?): PlaybackState {
     val state = remember { PlaybackState() }
     DisposableEffect(player) {
         fun update() {
-            state.ui = if (player == null) PlaybackUi() else PlaybackUi(player.currentMediaItem, player.isPlaying,
+            val item = player?.currentMediaItem
+            state.ui = if (player == null) PlaybackUi() else PlaybackUi(item, player.isPlaying,
                 player.duration.coerceAtLeast(0),
                 player.isCurrentMediaItemSeekable, player.playbackState == Player.STATE_BUFFERING,
                 player.playerError?.let { "${it.errorCodeName}: ${it.cause?.let(::friendlyError) ?: it.message}" },
                 player.hasPreviousMediaItem(), player.hasNextMediaItem(), player.shuffleModeEnabled,
-                player.repeatMode, player.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS))
+                player.repeatMode, player.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS),
+                item?.let(::queueOccurrenceKey))
             state.position = player?.currentPosition?.coerceAtLeast(0) ?: 0L
         }
         val listener = object : Player.Listener {
