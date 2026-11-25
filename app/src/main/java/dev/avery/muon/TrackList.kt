@@ -23,7 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentId: String?, ready: Boolean,
+internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, currentIndex: Int, ready: Boolean,
     playing: Boolean, emptyText: String, loading: Boolean = false, state: LazyListState = rememberLazyListState(),
     sections: ((TauonTrack) -> String)? = null, header: (LazyListScope.() -> Unit)? = null,
     actions: ((TauonTrack) -> Unit)? = null, play: (TauonTrack, Int) -> Unit) {
@@ -50,7 +50,7 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
                 state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
                 header?.invoke(this)
                 itemsIndexed(tracks, key = { i, _ -> keys[i] }, contentType = { _, _ -> "track" }) { index, t ->
-                    TrackRow(t, endpoint, currentId == "${endpoint?.origin}/${t.id}", playing, ready,
+                    TrackRow(t, endpoint, index == currentIndex, playing, ready,
                         Modifier.animateItem(placementSpec = motionMedium()), actions = actions?.let { { it(t) } }) { play(t, index) }
                 }
             }

@@ -71,8 +71,8 @@ internal fun AlbumGrid(albums: List<LibraryAlbum>?, loading: Boolean, endpoint: 
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndpoint?, currentId: String?,
-    playing: Boolean, ready: Boolean, backLabel: String = "Back to albums", actions: (TauonTrack) -> Unit, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack) -> Unit) {
+internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndpoint?, currentIndex: Int,
+    playing: Boolean, ready: Boolean, backLabel: String = "Back to albums", actions: (TauonTrack) -> Unit, back: () -> Unit, playAll: (shuffle: Boolean) -> Unit, play: (TauonTrack, Int) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = album?.tracks?.any { it.playable } == true && ready
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -102,7 +102,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
         if (album == null) item(key = "waiting", contentType = "waiting") {
             Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
         } else itemsIndexed(album.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { i, track ->
-            val current = currentId == "${endpoint?.origin}/${track.id}"
+            val current = i == currentIndex
             // The playing song sits on its own tonal surface, its number replaced by the moving
             // equalizer, so it stands out from the list rather than only changing colour.
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
@@ -110,7 +110,7 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                 .clip(RoundedCornerShape(16.dp))
                 .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
                 .combinedClickable(enabled = track.playable && ready, onClickLabel = "Play",
-                    onLongClickLabel = "Song actions", onLongClick = { actions(track) }) { play(track) }
+                    onLongClickLabel = "Song actions", onLongClick = { actions(track) }) { play(track, i) }
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .semantics { if (current) stateDescription = "Now playing" },
                 verticalAlignment = Alignment.CenterVertically) {

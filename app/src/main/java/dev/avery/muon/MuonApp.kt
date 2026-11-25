@@ -305,16 +305,17 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 QueueActionStamp(0, original.currentTimeline, original.currentMediaItemIndex, original.shuffleModeEnabled),
                 original.repeatMode, shuffle)
         }
-        fun startQueue(list: List<TauonTrack>, track: TauonTrack, selectedIndex: Int? = null) {
+        fun startQueue(list: List<TauonTrack>, track: TauonTrack, sourceKey: String, selectedIndex: Int? = null) {
             val endpoint = model.endpoint ?: return
             val original = player ?: return
             val plan = try { prepareLiveQueue(list, endpoint, track.id, selectedIndex = selectedIndex) }
             catch (_: PlaybackQueueLimit) { liveQueueRefused(track, endpoint, null); return } ?: return
+            model.activeQueueOrigin = LiveQueueOrigin.from(sourceKey, list, plan)
             original.setMediaItems(plan.items, plan.startIndex, 0L)
             original.prepare(); original.play()
         }
         // An album's Play and Shuffle: only change the mode after the full selection fits.
-        fun playAll(list: List<TauonTrack>, shuffle: Boolean) {
+        fun playAll(list: List<TauonTrack>, shuffle: Boolean, sourceKey: String) {
             val endpoint = model.endpoint ?: return
             val original = player ?: return
             val plan = try { prepareLiveQueue(list, endpoint) }
@@ -322,6 +323,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 list.firstOrNull { it.playable }?.let { liveQueueRefused(it, endpoint, shuffle) }
                 return
             } ?: return
+            model.activeQueueOrigin = LiveQueueOrigin.from(sourceKey, list, plan)
             original.shuffleModeEnabled = shuffle
             original.setMediaItems(plan.items, if (shuffle) plan.items.indices.random() else 0, 0L)
             original.prepare(); original.play()
@@ -341,6 +343,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         val plan = try { prepareLiveQueue(listOf(choice.track), choice.endpoint, choice.track.id) }
                         catch (_: PlaybackQueueLimit) { null }
                         if (plan != null) {
+                            model.activeQueueOrigin = null
                             choice.shuffle?.let { original.shuffleModeEnabled = it }
                             original.setMediaItems(plan.items, 0, 0L); original.prepare(); original.play()
                         } else scope.launch { queueNotices.show("This song has too much metadata to queue.") }
@@ -352,6 +355,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // the complete copies in the order shown, starting from the one chosen.
         fun applySavedQueue(plan: SavedQueuePlan) {
             if (player == null) return
+            model.activeQueueOrigin = null
             player.setMediaItems(plan.items, plan.startIndex, 0L)
             player.prepare(); player.play()
         }
@@ -447,6 +451,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 if (!playbackInputFits(listOf(item))) {
                     liveQueueRefused(track, endpoint, null); return
                 }
+                model.activeQueueOrigin = null
                 p.setMediaItems(listOf(item)); p.prepare(); p.play(); return
             }
             val insertion = queueInsertion(item)
@@ -613,16 +618,23 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     val album = keptWhileLeaving(leaving,
                                                         openAlbum?.takeIf { it.key == shown.albumKey })
                                                     val title = keptWhileLeaving(leaving, albumTitle.orEmpty())
+                                                    val sourceKey = "album:${shown.albumKey}"
+                                                    val albumTracks = album?.tracks.orEmpty()
+                                                    val activeIndex = remember(albumTracks, model.endpoint, ui.item?.mediaId,
+                                                        ui.occurrenceKey, sourceKey, model.activeQueueOrigin) {
+                                                        activeTrackIndex(albumTracks, model.endpoint, ui.item?.mediaId,
+                                                            ui.occurrenceKey, sourceKey, model.activeQueueOrigin)
+                                                    }
                                                     LibraryPane(model.busy, { model.connect() }) {
-                                                        AlbumPage(album, title, model.endpoint, ui.item?.mediaId, ui.playing, player != null,
+                                                        AlbumPage(album, title, model.endpoint, activeIndex, ui.playing, player != null,
                                                             backLabel = when {
                                                                 shown.fromArtist != null -> "Back to artist"
                                                                 fromSearch -> "Back to search"
                                                                 else -> "Back to albums"
                                                             },
                                                             actions = { actionTrack = it }, back = { closePage() },
-                                                            playAll = { shuffle -> album?.let { playAll(it.tracks, shuffle) } }) {
-                                                            startQueue(album?.tracks.orEmpty(), it)
+                                                            playAll = { shuffle -> album?.let { playAll(it.tracks, shuffle, sourceKey) } }) { track, index ->
+                                                            startQueue(albumTracks, track, sourceKey, index)
                                                         }
                                                     }
                                                 }
@@ -633,15 +645,22 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     val appearsOn = remember(artist, albums) {
                                                         if (artist == null || albums == null) emptyList() else artistAlbums(artist, albums)
                                                     }
+                                                    val sourceKey = "artist:${shown.artistKey}"
+                                                    val artistTracks = artist?.tracks.orEmpty()
+                                                    val activeIndex = remember(artistTracks, model.endpoint, ui.item?.mediaId,
+                                                        ui.occurrenceKey, sourceKey, model.activeQueueOrigin) {
+                                                        activeTrackIndex(artistTracks, model.endpoint, ui.item?.mediaId,
+                                                            ui.occurrenceKey, sourceKey, model.activeQueueOrigin)
+                                                    }
                                                     LibraryPane(model.busy, { model.connect() }) {
-                                                        ArtistPage(artist, name, appearsOn, model.endpoint, ui.item?.mediaId, ui.playing,
+                                                        ArtistPage(artist, name, appearsOn, model.endpoint, activeIndex, ui.playing,
                                                             player != null, keptWhileLeaving(leaving, artistPageList),
                                                             backLabel = if (fromSearch) "Back to search" else "Back to artists",
                                                             actions = { actionTrack = it }, back = { closePage() },
-                                                            playAll = { shuffle -> artist?.let { playAll(it.tracks, shuffle) } },
+                                                            playAll = { shuffle -> artist?.let { playAll(it.tracks, shuffle, sourceKey) } },
                                                             // Opened over this page, so Back returns here.
-                                                            openAlbum = { albumOrigin = origin; albumKey = it.key; albumTitle = it.title }) {
-                                                            startQueue(artist?.tracks.orEmpty(), it)
+                                                            openAlbum = { albumOrigin = origin; albumKey = it.key; albumTitle = it.title }) { track, index ->
+                                                            startQueue(artistTracks, track, sourceKey, index)
                                                         }
                                                     }
                                                 }
@@ -654,19 +673,25 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                             // A new order starts from its top, rather than
                                                             // wherever the previous first row now sits.
                                                             LibraryView.Songs -> Column {
+                                                                val songsSource = "songs:${library.songOrder.name}"
+                                                                val activeIndex = remember(songs, model.endpoint, ui.item?.mediaId,
+                                                                    ui.occurrenceKey, songsSource, model.activeQueueOrigin) {
+                                                                    activeTrackIndex(songs, model.endpoint, ui.item?.mediaId,
+                                                                        ui.occurrenceKey, songsSource, model.activeQueueOrigin)
+                                                                }
                                                                 // Counted like Albums and Artists (#16 QA).
                                                                 if (songs.isNotEmpty()) SortBar("${songs.size} ${if (songs.size == 1) "song" else "songs"}",
                                                                     SongOrder.entries, library.songOrder, { it.label }) {
                                                                     library.chooseSongOrder(it); songList = LazyListState()
                                                                 }
                                                                 // Plays on in the order shown.
-                                                                TrackList(songs, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
+                                                                TrackList(songs, model.endpoint, activeIndex, player != null, ui.playing, actions = { actionTrack = it },
                                                                     emptyText = "No music yet. Add local music in Tauon, then refresh.",
                                                                     loading = model.busy, state = songList,
                                                                     // A–Z only: in Recently added there are no letters to jump to.
                                                                     sections = if (library.songOrder == SongOrder.Title) {
                                                                         { t: TauonTrack -> sectionLetter(t.title) }
-                                                                    } else null) { track, index -> startQueue(songs, track, index) }
+                                                                    } else null) { track, index -> startQueue(songs, track, songsSource, index) }
                                                             }
                                                             LibraryView.Albums -> Column {
                                                                 if (!sortedAlbums.isNullOrEmpty()) SortBar(
@@ -698,22 +723,28 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                     val open = keptWhileLeaving(leaving,
                                                         openList?.takeIf { it.id == shown.id })
                                                     if (open != null) Column {
+                                                        val sourceKey = "playlist:${open.id}"
                                                         // One playlist keeps its own compact bar: its name is the
                                                         // heading, and a greeting would be in the way.
                                                         PlaylistBar(open.name, open.count) { closePage() }
                                                         LibraryPane(model.busy, { model.connect() }) {
                                                             val tracks = model.tracksByPlaylist[open.id].orEmpty()
-                                                            TrackList(tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
+                                                            val activeIndex = remember(tracks, model.endpoint, ui.item?.mediaId,
+                                                                ui.occurrenceKey, sourceKey, model.activeQueueOrigin) {
+                                                                activeTrackIndex(tracks, model.endpoint, ui.item?.mediaId,
+                                                                    ui.occurrenceKey, sourceKey, model.activeQueueOrigin)
+                                                            }
+                                                            TrackList(tracks, model.endpoint, activeIndex, player != null, ui.playing, actions = { actionTrack = it },
                                                                 emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
                                                                 // Play, Shuffle and Download all, as on an album or an artist
                                                                 // (#112 for the download).
                                                                 header = {
                                                                     item(key = "actions", contentType = "actions") {
-                                                                        PlayAllButtons(player != null && tracks.any { it.playable }) { playAll(tracks, it) }
+                                                                        PlayAllButtons(player != null && tracks.any { it.playable }) { playAll(tracks, it, sourceKey) }
                                                                     }
                                                                     item(key = "download", contentType = "download") { DownloadAll(tracks, model.endpoint) }
                                                                 },
-                                                                loading = model.busy) { track, index -> startQueue(tracks, track, index) }
+                                                                loading = model.busy) { track, index -> startQueue(tracks, track, sourceKey, index) }
                                                         }
                                                     }
                                                 }
@@ -727,9 +758,15 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     val openArtistPage = { a: LibraryArtist -> openFromSearch { artistOrigin = origin; artistKey = a.key; artistName = a.name } }
                                     val openAlbumPage = { a: LibraryAlbum -> openFromSearch { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } }
                                     val keyboard = LocalSoftwareKeyboardController.current
+                                    val songsSource = "songs:${library.songOrder.name}"
+                                    val searchActiveIndex = remember(search.tracks, model.endpoint, ui.item?.mediaId,
+                                        ui.occurrenceKey, model.activeQueueOrigin) {
+                                        activeTrackIndex(search.tracks, model.endpoint, ui.item?.mediaId,
+                                            ui.occurrenceKey, "search", model.activeQueueOrigin)
+                                    }
                                     SearchScreen(query, { query = it }, searchOpen, { searchOpen = it }, search.searching,
                                         browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage) {
-                                        TrackList(search.tracks, model.endpoint, ui.item?.mediaId, player != null, ui.playing, actions = { actionTrack = it },
+                                        TrackList(search.tracks, model.endpoint, searchActiveIndex, player != null, ui.playing, actions = { actionTrack = it },
                                             emptyText = searchEmptyText(query, search.searching, search.completed), state = searchList,
                                             header = { searchCollection(foundArtists, foundAlbums, model.endpoint, openArtistPage, openAlbumPage) }) { track, _ ->
                                             // A search finds where to start, not what to play: the song plays on
@@ -737,7 +774,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                             // reach every song rather than only the few that matched.
                                             // The keyboard goes, so the mini player shows what started.
                                             keyboard?.hide()
-                                            startQueue(songs, track)
+                                            startQueue(songs, track, songsSource)
                                         }
                                     }
                                 }

@@ -16,7 +16,10 @@ internal data class PlaybackUi(val item: MediaItem? = null, val playing: Boolean
     val duration: Long = 0, val seekable: Boolean = false,
     val buffering: Boolean = false, val error: String? = null, val previous: Boolean = false,
     val next: Boolean = false, val shuffle: Boolean = false,
-    @Player.RepeatMode val repeatMode: Int = Player.REPEAT_MODE_OFF)
+    @Player.RepeatMode val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    // MediaItem.equals ignores Bundle extras; carry the occurrence UUID explicitly so switching
+    // between duplicate occurrences of the same song recomposes list highlights (#783).
+    val occurrenceKey: String? = null)
 
 /** Playback state split so that the ticking position invalidates only the widgets that draw it. */
 @Stable
@@ -50,12 +53,13 @@ internal fun rememberPlayback(player: MediaController?): PlaybackState {
     val state = remember { PlaybackState() }
     DisposableEffect(player) {
         fun update() {
-            state.ui = if (player == null) PlaybackUi() else PlaybackUi(player.currentMediaItem, player.isPlaying,
+            val item = player?.currentMediaItem
+            state.ui = if (player == null) PlaybackUi() else PlaybackUi(item, player.isPlaying,
                 player.duration.coerceAtLeast(0),
                 player.isCurrentMediaItemSeekable, player.playbackState == Player.STATE_BUFFERING,
                 player.playerError?.let { "${it.errorCodeName}: ${it.cause?.let(::friendlyError) ?: it.message}" },
                 player.hasPreviousMediaItem(), player.hasNextMediaItem(), player.shuffleModeEnabled,
-                player.repeatMode)
+                player.repeatMode, item?.let(::queueOccurrenceKey))
             state.position = player?.currentPosition?.coerceAtLeast(0) ?: 0L
         }
         val listener = object : Player.Listener {
