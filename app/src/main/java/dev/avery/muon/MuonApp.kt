@@ -46,6 +46,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
@@ -56,7 +57,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import java.util.Locale
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -214,7 +214,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // The chosen orders are sorted on a worker (#639), each tagged with what it was sorted from.
         // A changed snapshot, server, order or locale hides the old order in this same composition;
         // the effect then drops it, and a newer request cancels an unfinished sort. Null is loading.
-        val locale = Locale.getDefault()
+        val locale = LocalLocale.current.platformLocale
         val songKey = SongProjectionKey(snapshot, origin, library.songOrder, locale)
         var songProjection by remember { mutableStateOf<Projection<SongProjectionKey, List<TauonTrack>>?>(null) }
         LaunchedEffect(songKey) { songProjection = null; songProjection = projectSongs(songKey) }
