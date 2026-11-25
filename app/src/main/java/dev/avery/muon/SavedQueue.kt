@@ -7,7 +7,8 @@ import androidx.media3.common.MediaItem
 /** Logical queue bounds, not a byte-exact Binder/process heap estimate. Every saved record stays kept. */
 internal data class SavedQueueLimits(val items: Int = 2_048, val textBytes: Long = 4L * 1024 * 1024)
 internal class SavedQueueLimit : IllegalArgumentException("Too many saved copies or too much metadata to queue at once")
-internal data class SavedQueuePlan(val items: List<MediaItem>, val startIndex: Int)
+internal data class SavedQueuePlan(val items: List<MediaItem>, val startIndex: Int,
+    val sourceRows: List<Int> = emptyList())
 
 /**
  * Full complete-copy order or an explicit refusal: never silently queue a prefix/window (#253).

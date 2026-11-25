@@ -4,6 +4,13 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.MediaSession
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -91,15 +98,6 @@ class PlaybackQueuePlayerTest {
         val session = androidx.media3.session.MediaSession.Builder(context, player)
             .setCallback(PlaybackSessionCallback()).build()
         var controller: androidx.media3.session.MediaController? = null
-        fun pump(done: () -> Boolean) {
-            val until = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
-            do {
-                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-                if (done()) return
-                Thread.sleep(1)
-            } while (System.nanoTime() < until)
-            fail("Real session did not settle")
-        }
         try {
             val connection = androidx.media3.session.MediaController.Builder(context, session.token).buildAsync()
             pump { connection.isDone }
@@ -115,4 +113,69 @@ class PlaybackQueuePlayerTest {
         } finally { controller?.release(); session.release() }
     }
 
+    @Test fun acknowledgedInsertionUsesActualQueueAndPreservesNextAndAppendInShuffle() {
+        val context = RuntimeEnvironment.getApplication()
+        val endpoint = ServerEndpoint.parse("http://192.168.1.2:7814")
+        fun song(id: Long) = TauonTrack(id, "S", "A", "B", 1000L, true, false).mediaItem(endpoint)
+        player = PlaybackQueuePlayer(native, SavedQueueLimits(5, 10_000)) { refusals++ }
+        player.setMediaItems(listOf(song(1), song(2), song(3)), 2, 0L)
+        native.shuffleModeEnabled = true
+        native.setShuffleOrder(QueueShuffleOrder.restored(listOf(2, 0, 1)))
+        val session = MediaSession.Builder(context, player)
+            .setCallback(PlaybackSessionCallback(shufflePlayer = native, queuePlayer = player)).build()
+        var controller: MediaController? = null
+        try {
+            val connection = MediaController.Builder(context, session.token).buildAsync()
+            pump { connection.isDone }
+            val connected = connection.get(1, TimeUnit.SECONDS).also { controller = it }
+            fun capture(id: Long, next: Boolean) =
+                requireNotNull(QueueInsertionRequest.capture(connected, queueInsertion(song(id)), next))
+            fun awaitReceipt(action: suspend () -> Boolean): Boolean {
+                val receipt = CoroutineScope(Dispatchers.Main.immediate).async { action() }
+                pump { receipt.isCompleted }
+                return runBlocking { receipt.await() }
+            }
+            fun confirm(request: QueueInsertionRequest) = awaitReceipt { request.confirm(connected) }
+
+            val insertedNext = queueInsertion(song(2))
+            val next = requireNotNull(QueueInsertionRequest.capture(connected, insertedNext, next = true))
+            assertTrue(confirm(next))
+            assertEquals(listOf(2, 3, 0, 1), queueShuffledOrder(native))
+            assertEquals(3, native.nextMediaItemIndex)
+            assertEquals(native.getMediaItemAt(1).mediaId, native.getMediaItemAt(3).mediaId)
+            assertNotEquals(queueOccurrenceKey(native.getMediaItemAt(1)), queueOccurrenceKey(native.getMediaItemAt(3)))
+            assertFalse(confirm(next)) // The same insertion cannot be applied twice.
+
+            val append = capture(4, next = false)
+            val staleNext = capture(5, next = true)
+            native.seekToDefaultPosition(0)
+            assertEquals(0, native.currentMediaItemIndex)
+            assertFalse(confirm(staleNext))
+            assertTrue(confirm(append)) // The same queue can still accept an append after a track transition.
+            assertEquals(listOf(2, 3, 0, 1, 4), queueShuffledOrder(native))
+            val full = capture(5, next = false)
+            assertFalse(confirm(full))
+            assertEquals(5, native.mediaItemCount)
+            assertEquals(1, refusals)
+
+            assertTrue(awaitReceipt { insertedNext.undo(connected) })
+            assertEquals(4, native.mediaItemCount)
+            assertEquals(1, ids().count { it == song(2).mediaId })
+            assertFalse(awaitReceipt { insertedNext.undo(connected) })
+
+            player.setMediaItems(listOf(song(1), song(2), song(3)))
+            assertFalse(confirm(full)) // A new queue of the same songs has different occurrences.
+            assertEquals(3, native.mediaItemCount)
+        } finally { controller?.release(); session.release() }
+    }
+
+    private fun pump(done: () -> Boolean) {
+        val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        do {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            if (done()) return
+            Thread.sleep(1)
+        } while (System.nanoTime() < until)
+        fail("Real session did not settle")
+    }
 }

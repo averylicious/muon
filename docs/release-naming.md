@@ -33,3 +33,7 @@ Use “release candidate” only for a specified commit/build with a defined rem
 ## Review and promotion
 
 Implementation → attributed open PR → latest-head CI and signed Canary artifact → user phone QA → requested review/merge → explicit Stable-release decision. Keep pending checks visible. A user approving the feature plan or reporting “LGTM” on a test build does not itself request Stable publication.
+
+## Rolling changelog PR (`release-please`)
+
+`.github/workflows/release-please.yml` maintains a single rolling Release PR against `main` that updates `CHANGELOG.md`, `version.txt`, and `.release-please-manifest.json` from conventional commits (`feat`, `fix`, `perf`, `revert`; `docs`/`ci`/`chore`/`build`/`test`/`refactor` stay hidden). It runs with `skip-github-release: true` and no signing secrets, so it never creates a tag or an APK-less GitHub Release. Merging the Release PR only lands the changelog/version update on `main`; Stable APK publication still requires an explicit `vMAJOR.MINOR.PATCH` tag push after phone QA.

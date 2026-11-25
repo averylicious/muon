@@ -25,10 +25,28 @@ class LiveQueueTest {
         assertEquals(3, plan.items.map(::queueOccurrenceKey).toSet().size)
         assertEquals("Song 2", plan.items[1].mediaMetadata.title)
     }
+    @Test fun selectedRowKeepsTheExactDuplicateAfterUnplayableRowsAreFiltered() {
+        val repeated = song(1)
+        // Deliberately the same instance twice: object identity/equality cannot select this row.
+        val tracks = listOf(repeated, song(9, false), song(2), repeated)
+        val plan = requireNotNull(prepareLiveQueue(tracks, endpoint, selected = 1, selectedIndex = 3))
+        assertEquals(listOf(1L, 2L, 1L), plan.items.map { decodeSong(it.mediaMetadata.extras!!.getByteArray(SONG_EXTRA)!!)!!.id })
+        assertEquals(2, plan.startIndex)
+        assertEquals(3, plan.items.map(::queueOccurrenceKey).toSet().size)
+        assertTrue(playbackInputFits(plan.items))
+        assertEquals(2, requireNotNull(prepareLiveQueue(tracks, endpoint, selectedIndex = 3)).startIndex)
+        assertEquals(0, requireNotNull(prepareLiveQueue(tracks, endpoint, selected = 1)).startIndex)
+        for (index in listOf(-1, 1, tracks.size))
+            assertNull(prepareLiveQueue(tracks, endpoint, selectedIndex = index))
+        assertNull(prepareLiveQueue(tracks, endpoint, selected = 2, selectedIndex = 3))
+    }
+
     @Test fun countRefusalPrecedesAnyMetadataEncodingAndNeverReturnsAPrefix() {
         val oversizedText = "x".repeat(100)
         refused { prepareLiveQueue(listOf(song(1, title = oversizedText), song(2), song(3)), endpoint,
             limits = SavedQueueLimits(2, 1000)) }
+        refused { prepareLiveQueue(listOf(song(1, title = oversizedText), song(2), song(3)), endpoint,
+            selected = 2, limits = SavedQueueLimits(2, 1000), selectedIndex = 1) }
         assertNull(prepareLiveQueue(listOf(song(1, false)), endpoint))
         assertNull(prepareLiveQueue(listOf(song(1)), endpoint, 9))
     }
@@ -38,5 +56,52 @@ class LiveQueueTest {
         val track = song(1, title = "é😀\u0000")
         val plan = requireNotNull(prepareLiveQueue(listOf(track), endpoint, 1))
         assertEquals(track, decodeSong(plan.items.single().mediaMetadata.extras!!.getByteArray(SONG_EXTRA)!!))
+    }
+
+    @Test fun activeTrackIndexHighlightsOnlyThePlayingDuplicateOccurrenceAndSkipsUnplayableRows() {
+        val dup = song(1)
+        val tracks = listOf(dup, song(9, playable = false), dup, dup)
+        val plan = requireNotNull(prepareLiveQueue(tracks, endpoint, selected = 1, selectedIndex = 3))
+        assertEquals(listOf(0, 2, 3), plan.sourceRows)
+        val origin = LiveQueueOrigin.from("playlist:dupe", tracks, plan)
+
+        // Each occurrence UUID maps solely to its own list row (skipping the unplayable row at index 1).
+        for ((queueIdx, expectedRow) in listOf(0 to 0, 1 to 2, 2 to 3)) {
+            val playing = plan.items[queueIdx]
+            assertEquals(expectedRow, activeTrackIndex(tracks, endpoint, playing.mediaId,
+                queueOccurrenceKey(playing), "playlist:dupe", origin))
+        }
+
+        // Viewing another screen where the song appears once still highlights that single row.
+        val albumTracks = listOf(song(2), dup, song(3))
+        val active = plan.items[2]
+        assertEquals(1, activeTrackIndex(albumTracks, endpoint, active.mediaId,
+            queueOccurrenceKey(active), "album:a", origin))
+
+        // Viewing a different list (or without origin, or an ad-hoc Play next duplicate) never lights up all duplicates.
+        assertEquals(-1, activeTrackIndex(tracks, endpoint, active.mediaId,
+            queueOccurrenceKey(active), "playlist:other", origin))
+        assertEquals(-1, activeTrackIndex(tracks, endpoint, active.mediaId,
+            queueOccurrenceKey(active), "playlist:dupe", null))
+        val inserted = dup.mediaItem(endpoint)
+        assertEquals(-1, activeTrackIndex(tracks, endpoint, inserted.mediaId,
+            queueOccurrenceKey(inserted), "playlist:dupe", origin))
+
+        // If the playlist refreshes with a changed order/length, stale row indices are rejected.
+        val reordered = listOf(song(2), dup, dup, dup)
+        assertEquals(-1, activeTrackIndex(reordered, endpoint, active.mediaId,
+            queueOccurrenceKey(active), "playlist:dupe", origin))
+    }
+
+    @Test fun playbackUiDistinguishesDuplicateOccurrencesByOccurrenceKey() {
+        val dup = song(1)
+        val first = dup.mediaItem(endpoint)
+        val second = dup.mediaItem(endpoint)
+        // Media3's MediaItem.equals ignores Bundle extras; PlaybackUi must still compare unequal.
+        assertEquals(first, second)
+        assertNotEquals(
+            PlaybackUi(item = first, playing = true, occurrenceKey = queueOccurrenceKey(first)),
+            PlaybackUi(item = second, playing = true, occurrenceKey = queueOccurrenceKey(second)),
+        )
     }
 }

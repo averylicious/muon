@@ -34,6 +34,7 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 /** Rows in a group share a shape family: the group's outer corners are large, the seams are small. */
 private val GroupOuterCorner = 20.dp
@@ -165,6 +166,11 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val cardUnavailable = card == null && (store.card != null || onCard)
     // Where to move, and how many: offered when the switch leaves downloads on the other side.
     var offerMove by remember { mutableStateOf<Pair<Boolean, Int>?>(null) }
+    // The count behind that offer is read off main (#401). Leaving the screen cancels only its delivery
+    // here; the store's gate refuses a second count until the first read has actually returned.
+    val countScope = rememberCoroutineScope()
+    var counting by remember { mutableStateOf(false) }
+    var countNotice by remember { mutableStateOf<String?>(null) }
     val rows = if (card != null || cardUnavailable) 5 else 4
     // Free space where new downloads go: the card's when they go there (#16 QA).
     val cardFreeSpace = remember(card) { card?.let { runCatching { android.os.StatFs(it.path).availableBytes }.getOrNull() } }
@@ -233,12 +239,31 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
             val cardFree = remember(card) { runCatching { android.os.StatFs(card.path).availableBytes }.getOrDefault(0L) }
             SettingsRow(index = 4, count = rows, headline = "Store on SD card", leading = rowIcon("sd-card"),
                 supporting = "$cardName · ${formatBytes(cardFree)} free",
-                enabled = moving == null,
-                trailing = { Switch(checked = onCard, onCheckedChange = null, enabled = moving == null) },
+                enabled = moving == null && !counting,
+                trailing = { Switch(checked = onCard, onCheckedChange = null, enabled = moving == null && !counting) },
                 toggled = onCard, onToggle = {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
-                    val left = OfflineStore.downloadsOn(context, card = !it)
-                    if (left != null && left > 0 && moving == null) offerMove = it to left
+                    countNotice = null
+                    val target = it
+                    val shelf = store.card
+                    counting = true
+                    countScope.launch {
+                        try {
+                            val left = OfflineStore.moveOfferCount(card = !target)
+                            // A changed choice, store or card, or a move begun meanwhile: nothing is offered.
+                            val current = onCard == target && DownloadMarks.moving == null &&
+                                OfflineStore.current() === store && store.card === shelf
+                            if (!current) return@launch
+                            if (left is OfflineStore.MoveOfferCount.Counted && left.count > 0) offerMove = target to left.count
+                            countNotice = when (left) {
+                                is OfflineStore.MoveOfferCount.Counted -> null
+                                OfflineStore.MoveOfferCount.Busy ->
+                                    "Saved storage is busy. Your choice was saved."
+                                OfflineStore.MoveOfferCount.Unavailable ->
+                                    "Couldn't check existing copies. Your choice was saved."
+                            }
+                        } finally { counting = false }
+                    }
                 })
         } else if (cardUnavailable) {
             SettingsRow(index = 4, count = rows, headline = "Store on SD card", leading = rowIcon("sd-card"),
@@ -251,6 +276,9 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
                 })
         }
     }
+    if (card != null && (counting || countNotice != null)) Text(if (counting) "Checking for copies to move…" else countNotice.orEmpty(),
+        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp))
     offerMove?.let { (toCard, count) ->
         val what = "$count ${if (count == 1) "download" else "downloads"}"
         AlertDialog(onDismissRequest = { offerMove = null },

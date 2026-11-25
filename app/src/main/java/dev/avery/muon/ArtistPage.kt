@@ -32,9 +32,9 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
-    currentId: String?, playing: Boolean, ready: Boolean, state: LazyListState, backLabel: String = "Back to artists",
+    currentIndex: Int, playing: Boolean, ready: Boolean, state: LazyListState, backLabel: String = "Back to artists",
     actions: (TauonTrack) -> Unit, back: () -> Unit,
-    playAll: (shuffle: Boolean) -> Unit, openAlbum: (LibraryAlbum) -> Unit, play: (TauonTrack) -> Unit) {
+    playAll: (shuffle: Boolean) -> Unit, openAlbum: (LibraryAlbum) -> Unit, play: (TauonTrack, Int) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = artist?.tracks?.any { it.playable } == true && ready
     val toolbarRoom = if (Expressive.motion) PAGE_TOOLBAR_ROOM else 0.dp
@@ -82,9 +82,9 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
                     listOfNotNull(credits.takeIf { !it.equals(displayCredits(artist.name), ignoreCase = true) && it.isNotBlank() },
                         track.album.trim().ifBlank { null }).joinToString(" · ")
                 }
-                TrackRow(track, endpoint, currentId == "${endpoint?.origin}/${track.id}", playing, ready,
+                TrackRow(track, endpoint, index == currentIndex, playing, ready,
                     subtitle = if (track.playable) subtitle else trackSubtitle(track.artist, track.album, false),
-                    actions = { actions(track) }, place = groupPlace(index, artist.tracks.size)) { play(track) }
+                    actions = { actions(track) }, place = groupPlace(index, artist.tracks.size)) { play(track, index) }
             }
         }
         // Items: Back 0, header 1, then Play and Shuffle at 2.

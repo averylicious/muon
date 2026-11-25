@@ -24,6 +24,8 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     var progress by mutableStateOf(""); private set
     /** Tauon could not be reached, so the library is only the saved copies (#112, #213). */
     var offline by mutableStateOf(false); private set
+    /** Source list mapping for the last live queue started from the UI (#783). Survives rotation. */
+    internal var activeQueueOrigin by mutableStateOf<LiveQueueOrigin?>(null)
     /** Current bounded display page; never the whole saved inventory (#253). */
     internal var saved by mutableStateOf<List<SavedEntry>>(emptyList()); private set
     internal var savedSnapshot by mutableStateOf<SavedCatalogSnapshot?>(null); private set
@@ -232,10 +234,19 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Cancel a pending online/offline load, retaining the last published library and address. */
+    internal fun cancelLoad() {
+        if (!busy) return
+        loads.cancel() // Revoke publication before cancellation can finish an old callback inline.
+        error = null
+        progress = if (endpoint != null) "Showing last loaded library" else "Loading cancelled"
+    }
+
     fun disconnect() {
         savedLoad?.cancel(); cancelSavedPlayback(); savedRevision++; savedBusy = false
         savedPages.clear(); saved = emptyList(); savedSnapshot = null; savedOffset = 0; savedError = null
         loads.cancel(); endpoint = null; playlists = emptyList(); tracksByPlaylist = emptyMap(); offline = false
+        activeQueueOrigin = null
         OfflineStore.offline = false
         prefs.edit().clear().apply(); address = ""; error = null; progress = ""
     }
