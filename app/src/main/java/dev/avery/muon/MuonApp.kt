@@ -56,7 +56,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import java.util.Locale
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -177,19 +177,6 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             model.endpoint?.let { artworkIdentities(it, all) } ?: emptyMap()
         }
         SideEffect { ArtworkIdentities.publish(identities) }
-        // Filtering a large library on the composition thread stalled typing. Debounced, kept off
-        // the main thread, and hoisted here so results survive a trip to another tab.
-        // Reset immediately when the library changes; never offer old server track IDs while
-        // the replacement library's search is still debouncing.
-        val search by key(snapshot) {
-            produceState(SearchResults(), query) {
-                if (query.isBlank()) { value = SearchResults(); return@produceState }
-                value = value.copy(searching = true)
-                delay(SEARCH_DEBOUNCE_MS)
-                val found = withContext(Dispatchers.Default) { searchTracks(all, query) }
-                value = SearchResults(found, searching = false, completed = query.trim())
-            }
-        }
         // Offline, the saved copies show with or without a known server (#213).
         val connected = model.endpoint != null || model.offline
         val origin = model.endpoint?.origin
@@ -199,26 +186,54 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // A newer snapshot cancels an unfinished grouping of the old one.
         var artistGroups by remember { mutableStateOf<ArtistGroups?>(null) }
         var albumGroups by remember { mutableStateOf<AlbumGroups?>(null) }
+        var groupBrowse by remember { mutableStateOf<GroupBrowse?>(null) }
         LaunchedEffect(snapshot, origin) {
-            val grouping = origin ?: run { artistGroups = null; albumGroups = null; return@LaunchedEffect }
+            val grouping = origin ?: run { artistGroups = null; albumGroups = null; groupBrowse = null; return@LaunchedEffect }
             // A new snapshot already hides the old groups. Drop their retained graph now, rather
             // than keeping it throughout replacement work. Superseded CPU loops must observe cancel.
-            artistGroups = null; albumGroups = null
-            val (grouped, albumsGrouped) = withContext(Dispatchers.Default) {
+            artistGroups = null; albumGroups = null; groupBrowse = null
+            // Search's browse (top artists, newest albums) is made here too, once per grouping.
+            val (grouped, albumsGrouped, browse) = withContext(Dispatchers.Default) {
                 val job = currentCoroutineContext()
-                groupArtists(snapshot.tracks) { job.ensureActive() } to
-                    groupAlbums(snapshot.tracks) { job.ensureActive() }
+                val check = { job.ensureActive() }
+                val artistsGrouped = groupArtists(snapshot.tracks, check)
+                val albumsGrouped = groupAlbums(snapshot.tracks, check)
+                Triple(artistsGrouped, albumsGrouped,
+                    topArtists(artistsGrouped, checkpoint = check) to newestAlbums(albumsGrouped, checkpoint = check))
             }
-            artistGroups = ArtistGroups(grouping, snapshot, grouped)
+            val owner = ArtistGroups(grouping, snapshot, grouped)
+            artistGroups = owner
             albumGroups = AlbumGroups(grouping, snapshot, albumsGrouped)
+            groupBrowse = GroupBrowse(owner, browse.first, browse.second)
         }
+        // The raw current groups validate saved pages and selections, as before.
         val artists = currentArtists(artistGroups, origin, snapshot)
         val albums = currentAlbums(albumGroups, origin, snapshot)
-        // The chosen orders, applied once per library and per choice rather than on every frame.
-        // Both derive from data already bound to this snapshot, so sorting adds no stale state.
-        val songs = remember(snapshot, library.songOrder) { sortSongs(all, library.songOrder) }
-        val sortedArtists = remember(artists, library.artistOrder) { artists?.let { sortArtists(it, library.artistOrder) } }
-        val sortedAlbums = remember(albums, library.albumOrder) { albums?.let { sortAlbums(it, library.albumOrder) } }
+        val artistSource = artistGroups?.takeIf { artists != null }
+        val albumSource = albumGroups?.takeIf { albums != null }
+        // The chosen orders are sorted on a worker (#639), each tagged with what it was sorted from.
+        // A changed snapshot, server, order or locale hides the old order in this same composition;
+        // the effect then drops it, and a newer request cancels an unfinished sort. Null is loading.
+        val locale = Locale.getDefault()
+        val songKey = SongProjectionKey(snapshot, origin, library.songOrder, locale)
+        var songProjection by remember { mutableStateOf<Projection<SongProjectionKey, List<TauonTrack>>?>(null) }
+        LaunchedEffect(songKey) { songProjection = null; songProjection = projectSongs(songKey) }
+        val songs = songProjection.current(songKey)
+        val artistOrderKey = artistSource?.let { ArtistProjectionKey(it, library.artistOrder, locale) }
+        var artistProjection by remember { mutableStateOf<Projection<ArtistProjectionKey, List<LibraryArtist>>?>(null) }
+        LaunchedEffect(artistOrderKey) {
+            artistProjection = null
+            artistProjection = projectArtists(artistOrderKey ?: return@LaunchedEffect)
+        }
+        val sortedArtists = artistOrderKey?.let { artistProjection.current(it) }
+        val albumOrderKey = albumSource?.let { AlbumProjectionKey(it, library.albumOrder, locale) }
+        var albumProjection by remember { mutableStateOf<Projection<AlbumProjectionKey, List<LibraryAlbum>>?>(null) }
+        LaunchedEffect(albumOrderKey) {
+            albumProjection = null
+            albumProjection = projectAlbums(albumOrderKey ?: return@LaunchedEffect)
+        }
+        val albumView = albumOrderKey?.let { key -> albumProjection?.takeIf { it.owner == key } }
+        val sortedAlbums = albumView?.value
         // Jump back in: each album is remembered as a song from it starts, for the server it came from.
         val playingId = trackIdOf(ui.item?.mediaId, origin)
         // Whether Tauon has lyrics for the song on show, for Now Playing's hint; the player's item
@@ -234,16 +249,26 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             if (albums != null && origin != null && origin == library.recentOrigin) recentAlbums(library.recentAlbums, albums)
             else emptyList()
         }
-        // Matched against the query the songs finished with, so all three sections agree; cheap enough
-        // for the main thread, since there are far fewer artists and albums than songs.
-        val foundArtists = remember(artists, search.completed) { artists?.let { searchArtists(it, search.completed) }.orEmpty() }
-        val foundAlbums = remember(sortedAlbums, search.completed) { sortedAlbums?.let { searchAlbums(it, search.completed) }.orEmpty() }
+        // Filtering a large library on the composition thread stalled typing. Debounced, kept off
+        // the main thread, and hoisted here so results survive a trip to another tab. Songs, artists
+        // (raw group order breaks ties) and albums (in the chosen order) are matched together.
+        // Reset immediately when the library changes; never offer old server track IDs while
+        // the replacement library's search is still debouncing.
+        val search by key(snapshot, origin) {
+            produceState(SearchResults(), query, artistSource, albumView) {
+                value = runSearch(value, query, all, artistSource, albumView, { value = it })
+            }
+        }
+        // Only from the sources now current: a newer grouping or album order hides older matches.
+        val foundArtists = if (artistSource != null && search.artistSource === artistSource) search.artists else emptyList()
+        val foundAlbums = if (albumView != null && search.albumSource === albumView) search.albums else emptyList()
         // Kept here so Back from a page opened from the results finds them where they were; a new
-        // search starts from its top.
+        // search starts from its top. Groups or an order arriving later keep the same completed query.
         val searchList = rememberSaveable(search.completed, saver = LazyListState.Saver) { LazyListState() }
-        // What Search shows before anything is typed.
-        val browseArtists = remember(artists) { artists?.let { topArtists(it) }.orEmpty() }
-        val browseAlbums = remember(albums) { albums?.let { newestAlbums(it) }.orEmpty() }
+        // What Search shows before anything is typed, made by the grouping worker.
+        val browse = groupBrowse?.takeIf { artistSource != null && it.groups === artistSource }
+        val browseArtists = browse?.artists.orEmpty()
+        val browseAlbums = browse?.albums.orEmpty()
         // An endpoint exists only after a complete load succeeded, so it is both the identity of
         // the server and the signal that there is something to judge a saved selection against.
         val selection = storedSelection(openOrigin, openId, origin, model.playlists)
@@ -871,22 +896,23 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                 val songsSource = "songs:${library.songOrder.name}"
                                                                 val activeIndex = remember(songs, model.endpoint, ui.item?.mediaId,
                                                                     ui.occurrenceKey, songsSource, model.activeQueueOrigin) {
-                                                                    activeTrackIndex(songs, model.endpoint, ui.item?.mediaId,
+                                                                    if (songs == null) -1 else activeTrackIndex(songs, model.endpoint, ui.item?.mediaId,
                                                                         ui.occurrenceKey, songsSource, model.activeQueueOrigin)
                                                                 }
                                                                 // Counted like Albums and Artists (#16 QA).
-                                                                if (songs.isNotEmpty()) SortBar("${songs.size} ${if (songs.size == 1) "song" else "songs"}",
+                                                                if (!songs.isNullOrEmpty()) SortBar("${songs.size} ${if (songs.size == 1) "song" else "songs"}",
                                                                     SongOrder.entries, library.songOrder, { it.label }) {
                                                                     library.chooseSongOrder(it); songList = LazyListState()
                                                                 }
-                                                                // Plays on in the order shown.
-                                                                TrackList(songs, model.endpoint, activeIndex, player != null, ui.playing, actions = { actionTrack = it; actionList = songs; actionSourceKey = songsSource },
+                                                                // Plays on in the order shown; an order still being sorted is
+                                                                // loading, not empty, and starts nothing.
+                                                                TrackList(songs.orEmpty(), model.endpoint, activeIndex, player != null, ui.playing, actions = { actionTrack = it; actionList = songs.orEmpty(); actionSourceKey = songsSource },
                                                                     emptyText = "No music yet. Add local music in Tauon, then refresh.",
-                                                                    loading = model.busy, state = songList,
+                                                                    loading = model.busy || songs == null, state = songList,
                                                                     // A–Z only: in Recently added there are no letters to jump to.
                                                                     sections = if (library.songOrder == SongOrder.Title) {
                                                                         { t: TauonTrack -> sectionLetter(t.title) }
-                                                                    } else null) { track, index -> startQueue(songs, track, songsSource, index) }
+                                                                    } else null) { track, index -> songs?.let { startQueue(it, track, songsSource, index) } }
                                                             }
                                                             LibraryView.Albums -> Column {
                                                                 val albumSort: @Composable (Dp) -> Unit = { inset ->
@@ -969,16 +995,16 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     SearchScreen(query, { query = it }, searchOpen, { searchOpen = it }, search.searching,
                                         browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage,
                                         recent = recentSearches.items, submit = { recentSearches.remember(it) }, clearRecent = { recentSearches.clear() }) {
-                                        TrackList(search.tracks, model.endpoint, searchActiveIndex, player != null, ui.playing, actions = { actionTrack = it; actionList = songs; actionSourceKey = songsSource },
+                                        TrackList(search.tracks, model.endpoint, searchActiveIndex, player != null && songs != null, ui.playing, actions = { actionTrack = it; actionList = songs.orEmpty(); actionSourceKey = songsSource },
                                             emptyText = searchEmptyText(query, search.searching, search.completed), state = searchList,
                                             header = { searchCollection(foundArtists, foundAlbums, model.endpoint, openArtistPage, openAlbumPage) }) { track, _ ->
                                             // A search finds where to start, not what to play: the song plays on
                                             // through the whole library in the Songs order, so Next and Shuffle
                                             // reach every song rather than only the few that matched.
                                             // The keyboard goes, so the mini player shows what started.
-                                            keyboard?.hide()
-                                            recentSearches.remember(query)
-                                            startQueue(songs, track, songsSource)
+                                            // Only in the current Songs order; while it is still sorting, nothing starts.
+                                            val order = songs
+                                            if (order != null) { keyboard?.hide(); recentSearches.remember(query); startQueue(order, track, songsSource) }
                                         }
                                     }
                                 }
