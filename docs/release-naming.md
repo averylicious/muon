@@ -2,9 +2,18 @@
 
 A redesign name describes a body of work. It is not an APK version, release tag, or permission to publish Stable.
 
-## Current workstream
+## Design generations and workstreams
 
-Use **Collection redesign** for the UI/UX work historically called **Muon 2.0** or **UI 2.0**. The existing `docs/design/2.0/` paths, issue titles and branches remain valid historical references; do not rename them as part of this convention. On first mention in a handoff, write “Collection redesign (formerly UI 2.0)”. Use descriptive names for future reworks instead of a release-like number.
+Use descriptive names for UI/UX reworks rather than release-like numbers so a redesign name is never confused with an APK version or tag:
+
+| Generation | Canonical name | Historical / retired aliases | Track / baseline | Status |
+| --- | --- | --- | --- | --- |
+| Gen 1 | **Initial** | MVP, v0.1 | `main` (`v0.1.0`) | Shipped & superseded |
+| Gen 2 | **Collection redesign** | "Muon 2.0", "UI 2.0" | `main` (`v0.2.0`) | Shipped on `main`; mockups retired |
+| Gen 3 | **M3 Expressive (Refined)** | "M3E", "Expressive alpha" | `claude/m3-expressive-alpha` (frozen RC `.1420`) | Current implemented baseline (`docs/design/current/`) |
+| Gen 4 (Next) | **Descriptive theme slug** *(TBD)* | Avoid "Muon 3.0" / "UI 3.0" | New branch off M3E | Planned next redesign (`docs/design/<slug>/`) |
+
+Historically, **Collection redesign** was called **Muon 2.0** or **UI 2.0**; existing issue titles and branch names remain valid historical references. On first mention in a historical handoff, write “Collection redesign (formerly UI 2.0)”. Keep `docs/design/current/` exclusively for real device screenshots of the implemented app, and put new redesign proposals in a separate descriptive folder under `docs/design/<slug>/`.
 
 Track delivery with an issue and a small slice name, for example “#43 — player presentation host”. Identify a tested build by its Canary version, complete commit SHA and Actions run link. A successful branch build means ready for manual QA, not merged or released.
 
