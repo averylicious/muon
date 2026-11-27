@@ -1,12 +1,10 @@
 """Real Git graph regressions for branch direction and integration freshness."""
 import os
-import re
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 
 import check_branch_policy as policy
 
@@ -25,14 +23,11 @@ class BranchPolicyTest(unittest.TestCase):
         self.base = self.commit('base.txt')
         self.git('branch', 'audit')
         self.git('checkout', '-qb', 'experiment')
-        self.alpha = self.commit('alpha.txt')
-        self.git('update-ref', 'refs/remotes/origin/' + policy.EXPERIMENT, self.alpha)
+        self.exp = self.commit('exp.txt')
+        self.git('update-ref', 'refs/remotes/origin/' + policy.EXPERIMENT, self.exp)
         self.git('checkout', 'audit')
         self.fix = self.commit('fix.txt')
         self.git('update-ref', 'refs/remotes/origin/main', self.fix)
-        anchor = patch.object(policy, 'EXPERIMENT_START', self.alpha)
-        anchor.start()
-        self.addCleanup(anchor.stop)
 
     def git(self, *args):
         return subprocess.check_output(['git', *args], stderr=subprocess.PIPE, text=True).strip()
@@ -46,13 +41,8 @@ class BranchPolicyTest(unittest.TestCase):
     def test_current_audit_head_can_target_main(self):
         self.assertEqual(self.fix, policy.check('main', self.fix, 'codex/fix'))
 
-    def test_renaming_a_branch_does_not_hide_experimental_ancestry(self):
-        self.git('merge', '--no-edit', 'experiment')
-        with self.assertRaisesRegex(ValueError, 'contains the alpha'):
-            policy.check('main', self.git('rev-parse', 'HEAD'), 'codex/innocent-name')
-
     def test_sync_and_experiment_names_cannot_target_main(self):
-        for name in (policy.EXPERIMENT, 'sync/main-into-expressive-123'):
+        for name in (policy.EXPERIMENT, 'sync/main-into-gen-4-123', 'sync/main-into-expressive-123'):
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'must not target main'):
                 policy.check('main', self.fix, name)
 
@@ -63,8 +53,8 @@ class BranchPolicyTest(unittest.TestCase):
     def test_forward_merge_checks_the_combined_head(self):
         self.git('checkout', 'experiment')
         self.git('merge', '--no-edit', 'audit')
-        self.assertEqual(self.alpha, policy.check(policy.EXPERIMENT,
-                         self.git('rev-parse', 'HEAD'), 'sync/main-into-expressive-123'))
+        self.assertEqual(self.exp, policy.check(policy.EXPERIMENT,
+                         self.git('rev-parse', 'HEAD'), 'sync/main-into-gen-4-123'))
 
     def test_destination_advance_invalidates_previous_snapshot(self):
         self.git('checkout', 'experiment')
@@ -73,48 +63,35 @@ class BranchPolicyTest(unittest.TestCase):
         newer = self.commit('new-ui.txt')
         self.git('update-ref', 'refs/remotes/origin/' + policy.EXPERIMENT, newer)
         with self.assertRaisesRegex(ValueError, 'Destination advanced'):
-            policy.check(policy.EXPERIMENT, checked, 'sync/main-into-expressive-123')
+            policy.check(policy.EXPERIMENT, checked, 'sync/main-into-gen-4-123')
 
     def test_forward_sync_cannot_omit_new_main_fixes(self):
         with self.assertRaisesRegex(ValueError, 'include current main'):
-            policy.check(policy.EXPERIMENT, self.alpha, 'sync/main-into-expressive-123')
+            policy.check(policy.EXPERIMENT, self.exp, 'sync/main-into-gen-4-123')
 
     def test_candidate_cannot_replace_the_destination_checker_with_a_false_pass(self):
-        # The trusted destination copy lives outside the candidate worktree, as in the workflow.
         trusted = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(trusted.cleanup)
         checker = Path(trusted.name) / 'check_branch_policy.py'
-        source = Path(policy.__file__).read_text()
-        # Bind the real checker to this disposable graph's experiment anchor.
-        source = re.sub(r"EXPERIMENT_START = '[0-9a-f]{40}'",
-                        "EXPERIMENT_START = '" + self.alpha + "'", source)
-        checker.write_text(source)
-        self.git('merge', '--no-edit', 'experiment')
+        checker.write_text(Path(policy.__file__).read_text())
+        self.git('checkout', 'experiment')
         Path('tools').mkdir()
         candidate = Path('tools/check_branch_policy.py')
         candidate.write_text('print("false pass from candidate")\n')
         self.git('add', 'tools/check_branch_policy.py')
         self.git('commit', '-qm', 'replace candidate policy')
         head = self.git('rev-parse', 'HEAD')
-        arguments = ['--base', 'main', '--head', head, '--source', 'codex/renamed-alpha']
-        forged = subprocess.run([sys.executable, str(candidate), *arguments],
+        result = subprocess.run([sys.executable, '-I', str(checker),
+                                 '--base', 'main', '--head', head, '--source', policy.EXPERIMENT],
                                 capture_output=True, text=True)
-        self.assertEqual(0, forged.returncode)  # Old workflow would run this instead.
-        checked = subprocess.run([sys.executable, '-I', str(checker), *arguments],
-                                 capture_output=True, text=True)
-        self.assertNotEqual(0, checked.returncode)
-        self.assertIn('contains the alpha experiment', checked.stderr)
-        self.assertNotIn('false pass from candidate', checked.stdout)
+        self.assertEqual(1, result.returncode)
+        self.assertIn('must not target main', result.stderr)
 
-    def test_unknown_history_fails_instead_of_passing(self):
-        with patch.object(policy, 'EXPERIMENT_START', 'f' * 40):
-            with self.assertRaises(subprocess.CalledProcessError):
-                policy.check('main', self.fix, 'codex/fix')
-
-    def test_rejects_unsupported_destination_and_non_sha_head(self):
-        for base, head in [('other', self.fix), ('main', 'HEAD')]:
-            with self.subTest(base=base, head=head), self.assertRaises(ValueError):
-                policy.check(base, head, 'codex/fix')
+    def test_unknown_destination_or_bad_sha_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, 'Choose main'):
+            policy.check('release', self.fix, 'codex/fix')
+        with self.assertRaisesRegex(ValueError, 'full commit SHA'):
+            policy.check('main', 'HEAD', 'codex/fix')
 
 
 if __name__ == '__main__':

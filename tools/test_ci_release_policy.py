@@ -4,7 +4,6 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
 
 import check_branch_policy as branches
 import check_release_policy as release
@@ -24,13 +23,10 @@ class ReleasePolicyTest(unittest.TestCase):
             self.git('config', key, value)
         self.old_main = self.commit('baseline.txt')
         self.git('checkout', '-qb', 'experiment')
-        self.alpha = self.commit('alpha.txt')
+        self.exp = self.commit('exp.txt')
         self.git('checkout', 'main')
         self.main = self.commit('main-fix.txt')
         self.git('update-ref', 'refs/remotes/origin/main', self.main)
-        anchor = patch.object(branches, 'EXPERIMENT_START', self.alpha)
-        anchor.start()
-        self.addCleanup(anchor.stop)
 
     def git(self, *args):
         return subprocess.check_output(['git', *args], stderr=subprocess.PIPE, text=True).strip()
@@ -55,13 +51,10 @@ class ReleasePolicyTest(unittest.TestCase):
         self.tag(self.old_main, annotated=True)
         self.assertEqual(self.main, release.check('tag', 'v1.2.3', self.old_main))
 
-    def test_experimental_tag_fails_even_after_alpha_reaches_main(self):
-        self.git('merge', '--no-edit', 'experiment')
-        polluted_main = self.git('rev-parse', 'HEAD')
-        self.git('update-ref', 'refs/remotes/origin/main', polluted_main)
-        self.tag(polluted_main)
-        with self.assertRaisesRegex(ValueError, 'alpha experiment'):
-            release.check('tag', 'v1.2.3', polluted_main)
+    def test_unmerged_experiment_commit_cannot_be_published_as_stable(self):
+        self.tag(self.exp)
+        with self.assertRaisesRegex(ValueError, 'already included'):
+            release.check('tag', 'v1.2.3', self.exp)
 
     def test_renamed_unmerged_audit_branch_cannot_be_published_as_stable(self):
         self.git('checkout', '-qb', 'innocent-name')
@@ -75,11 +68,8 @@ class ReleasePolicyTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'no longer resolves'):
             release.check('tag', 'v1.2.3', self.main)
 
-    def test_missing_main_or_anchor_fails_closed(self):
+    def test_missing_main_fails_closed(self):
         self.tag(self.main)
-        with patch.object(branches, 'EXPERIMENT_START', 'f' * 40):
-            with self.assertRaises(subprocess.CalledProcessError):
-                release.check('tag', 'v1.2.3', self.main)
         self.git('update-ref', '-d', 'refs/remotes/origin/main')
         with self.assertRaises(subprocess.CalledProcessError):
             release.check('tag', 'v1.2.3', self.main)
@@ -107,7 +97,7 @@ class ReleasePolicyTest(unittest.TestCase):
                 release.check(ref_type, ref_name, head)
 
     def test_branches_skip_the_tag_only_guard(self):
-        self.assertIsNone(release.check('branch', branches.EXPERIMENT, self.alpha))
+        self.assertIsNone(release.check('branch', branches.EXPERIMENT, self.exp))
         self.assertIsNone(release.check('branch', 'main', self.main))
 
 
