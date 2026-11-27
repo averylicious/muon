@@ -6,6 +6,7 @@ These instructions apply to all coding agents working in this repository. Read t
 
 - Muon is a Kotlin / Jetpack Compose / Media3 Android streaming client for Tauon. Keep the architecture small and dependencies minimal; follow the existing code before adding abstractions.
 - Tauon's unauthenticated HTTP API is trusted-LAN-only. Do not expose it publicly, open tunnels, or change the user's firewall/network configuration as part of feature work.
+- Hostile-media container pre-parsers and Media3-internal allocation wrappers are out of scope under the trusted-LAN model. Only add format-specific parser guards for bugs reproduced on real user files; prefer Media3's public APIs (such as extractor filtering and track-selection parameters) over duplicating extractor internals.
 - Preserve package IDs, signing identities, and the Stable/Canary update paths unless explicitly asked to change them. See `docs/ci.md` and `docs/obtainium.md`.
 - Always use the **1Password MCP server** when working with 1Password developer Environments. If unavailable, report that limitation instead of silently switching to another access method. Never print or commit secrets or upload signing material as an artifact.
 
