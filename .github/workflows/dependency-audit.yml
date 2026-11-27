@@ -83,7 +83,7 @@ jobs:
       - name: Isolate restored Gradle distributions before execution
         run: python3 -I tools/isolate_gradle_distribution.py "$GRADLE_USER_HOME" "$HOME" "$RUNNER_TEMP"
       - name: Install Android SDK packages
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" "build-tools;37.0.0"'
       - name: Record public SDK verifier identity without execution
         run: python3 tools/sdk_tool_inventory.py "$ANDROID_HOME/build-tools/37.0.0" --commit "$GITHUB_SHA"
       # Unlike the static inventory above, this runs code: after a hash match it calls apksigner's

@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "dev.avery.muon.baselineprofile"
     compileSdk = 37
-    compileSdkMinor = 0
+    compileSdkMinor = 2
     buildToolsVersion = "37.0.0"
     defaultConfig {
         // Recording without root needs Android 13; the app's own floor is lower.
@@ -35,7 +35,7 @@ android {
 androidComponents { beforeVariants { it.enable = it.buildType == "benchmark" } }
 dependencies {
     implementation("androidx.benchmark:benchmark-macro-junit4:1.5.0")
-    implementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    implementation("androidx.test.uiautomator:uiautomator:2.4.1")
     implementation("androidx.test.ext:junit:1.3.0")
     implementation("androidx.test:runner:1.7.0")
 }

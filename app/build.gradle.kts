@@ -4,9 +4,10 @@ plugins {
 }
 android {
     namespace = "dev.avery.muon"
-    // Android 17. Its platform is published as API level 37.0 (platforms;android-37.0), hence the minor level.
+    // Android 17 minor release 37.2 (platforms;android-37.2): satisfies Compose 1.13 (37.1+)
+    // and exposes API 37.2 RenderNode/View.setBackdropRenderEffect for Gen 4.
     compileSdk = 37
-    compileSdkMinor = 0
+    compileSdkMinor = 2
     buildToolsVersion = "37.0.0"
     defaultConfig {
         // Off unless a build type offers it: Canary and Stable do, benchmark does not.
@@ -106,13 +107,11 @@ android {
     }
 }
 dependencies {
-    implementation("androidx.activity:activity-compose:1.11.0")
-    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
-    // Material 3 1.5.0 is stable while Compose BOM 2026.09.00 still maps material3 to 1.4.0.
-    // 1.5.0 requires only Compose 1.12.0, so the rest of Compose stays on the BOM's stable 1.12.1.
-    implementation("androidx.compose.material3:material3:1.5.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation(platform("androidx.compose:compose-bom:2026.11.01"))
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.1")
     implementation("androidx.media3:media3-exoplayer:1.11.1")
     implementation("androidx.media3:media3-session:1.11.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.11.1")

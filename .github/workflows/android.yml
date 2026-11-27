@@ -123,7 +123,7 @@ jobs:
 
       - name: Install Android SDK packages
         if: steps.scope.outputs.build_apks == 'true'
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" "build-tools;37.0.0"'
 
       # Separate default-key helper, built before any Muon signing material is restored.
       - name: Build disposable media-entry QA helper
