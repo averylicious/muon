@@ -260,13 +260,17 @@ internal class LocalNetworkDenied : Exception("Muon needs your permission to rea
 /** Parser diagnostics may contain the entire response; they are not UI copy. */
 private const val INVALID_TAUON_DATA = "Tauon returned unreadable data. Check its library and retry."
 private const val CONNECTION_FAILURE = "Connection failed. Check your LAN connection and retry."
+internal const val UNREADABLE_AUDIO_FILE = "This song's file couldn't be read."
 private const val MAX_CONNECTION_ERROR_LENGTH = 512
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 fun friendlyError(e: Throwable): String = when (e) {
     is java.io.InterruptedIOException -> "Tauon did not respond. Check the server, LAN firewall and VPN LAN access, then retry."
     is java.net.ConnectException -> "Cannot reach Tauon. Enable remote control, restart Tauon, and check the address."
     is java.net.UnknownHostException -> "Server address could not be resolved."
     is org.json.JSONException -> INVALID_TAUON_DATA
+    is androidx.media3.common.ParserException,
+    is androidx.media3.exoplayer.upstream.Loader.UnexpectedLoaderException -> UNREADABLE_AUDIO_FILE
     // Preserve useful short validation/HTTP errors without rendering arbitrary response-sized text.
     else -> e.message?.takeIf { it.length <= MAX_CONNECTION_ERROR_LENGTH && it.isNotBlank() }
         ?: CONNECTION_FAILURE
