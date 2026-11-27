@@ -29,6 +29,7 @@ At rest, Search shows your top artists and recent albums. Typing searches titles
   - It takes its colours from the song's cover.
   - Swipe the cover sideways to skip.
   - It has a seek bar, previous, play/pause, next, shuffle and repeat, and a media volume slider.
+  - Previous restarts the song; pressed again within three seconds, or in a song's first three seconds, it goes to the song before.
   - **Lyrics** shows the lyrics Tauon has stored.
   - **Queue** shows what's playing and what's next. Drag to reorder when shuffle is off.
 - **Shuffle and repeat:** Repeat cycles Off, All and One. Both settings are remembered.

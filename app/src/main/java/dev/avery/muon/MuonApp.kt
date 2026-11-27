@@ -1,5 +1,11 @@
 package dev.avery.muon
 
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.animation.core.rememberTransition
+import android.os.Build
+import androidx.compose.ui.platform.LocalLayoutDirection
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -10,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.AnimatedVisibility
@@ -31,20 +38,25 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import java.util.Locale
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -59,6 +71,8 @@ private enum class Tab { Library, Search, Settings }
 fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryModel = viewModel(),
     darkTheme: Boolean = androidx.compose.foundation.isSystemInDarkTheme()) {
     val appearance = rememberAppearanceSettings()
+    // The controller as it is now, for callbacks that outlive the composition that made them.
+    val currentPlayer by rememberUpdatedState(player)
     MuonTheme(darkTheme = darkTheme, dynamicColor = appearance.palette == PaletteChoice.MaterialYou,
         blackSurfaces = useBlackSurfaces(appearance.amoled, darkTheme)) {
         val colors = MaterialTheme.colorScheme
@@ -140,6 +154,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
         }
         var query by rememberSaveable { mutableStateOf("") }
+        val recentSearches = rememberRecentSearches()
         // Whether the open library page was opened from Search, which Back then returns to.
         var fromSearch by rememberSaveable { mutableStateOf(false) }
         // Whether the search bar is expanded over the Search tab; kept here so a page opened from the
@@ -199,7 +214,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // The chosen orders are sorted on a worker (#639), each tagged with what it was sorted from.
         // A changed snapshot, server, order or locale hides the old order in this same composition;
         // the effect then drops it, and a newer request cancels an unfinished sort. Null is loading.
-        val locale = Locale.getDefault()
+        val locale = LocalLocale.current.platformLocale
         val songKey = SongProjectionKey(snapshot, origin, library.songOrder, locale)
         var songProjection by remember { mutableStateOf<Projection<SongProjectionKey, List<TauonTrack>>?>(null) }
         LaunchedEffect(songKey) { songProjection = null; songProjection = projectSongs(songKey) }
@@ -219,6 +234,21 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         }
         val albumView = albumOrderKey?.let { key -> albumProjection?.takeIf { it.owner == key } }
         val sortedAlbums = albumView?.value
+        // Jump back in: each album is remembered as a song from it starts, for the server it came from.
+        val playingId = trackIdOf(ui.item?.mediaId, origin)
+        // Whether Tauon has lyrics for the song on show, for Now Playing's hint; the player's item
+        // doesn't carry it, the library does.
+        val playingTrack = remember(playingId, snapshot) { playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id } } }
+        val playingLyrics = playingTrack?.hasLyrics == true
+        LaunchedEffect(playingId, origin, snapshot) {
+            val server = origin ?: return@LaunchedEffect
+            val track = playingId?.let { id -> snapshot.tracks.firstOrNull { it.id == id } } ?: return@LaunchedEffect
+            if (track.album.isNotBlank()) library.played(server, albumKey(track))
+        }
+        val recent = remember(albums, origin, library.recentOrigin, library.recentAlbums) {
+            if (albums != null && origin != null && origin == library.recentOrigin) recentAlbums(library.recentAlbums, albums)
+            else emptyList()
+        }
         // Filtering a large library on the composition thread stalled typing. Debounced, kept off
         // the main thread, and hoisted here so results survive a trip to another tab. Songs, artists
         // (raw group order breaks ties) and albums (in the chosen order) are matched together.
@@ -275,10 +305,23 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         val lyricsShown = overlayOpen && lyricsOpen
         val queueShown = overlayOpen && queueOpen && !lyricsShown
         val playerShown = overlayOpen && !lyricsShown && !queueShown
+        // Queue and Lyrics cover the player rather than putting it away, so a held Back gesture on
+        // either can show Now Playing underneath (issue #658). Once one has fully covered it, the
+        // player leaves composition until that overlay closes or previews going back.
+        val lyricsCover = remember { MutableTransitionState(false) }.apply { targetState = lyricsShown }
+        val queueCover = remember { MutableTransitionState(false) }.apply { targetState = queueShown }
+        var overlayPeeking by remember { mutableStateOf(false) }
+        val playerCovered = !overlayPeeking &&
+            ((lyricsCover.isIdle && lyricsCover.currentState) || (queueCover.isIdle && queueCover.currentState))
         // The player's one vertical position, held outside its composition so it outlives the
         // closing animation. Opening and closing drive it from the logical state; progress never
         // decides where Back goes.
-        val sheet = rememberPlayerSheet(openAtStart = playerShown)
+        val sheet = rememberPlayerSheet(openAtStart = overlayOpen)
+        // With Expressive motion the player grows out of the mini player rather than rising from
+        // below the screen (PlayerMorph), which changes how far its edge travels.
+        val morph = remember(sheet) { PlayerMorph(sheet).also { m -> sheet.morphTravel = { m.travel() } } }
+        val topInset = WindowInsets.safeDrawing.getTop(LocalDensity.current).toFloat()
+        SideEffect { morph.topInset = topInset }
         // Re-presents the logical state whenever it changes and whenever a preview from the mini
         // player ends. A preview that opened the player ends in the same event, so the sheet carries
         // on up from where the finger left it; every other ending — short, cancelled, Back, lost
@@ -287,8 +330,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // previews as well, because a preview can begin and end before any frame sees it running,
         // and a flag that flipped and flipped back would leave the keys unchanged.
         val turn = sheet.turn
-        LaunchedEffect(playerShown, turn.previewing, turn.completions) {
-            if (!turn.previewing) sheet.present(playerShown)
+        LaunchedEffect(overlayOpen, turn.previewing, turn.completions) {
+            if (!turn.previewing) sheet.present(overlayOpen)
         }
         // Only a detail that is actually on screen takes a Back press. Both handlers read this one
         // decision, so they cannot disagree about where Back goes.
@@ -302,10 +345,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             openOrigin = null; openId = null; closeArtist(); closeAlbum()
             if (fromSearch) { fromSearch = false; tab = Tab.Search }
         }
-        // Search opens a page over a fresh Library, so Back from it leads back to the results.
-        fun openFromSearch(open: () -> Unit) {
+        // Open a page over a fresh Library. Only Search supplies a Search return destination;
+        // the player can also open it from Settings, which must not invent a Search history.
+        fun openFromOtherTab(open: () -> Unit) {
             openOrigin = null; openId = null; closeArtist(); closeAlbum()
-            open(); fromSearch = true; tab = Tab.Library
+            open(); fromSearch = tab == Tab.Search; tab = Tab.Library
         }
         fun goBack() {
             when (target) {
@@ -427,6 +471,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // The song a long press chose (#46), while its actions sheet is open. Not saved: a sheet is a
         // passing choice, and a rotation that closes it loses nothing.
         var actionTrack by remember { mutableStateOf<TauonTrack?>(null) }
+        // The list the panel's song was opened from, so its Play starts that list as a tap on the row does.
+        var actionList by remember { mutableStateOf<List<TauonTrack>>(emptyList()) }
+        var actionSourceKey by remember { mutableStateOf("") }
+        // Opened from Now Playing's ⋮: going to an album or artist closes the player first.
+        var actionFromPlayer by remember { mutableStateOf(false) }
         // Android 17's local network permission (LocalNetwork.kt): asked for in context, from Connect or
         // the library's card. Once Android stops showing the prompt, the same button opens Settings;
         // coming back with access granted connects.
@@ -470,7 +519,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // takes back that same insertion, even among duplicates after a queue move.
         fun queueSong(track: TauonTrack, next: Boolean) {
             val endpoint = model.endpoint ?: return
-            val p = player ?: return
+            val p = currentPlayer ?: return
             val item = track.mediaItem(endpoint)
             if (p.mediaItemCount == 0) {
                 if (!playbackInputFits(listOf(item))) {
@@ -500,39 +549,67 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }
             }
         }
+        // One lambda for the whole composition, so providing it to the rows never recomposes them. The
+        // compiler memoizes `::queueSong` itself, so a copy made before the player connected can be the
+        // one called; queueSong reads the player through [currentPlayer] so even that copy finds it
+        // (on the Pixel, .351, a swipe's queueSong saw no player and did nothing).
+        val latestQueueSong by rememberUpdatedState(::queueSong)
+        val queueFromSwipe = remember { { track: TauonTrack, next: Boolean -> latestQueueSong(track, next) } }
         // Go to album and Go to artist open the page over the one on show: an album over an open artist
         // page returns to it, as from the artist's own row; from Search, Back returns to the results.
         fun goToAlbum(album: LibraryAlbum) {
             val open = { albumOrigin = origin; albumKey = album.key; albumTitle = album.title }
-            if (tab != Tab.Library) openFromSearch(open)
+            if (tab != Tab.Library) openFromOtherTab(open)
             else { openOrigin = null; openId = null; open() }
         }
         fun goToArtist(artist: LibraryArtist) {
             val open = { artistOrigin = origin; artistKey = artist.key; artistName = artist.name }
-            if (tab != Tab.Library) openFromSearch(open)
+            if (tab != Tab.Library) openFromOtherTab(open)
             else { openOrigin = null; openId = null; closeAlbum(); open() }
         }
         // Measured here rather than on the player's host, which is not composed until a preview has
         // moved it: the root is always measured and is the size the sheet will be, so the first move
         // of a preview can already be turned into a position, and that position mounts the host.
-        BoxWithConstraints(Modifier.fillMaxSize().onSizeChanged { sheet.height = it.height.toFloat() }) {
+        BoxWithConstraints(Modifier.fillMaxSize().onSizeChanged { sheet.height = it.height.toFloat() }
+            .onGloballyPositioned { morph.root = it }) {
             // A phone on its side: the tabs move to a rail at the start, so the height they took
             // along the bottom goes to the list instead, and the mini player keeps the bottom alone.
             val rail = sidewaysLayout(maxWidth.value, maxHeight.value)
+            // The Canary experiment's blur: the library, and the side panel in the same row, soften
+            // under the player as it rises, and behind the song menu. Draw phase only (BlurBehind.kt).
+            val menuBlur by animateFloatAsState(if (actionTrack != null) 1f else 0f, motionMedium(), label = "menu blur")
+            val behind = Modifier.blurBehind(sheet) { menuBlur }
+            // Frosted glass (FrostedGlass.kt): with the experiment's blur on, Android 12 or newer and
+            // the bars along the bottom, the mini player and navigation bar show the tab under them,
+            // blurred, and the lists scroll on underneath. Otherwise the bars stay solid, as before.
+            val glass = rememberFrost()
+            val frost = if (connected && frostedGlassOn(Expressive.blur, Build.VERSION.SDK_INT, rail)) glass else null
+            val barTint = if (frost != null) GLASS_TINT else 1f
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
             // out of the accessibility tree, so TalkBack cannot wander into hidden content.
             // A rising preview obscures them just the same, so they leave the tree for it too, and
             // come back as soon as it is cancelled. Only semantics change: the mini player's own
             // gesture detector, which is carrying the preview, is not touched.
-            // Painted with the theme's own background: sideways, the player panel sits in this row
-            // beside the scaffold, which stops short of it, so the window background showed around
-            // the panel in a slightly different colour (and grey under pure black).
-            Row(Modifier.fillMaxSize().background(colors.background)
-                .then(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier)) {
+            // Painted with the theme's own background: the side panel sits in this row beside the
+            // scaffold, which stops short of it, so the window background showed through around the
+            // panel in a slightly different colour (and grey under pure black).
+            Row(Modifier.fillMaxSize().then(behind).background(colors.background).then(if (overlayOpen || sheet.previewing) Modifier.clearAndSetSemantics {} else Modifier)) {
                 AnimatedVisibility(visible = connected && rail,
-                    enter = slideInHorizontally(motionMedium()) { -it } + fadeIn(motionShort()),
-                    exit = slideOutHorizontally(motionMedium()) { -it } + fadeOut(motionShort())) {
-                    NavigationRail(containerColor = colors.background) {
+                    enter = slideInHorizontally(motionSpatial()) { -it } + fadeIn(motionShort()),
+                    exit = slideOutHorizontally(motionSpatial()) { -it } + fadeOut(motionShort())) {
+                    // The Canary experiment: Material 3 Expressive's navigation rail, collapsed, with
+                    // the same pill behind the chosen tab as the flexible navigation bar.
+                    if (Expressive.motion) WideNavigationRail(
+                        colors = WideNavigationRailDefaults.colors(containerColor = colors.background),
+                        // Centred, where a thumb holding the phone sideways reaches them.
+                        arrangement = Arrangement.Center) {
+                        Tab.entries.forEach { destination ->
+                            WideNavigationRailItem(selected = tab == destination,
+                                onClick = { tab = destination; fromSearch = false },
+                                icon = { TabIcon(destination) }, label = { Text(destination.name) },
+                                railExpanded = false)
+                        }
+                    } else NavigationRail(containerColor = colors.background) {
                         // Centred, where a thumb holding the phone sideways reaches them.
                         Spacer(Modifier.weight(1f))
                         Tab.entries.forEach { destination ->
@@ -552,27 +629,47 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         else ScaffoldDefaults.contentWindowInsets, bottomBar = {
                     // Without the navigation bar under it, the mini player keeps clear of the system
                     // bars itself; the bottom one, and the end one where three-button navigation sits.
-                    Column(if (rail) Modifier.windowInsetsPadding(
-                        WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier) {
+                    Column((if (rail) Modifier.windowInsetsPadding(
+                        WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier)
+                        .frostedBehind(frost, backdrop = colors.background)) {
                         // Sideways, the player is a panel beside the list instead (mockup B).
-                        AnimatedVisibility(visible = ui.item != null && !overlayOpen && !(rail && connected),
-                            enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
-                            exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-                            MiniPlayer(ui, position, player != null,
-                                active = connected && player != null && ui.item != null && !overlayOpen,
-                                sheet = sheet,
-                                open = {
-                                    if (connected && player != null && playback.ui.item != null && !overlayOpen)
-                                        playerOpen = true
-                                },
-                                toggle = { if (ui.playing) player?.pause() else player?.play() },
-                                next = { player?.seekToNextMediaItem() },
-                                previous = { player?.seekToPreviousMediaItem() })
+                        // With Expressive motion it stays while the player is open, since the player grows
+                        // out of it and shrinks back into it (PlayerMorph); the player covers it meanwhile.
+                        AnimatedVisibility(visible = ui.item != null && (!overlayOpen || Expressive.motion) && !(rail && connected),
+                            enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
+                            exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
+                            // In the song cover's colours, as Now Playing is, so the player grows out of a
+                            // mini player already wearing them; the navigation bar keeps the library's.
+                            ArtworkTheme(ui.item) {
+                                MiniPlayer(ui, position, player != null,
+                                    active = connected && player != null && ui.item != null && !overlayOpen,
+                                    sheet = sheet,
+                                    open = {
+                                        if (connected && player != null && playback.ui.item != null && !overlayOpen)
+                                            playerOpen = true
+                                    },
+                                    toggle = { if (ui.playing) player?.pause() else player?.play() },
+                                    next = { player?.seekToNextMediaItem() },
+                                    previous = { player?.seekToPreviousMediaItem() }, morph = morph,
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = barTint))
+                            }
                         }
                         AnimatedVisibility(visible = connected && !rail,
-                            enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
-                            exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-                            NavigationBar(containerColor = colors.background, tonalElevation = 0.dp) {
+                            enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
+                            exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
+                            // The Canary experiment: Material 3 Expressive's flexible navigation bar,
+                            // shorter, with a pill behind the chosen tab's icon.
+                            // 6 dp more room above the pill than the flexible bar's own: with no edge to the
+                            // glass, its tight top made the bar look cut short (the user's layout-bounds
+                            // check on the Pixel). Added as an inset, so the bar's tint covers it.
+                            if (Expressive.motion) ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint),
+                                windowInsets = ShortNavigationBarDefaults.windowInsets.add(WindowInsets(top = NAV_BAR_TOP_ROOM))) {
+                                Tab.entries.forEach { destination ->
+                                    ShortNavigationBarItem(selected = tab == destination,
+                                        onClick = { tab = destination; fromSearch = false },
+                                        icon = { TabIcon(destination) }, label = { Text(destination.name) })
+                                }
+                            } else NavigationBar(containerColor = colors.background.copy(alpha = barTint), tonalElevation = 0.dp) {
                                 Tab.entries.forEach { destination ->
                                     NavigationBarItem(selected = tab == destination,
                                         onClick = { tab = destination; fromSearch = false },
@@ -582,15 +679,25 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         }
                     }
                 }) { padding ->
-                    Column(Modifier.padding(padding).fillMaxSize()) {
+                    // Under glass the content runs to the bottom, behind the bars, and each list adds the
+                    // bars' height to its own end padding instead (LocalUnderBars), so its last row can
+                    // still scroll clear of them.
+                    val direction = LocalLayoutDirection.current
+                    CompositionLocalProvider(LocalUnderBars provides if (frost != null) padding.calculateBottomPadding() else 0.dp,
+                        LocalQueueSong provides queueFromSwipe.takeIf { player != null && connected }) {
+                    Column(Modifier.frostSource(frost)
+                        .then(if (frost != null) Modifier.padding(start = padding.calculateStartPadding(direction),
+                            top = padding.calculateTopPadding(), end = padding.calculateEndPadding(direction))
+                            else Modifier.padding(padding))
+                        .fillMaxSize()) {
                         AnimatedVisibility(controllerError != null,
-                            enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
-                            exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
+                            enter = expandVertically(motionSpatialFull()) + fadeIn(motionShort()),
+                            exit = shrinkVertically(motionSpatialFull()) + fadeOut(motionShort())) {
                             ErrorCard(controllerError.orEmpty())
                         }
                         AnimatedVisibility(connected && model.error != null && tab != Tab.Settings,
-                            enter = expandVertically(motionMedium()) + fadeIn(motionShort()),
-                            exit = shrinkVertically(motionMedium()) + fadeOut(motionShort())) {
+                            enter = expandVertically(motionSpatialFull()) + fadeIn(motionShort()),
+                            exit = shrinkVertically(motionSpatialFull()) + fadeOut(motionShort())) {
                             // Without Android 17's local network access, Retry cannot help: the card asks for it instead.
                             if (!LocalNetworkState.granted) ErrorCard(model.error.orEmpty(), "Allow", quiet = true) { allowLocalNetwork() }
                             else ErrorCard(model.error.orEmpty(), "Retry", quiet = model.offline) { model.connect() }
@@ -598,26 +705,67 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         BusyStrip(model.busy && connected)
                         // Tabs are siblings, so this fades with a small lift rather than sliding sideways.
                         AnimatedContent(if (connected) tab else null, transitionSpec = {
-                            (fadeIn(motionMedium()) + slideInVertically(motionMedium()) { it / 24 })
+                            (fadeIn(motionMedium()) + slideInVertically(motionSpatial()) { it / 24 })
                                 .togetherWith(fadeOut(motionShort()))
                         }, label = "screen") { shown ->
                             when (shown) {
                                 null -> ConnectScreen(model, ::allowLocalNetwork)
-                                Tab.Settings -> if (savedOpen) {
-                                    SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
-                                        ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
-                                        model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, model.savedPreparing, model::cancelSavedPlayback, back = { savedOpen = false })
-                                } else SettingsScreen(model, appearance, openSaved = { savedOpen = true }) {
-                                    player?.stop(); player?.clearMediaItems(); model.disconnect()
-                                    // Nothing from the server just left is shown again or kept on disk.
-                                    val disk = ArtworkStore.disk(context)
-                                    scope.launch(Dispatchers.IO) { forgetArtwork(disk) }
-                                    openOrigin = null; openId = null; closeArtist(); closeAlbum()
-                                    songList = LazyListState(); artistList = LazyListState(); albumGrid = LazyGridState()
-                                    playlistList = LazyListState()
-                                    libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
-                                    lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library; fromSearch = false
-                                    searchOpen = false; savedOpen = false
+                                Tab.Settings -> {
+                                    // On this device sits a step below Settings, with the same
+                                    // predictive Back as a Library page (issue #658).
+                                    val shift = with(LocalDensity.current) { LIBRARY_PAGE_SHIFT.roundToPx() }
+                                    val savedState = remember { SeekableTransitionState(savedOpen) }
+                                    val savedPeek = remember { BackPeek() }
+                                    LaunchedEffect(savedOpen) { savedPeek.interrupt(); savedState.animateTo(savedOpen); if (savedPeek.active) savedPeek.reset() }
+                                    val savedTransition = rememberTransition(savedState, label = "saved copies")
+                                    val savedPeekScope = rememberCoroutineScope()
+                                    // Registered after the app's own handlers, so it takes the gesture
+                                    // over Settings' plain Back while On this device is open.
+                                    PredictiveBackHandler(savedOpen && tab == Tab.Settings && !overlayOpen && !sheet.previewing) { events ->
+                                        val gesture = savedPeek.begin()
+                                        try {
+                                            // A Back with no progress (a button) shows no card, and the
+                                            // step's own slide plays instead (BackPeek.follow).
+                                            events.collect { event -> savedPeek.follow(event) { savedState.seekTo(0f, false) } }
+                                            if (savedPeek.active) savedPeek.commit.animateTo(1f, motionShort())
+                                            if (savedPeek.owns(gesture)) savedOpen = false
+                                        } catch (cancelled: CancellationException) {
+                                            if (savedPeek.active) savedPeek.restore(savedPeekScope, gesture) {
+                                                // Not the spatial spring's overshoot: the card's size is
+                                                // clamped at full, so it would stop dead instead of settling.
+                                                savedPeek.progress.animateTo(0f, motionSpatialFull())
+                                                savedState.snapTo(true)
+                                                savedPeek.reset()
+                                            }
+                                            throw cancelled
+                                        }
+                                    }
+                                    savedTransition.AnimatedContent(transitionSpec = {
+                                        if (savedPeek.active) peekTransform() else stepTransform(forward = targetState, shift)
+                                    }) { open ->
+                                        val leaving = transition.targetState != EnterExitState.Visible
+                                        Box(Modifier.fillMaxSize().leaving(leaving).then(when {
+                                            !savedPeek.active -> Modifier
+                                            leaving -> Modifier.peekCard(savedPeek, colors.background)
+                                            else -> Modifier.peekParent(savedPeek)
+                                        })) {
+                                            if (open) SavedCopies(model.saved, ui.item?.mediaId, player != null, savedCardUnavailable,
+                                                ::playSaved, ::removeSaved, model.savedSnapshot?.count ?: 0L, model.savedOffset,
+                                                model.savedBusy, model.savedError, model::showSavedPage, model::refreshSaved, model.savedPreparing, model::cancelSavedPlayback, back = { savedOpen = false })
+                                            else SettingsScreen(model, appearance, openSaved = { savedOpen = true }) {
+                                                player?.stop(); player?.clearMediaItems(); model.disconnect()
+                                                // Nothing from the server just left is shown again or kept on disk.
+                                                val disk = ArtworkStore.disk(context)
+                                                scope.launch(Dispatchers.IO) { forgetArtwork(disk) }
+                                                openOrigin = null; openId = null; closeArtist(); closeAlbum()
+                                                songList = LazyListState(); artistList = LazyListState(); albumGrid = LazyGridState()
+                                                playlistList = LazyListState()
+                                                libraryBar = TopAppBarState(-Float.MAX_VALUE, 0f, 0f)
+                                                lyricsOpen = false; queueOpen = false; playerOpen = false; tab = Tab.Library; fromSearch = false
+                                                searchOpen = false; savedOpen = false
+                                            }
+                                        }
+                                    }
                                 }
                                 // Offline, the library is the saved copies, each its own Unverified entry (#213).
                                 Tab.Library -> if (model.offline) {
@@ -630,14 +778,61 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     // Opening a playlist or an artist steps down a level, so the page
                                     // moves along the reading direction; Back reverses it. Back itself is
                                     // still decided above, from the logical state, never from here.
+                                    // Seekable, so a held Back gesture can show the page it leads to
+                                    // underneath while the page on show shrinks away (issue #658).
+                                    val pageState = remember { SeekableTransitionState(page) }
+                                    val peek = remember { BackPeek() }
+                                    // Keyed on the tab as well: a card that left for Search stays gone
+                                    // while this tab fades out, and is put right if the tab comes back.
+                                    LaunchedEffect(page, tab) {
+                                        peek.interrupt(); pageState.animateTo(page)
+                                        if (peek.active && tab == Tab.Library) peek.reset()
+                                    }
+                                    val pageTransition = rememberTransition(pageState, label = "library page")
+                                    val backTo = libraryBackPage(page, fromSearch)
+                                    // Back to Search has no Library page to show underneath: the page on
+                                    // show shrinks as a card over the app's ground.
+                                    val backToSearch = libraryBackLeavesForSearch(page, fromSearch)
+                                    val peekScope = rememberCoroutineScope()
+                                    // Registered after the app's own Back handler, so it takes the gesture
+                                    // while a Library page is open; never while the player is open or
+                                    // being carried up, which have Back of their own.
+                                    PredictiveBackHandler(target == BackTarget.Playlist && (backTo != null || backToSearch) && !sheet.previewing) { events ->
+                                        val from = page
+                                        val to = backTo
+                                        val gesture = peek.begin(alone = to == null)
+                                        try {
+                                            // Let go: the card fades away, and the page it covered is already
+                                            // there. A Back with no progress (a button) shows no card, and the
+                                            // page's own transition plays instead (BackPeek.follow).
+                                            events.collect { event -> peek.follow(event) { if (to != null) pageState.seekTo(0f, to) } }
+                                            if (peek.active) peek.commit.animateTo(1f, motionShort())
+                                            if (peek.owns(gesture)) closePage()
+                                        } catch (cancelled: CancellationException) {
+                                            if (peek.active) peek.restore(peekScope, gesture) {
+                                                peek.progress.animateTo(0f, motionSpatialFull())
+                                                if (to != null) pageState.snapTo(from)
+                                                peek.reset()
+                                            }
+                                            throw cancelled
+                                        }
+                                    }
                                     SharedTransitionLayout {
                                     val shared = this
-                                    AnimatedContent(page, contentKey = { it.key }, label = "library page",
-                                        transitionSpec = { libraryPageTransform(shift) }) { shown ->
+                                    pageTransition.AnimatedContent(contentKey = { it.key },
+                                        transitionSpec = { if (peek.active) peekTransform() else libraryPageTransform(shift) }) { shown ->
                                         val leaving = transition.targetState != EnterExitState.Visible
-                                        // The pages share their pictures while one replaces another (motion pass 2).
-                                        CompositionLocalProvider(LocalSharedMotion provides SharedMotion(shared, this)) {
-                                        Box(Modifier.fillMaxSize().leaving(leaving)) {
+                                        // The pages share their pictures while one replaces another (motion pass 2),
+                                        // but not while Back is previewing: a shared cover is drawn above the pages
+                                        // and would come apart from the card as it shrinks.
+                                        CompositionLocalProvider(LocalSharedMotion provides if (peek.active) null else SharedMotion(shared, this)) {
+                                        Box(Modifier.fillMaxSize().leaving(leaving)
+                                            .then(when {
+                                                !peek.active -> Modifier
+                                                peek.alone -> Modifier.peekBackdrop(peek).peekCard(peek, colors.background)
+                                                leaving -> Modifier.peekCard(peek, colors.background)
+                                                else -> Modifier.peekParent(peek)
+                                            })) {
                                             when (shown) {
                                                 is LibraryPage.Album -> {
                                                     val album = keptWhileLeaving(leaving,
@@ -657,7 +852,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                 fromSearch -> "Back to search"
                                                                 else -> "Back to albums"
                                                             },
-                                                            actions = { actionTrack = it }, back = { closePage() },
+                                                            actions = { actionTrack = it; actionList = albumTracks; actionSourceKey = sourceKey }, back = { closePage() },
                                                             playAll = { shuffle -> album?.let { playAll(it.tracks, shuffle, sourceKey) } }) { track, index ->
                                                             startQueue(albumTracks, track, sourceKey, index)
                                                         }
@@ -681,7 +876,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                         ArtistPage(artist, name, appearsOn, model.endpoint, activeIndex, ui.playing,
                                                             player != null, keptWhileLeaving(leaving, artistPageList),
                                                             backLabel = if (fromSearch) "Back to search" else "Back to artists",
-                                                            actions = { actionTrack = it }, back = { closePage() },
+                                                            actions = { actionTrack = it; actionList = artistTracks; actionSourceKey = sourceKey }, back = { closePage() },
                                                             playAll = { shuffle -> artist?.let { playAll(it.tracks, shuffle, sourceKey) } },
                                                             // Opened over this page, so Back returns here.
                                                             openAlbum = { albumOrigin = origin; albumKey = it.key; albumTitle = it.title }) { track, index ->
@@ -711,7 +906,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                 }
                                                                 // Plays on in the order shown; an order still being sorted is
                                                                 // loading, not empty, and starts nothing.
-                                                                TrackList(songs.orEmpty(), model.endpoint, activeIndex, player != null, ui.playing, actions = { actionTrack = it },
+                                                                TrackList(songs.orEmpty(), model.endpoint, activeIndex, player != null, ui.playing, actions = { actionTrack = it; actionList = songs.orEmpty(); actionSourceKey = songsSource },
                                                                     emptyText = "No music yet. Add local music in Tauon, then refresh.",
                                                                     loading = model.busy || songs == null, state = songList,
                                                                     // A–Z only: in Recently added there are no letters to jump to.
@@ -720,12 +915,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                     } else null) { track, index -> songs?.let { startQueue(it, track, songsSource, index) } }
                                                             }
                                                             LibraryView.Albums -> Column {
-                                                                if (!sortedAlbums.isNullOrEmpty()) SortBar(
-                                                                    "${sortedAlbums.size} ${if (sortedAlbums.size == 1) "album" else "albums"}",
-                                                                    AlbumOrder.entries, library.albumOrder, { it.label }) {
-                                                                    library.chooseAlbumOrder(it); albumGrid = LazyGridState()
+                                                                val albumSort: @Composable (Dp) -> Unit = { inset ->
+                                                                    if (!sortedAlbums.isNullOrEmpty()) SortBar(
+                                                                        "${sortedAlbums.size} ${if (sortedAlbums.size == 1) "album" else "albums"}",
+                                                                        AlbumOrder.entries, library.albumOrder, { it.label }, inset) {
+                                                                        library.chooseAlbumOrder(it); albumGrid = LazyGridState()
+                                                                    }
                                                                 }
-                                                                AlbumGrid(sortedAlbums, model.busy, model.endpoint, albumGrid) {
+                                                                // With Expressive motion the order sits under Jump back in, inside the grid.
+                                                                if (!Expressive.motion) albumSort(0.dp)
+                                                                AlbumGrid(sortedAlbums, model.busy, model.endpoint, albumGrid,
+                                                                    recent = if (Expressive.motion) recent else emptyList(),
+                                                                    sortBar = if (Expressive.motion) ({ albumSort(12.dp) }) else null) {
                                                                     albumOrigin = origin; albumKey = it.key; albumTitle = it.title
                                                                 }
                                                             }
@@ -760,13 +961,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                 activeTrackIndex(tracks, model.endpoint, ui.item?.mediaId,
                                                                     ui.occurrenceKey, sourceKey, model.activeQueueOrigin)
                                                             }
-                                                            TrackList(tracks, model.endpoint, activeIndex, player != null, ui.playing, actions = { actionTrack = it },
+                                                            TrackList(tracks, model.endpoint, activeIndex, player != null, ui.playing, actions = { actionTrack = it; actionList = tracks; actionSourceKey = sourceKey },
                                                                 emptyText = "This playlist is empty. Add local music in Tauon, then refresh.",
                                                                 // Play, Shuffle and Download all, as on an album or an artist
                                                                 // (#112 for the download).
                                                                 header = {
                                                                     item(key = "actions", contentType = "actions") {
-                                                                        PlayAllButtons(player != null && tracks.any { it.playable }) { playAll(tracks, it, sourceKey) }
+                                                                        PlayAllButtons(player != null && tracks.any { it.playable }, { playAll(tracks, it, sourceKey) }, tracks, model.endpoint)
                                                                     }
                                                                     item(key = "download", contentType = "download") { DownloadAll(tracks, model.endpoint) }
                                                                 },
@@ -781,8 +982,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     }
                                 }
                                 Tab.Search -> {
-                                    val openArtistPage = { a: LibraryArtist -> openFromSearch { artistOrigin = origin; artistKey = a.key; artistName = a.name } }
-                                    val openAlbumPage = { a: LibraryAlbum -> openFromSearch { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } }
+                                    // A search whose result is opened is one worth offering again.
+                                    val openArtistPage = { a: LibraryArtist -> recentSearches.remember(query); openFromOtherTab { artistOrigin = origin; artistKey = a.key; artistName = a.name } }
+                                    val openAlbumPage = { a: LibraryAlbum -> recentSearches.remember(query); openFromOtherTab { albumOrigin = origin; albumKey = a.key; albumTitle = a.title } }
                                     val keyboard = LocalSoftwareKeyboardController.current
                                     val songsSource = "songs:${library.songOrder.name}"
                                     val searchActiveIndex = remember(search.tracks, model.endpoint, ui.item?.mediaId,
@@ -791,8 +993,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                             ui.occurrenceKey, "search", model.activeQueueOrigin)
                                     }
                                     SearchScreen(query, { query = it }, searchOpen, { searchOpen = it }, search.searching,
-                                        browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage) {
-                                        TrackList(search.tracks, model.endpoint, searchActiveIndex, player != null && songs != null, ui.playing, actions = { actionTrack = it },
+                                        browseArtists, browseAlbums, model.endpoint, openArtistPage, openAlbumPage,
+                                        recent = recentSearches.items, submit = { recentSearches.remember(it) }, clearRecent = { recentSearches.clear() }) {
+                                        TrackList(search.tracks, model.endpoint, searchActiveIndex, player != null && songs != null, ui.playing, actions = { actionTrack = it; actionList = songs.orEmpty(); actionSourceKey = songsSource },
                                             emptyText = searchEmptyText(query, search.searching, search.completed), state = searchList,
                                             header = { searchCollection(foundArtists, foundAlbums, model.endpoint, openArtistPage, openAlbumPage) }) { track, _ ->
                                             // A search finds where to start, not what to play: the song plays on
@@ -801,19 +1004,20 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                             // The keyboard goes, so the mini player shows what started.
                                             // Only in the current Songs order; while it is still sorting, nothing starts.
                                             val order = songs
-                                            if (order != null) { keyboard?.hide(); startQueue(order, track, songsSource) }
+                                            if (order != null) { keyboard?.hide(); recentSearches.remember(query); startQueue(order, track, songsSource) }
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                    }
                 }
                 // A phone on its side: the player sits beside the list rather than under it
                 // (mockup B), clear of the status bar, the navigation bar and a side cutout.
                 AnimatedVisibility(visible = rail && connected && ui.item != null,
-                    enter = slideInHorizontally(motionMedium()) { it } + fadeIn(motionShort()),
-                    exit = slideOutHorizontally(motionMedium()) { it } + fadeOut(motionShort())) {
+                    enter = slideInHorizontally(motionSpatial()) { it } + fadeIn(motionShort()),
+                    exit = slideOutHorizontally(motionSpatial()) { it } + fadeOut(motionShort())) {
                     // Lyrics and Queue are layered over the player, so they open it too; Back from
                     // either then steps down through Now Playing, as it does when they are opened there.
                     fun openPlayer(): Boolean {
@@ -830,13 +1034,18 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 }
             }
             actionTrack?.let { track ->
+                // Read now: the panel is dismissed before its chosen action runs.
+                val fromPlayer = actionFromPlayer
                 // What the page on show already is, it does not offer to go to.
-                val here = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey).takeIf { tab == Tab.Library }
+                val here = libraryPage(openList?.id, artistPage, artistKey, albumPage, albumKey).takeIf { tab == Tab.Library && !fromPlayer }
                 SongActionsSheet(track, model.endpoint, canQueue = player != null && track.playable,
                     album = songAlbum(track, albums)?.takeIf { !(here is LibraryPage.Album && here.albumKey == it.key) },
                     artists = songArtists(track, artists).filter { !(here is LibraryPage.Artist && here.artistKey == it.key) },
-                    dismiss = { actionTrack = null }, queue = { next -> queueSong(track, next) },
-                    goToAlbum = ::goToAlbum, goToArtist = ::goToArtist,
+                    dismiss = { actionTrack = null; actionFromPlayer = false }, queue = { next -> queueSong(track, next) },
+                    // The playing song has nothing to start, so its panel offers only the queue actions.
+                    play = if (fromPlayer) null else ({ startQueue(actionList.ifEmpty { listOf(track) }, track, actionSourceKey) }),
+                    goToAlbum = { if (fromPlayer) playerOpen = false; goToAlbum(it) },
+                    goToArtist = { if (fromPlayer) playerOpen = false; goToArtist(it) },
                     canSave = model.endpoint != null && track.playable && !model.offline,
                     save = { model.endpoint?.let { endpoint -> OfflineStore.add(context, endpoint, listOf(track)) } })
             }
@@ -846,30 +1055,54 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // entirely once the player has closed.
             // Also shown while a preview is rising, so new touches cannot reach the library under
             // it; a finger already down keeps its own stream, so the drag itself carries on.
-            AnimatedVisibility(visible = playerShown || sheet.previewing, enter = fadeIn(motionMedium()),
+            // With Expressive motion it deepens with the player's growth instead (PlayerMorph), so a drag
+            // that has barely begun, or has come back down, dims nothing, the mini player included.
+            AnimatedVisibility(visible = (overlayOpen && !playerCovered) || sheet.previewing, enter = fadeIn(motionMedium()),
                 exit = fadeOut(motionMedium())) {
-                PlayerScrim()
+                PlayerScrim { morph.scrimFactor() }
             }
             // The player rises from the bottom, where the mini player it grew out of sits, and
             // shrinks while a Back gesture is deciding whether to close it.
             // In the colours of the song's cover, which fade from one song to the next.
             ArtworkTheme(ui.item) {
-            PlayerHost(sheet, open = playerShown, preview = {
+            // Captured here, where the cover's scheme is in force, for the mini player's face below.
+            val tinted = MaterialTheme.colorScheme
+            PlayerHost(sheet, open = playerShown, covered = playerCovered, backdrop = ui.item?.mediaMetadata?.artworkUri?.toString(), morph = morph,
+                // The mini player as the panel starts: its colour and content, in the cover's colours
+                // exactly as the mini player draws them. Under glass that is its translucent tint, over
+                // the same blurred library the mini player shows (frostedPanel), thickening to Now
+                // Playing's colour as the panel grows.
+                miniColor = tinted.surfaceVariant.copy(alpha = barTint), frost = frost, libraryGround = colors.background, face = {
+                    MaterialTheme(colorScheme = tinted) {
+                        CompositionLocalProvider(LocalContentColor provides tinted.onSurfaceVariant) {
+                            // Its cover shows until the flying one takes over, which needs Now
+                            // Playing laid out first: without it, the first frame of a drag
+                            // showed an empty space where the cover had been.
+                            MiniPlayerFace(ui, position, ready = player != null, toggle = {}, next = {},
+                                cover = Modifier.graphicsLayer { alpha = if (morph.frame() != null) 0f else 1f })
+                        }
+                    }
+                }, preview = {
                 rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
             }) {
                 // Only a player that is actually on screen carries the drag: an outgoing one hands
                 // nothing down, so its detector goes with it rather than moving what comes next.
                 NowPlayingOverlay(ui, position, revision, player, sheet.takeIf { playerShown },
+                    lyricsAvailable = playingLyrics,
+                    more = playingTrack?.let { track -> { actionTrack = track; actionList = emptyList(); actionFromPlayer = true } },
                     // Guarded, so a drag that ends after Lyrics opened over the player, or after
                     // the player has gone, cannot put away whatever took its place.
                     collapse = { if (playerShown) playerOpen = false },
-                    queue = { queueOpen = true }) { lyricsOpen = true }
+                    queue = { queueOpen = true }, morph = morph) { lyricsOpen = true }
             }
             }
-            FullScreenOverlay(visible = lyricsShown) {
+            // The cover flying between the mini player and Now Playing while the player grows or
+            // shrinks, over both (PlayerMorph). Only while any of the player is on screen.
+            if (!playerCovered && playerSheetPresent(playerShown, sheet.onScreen)) MorphingCover(morph, ui.item?.mediaMetadata?.artworkUri?.toString())
+            FullScreenOverlay(lyricsCover, { overlayPeeking = it }, close = { lyricsOpen = false }) {
                 LyricsScreen(ui.item) { lyricsOpen = false }
             }
-            FullScreenOverlay(visible = queueShown) {
+            FullScreenOverlay(queueCover, { overlayPeeking = it }, close = { queueOpen = false }) {
                 QueueScreen(player, revision, ui.playing) { queueOpen = false }
             }
             // Overlay notices stay above the player instead of resizing artwork or hiding behind it.
@@ -925,9 +1158,10 @@ private const val PLAYER_SCRIM_ALPHA = 0.32f
  * nothing a screen reader could focus or activate: closing stays with the collapse button and Back.
  */
 @Composable
-private fun PlayerScrim() {
+private fun PlayerScrim(amount: () -> Float) {
+    val scrim = MaterialTheme.colorScheme.scrim
     Box(Modifier.fillMaxSize()
-        .background(MaterialTheme.colorScheme.scrim.copy(alpha = PLAYER_SCRIM_ALPHA))
+        .drawBehind { drawRect(scrim.copy(alpha = PLAYER_SCRIM_ALPHA * amount().coerceIn(0f, 1f))) }
         .pointerInput(Unit) {})
 }
 
@@ -943,11 +1177,44 @@ private fun PlayerScrim() {
  * own stream, and hardware keyboard focus is not changed by this.
  */
 @Composable
-private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit) {
-    AnimatedVisibility(visible = visible,
-        enter = slideInVertically(motionMedium()) { it } + fadeIn(motionShort()),
-        exit = slideOutVertically(motionMedium()) { it } + fadeOut(motionShort())) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+private fun FullScreenOverlay(state: MutableTransitionState<Boolean>, peeking: (Boolean) -> Unit, close: () -> Unit,
+    content: @Composable () -> Unit) {
+    val visible = state.targetState
+    AnimatedVisibility(visibleState = state,
+        enter = slideInVertically(motionSpatialFull()) { it } + fadeIn(motionShort()),
+        exit = slideOutVertically(motionSpatialFull()) { it } + fadeOut(motionShort())) {
+        // A held Back gesture shrinks the overlay to a card over Now Playing, like a Library page
+        // (issue #658). After a commit the card has already faded, so the slide out shows nothing;
+        // a Back with no gesture behind it shows no card and slides out like the close button.
+        val peek = remember { BackPeek() }
+        val peekScope = rememberCoroutineScope()
+        val currentClose by rememberUpdatedState(close)
+        val currentPeeking by rememberUpdatedState(peeking)
+        DisposableEffect(Unit) { onDispose { currentPeeking(false) } }
+        LaunchedEffect(visible) {
+            peek.interrupt()
+            if (visible) peek.reset()
+            currentPeeking(false)
+        }
+        // Composed after the app's own handlers and the player's, so it takes Back while on show.
+        PredictiveBackHandler(visible) { events ->
+            val gesture = peek.begin()
+            try {
+                // A Back with no progress (a button) shows no card, and the overlay's own exit plays.
+                events.collect { event -> peek.follow(event) { currentPeeking(true) } }
+                if (peek.active) peek.commit.animateTo(1f, motionShort())
+                if (peek.owns(gesture)) currentClose()
+            } catch (cancelled: CancellationException) {
+                if (peek.active) peek.restore(peekScope, gesture) {
+                    peek.progress.animateTo(0f, motionSpatialFull())
+                    peek.reset()
+                    currentPeeking(false)
+                }
+                throw cancelled
+            }
+        }
+        val ground = MaterialTheme.colorScheme.background
+        Surface(Modifier.fillMaxSize().then(if (peek.active) Modifier.peekCard(peek, ground) else Modifier), color = ground) {
             Box(Modifier.safeDrawingPadding()) {
                 Box(if (visible) Modifier else Modifier.clearAndSetSemantics {}) { content() }
                 if (!visible) Box(Modifier.matchParentSize().pointerInput(Unit) {})
@@ -969,19 +1236,47 @@ private fun FullScreenOverlay(visible: Boolean, content: @Composable () -> Unit)
  * focused while they slide away.
  */
 @Composable
-private fun PlayerHost(sheet: PlayerSheet, open: Boolean,
+private fun PlayerHost(sheet: PlayerSheet, open: Boolean, covered: Boolean, backdrop: String?, morph: PlayerMorph,
+    miniColor: Color, frost: Frost?, libraryGround: Color, face: @Composable () -> Unit,
     preview: @Composable () -> PlayerBackPreview?, content: @Composable () -> Unit) {
-    if (!playerSheetPresent(open, sheet.onScreen)) return
+    // Under a Queue or Lyrics that has fully covered it, nothing of the player would show.
+    if (covered || !playerSheetPresent(open, sheet.onScreen)) return
     // Two layers, each owning its own properties: the sheet moves the surface, the Back preview
     // scales and drifts it, and neither writes what the other reads. On pure black the sheet also
     // outlines its top edge, since nothing else can show where the player ends.
     val colors = MaterialTheme.colorScheme
     val edge = colors.outlineVariant.takeIf { colors.background == Color.Black }
+    val ground = colors.background
+    // The flying cover is drawn outside this surface and has to follow the preview's layer, so the
+    // morph is told about it; and the preview lets go as the sheet closes (playerBackHeld).
+    val back = preview()
+    DisposableEffect(morph, back) { morph.back = back; onDispose { if (morph.back === back) morph.back = null } }
+    // The panel paints its own ground: Now Playing's, or, while it grows out of the mini player, the
+    // mini player's [miniColor] turning into it (PlayerMorph), over the mini player's glass when the
+    // bars are frosted ([frost]). Read in the draw phase.
     Surface(Modifier.fillMaxSize()
-        .playerSheet(sheet, WindowInsets.safeDrawing, edge).playerBackPreview(preview()),
-        color = colors.background) {
+        .playerSheet(sheet, WindowInsets.safeDrawing, edge, morph).playerBackPreview(back) { morph.backHeld() }
+        .frostedPanel(frost, libraryGround) { morph.growing() }
+        .drawBehind { drawRect(morph.panelColor(miniColor, ground)) },
+        color = Color.Transparent, contentColor = colors.onBackground) {
+        // The cover's glass (CoverBackdrop.kt) fills the whole sheet, status bar included, and arrives
+        // with Now Playing's colour while the panel grows.
+        if (showCoverBackdrop(Expressive.blur, colors.background))
+            CoverBackdrop(backdrop, Modifier.graphicsLayer { alpha = morph.backdropAlpha() })
+        // The mini player's own content, where it was, while the panel grows out of it; beneath Now
+        // Playing, fading out as that fades in. It is a picture of the mini player: it takes no touch
+        // and says nothing to a screen reader.
+        if (Expressive.motion) Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxWidth().graphicsLayer { alpha = morph.faceAlpha() }.clearAndSetSemantics {}) {
+                face()
+                Box(Modifier.matchParentSize().pointerInput(Unit) {})
+            }
+        }
         // The content gives back the top inset as the sheet drops below the status bar.
-        Box(Modifier.reclaimTopInset(sheet, WindowInsets.safeDrawing).safeDrawingPadding()) {
+        // Measured at the sheet's own top left, before the inset it gives back, so the flying cover
+        // can find Now Playing's cover inside it; and faded in while it grows (PlayerMorph).
+        Box(Modifier.onGloballyPositioned { morph.body = it }.graphicsLayer { alpha = morph.contentAlpha() }
+            .reclaimTopInset(sheet, WindowInsets.safeDrawing).safeDrawingPadding()) {
             Box(if (open) Modifier else Modifier.clearAndSetSemantics {}) { content() }
             if (!open) Box(Modifier.matchParentSize().pointerInput(Unit) {})
         }

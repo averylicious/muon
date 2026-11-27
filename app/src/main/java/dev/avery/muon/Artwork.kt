@@ -6,11 +6,24 @@ import android.util.LruCache
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -213,11 +226,53 @@ fun Artwork(url: String?, modifier: Modifier = Modifier) {
         Crossfade(loaded, animationSpec = if (fromCache) snap() else motionMedium(), label = "artwork") { art ->
             if (art != null) Image(art.bitmap.asImageBitmap(), contentDescription = null,
                 contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("♪", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
-            }
+            else CoverPlaceholder(Modifier.fillMaxSize())
         }
     }
 }
 
 private const val ARTWORK_SETTLE_MS = 150L
+
+/**
+ * What a cover shows when there is no picture: the nine-sided cookie of the paused play button,
+ * holding a drawn note, in the theme's own colours (the wallpaper's, with Material You), so a missing
+ * cover looks intended rather than broken. It replaces the text ♪ (mini player, Now Playing, lists)
+ * and the grooved record (On this device). Decorative: it says nothing to TalkBack.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun CoverPlaceholder(modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val dark = colors.background.luminance() < 0.5f
+    val ink = colors.primary
+    val cookie = MaterialShapes.Cookie9Sided.toShape()
+    Box(modifier.background(colors.surfaceContainerHighest).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize(PLACEHOLDER_COOKIE).clip(cookie).background(ink.copy(alpha = if (dark) 0.2f else 0.14f)))
+        Canvas(Modifier.fillMaxSize(PLACEHOLDER_NOTE)) { drawNote(ink, placeholderNoteStroke(size.minDimension.toDp().value)) }
+    }
+}
+
+/** How much of the tile the cookie fills, and the note. */
+private const val PLACEHOLDER_COOKIE = 0.66f
+private const val PLACEHOLDER_NOTE = 0.36f
+
+/**
+ * The note's stroke on its 24-unit grid: the icon set's 2 units while the note is about icon-sized,
+ * thinner on a large cover, so Now Playing doesn't show a blown-up icon.
+ */
+internal fun placeholderNoteStroke(noteDp: Float): Float = if (noteDp > 40f) 1.5f else 2f
+
+/**
+ * An eighth note on a 24-unit grid, in the icon set's round style: a round head with the stem's outer
+ * edge flush with it, so they join without a bump, and a curved flag. [stroke] is in grid units.
+ */
+private fun DrawScope.drawNote(color: Color, stroke: Float) {
+    val u = size.minDimension / 24f
+    val stem = Path().apply {
+        moveTo(11.7f * u, 17f * u)
+        lineTo(11.7f * u, 4.8f * u)
+        cubicTo(12.4f * u, 7.2f * u, 14.4f * u, 8.4f * u, 16.9f * u, 8.6f * u)
+    }
+    drawPath(stem, color, style = Stroke(stroke * u, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    drawCircle(color, 3.2f * u, Offset(9.5f * u, 17f * u))
+}

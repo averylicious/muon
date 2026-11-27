@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.scrollBy
@@ -202,15 +204,24 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) { data -> Snackbar(notices.observeAction(data)) } },
         topBar = {
-            LargeTopAppBar(
+            val backButton: @Composable () -> Unit = {
+                IconButton(onClick = back, modifier = Modifier.semantics { contentDescription = "Back to Now Playing" }) {
+                    MuonIcon("back")
+                }
+            }
+            val barColors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
+                scrolledContainerColor = colors.surfaceContainer)
+            // The Canary experiment: Material 3 Expressive's flexible bar, as in Settings.
+            if (Expressive.motion) LargeFlexibleTopAppBar(
                 title = { QueueTitle() },
-                navigationIcon = {
-                    IconButton(onClick = back, modifier = Modifier.semantics { contentDescription = "Back to Now Playing" }) {
-                        MuonIcon("back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
-                    scrolledContainerColor = colors.surfaceContainer),
+                navigationIcon = backButton,
+                colors = barColors,
+                windowInsets = WindowInsets(0, 0, 0, 0),
+                scrollBehavior = scrollBehavior,
+            ) else LargeTopAppBar(
+                title = { QueueTitle() },
+                navigationIcon = backButton,
+                colors = barColors,
                 // The overlay hosting this screen already applied the system bar insets.
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 scrollBehavior = scrollBehavior,
@@ -245,18 +256,25 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
             items(rows, key = { "next:${it.key}" }, contentType = { "next" }) { entry ->
                 val state = rememberSwipeToDismissBoxState()
                 val held = entry.key == dragKey
+                val position = rows.indexOf(entry)
+                // With Expressive motion, Next up is one joined group (the Refined mockup).
+                val place = if (Expressive.motion) groupPlace(position, rows.size) else null
+                val shape = place?.let { groupShape(it, current = held) }
+                val gap = if (place == null || place.startsGroup) Modifier else Modifier.padding(top = GROUP_GAP)
                 SwipeToDismissBox(
                     state = state,
                     // The held row floats above the others and follows the finger; the rest slide
                     // aside. No swiping while any row is being dragged.
-                    modifier = if (held) Modifier.zIndex(1f).graphicsLayer {
-                        translationY = dragOffset; shadowElevation = 8.dp.toPx()
-                    } else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
+                    modifier = (if (held) Modifier.zIndex(1f).graphicsLayer {
+                        // A joined row casts its own shadow, inside its inset (QueueRow).
+                        translationY = dragOffset; if (shape == null) shadowElevation = 8.dp.toPx()
+                    } else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)).then(gap),
                     gesturesEnabled = editable && dragKey == null,
                     // A refused removal (the queue changed under the finger) puts the row back.
                     onDismiss = { remove(entry) { scope.launch { state.reset() } } },
                     backgroundContent = {
-                        Box(Modifier.fillMaxSize().background(colors.errorContainer).padding(horizontal = 24.dp),
+                        Box(Modifier.fillMaxSize().then(if (shape != null) Modifier.padding(horizontal = GROUP_INSET).clip(shape) else Modifier)
+                            .background(colors.errorContainer).padding(horizontal = 24.dp),
                             contentAlignment = if (state.dismissDirection == SwipeToDismissBoxValue.StartToEnd)
                                 Alignment.CenterStart else Alignment.CenterEnd) {
                             CompositionLocalProvider(LocalContentColor provides colors.onErrorContainer) {
@@ -265,7 +283,6 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                         }
                     },
                 ) {
-                    val position = rows.indexOf(entry)
                     // The drag detector outlives this composition (it is keyed on the row), so it reaches
                     // the current list and callbacks through these rather than the ones it began with.
                     val startDrag by rememberUpdatedState {
@@ -273,7 +290,7 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                     }
                     val dragBy by rememberUpdatedState { dy: Float -> dragOffset += dy; settleSwaps() }
                     val endDrag by rememberUpdatedState { drop() }
-                    QueueRow(entry.item, playing = false,
+                    QueueRow(entry.item, playing = false, shape = shape, lifted = held,
                         onClick = {
                             val p = player
                             if (p != null && queueEntryCurrent(p, snapshot.stamp, revision(), entry.index, entry.item)) {
@@ -328,17 +345,30 @@ private fun SectionLabel(text: String) {
 
 @Composable
 private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, remove: (() -> Unit)? = null,
-    moveUp: (() -> Unit)? = null, moveDown: (() -> Unit)? = null, handle: Modifier? = null, sounding: Boolean = false) {
+    moveUp: (() -> Unit)? = null, moveDown: (() -> Unit)? = null, handle: Modifier? = null, sounding: Boolean = false,
+    shape: Shape? = null, lifted: Boolean = false) {
     val colors = MaterialTheme.colorScheme
     val meta = item.mediaMetadata
     // The playing song sits on the same tonal surface, with the same equalizer over its cover, as in
     // every song list (#136), rather than only changing colour.
-    Row(Modifier.fillMaxWidth().background(colors.background)
-        .then(if (playing) Modifier.padding(horizontal = 12.dp).clip(RoundedCornerShape(16.dp))
-            .background(colors.secondaryContainer) else Modifier)
+    // With Expressive motion the playing row takes the joined groups' rounder pill, and a Next up row
+    // its group's [shape] on a tonal ground.
+    val pill = if (Expressive.motion) RoundedCornerShape(GROUP_END) else RoundedCornerShape(16.dp)
+    // The page's ground hides a swipe's action behind the row; a joined row hides it with its own
+    // ground, so it has none outside its shape (a held row's shadow would show a square edge).
+    Row(Modifier.fillMaxWidth().then(if (shape == null) Modifier.background(colors.background) else Modifier)
+        .then(when {
+            playing -> Modifier.padding(horizontal = if (Expressive.motion) GROUP_INSET else 12.dp).clip(pill)
+                .background(colors.secondaryContainer)
+            shape != null -> Modifier.padding(horizontal = GROUP_INSET).shadow(if (lifted) 8.dp else 0.dp, shape)
+                .clip(shape).background(colors.surfaceContainerLow)
+            else -> Modifier
+        })
         .heightIn(min = 64.dp)
         .then(if (onClick != null) Modifier.clickable(onClickLabel = "Play", onClick = onClick) else Modifier)
-        .padding(horizontal = if (playing) 12.dp else 24.dp, vertical = 8.dp)
+        .padding(start = if (playing) 12.dp else if (shape != null) { if (handle != null) 4.dp else 12.dp } else 24.dp,
+            end = if (playing) 12.dp else if (shape != null) { if (remove != null) 0.dp else 12.dp } else 24.dp,
+            top = 8.dp, bottom = 8.dp)
         .semantics(mergeDescendants = true) {
             if (playing) stateDescription = "Now playing"
             customActions = listOfNotNull(
@@ -348,6 +378,11 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
             )
         },
         verticalAlignment = Alignment.CenterVertically) {
+        // In a joined group the handle leads and a ⋮ ends the row (the Refined mockup).
+        val joined = shape != null
+        if (joined && handle != null) Box(handle.padding(end = 6.dp).size(40.dp), contentAlignment = Alignment.Center) {
+            CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) { MuonIcon("drag-handle") }
+        }
         Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
             Artwork(meta.artworkUri?.toString(), Modifier.fillMaxSize())
             if (playing) {
@@ -369,8 +404,20 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
                 textAlign = TextAlign.End, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
         }
         // Only the handle starts a drag, so scrolling and swiping the row keep working as before.
-        if (handle != null) Box(handle.padding(start = 4.dp).size(40.dp), contentAlignment = Alignment.Center) {
+        if (!joined && handle != null) Box(handle.padding(start = 4.dp).size(40.dp), contentAlignment = Alignment.Center) {
             CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) { MuonIcon("drag-handle") }
+        }
+        if (joined && remove != null) {
+            var menu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { menu = true }, modifier = Modifier.size(48.dp).semantics {
+                    contentDescription = "More options for ${meta.title?.toString().orEmpty().ifBlank { "Untitled" }}"
+                }) { CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) { MuonIcon("more") } }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("Remove from queue") }, leadingIcon = { MuonIcon("delete") },
+                        onClick = { menu = false; remove() })
+                }
+            }
         }
     }
 }

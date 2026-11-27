@@ -103,12 +103,14 @@ internal fun rememberScrollIndicator(state: LazyListState): ScrollIndicator {
  * in the draw phase, so scrolling redraws the thumb without recomposing the list.
  */
 internal fun Modifier.scrollIndicator(indicator: ScrollIndicator, color: Color,
-    width: Dp = INDICATOR_WIDTH, minLength: Dp = INDICATOR_MIN_LENGTH): Modifier = drawWithContent {
+    width: Dp = INDICATOR_WIDTH, minLength: Dp = INDICATOR_MIN_LENGTH, bottomInset: Dp = 0.dp): Modifier = drawWithContent {
     drawContent()
     val alpha = indicator.shown.value
     if (alpha <= 0f) return@drawWithContent
     val margin = INDICATOR_MARGIN.toPx()
-    val thumb = indicator.thumb(size.height, margin, minLength.toPx()) ?: return@drawWithContent
+    // [bottomInset] is the part of the list behind glass bars (LocalUnderBars): the track stops above it.
+    val track = (size.height - bottomInset.toPx()).coerceAtLeast(0f)
+    val thumb = indicator.thumb(track, margin, minLength.toPx()) ?: return@drawWithContent
     val width = width.toPx()
     val x = if (layoutDirection == LayoutDirection.Rtl) margin else size.width - margin - width
     drawRoundRect(color, topLeft = Offset(x, margin + thumb.start), size = Size(width, thumb.length),

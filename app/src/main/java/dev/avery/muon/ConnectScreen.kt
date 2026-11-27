@@ -113,7 +113,7 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
     // Mockup 17: a tinted page with the bold greeting — the one deliberate exception to the app's
     // medium titles — then the address card, what was found on this network, and what is on this phone.
     Column(Modifier.fillMaxSize().background(colors.surfaceContainer).verticalScroll(rememberScrollState())
-        .padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+        .padding(horizontal = 16.dp).padding(bottom = 24.dp + LocalUnderBars.current)) {
         if(storage!=StorageAvailability.Ready) Text(
             if(storage==StorageAvailability.Failed) "Saved copies couldn't open. Your files were kept. Fully restart Muon before trying again."
             else "Opening saved copies…",style=MaterialTheme.typography.bodyMedium,
@@ -143,7 +143,8 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
                     Text("Connect", style = MaterialTheme.typography.titleMedium)
                 }
                 if (model.busy) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (Expressive.motion) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(Modifier.fillMaxWidth())
                     if (model.progress.isNotEmpty()) Text(model.progress, style = MaterialTheme.typography.bodySmall,
                         color = colors.onSurfaceVariant)
                 }
@@ -187,7 +188,9 @@ internal fun ConnectScreen(model: LibraryModel, allowLocalNetwork: () -> Unit) {
         val searching = scan.status == DiscoveryStatus.SEARCHING
         GroupRow(groupShape(rows - 1, rows), onClick = { round++ }, enabled = allowed && !searching && !model.busy, label = "Scan again") {
             if (searching) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                // The Canary experiment: Material 3 Expressive's shape-morphing loader instead of the spinner.
+                if (Expressive.motion) ExpressiveLoader(Modifier.size(24.dp))
+                else CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 Text("Looking for Tauon…", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp))
             } else Column {
@@ -240,3 +243,7 @@ private fun GroupRow(shape: RoundedCornerShape, onClick: () -> Unit, enabled: Bo
             verticalAlignment = Alignment.CenterVertically, content = content)
     }
 }
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ExpressiveLoader(modifier: Modifier) = LoadingIndicator(modifier)
