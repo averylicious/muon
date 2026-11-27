@@ -108,10 +108,9 @@ android {
 dependencies {
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
-    // Canary-only Material 3 Expressive experiment: the BOM still maps material3 to 1.4.0, so the
-    // beta is named here. Unlike the alphas, which pulled in the Compose 1.13 alphas, 1.5.0-beta02
-    // needs only Compose 1.12.0, so the rest of Compose stays on the BOM's stable 1.12.1.
-    implementation("androidx.compose.material3:material3:1.5.0-beta02")
+    // Material 3 1.5.0 is stable while Compose BOM 2026.09.00 still maps material3 to 1.4.0.
+    // 1.5.0 requires only Compose 1.12.0, so the rest of Compose stays on the BOM's stable 1.12.1.
+    implementation("androidx.compose.material3:material3:1.5.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.media3:media3-exoplayer:1.11.1")
