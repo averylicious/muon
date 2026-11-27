@@ -4,16 +4,22 @@ A redesign name describes a body of work. It is not an APK version, release tag,
 
 ## Design generations and workstreams
 
-Use descriptive names for UI/UX reworks rather than release-like numbers so a redesign name is never confused with an APK version or tag:
+Name UI/UX redesigns sequentially by generation (**`Gen N`** or **`Gen N - <optional descriptor>`**), never by a release-like number (`Muon 3.0`, `UI 3.0`, `docs/design/3.0/`), so design generations are never confused with APK semver tags. The generation number is the canonical identifier; adding a descriptor is optional (`Gen 4` → `docs/design/gen-4/`, or `Gen 4 - Bouncy Animations` → `docs/design/gen-4-bouncy-animations/`).
 
-| Generation | Canonical name | Historical / retired aliases | Track / baseline | Status |
-| --- | --- | --- | --- | --- |
-| Gen 1 | **Initial** | MVP, v0.1 | `main` (`v0.1.0`) | Shipped & superseded |
-| Gen 2 | **Collection redesign** | "Muon 2.0", "UI 2.0" | `main` (`v0.2.0`) | Shipped on `main`; mockups retired |
-| Gen 3 | **M3 Expressive (Refined)** | "M3E", "Expressive alpha" | `claude/m3-expressive-alpha` (frozen RC `.1420`) | Current implemented baseline (`docs/design/current/`) |
-| Gen 4 (Next) | **Descriptive theme slug** *(TBD)* | Avoid "Muon 3.0" / "UI 3.0" | New branch off M3E | Planned next redesign (`docs/design/<slug>/`) |
+| Generation | Canonical name | Historical / retired aliases | Track / baseline | Status | Folder |
+| --- | --- | --- | --- | --- | --- |
+| **Gen 1** | **Gen 1 — Initial** | MVP, v0.1 | `main` (`v0.1.0`) | Shipped & superseded | *(none)* |
+| **Gen 2** | **Gen 2 — Collection redesign** | "Muon 2.0", "UI 2.0" | `main` (`v0.2.0`) | Shipped on `main`; mockups retired | *(retired)* |
+| **Gen 3** | **Gen 3 — M3 Expressive (Refined)** | "M3E", "Expressive alpha" | `claude/m3-expressive-alpha` (frozen RC `.1420`) | Current implemented baseline on M3E | `docs/design/current/` |
+| **Gen 4+** | **`Gen N`** or **`Gen N - <descriptor>`** | Never "Muon 3.0" / "UI 3.0" | New branch off M3E | Planned next redesign | `docs/design/gen-N/` or `docs/design/gen-N-<slug>/` |
 
-Historically, **Collection redesign** was called **Muon 2.0** or **UI 2.0**; existing issue titles and branch names remain valid historical references. On first mention in a historical handoff, write “Collection redesign (formerly UI 2.0)”. Keep `docs/design/current/` exclusively for real device screenshots of the implemented app, and put new redesign proposals in a separate descriptive folder under `docs/design/<slug>/`.
+### Visual baseline rules
+
+- **Never put unimplemented proposals inside `docs/design/current/`.** `current/` is strictly for real device screenshots of what the app draws today.
+- **Retire on ship:** Once `Gen N` ships to a device, retake `docs/design/current/` from real hardware and delete the superseded `docs/design/gen-N*/` proposal folder so only one visual truth remains in the repository.
+- **Keep `docs/design/icons/`:** It holds the active vector drawable generator (`muon_icons.py`).
+
+Historically, Gen 2 (**Collection redesign**) was called **Muon 2.0** or **UI 2.0**; existing issue titles and branch names remain valid historical references. On first mention in a historical handoff, write “Collection redesign (formerly UI 2.0)”.
 
 Track delivery with an issue and a small slice name, for example “#43 — player presentation host”. Identify a tested build by its Canary version, complete commit SHA and Actions run link. A successful branch build means ready for manual QA, not merged or released.
 
