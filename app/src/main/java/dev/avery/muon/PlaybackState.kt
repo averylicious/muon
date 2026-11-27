@@ -2,6 +2,7 @@ package dev.avery.muon
 
 import androidx.compose.runtime.*
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import kotlinx.coroutines.delay
@@ -48,6 +49,25 @@ internal class PlaybackState {
 internal fun overlayShouldClose(controllerAttached: Boolean, hasCurrentItem: Boolean): Boolean =
     controllerAttached && !hasCurrentItem
 
+/**
+ * Formats a player error for the UI. Media3's Binder serialization turns non-string-constructible
+ * causes (such as `ParserException` and `Loader.UnexpectedLoaderException`) into `RemoteException`,
+ * so parsing error codes and loader-unexpected messages map to plain copy here as well as in
+ * [friendlyError].
+ */
+internal fun playbackErrorMessage(error: PlaybackException): String {
+    val detail = when {
+        error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ||
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED -> UNREADABLE_AUDIO_FILE
+        error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED &&
+            error.cause?.message?.startsWith("Unexpected ") == true -> UNREADABLE_AUDIO_FILE
+        else -> error.cause?.let(::friendlyError) ?: error.message
+    }
+    return "${error.errorCodeName}: $detail"
+}
+
 @Composable
 internal fun rememberPlayback(player: MediaController?): PlaybackState {
     val state = remember { PlaybackState() }
@@ -57,7 +77,7 @@ internal fun rememberPlayback(player: MediaController?): PlaybackState {
             state.ui = if (player == null) PlaybackUi() else PlaybackUi(item, player.isPlaying,
                 player.duration.coerceAtLeast(0),
                 player.isCurrentMediaItemSeekable, player.playbackState == Player.STATE_BUFFERING,
-                player.playerError?.let { "${it.errorCodeName}: ${it.cause?.let(::friendlyError) ?: it.message}" },
+                player.playerError?.let(::playbackErrorMessage),
                 player.hasPreviousMediaItem(), player.hasNextMediaItem(), player.shuffleModeEnabled,
                 player.repeatMode, item?.let(::queueOccurrenceKey))
             state.position = player?.currentPosition?.coerceAtLeast(0) ?: 0L
