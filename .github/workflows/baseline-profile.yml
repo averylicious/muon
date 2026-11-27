@@ -50,7 +50,7 @@ jobs:
         run: python3 -I tools/isolate_gradle_distribution.py "$GRADLE_USER_HOME" "$HOME" "$RUNNER_TEMP"
 
       - name: Install Android SDK packages
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" "build-tools;37.0.0"'
 
       # These two existing tests assert the compiled benchmark gate and exercise its default.
       # Coverage belongs to this optional workflow's runs; selector changes do not trigger it.
