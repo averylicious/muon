@@ -37,10 +37,10 @@ internal fun playerPreviewMayBegin(travel: Float): Boolean = travel < 0f
  * historical points, and the lift if it moved.
  *
  * Velocity comes from the tracker's `Impulse` strategy (`VelocityTracker1D(isDataDifferential =
- * false)`, ui 1.9.3), which estimates from two samples. The 2D tracker's default `Lsq2` needs three and
- * returns nothing with fewer; recording only post-slop moves under it is what made short flicks read as
- * motionless. A sample is added only where the finger actually moved: a lift reported at the last
- * move's position would otherwise tell the tracker the finger had stopped, when all it did was lift.
+ * false)`), which estimates from two samples. Older Compose releases (through 1.12) required three
+ * samples in the 2D tracker's default `Lsq2` strategy (fixed to two in Compose UI 1.13 via
+ * `isVelocityTrackerMinSampleSizeFixEnabled`); `FlickTrace` still preserves pre-slop travel, ignores
+ * unchanged-position lifts that would otherwise report a stop, and enforces single-finger ownership.
  *
  * The trace belongs to the finger that touched down. The drag helpers hand a gesture over to another
  * pressed finger when the first one lifts; a sample from any other finger abandons the trace, so another

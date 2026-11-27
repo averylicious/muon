@@ -31,14 +31,20 @@ class MiniPlayerFlickTest {
         sample(A, 1_040, 410f) // the lift, which still moved
     }
 
-    @Test fun twoSamplesAfterTheSlopReadAsNoVelocityAtAll() {
-        // How it failed before: only the moves after the slop were recorded, and a brief flick
-        // leaves two. The tracker needs three for its fit and returns nothing otherwise.
+    @Test fun twoSamplesAfterTheSlopNowReportLinearVelocityInCompose113() {
+        // Through Compose UI 1.12, VelocityTracker's default Lsq2 strategy required three samples
+        // and returned 0f for two post-slop moves. Compose UI 1.13 lowered Lsq2's minSampleSize to
+        // two (isVelocityTrackerMinSampleSizeFixEnabled), so two samples now estimate -40 px / 16 ms
+        // = -2500 px/s, while a single post-slop sample still reports 0f.
+        val singleSample = VelocityTracker().apply {
+            addPosition(1_016, Offset(0f, 0f))
+        }
+        assertEquals(0f, singleSample.calculateVelocity().y, 0f)
         val postSlopOnly = VelocityTracker().apply {
             addPosition(1_016, Offset(0f, 0f))
             addPosition(1_032, Offset(0f, -40f))
         }
-        assertEquals(0f, postSlopOnly.calculateVelocity().y, 0f)
+        assertEquals(-2500f, postSlopOnly.calculateVelocity().y, 1f)
     }
 
     @Test fun aBriefUpwardFlickOpensThePlayer() {
