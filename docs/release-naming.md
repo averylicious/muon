@@ -11,7 +11,8 @@ Name UI/UX redesigns sequentially by generation (**`Gen N`** or **`Gen N - <opti
 | **Gen 1** | **Gen 1 — Initial** | MVP, v0.1 | `main` (`v0.1.0`) | Shipped & superseded | *(none)* |
 | **Gen 2** | **Gen 2 — Collection redesign** | "Muon 2.0", "UI 2.0" | `main` (`v0.2.0`) | Shipped on `main`; mockups retired | *(retired)* |
 | **Gen 3** | **Gen 3 — M3 Expressive (Refined)** | "M3E", "Expressive alpha" | `claude/m3-expressive-alpha` (frozen RC `.1420`) | Current implemented baseline on M3E | `docs/design/current/` |
-| **Gen 4+** | **`Gen N`** or **`Gen N - <descriptor>`** | Never "Muon 3.0" / "UI 3.0" | New branch off M3E | Planned next redesign | `docs/design/gen-N/` or `docs/design/gen-N-<slug>/` |
+| **Gen 4** | **Gen 4 — Progressive Blur** | — | Planned branch `claude/gen-4-progressive-blur` off M3E | Proposal mockups | `docs/design/gen-4-progressive-blur/` |
+| **Gen 5+** | **`Gen N`** or **`Gen N - <descriptor>`** | Never "Muon 3.0" / "UI 3.0" | New branch off M3E | Planned next redesign | `docs/design/gen-N/` or `docs/design/gen-N-<slug>/` |
 
 ### Visual baseline rules
 
