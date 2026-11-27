@@ -1,9 +1,10 @@
 # Muon design assets
 
-This directory contains only two active areas so coding and design agents always know what the app actually draws today:
+This directory separates what the app draws today from proposals, so coding and design agents always know which is which:
 
 - [`current/`](current/README.md) — **Real device screenshots** of the currently implemented app (Pixel 8, frozen M3 Expressive RC `.1420`). Always treat `current/` — then the Compose code — as ground truth for the existing UI. **Never place unimplemented proposals or drawn mockups inside `current/`.**
 - [`icons/`](icons/README.md) — **Active vector icon generator** (`muon_icons.py`) that produces `app/src/main/res/drawable/ic_*.xml`.
+- [`gen-4-progressive-blur/`](gen-4-progressive-blur/README.md) — **Proposal / target mockups** for Gen 4 - Progressive Blur (plan: [#796](https://github.com/averylicious/muon/issues/796)). Not the current app.
 
 ## Design generations & naming convention
 
@@ -14,7 +15,8 @@ Per [workstream names and release versions](../release-naming.md), name UI/UX re
 | **Gen 1** | **Gen 1 — Initial** | MVP, v0.1 | `main` (`v0.1.0`) | Shipped & superseded | *(none)* |
 | **Gen 2** | **Gen 2 — Collection redesign** | "Muon 2.0", "UI 2.0" | `main` (`v0.2.0`, Canary `.276`) | Shipped on `main`; mockups retired | *(retired `2.0/`, `landscape/`, `offline/`)* |
 | **Gen 3** | **Gen 3 — M3 Expressive (Refined)** | "M3E", "Expressive alpha" | `claude/m3-expressive-alpha` (frozen RC `.1420`) | **Current implemented baseline** | [`current/`](current/README.md) |
-| **Gen 4+** | **`Gen N`** or **`Gen N - <descriptor>`** | Never "Muon 3.0" / "UI 3.0" | Dedicated branch off `claude/m3-expressive-alpha` | Planned next redesign | `docs/design/gen-N/` or `docs/design/gen-N-<slug>/` |
+| **Gen 4** | **Gen 4 — Progressive Blur** | — | Planned branch `claude/gen-4-progressive-blur` off M3E | Proposal mockups | [`gen-4-progressive-blur/`](gen-4-progressive-blur/README.md) |
+| **Gen 5+** | **`Gen N`** or **`Gen N - <descriptor>`** | Never "Muon 3.0" / "UI 3.0" | Dedicated branch off `claude/m3-expressive-alpha` | Planned next redesign | `docs/design/gen-N/` or `docs/design/gen-N-<slug>/` |
 
 ## Lifecycle rules for future mockups
 
