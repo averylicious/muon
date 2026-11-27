@@ -1,5 +1,11 @@
 package dev.avery.muon
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -8,10 +14,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,7 +28,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -28,6 +40,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.time.Duration
+import java.time.LocalTime
+import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.delay
 
 /** Material's large bar asks for this much height when expanded, before any font scaling. */
 internal const val LIBRARY_HEADER = 152f
@@ -94,14 +110,45 @@ private fun Greeting(tracks: Int, offline: Boolean) {
         Text("Library", style = MaterialTheme.typography.barTitle,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     } else Column {
-        Text("Your music,\nnearby.", style = MaterialTheme.typography.displaySmall,
-            fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        val hour by rememberHourOfDay()
+        // A new greeting rises into place over the old one, as the hour turns or the phone goes offline.
+        AnimatedContent(greetingFor(hour, offline), transitionSpec = {
+            (fadeIn(motionMedium()) + slideInVertically(motionSpatial()) { it / 3 })
+                .togetherWith(fadeOut(motionShort()) + slideOutVertically(motionSpatial()) { -it / 3 })
+        }, label = "greeting") { greeting ->
+            Text(greeting, style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
         // Where the music is coming from. The count is left to each view's own bar ("962 songs",
         // "891 albums"), which it only repeated on Songs and contradicted on the others.
         if (tracks > 0) Text(if (offline) "Offline · songs saved on this phone" else "Streaming from Tauon on your desktop",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * The greeting's two lines for the [hour] of the day (0 to 23): morning from 5, afternoon from 12,
+ * evening from 17 and late-night listening from 22. Offline, it says the music came along instead.
+ * Always two lines, so the bar above the list keeps one height all day.
+ */
+internal fun greetingFor(hour: Int, offline: Boolean): String = when {
+    offline -> "Your music,\nwith you."
+    hour in 5..11 -> "Good\nmorning."
+    hour in 12..16 -> "Good\nafternoon."
+    hour in 17..21 -> "Good\nevening."
+    else -> "Late-night\nlistening."
+}
+
+/** The hour of the day on this phone's clock, updated as each hour turns. */
+@Composable
+private fun rememberHourOfDay(): State<Int> = produceState(LocalTime.now().hour) {
+    while (true) {
+        val now = LocalTime.now()
+        // A second past the turn, so the clock has certainly moved on when this wakes.
+        delay(Duration.between(now, now.truncatedTo(ChronoUnit.HOURS).plusHours(1)).toMillis().mod(3_600_000L) + 1_000)
+        value = LocalTime.now().hour
     }
 }
 
@@ -150,11 +197,19 @@ internal fun LibraryTop(tracks: Int, view: LibraryView, choose: (LibraryView) ->
  * explicit accessibility action — declined while a refresh is already running, which is what the
  * disabled button used to express.
  */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun LibraryPane(refreshing: Boolean, refresh: () -> Unit, content: @Composable BoxScope.() -> Unit) {
+    val state = rememberPullToRefreshState()
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = refresh,
+        state = state,
+        // The Canary experiment: Material 3 Expressive's shape-morphing loader instead of the spinner.
+        indicator = {
+            if (Expressive.motion) PullToRefreshDefaults.LoadingIndicator(state, refreshing, Modifier.align(Alignment.TopCenter))
+            else PullToRefreshDefaults.Indicator(state, refreshing, Modifier.align(Alignment.TopCenter))
+        },
         modifier = Modifier.fillMaxSize().semantics {
             customActions = listOf(CustomAccessibilityAction("Refresh library") {
                 if (refreshing) false else { refresh(); true }
@@ -170,6 +225,7 @@ internal fun LibraryPane(refreshing: Boolean, refresh: () -> Unit, content: @Com
  */
 @Composable
 internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
+    if (Expressive.motion) { ConnectedViews(view, choose); return }
     // Deliberately plain: an earlier edge fade used an offscreen compositing layer and a DstOut
     // blend, which the user reported as a scroll regression. The chips overflow past the padding
     // instead, which costs nothing to draw.
@@ -188,9 +244,12 @@ internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
  * marked by a check, not by colour alone.
  */
 @Composable
-internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T) -> String, choose: (T) -> Unit) {
+internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T) -> String, inset: Dp = 0.dp,
+    choose: (T) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    // [inset]: room the container already leaves, as the album grid's padding does.
+    Row(Modifier.fillMaxWidth().padding(start = 24.dp - inset, end = (12.dp - inset).coerceAtLeast(0.dp)),
+        verticalAlignment = Alignment.CenterVertically) {
         // No count where something above already gives it, as the Songs greeting does (#122).
         if (count != null) Text(count, style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -198,13 +257,35 @@ internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T
         else Spacer(Modifier.weight(1f))
         Box {
             // The chevron says this opens a menu; without it the order read as a label (#122).
-            TextButton(onClick = { open = true },
-                modifier = Modifier.semantics { contentDescription = "Order: ${label(current)}" }) {
+            val order: @Composable RowScope.() -> Unit = {
                 Text(label(current), maxLines = 1)
                 Spacer(Modifier.width(4.dp))
                 MuonIcon("collapse", Modifier.size(18.dp))
             }
-            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            val described = Modifier.semantics { contentDescription = "Order: ${label(current)}" }
+            // With Expressive motion, a tonal pill (the Refined mockup), so it reads as a control.
+            if (Expressive.motion) FilledTonalButton(onClick = { open = true }, modifier = described,
+                contentPadding = PaddingValues(start = 16.dp, end = 12.dp), content = order)
+            else TextButton(onClick = { open = true }, modifier = described, content = order)
+            // The Canary experiment: Material 3 Expressive's menu, its choices in one rounded group,
+            // the chosen one filled and marked with a check.
+            if (Expressive.motion) DropdownMenuPopup(expanded = open, onDismissRequest = { open = false }) {
+                DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1)) {
+                    options.forEachIndexed { index, option ->
+                        SelectableDropdownMenuItem(selected = option == current,
+                            onClick = { open = false; choose(option) },
+                            text = { Text(label(option)) },
+                            shapes = MenuDefaults.itemShape(index, options.size),
+                            // The app's own tonal fill, as behind the current song, rather than
+                            // Material's default tertiary, a colour Muon uses nowhere else.
+                            colors = MenuDefaults.selectableItemColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer),
+                            selectedLeadingIcon = { MuonIcon("check", Modifier.size(18.dp)) })
+                    }
+                }
+            } else DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 options.forEach { option ->
                     DropdownMenuItem(text = { Text(label(option)) },
                         onClick = { open = false; choose(option) },
@@ -230,7 +311,7 @@ internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T
 internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, state: LazyListState,
     tracks: Map<String, List<TauonTrack>> = emptyMap(), endpoint: ServerEndpoint? = null, open: (String) -> Unit) {
     val listed = playlists.filter { it.count > 0 }
-    if (listed.isEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+    if (listed.isEmpty()) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalUnderBars.current)) {
         item {
             // Full height so the list can still be pulled down to refresh.
             Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -240,7 +321,8 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, stat
             }
         }
     } else LazyColumn(Modifier.fillMaxSize().scrollIndicator(rememberScrollIndicator(state),
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), bottomInset = LocalUnderBars.current), state = state,
+        contentPadding = PaddingValues(bottom = 12.dp + LocalUnderBars.current)) {
         items(listed, key = { it.id }, contentType = { "playlist" }) { playlist ->
             ListItem(
                 headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -276,7 +358,7 @@ internal fun PlaylistRows(playlists: List<TauonPlaylist>, loading: Boolean, stat
 @Composable
 internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: LazyListState,
     endpoint: ServerEndpoint? = null, open: (LibraryArtist) -> Unit) {
-    if (artists.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize()) {
+    if (artists.isNullOrEmpty()) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalUnderBars.current)) {
         item {
             // Full height so the list can still be pulled down to refresh.
             Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -286,7 +368,8 @@ internal fun ArtistRows(artists: List<LibraryArtist>?, loading: Boolean, state: 
             }
         }
     } else LazyColumn(Modifier.fillMaxSize().scrollIndicator(rememberScrollIndicator(state),
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), bottomInset = LocalUnderBars.current), state = state,
+        contentPadding = PaddingValues(bottom = 12.dp + LocalUnderBars.current)) {
         items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
             ListItem(
                 headlineContent = {
@@ -370,6 +453,46 @@ internal fun PlaylistBar(name: String, count: Int?, backLabel: String = "Back to
         // The scaffold already applies the status bar inset to this content.
         windowInsets = WindowInsets(0, 0, 0, 0),
     )
+}
+
+/** The horizontal padding inside each view button, and so part of the width each one needs. */
+private val ViewButtonPadding = 12.dp
+
+/**
+ * The Canary experiment's view switcher: Material 3 Expressive's connected button group, one toggle
+ * button per view, joined with small inner corners. The chosen view's button fills and rounds fully,
+ * so it is marked by shape as well as colour. The buttons share the width equally while every label
+ * fits; with large text they keep their own widths and the row scrolls, as the chips did.
+ */
+@Composable
+private fun ConnectedViews(view: LibraryView, choose: (LibraryView) -> Unit) {
+    val views = LibraryView.entries
+    val style = MaterialTheme.typography.labelLarge
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val widest = remember(style, density) {
+        with(density) { views.maxOf { measurer.measure(it.name, style).size.width }.toDp() }
+    }
+    val gap = ButtonGroupDefaults.ConnectedSpaceBetween
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) {
+        val fits = (widest + ViewButtonPadding * 2) * views.size + gap * (views.size - 1) <= maxWidth
+        Row((if (fits) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState())).selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(gap)) {
+            views.forEachIndexed { index, choice ->
+                ToggleButton(checked = view == choice, onCheckedChange = { choose(choice) },
+                    shapes = when (index) {
+                        0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                        views.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                        else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                    },
+                    contentPadding = PaddingValues(horizontal = ViewButtonPadding),
+                    // One choice of four, so it reads as a radio button, as Material's own sample does.
+                    modifier = (if (fits) Modifier.weight(1f) else Modifier).semantics { role = Role.RadioButton }) {
+                    Text(choice.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
 }
 
 @Composable

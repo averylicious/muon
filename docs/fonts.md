@@ -1,6 +1,6 @@
 # Fonts
 
-Muon ships one font: **Google Sans Flex**, the face the 2.0 mockups are drawn in. This file records
+Muon ships one font: **Google Sans Flex**. This file records
 where it came from and how to reproduce the file in `app/src/main/res/font/`, because a font binary
 is otherwise unreviewable.
 
@@ -42,11 +42,7 @@ pinned download was compared against it byte for byte.
 **Do not substitute the font currently published by `google/fonts`:** it is a different binary. Pin
 this commit, or re-record the hashes and measurements here after checking what changed.
 
-The same source file rendered the mockups in `docs/design/2.0/`, so the app and the mockups use one
-face.
-
-**On the version number:** `docs/design/2.0/HANDOFF.md` records `197067`, and that is correct. It is
-the raw `head.fontRevision` in its 16.16 fixed-point encoding: `3.0070037841796875 × 65536 = 197067`,
+**On the version number:** `197067` is the raw `head.fontRevision` in its 16.16 fixed-point encoding: `3.0070037841796875 × 65536 = 197067`,
 the same version the `name` table spells as `3.007`. Both forms describe this one file.
 
 **Licence provenance.** The font declares its own terms, and the shipped instance keeps them: name

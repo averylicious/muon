@@ -1,5 +1,6 @@
 package dev.avery.muon
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,19 +44,23 @@ internal data class SearchResults(val tracks: List<TauonTrack> = emptyList(),
 @Composable
 internal fun SearchScreen(query: String, onQuery: (String) -> Unit, expanded: Boolean, onExpanded: (Boolean) -> Unit,
     searching: Boolean, topArtists: List<LibraryArtist>, newAlbums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
-    openArtist: (LibraryArtist) -> Unit, openAlbum: (LibraryAlbum) -> Unit, results: @Composable () -> Unit) {
+    openArtist: (LibraryArtist) -> Unit, openAlbum: (LibraryAlbum) -> Unit,
+    recent: List<String> = emptyList(), submit: (String) -> Unit = {}, clearRecent: () -> Unit = {},
+    results: @Composable () -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
     // Leaving for a page puts the keyboard away first, so it is not waiting over the page.
     val toArtist = { a: LibraryArtist -> keyboard?.hide(); openArtist(a) }
     val toAlbum = { a: LibraryAlbum -> keyboard?.hide(); openAlbum(a) }
-    val inset by animateDpAsState(if (expanded) 0.dp else 16.dp, motionMedium(), label = "search bar inset")
+    // A recent search runs again: its words go back in the field, which opens with them.
+    val again = { text: String -> onQuery(text); onExpanded(true) }
+    val inset by animateDpAsState(if (expanded) 0.dp else 16.dp, motionSpatialFull(), label = "search bar inset")
     Box(Modifier.fillMaxSize()) {
         if (!expanded) SearchBrowse(topArtists, newAlbums, endpoint, toArtist, toAlbum,
-            Modifier.fillMaxSize().padding(top = SEARCH_BAR_ROOM))
+            Modifier.fillMaxSize().padding(top = SEARCH_BAR_ROOM), recent, again, clearRecent)
         SearchBar(
             inputField = {
                 SearchBarDefaults.InputField(query = query, onQueryChange = onQuery,
-                    onSearch = { keyboard?.hide() }, expanded = expanded, onExpandedChange = onExpanded,
+                    onSearch = { keyboard?.hide(); submit(it) }, expanded = expanded, onExpandedChange = onExpanded,
                     placeholder = { Text("Search songs, artists, albums", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     leadingIcon = {
                         if (expanded) IconButton(onClick = { onExpanded(false) },
@@ -75,7 +81,7 @@ internal fun SearchScreen(query: String, onQuery: (String) -> Unit, expanded: Bo
             Box(Modifier.fillMaxWidth().height(2.dp)) {
                 if (searching) LinearProgressIndicator(Modifier.fillMaxSize())
             }
-            if (query.isBlank()) SearchSuggestions(topArtists, newAlbums, endpoint, toArtist, toAlbum)
+            if (query.isBlank()) SearchSuggestions(topArtists, newAlbums, endpoint, toArtist, toAlbum, recent, again, clearRecent)
             else results()
         }
     }
@@ -84,33 +90,39 @@ internal fun SearchScreen(query: String, onQuery: (String) -> Unit, expanded: Bo
 /** Room the collapsed bar takes at the top: its height and the space around it. */
 private val SEARCH_BAR_ROOM = 80.dp
 
+/** Artists as round avatars in a row that scrolls sideways, each opening its page. */
+@Composable
+private fun ArtistAvatarRow(artists: List<LibraryArtist>, endpoint: ServerEndpoint?, openArtist: (LibraryArtist) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
+            Column(Modifier.width(96.dp).clip(RoundedCornerShape(16.dp))
+                .clickable(onClickLabel = "Open artist") { openArtist(artist) }.padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                ArtistAvatar(artist, side = 80.dp, endpoint = endpoint)
+                Text(artistLabel(artist.name), style = MaterialTheme.typography.labelLarge, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp))
+            }
+        }
+    }
+}
+
 /** At rest: the artists with the most songs, then the newest albums, three to a row. */
 @Composable
 private fun SearchBrowse(artists: List<LibraryArtist>, albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
-    openArtist: (LibraryArtist) -> Unit, openAlbum: (LibraryAlbum) -> Unit, modifier: Modifier) {
-    if (artists.isEmpty() && albums.isEmpty()) {
-        Box(modifier.padding(32.dp), contentAlignment = Alignment.Center) {
+    openArtist: (LibraryArtist) -> Unit, openAlbum: (LibraryAlbum) -> Unit, modifier: Modifier,
+    recent: List<String>, again: (String) -> Unit, clearRecent: () -> Unit) {
+    if (artists.isEmpty() && albums.isEmpty() && recent.isEmpty()) {
+        Box(modifier.padding(bottom = LocalUnderBars.current).padding(32.dp), contentAlignment = Alignment.Center) {
             Text("Your collection, one search away.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
-    LazyColumn(modifier, contentPadding = PaddingValues(bottom = 16.dp)) {
+    LazyColumn(modifier, contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
+        if (recent.isNotEmpty()) item(key = "recent", contentType = "recent") { RecentSearchChips(recent, again, clearRecent) }
         if (artists.isNotEmpty()) {
             item(key = "artists-label", contentType = "label") { SectionHeading("Artists") }
-            item(key = "artists", contentType = "artists") {
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(artists, key = { it.key }, contentType = { "artist" }) { artist ->
-                        Column(Modifier.width(96.dp).clip(RoundedCornerShape(16.dp))
-                            .clickable(onClickLabel = "Open artist") { openArtist(artist) }.padding(vertical = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally) {
-                            ArtistAvatar(artist, side = 80.dp, endpoint = endpoint)
-                            Text(artistLabel(artist.name), style = MaterialTheme.typography.labelLarge, maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp))
-                        }
-                    }
-                }
-            }
+            item(key = "artists", contentType = "artists") { ArtistAvatarRow(artists, endpoint, openArtist) }
         }
         if (albums.isNotEmpty()) {
             item(key = "albums-label", contentType = "label") { SectionHeading("Albums") }
@@ -131,9 +143,11 @@ private fun SearchBrowse(artists: List<LibraryArtist>, albums: List<LibraryAlbum
 /** Before typing: a few artists and albums from the library to jump to, alternating. */
 @Composable
 private fun SearchSuggestions(artists: List<LibraryArtist>, albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
-    openArtist: (LibraryArtist) -> Unit, openAlbum: (LibraryAlbum) -> Unit) {
+    openArtist: (LibraryArtist) -> Unit, openAlbum: (LibraryAlbum) -> Unit,
+    recent: List<String>, again: (String) -> Unit, clearRecent: () -> Unit) {
     val suggestions = remember(artists, albums) { searchSuggestions(artists, albums) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
+        if (recent.isNotEmpty()) item(key = "recent", contentType = "recent") { RecentSearchChips(recent, again, clearRecent) }
         if (suggestions.isNotEmpty()) item(key = "label", contentType = "label") {
             Text("From your library", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp))
@@ -153,6 +167,30 @@ private fun SearchSuggestions(artists: List<LibraryArtist>, albums: List<Library
                     modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))
                         .clickable(onClickLabel = "Open album") { openAlbum(album) })
             })
+        }
+    }
+}
+
+/**
+ * The searches made on this phone, newest first, as chips (the Refined mockup): a tap runs one again,
+ * and Clear forgets them all. They change in place as searches are added, removed or cleared.
+ */
+@Composable
+private fun RecentSearchChips(recent: List<String>, again: (String) -> Unit, clear: () -> Unit) {
+    Column(Modifier.fillMaxWidth().animateContentSize(motionSpatial())) {
+        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Recent searches", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f).semantics { heading() })
+            TextButton(onClick = clear, modifier = Modifier.semantics { contentDescription = "Clear recent searches" }) { Text("Clear") }
+        }
+        FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            recent.forEach { text ->
+                key(text) {
+                    SuggestionChip(onClick = { again(text) }, label = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        icon = { MuonIcon("history", Modifier.size(SuggestionChipDefaults.IconSize)) },
+                        modifier = Modifier.semantics { contentDescription = "Search again for $text" })
+                }
+            }
         }
     }
 }
@@ -193,7 +231,9 @@ internal fun LazyListScope.searchCollection(artists: List<LibraryArtist>, albums
     if (artists.isEmpty() && albums.isEmpty()) return
     if (artists.isNotEmpty()) {
         item(key = "search:artists", contentType = "label") { SectionHeading("Artists") }
-        items(artists, key = { "search:${it.key}" }, contentType = { "artist" }) { artist ->
+        // With Expressive motion, the matched artists as the same row of avatars as at rest (the Refined mockup).
+        if (Expressive.motion) item(key = "search:artist-row", contentType = "artists") { ArtistAvatarRow(artists, endpoint, openArtist) }
+        else items(artists, key = { "search:${it.key}" }, contentType = { "artist" }) { artist ->
             ListItem(
                 headlineContent = { Text(artistLabel(artist.name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingContent = { Text("Artist · ${artistSongCount(artist.tracks.size)}") },
@@ -207,11 +247,7 @@ internal fun LazyListScope.searchCollection(artists: List<LibraryArtist>, albums
     if (albums.isNotEmpty()) {
         item(key = "search:albums", contentType = "label") { SectionHeading("Albums") }
         item(key = "search:album-row", contentType = "albums") {
-            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-                items(albums, key = { it.key }, contentType = { "album" }) { album ->
-                    AlbumTile(album, endpoint, subtitle = artistLabel(displayCredits(album.artist))) { openAlbum(album) }
-                }
-            }
+            AlbumRow(albums, endpoint, subtitle = { artistLabel(displayCredits(it.artist)) }, open = openAlbum)
         }
     }
     item(key = "search:songs", contentType = "label") { SectionHeading("Songs") }

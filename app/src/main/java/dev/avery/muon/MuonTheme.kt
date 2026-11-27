@@ -3,6 +3,7 @@ package dev.avery.muon
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -56,5 +57,9 @@ fun MuonTheme(
     val scheme = if (blackSurfaces && darkTheme) {
         colors.copy(background = Color.Black, surface = Color.Black)
     } else colors
-    MaterialTheme(colorScheme = scheme, typography = MuonTypography, content = content)
+    // Material's own controls (switches, sliders, sheets, the pull-to-refresh indicator) take their
+    // springs from the motion scheme; the expressive one is springier (the Canary experiment).
+    MaterialTheme(colorScheme = scheme, typography = MuonTypography,
+        motionScheme = if (Expressive.motion) MotionScheme.expressive() else MotionScheme.standard(),
+        content = content)
 }

@@ -15,9 +15,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -42,7 +44,8 @@ internal val MINI_SWIPE_FLICK = 700.dp
 
 @Composable
 internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, active: Boolean,
-    sheet: PlayerSheet?, open: () -> Unit, toggle: () -> Unit, next: () -> Unit, previous: () -> Unit) {
+    sheet: PlayerSheet?, open: () -> Unit, toggle: () -> Unit, next: () -> Unit, previous: () -> Unit,
+    morph: PlayerMorph? = null, color: Color = MaterialTheme.colorScheme.surfaceVariant) {
     val canOpen by rememberUpdatedState(active)
     // A drag hands the player over when it ends, which can be a long time after it began, so the
     // action is read then rather than captured when the gesture detector was set up.
@@ -57,9 +60,14 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     // Attached to the navigation bar rather than floating above it: it was a card wedged against
     // the bottom chrome, so it now shares an edge with it and only rounds its top corners.
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+    // [color] is translucent when the bars are frosted glass (FrostedGlass.kt).
+    Surface(color = color,
+        shape = RoundedCornerShape(topStart = MINI_PLAYER_CORNER, topEnd = MINI_PLAYER_CORNER),
         modifier = Modifier.fillMaxWidth()
+            // Where the player grows from, with Expressive motion (PlayerMorph). While the panel that
+            // grew out of it is on screen, the panel is the mini player, so this one steps aside.
+            .then(if (morph != null) Modifier.onGloballyPositioned { morph.mini = it }
+                .graphicsLayer { alpha = if (morph.covering()) 0f else 1f } else Modifier)
             // Tap still opens, with its own label, and the controls inside still take their own
             // taps: a drag only becomes a drag once it has passed the touch slop that the detector
             // applies before it reports anything.
@@ -115,13 +123,13 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                             minimum, flick, hasNext, hasPrevious)
                     val width = size.width.toFloat()
                     scope.launch {
-                        if (action == SwipeAction.None) { swipe.animateTo(0f, motionMedium()); return@launch }
+                        if (action == SwipeAction.None) { swipe.animateTo(0f, motionSpatial()); return@launch }
                         // Off towards where the finger was going, then in from the other side.
                         val away = logical(if (action == SwipeAction.Next) -width else width)
                         swipe.animateTo(away, motionShort())
                         if (action == SwipeAction.Next) skipNext() else skipPrevious()
                         swipe.snapTo(-away * 0.4f)
-                        swipe.animateTo(0f, motionMedium())
+                        swipe.animateTo(0f, motionSpatial())
                     }
                 }
             }
@@ -155,19 +163,19 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                     }
                     // Refused once Back or a new presentation has ended this preview, even though
                     // the finger is still down.
-                    if (owned()) sheet.moveTo(playerSheetDragged(baseline, travel, sheet.height))
+                    if (owned()) sheet.moveTo(playerSheetDragged(baseline, travel, sheet.travel))
                 }
                 fun release(upMillis: Long) {
                     // Judged on the whole gesture and the lift's own event time. Only the release
                     // uses it: the sheet still follows the post-slop travel above.
                     val velocity = trace.releaseVelocity(upMillis)
                     val opens = playerPreviewOpens(sheet.previewing, startedAt, sheet.generation,
-                        trace.travel, sheetReleaseDistance(sheet.height, MINI_DRAG_OPEN.toPx()), canOpen,
+                        trace.travel, sheetReleaseDistance(sheet.travel, MINI_DRAG_OPEN.toPx()), canOpen,
                         velocity, SheetFlick(SHEET_FLICK_VELOCITY.toPx(), SHEET_FLICK_TRAVEL.toPx()))
                     val mine = owned()
                     // Sets off at the same measured speed towards where the release decided; the
                     // presentation keeps that settle, or replaces it if the open is refused.
-                    if (mine) sheet.settleTo(if (opens) 0f else 1f, sheetFractionVelocity(velocity, sheet.height))
+                    if (mine) sheet.settleTo(if (opens) 0f else 1f, sheetFractionVelocity(velocity, sheet.travel))
                     // Opening and ending the preview together lets the presentation carry the sheet
                     // on up from here; any other ending lets it put the sheet away.
                     if (opens) current()
@@ -215,38 +223,52 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                     if (owned()) sheet.endPreview()
                 }
             }) {
-        Column {
-            LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
-                // Visual feedback only. Merging a changing progress range into the clickable
-                // mini-player makes TalkBack repeatedly announce percentages over its song label.
-                modifier = Modifier.fillMaxWidth().height(2.dp).clearAndSetSemantics {})
-            Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                // Only the song slides; the controls stay where the thumb expects them. The song is
-                // clipped at its own edge, so it passes under nothing on its way out.
-                Row(Modifier.weight(1f).clearAndSetSemantics {}.clipToBounds().graphicsLayer {
-                    translationX = swipe.value
-                    alpha = 1f - 0.7f * (kotlin.math.abs(swipe.value) / size.width.coerceAtLeast(1f)).coerceAtMost(1f)
-                }, verticalAlignment = Alignment.CenterVertically) {
-                Artwork(p.item?.mediaMetadata?.artworkUri?.toString(), Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
-                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                    Text(p.item?.mediaMetadata?.title?.toString().orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleSmall)
-                    Text(if (p.error != null) "Playback interrupted · open player to retry" else if (p.buffering) "Buffering…" else p.item?.mediaMetadata?.artist?.toString().orEmpty(),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                }
-                // The primary action is filled in the primary colour, like Now Playing's, so it reads as
-                // the control rather than blending into the mini player's own tonal surface (#123).
-                FilledIconButton(onClick = toggle, enabled = ready, shape = playButtonShape(p.playing, 40.dp),
-                    modifier = Modifier.semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
-                    Crossfade(p.playing, animationSpec = motionShort(), label = "mini play/pause") { playing ->
-                        MuonIcon(if (playing) "pause" else "play", Modifier.size(20.dp))
-                    }
-                }
-                Control("next", "Next track", p.next && ready, next)
+        MiniPlayerFace(p, position, ready, toggle, next, swipe = { swipe.value },
+            cover = morph?.miniCoverModifier() ?: Modifier)
+    }
+}
+
+/**
+ * What the mini player shows: the track's progress, the song, and its controls. The mini player draws
+ * it, and so does the player's panel at the start of growing out of the mini player (PlayerMorph),
+ * where it fades out as Now Playing fades in, so the two read as one element. [swipe] is how far a
+ * sideways skip has moved the song; [cover] goes on its cover, and null leaves the cover's place empty.
+ */
+@Composable
+internal fun MiniPlayerFace(p: PlaybackUi, position: () -> Long, ready: Boolean, toggle: () -> Unit,
+    next: () -> Unit, swipe: () -> Float = { 0f }, cover: Modifier? = Modifier) {
+    Column {
+        LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
+            modifier = Modifier.fillMaxWidth().height(2.dp).clearAndSetSemantics {})
+        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            // Only the song slides; the controls stay where the thumb expects them. The song is
+            // clipped at its own edge, so it passes under nothing on its way out.
+            Row(Modifier.weight(1f).clearAndSetSemantics {}.clipToBounds().graphicsLayer {
+                val moved = swipe()
+                translationX = moved
+                alpha = 1f - 0.7f * (kotlin.math.abs(moved) / size.width.coerceAtLeast(1f)).coerceAtMost(1f)
+            }, verticalAlignment = Alignment.CenterVertically) {
+            if (cover != null) Artwork(p.item?.mediaMetadata?.artworkUri?.toString(), Modifier.size(48.dp)
+                .then(cover).clip(RoundedCornerShape(MINI_COVER_CORNER)))
+            else Spacer(Modifier.size(48.dp))
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(p.item?.mediaMetadata?.title?.toString().orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleSmall)
+                Text(if (p.error != null) "Playback interrupted · open player to retry" else if (p.buffering) "Buffering…" else p.item?.mediaMetadata?.artist?.toString().orEmpty(),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            }
+            // The primary action is filled in the primary colour, like Now Playing's, so it reads as
+            // the control rather than blending into the mini player's own tonal surface (#123).
+            FilledIconButton(onClick = toggle, enabled = ready, shape = playButtonShape(p.playing, 40.dp),
+                modifier = Modifier.semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
+                Crossfade(p.playing, animationSpec = motionShort(), label = "mini play/pause") { playing ->
+                    MuonIcon(if (playing) "pause" else "play", Modifier.size(20.dp))
+                }
+            }
+            Control("next", "Next track", p.next && ready, next)
         }
     }
 }

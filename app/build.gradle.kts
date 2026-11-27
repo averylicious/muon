@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
@@ -93,8 +92,13 @@ android {
             matchingFallbacks += listOf("release")
         }
     }
-    buildFeatures { compose = true; buildConfig = true }
-    // The service lifecycle harness loads the real notification-channel resources/manifest.
+    buildFeatures {
+        compose = true
+        // The launcher labels above are resValues, which AGP 9 no longer enables by default.
+        resValues = true
+        buildConfig = true
+    }
+    // Storage/service fixtures load real application resources.
     testOptions { unitTests.isIncludeAndroidResources = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -103,8 +107,10 @@ android {
 }
 dependencies {
     implementation("androidx.activity:activity-compose:1.11.0")
-    implementation(platform("androidx.compose:compose-bom:2025.10.00"))
-    implementation("androidx.compose.material3:material3")
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
+    // Material 3 1.5.0 is stable while Compose BOM 2026.09.00 still maps material3 to 1.4.0.
+    // 1.5.0 requires only Compose 1.12.0, so the rest of Compose stays on the BOM's stable 1.12.1.
+    implementation("androidx.compose.material3:material3:1.5.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.media3:media3-exoplayer:1.11.1")
@@ -128,8 +134,6 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
 }
-
-kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 // Keep a failing assertion's source line visible even if report-artifact upload is unavailable.
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {

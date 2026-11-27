@@ -3,16 +3,20 @@ package dev.avery.muon
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,7 +27,11 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -50,7 +58,17 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
     // The installed APK's own flag, not a build setting, so the banner cannot disagree with the app.
     val debuggable = remember(context) { (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 }
     Column(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
-        LargeTopAppBar(
+        // The Canary experiment: Material 3 Expressive's flexible bar, which carries a subtitle, closer
+        // to Android 17's own Settings. The subtitle names the build, which is handy while testing.
+        if (Expressive.motion) LargeFlexibleTopAppBar(
+            title = { CollapsingTitle("Settings") },
+            subtitle = { Text(appVersion(context), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
+                scrolledContainerColor = colors.background),
+            expandedHeight = TopAppBarDefaults.LargeFlexibleAppBarWithSubtitleExpandedHeight * fontScale,
+            windowInsets = WindowInsets(0, 0, 0, 0),
+            scrollBehavior = scrollBehavior,
+        ) else LargeTopAppBar(
             title = { CollapsingTitle("Settings") },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
                 scrolledContainerColor = colors.background),
@@ -60,7 +78,7 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             scrollBehavior = scrollBehavior,
         )
         Column(Modifier.verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            .padding(horizontal = 16.dp).padding(bottom = 24.dp + LocalUnderBars.current),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // A failed refresh keeps the previous library on screen; this says why it is stale.
             model.error?.let { ErrorCard(it, "Retry", quiet = model.offline, modifier = Modifier) { model.connect() } }
@@ -72,18 +90,18 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
 
             GroupLabel("Connection")
             SettingsGroup {
-                SettingsRow(shape = rowShape(0, 3), headline = "Tauon desktop", supporting = model.address.removePrefix("http://"),
-                    trailing = { ConnectedBadge(model.offline) })
-                SettingsRow(shape = rowShape(1, 3), headline = "Refresh library",
+                SettingsRow(index = 0, count = 3, headline = "Tauon desktop", supporting = model.address.removePrefix("http://"),
+                    leading = rowIcon("desktop"), trailing = { ConnectedBadge(model.offline) })
+                SettingsRow(index = 1, count = 3, headline = "Refresh library",
                     supporting = if (model.busy) model.progress.ifBlank { "Refreshing…" }
                         else if (model.offline) model.progress
                         else "$trackCount ${if (trackCount == 1) "track" else "tracks"} loaded",
-                    enabled = !model.busy,
-                    modifier = Modifier.clickable(enabled = !model.busy, onClickLabel = "Refresh library") { model.connect() })
-                SettingsRow(shape = rowShape(2, 3), headline = "Disconnect",
+                    enabled = !model.busy, leading = rowIcon("refresh"),
+                    clickLabel = "Refresh library", onClick = { model.connect() })
+                SettingsRow(index = 2, count = 3, headline = "Disconnect",
                     supporting = "Stops playback and forgets this server",
-                    headlineColor = colors.error,
-                    modifier = Modifier.clickable(onClickLabel = "Disconnect") { confirmDisconnect = true })
+                    headlineColor = colors.error, leading = rowIcon("close"),
+                    clickLabel = "Disconnect", onClick = { confirmDisconnect = true })
             }
 
             GroupLabel("Playback")
@@ -94,6 +112,9 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
 
             GroupLabel("Appearance")
             AppearanceGroup(appearance)
+
+            GroupLabel("Material 3 Expressive experiment")
+            ExpressiveGroup(appearance)
 
             PrivacyNote()
         }
@@ -119,7 +140,7 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     val availability by OfflineStore.availability.collectAsState()
     if(PartitionSetupControls(OfflineStore.current(),availability)) return
     if(availability!=StorageAvailability.Ready || OfflineStore.current()==null) {
-        SettingsGroup { SettingsRow(shape=rowShape(0,1),headline="Saved storage",
+        SettingsGroup { SettingsRow(index = 0, count = 1,headline="Saved storage",
             supporting=if(availability==StorageAvailability.Failed)
                 "Couldn't open saved copies. Existing files were kept; fully restart Muon before retrying."
             else "Opening saved copies…") }
@@ -156,27 +177,52 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
     StorageBar(if (DownloadMarks.bytesKnown && DownloadMarks.countsKnown && DownloadMarks.summary == DownloadSummaryStatus.Ready) DownloadMarks.bytes else 0L, used, if (onCard && cardFreeSpace != null) cardFreeSpace else free)
     SettingsGroup {
         // Opens Saved copies (#213), where each copy is listed, played and removed on its own.
-        SettingsRow(shape = rowShape(0, rows), headline = "On this device",
+        SettingsRow(index = 0, count = rows, headline = "On this device",
             supporting = if (moving != null) "Updating saved copies ${moving.first} of ${moving.second}…"
                 else if (DownloadMarks.summary == DownloadSummaryStatus.Loading) "Loading saved copy totals…"
                 else if (DownloadMarks.summary == DownloadSummaryStatus.Unavailable || !DownloadMarks.countsKnown) "Saved totals unavailable. Open to see your copies."
                 else if (songs == 0L) "No copies yet. Long-press a song to save it."
                 else "$songs ${if (songs == 1L) "copy" else "copies"} · ${if (DownloadMarks.bytesKnown) formatBytes(DownloadMarks.bytes) else "Size unavailable"}",
-            trailing = { if (DownloadMarks.countsKnown && songs > 0) TextButton(onClick = clear) { Text("Clear") } },
-            modifier = Modifier.clickable(onClickLabel = "Open copies on this device", onClick = openSaved))
+            leading = rowIcon("phone"),
+            // The chevron says the row opens a page (the Refined mockup).
+            trailing = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (DownloadMarks.countsKnown && songs > 0) TextButton(onClick = clear) { Text("Clear") }
+                    if (Expressive.motion) MuonIcon("forward")
+                }
+            },
+            clickLabel = "Open copies on this device", onClick = openSaved)
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
-        SettingsRow(shape = rowShape(1, rows), headline = "Played-song cache",
+        SettingsRow(index = 1, count = rows, headline = "Played-song cache", leading = rowIcon("history"),
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
                 if (full) { if(store.phone.partition==null) " · full, oldest songs make room" else " · full, existing copies kept" } else "",
-            trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } })
+            trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } },
+            // With Expressive motion, the same still wavy meter as On this device's storage card.
+            below = if (Expressive.motion) ({ CacheMeter(used, limit) }) else null)
         // The limit is chosen right here, from four sizes side by side, rather than in a dialog.
-        Surface(shape = rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = if (Expressive.motion) ListItemDefaults.segmentedShapes(2, rows).shape else rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)) {
                 Text("Cache limit", style = MaterialTheme.typography.bodyLarge,
                     color = if (full) colors.primary else colors.onSurface)
                 Text("How much recent listening to keep", style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant)
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                // The Canary experiment: Material 3 Expressive replaces segmented buttons with the
+                // connected button group, whose chosen button rounds fully.
+                if (Expressive.motion) Row(Modifier.fillMaxWidth().padding(top = 12.dp).selectableGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+                    CACHE_LIMITS.forEachIndexed { index, option ->
+                        ToggleButton(checked = option == limit, onCheckedChange = { OfflineStore.setCacheLimit(context, option) },
+                            shapes = when (index) {
+                                0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                CACHE_LIMITS.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.weight(1f).semantics { role = Role.RadioButton }) {
+                            Text(formatBytes(option), maxLines = 1, softWrap = false)
+                        }
+                    }
+                } else SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 12.dp)) {
                     CACHE_LIMITS.forEachIndexed { index, option ->
                         SegmentedButton(selected = option == limit, onClick = { OfflineStore.setCacheLimit(context, option) },
                             shape = SegmentedButtonDefaults.itemShape(index, CACHE_LIMITS.size), icon = {}) {
@@ -186,15 +232,16 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
                 }
             }
         }
-        SettingsRow(shape = rowShape(3, rows), headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now")
+        SettingsRow(index = 3, count = rows, headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now",
+            leading = rowIcon("download"))
         if (card != null) {
             val cardName = remember(card) { cardDescription(context, card) }
             val cardFree = remember(card) { runCatching { android.os.StatFs(card.path).availableBytes }.getOrDefault(0L) }
-            SettingsRow(shape = rowShape(4, rows), headline = "Store on SD card",
+            SettingsRow(index = 4, count = rows, headline = "Store on SD card", leading = rowIcon("sd-card"),
                 supporting = "$cardName · ${formatBytes(cardFree)} free",
                 enabled = moving == null && !counting,
                 trailing = { Switch(checked = onCard, onCheckedChange = null, enabled = moving == null && !counting) },
-                modifier = Modifier.toggleable(value = onCard, enabled = moving == null && !counting, role = Role.Switch) {
+                toggled = onCard, onToggle = {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
                     countNotice = null
                     val target = it
@@ -219,12 +266,12 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
                     }
                 })
         } else if (cardUnavailable) {
-            SettingsRow(shape = rowShape(4, rows), headline = "Store on SD card",
+            SettingsRow(index = 4, count = rows, headline = "Store on SD card", leading = rowIcon("sd-card"),
                 supporting = if (moving != null) "Saved storage work in progress. Card status will be checked when it finishes."
                     else "SD card not available · its downloads aren't shown or changed",
                 enabled = moving == null,
                 trailing = { Switch(checked = onCard, onCheckedChange = null, enabled = moving == null) },
-                modifier = Modifier.toggleable(value = onCard, enabled = moving == null, role = Role.Switch) {
+                toggled = onCard, onToggle = {
                     onCard = it; OfflineStore.setStoreOnCard(context, it)
                 })
         }
@@ -257,6 +304,19 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
         "Downloaded songs stay until you remove them. Lossless streams play from memory and never touch storage.",
         style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
+}
+
+/** A row's leading icon, which the Refined mockup gives every Settings row; only with Expressive motion. */
+private fun rowIcon(kind: String): (@Composable () -> Unit)? = if (Expressive.motion) ({ MuonIcon(kind) }) else null
+
+/** The played-song cache's fill as a still wavy meter, as on On this device (the Refined mockup). */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CacheMeter(used: Long, limit: Long) {
+    val share by animateFloatAsState(if (limit > 0) (used.toFloat() / limit).coerceIn(0f, 1f) else 0f, motionSpatial(), label = "cache share")
+    // Still: the wave shows the fill, and nothing in Settings moves on its own.
+    LinearWavyProgressIndicator(progress = { share }, waveSpeed = 0.dp,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp).clearAndSetSemantics {})
 }
 
 /**
@@ -347,8 +407,10 @@ private fun CollapsingTitle(text: String) {
 
 @Composable
 private fun GroupLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 16.dp, top = 8.dp))
+    // In the accent colour with Expressive motion, as the Refined mockup's section headings are.
+    Text(text, style = MaterialTheme.typography.titleSmall,
+        color = if (Expressive.motion) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp).semantics { heading() })
 }
 
 /** A hairline between rows, so the group reads as one block of related settings. */
@@ -364,24 +426,89 @@ private fun rowShape(index: Int, count: Int) = RoundedCornerShape(
 )
 
 /**
- * One row. The whole row is the target, so any control it carries is passive: the modifier that
- * makes it clickable, selectable or toggleable is applied here, once.
+ * One row, number [index] of the [count] in its group. The whole row is the target, so any control
+ * it carries is passive: [onClick] acts on the row, a row with [toggled] is a switch that calls
+ * [onToggle] with its new value, and a row with [selected] is a radio choice.
+ *
+ * With [Expressive.motion] it is Material 3 Expressive's `SegmentedListItem`, whose corners morph
+ * while pressed and whose selected row is tinted; otherwise the hand-built row it replaced.
  */
 @Composable
-private fun SettingsRow(shape: Shape, headline: String, supporting: String? = null,
-    modifier: Modifier = Modifier, enabled: Boolean = true, headlineColor: Color = Color.Unspecified,
-    trailing: @Composable (() -> Unit)? = null, leading: @Composable (() -> Unit)? = null) {
-    val faded = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-    Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth().then(modifier)) {
+private fun SettingsRow(index: Int, count: Int, headline: String, supporting: String? = null,
+    enabled: Boolean = true, headlineColor: Color = Color.Unspecified,
+    trailing: @Composable (() -> Unit)? = null, leading: @Composable (() -> Unit)? = null,
+    onClick: (() -> Unit)? = null, clickLabel: String? = null,
+    toggled: Boolean? = null, onToggle: ((Boolean) -> Unit)? = null, selected: Boolean? = null,
+    below: (@Composable () -> Unit)? = null) {
+    val colors = MaterialTheme.colorScheme
+    val faded = colors.onSurface.copy(alpha = 0.38f)
+    val headlineText: @Composable () -> Unit = { Text(headline, color = if (!enabled) faded else headlineColor) }
+    // [below] goes under the supporting line, such as the cache's meter.
+    val supportingText: (@Composable () -> Unit)? = if (supporting == null && below == null) null else {
+        {
+            Column {
+                supporting?.let { Text(it, color = if (!enabled) faded else Color.Unspecified) }
+                below?.invoke()
+            }
+        }
+    }
+    if (Expressive.motion) {
+        ExpressiveSettingsRow(index, count, enabled, headlineText, supportingText, trailing, leading,
+            onClick, toggled, onToggle, selected)
+        return
+    }
+    val action = when {
+        toggled != null && onToggle != null ->
+            Modifier.toggleable(value = toggled, enabled = enabled, role = Role.Switch, onValueChange = onToggle)
+        selected != null && onClick != null ->
+            Modifier.selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+        onClick != null -> Modifier.clickable(enabled = enabled, onClickLabel = clickLabel, onClick = onClick)
+        else -> Modifier
+    }
+    Surface(shape = rowShape(index, count), color = colors.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().then(action)) {
         ListItem(
             // No fixed height: a long title or a large font scale grows the row instead of clipping.
-            headlineContent = { Text(headline, color = if (!enabled) faded else headlineColor) },
-            supportingContent = supporting?.let { { Text(it, color = if (!enabled) faded else Color.Unspecified) } },
+            headlineContent = headlineText,
+            supportingContent = supportingText,
             leadingContent = leading,
             trailingContent = trailing,
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         )
+    }
+}
+
+/** [SettingsRow] as a segmented list item, choosing the overload that matches what the row does. */
+@Composable
+private fun ExpressiveSettingsRow(index: Int, count: Int, enabled: Boolean,
+    headline: @Composable () -> Unit, supporting: (@Composable () -> Unit)?,
+    trailing: @Composable (() -> Unit)?, leading: @Composable (() -> Unit)?,
+    onClick: (() -> Unit)?, toggled: Boolean?, onToggle: ((Boolean) -> Unit)?, selected: Boolean?) {
+    val shapes = ListItemDefaults.segmentedShapes(index, count)
+    val ground = MaterialTheme.colorScheme.surfaceContainerHigh
+    // A disabled row keeps its ground, or it came apart from its group (Even out volume before a
+    // song has played, POCO .1394): Material's segmented default for it is transparent.
+    val rowColors = ListItemDefaults.segmentedColors(containerColor = ground, disabledContainerColor = ground)
+    val wide = Modifier.fillMaxWidth()
+    // Centred however many lines the row has, as the Refined mockup's rows are: Material puts a
+    // three-line row's icon and trailing control at the top, so the cache row's icon sat higher than
+    // its Clear and than the icons of the rows around it.
+    val centred = Alignment.CenterVertically
+    when {
+        // A switch keeps its switch semantics: the plain click overload adds none of its own, where
+        // the checked overload would announce a checkbox.
+        toggled != null && onToggle != null -> SegmentedListItem(onClick = { onToggle(!toggled) }, shapes = shapes,
+            modifier = wide.semantics { role = Role.Switch; toggleableState = ToggleableState(toggled) },
+            enabled = enabled, leadingContent = leading, trailingContent = trailing,
+            supportingContent = supporting, colors = rowColors, verticalAlignment = centred, content = headline)
+        selected != null && onClick != null -> SegmentedListItem(selected = selected, onClick = onClick,
+            shapes = shapes, modifier = wide, enabled = enabled, leadingContent = leading, trailingContent = trailing,
+            supportingContent = supporting, colors = rowColors, verticalAlignment = centred, content = headline)
+        onClick != null -> SegmentedListItem(onClick = onClick, shapes = shapes, modifier = wide, enabled = enabled,
+            leadingContent = leading, trailingContent = trailing, supportingContent = supporting,
+            colors = rowColors, verticalAlignment = centred, content = headline)
+        else -> SegmentedListItem(shapes = shapes, modifier = wide, enabled = enabled, leadingContent = leading,
+            trailingContent = trailing, supportingContent = supporting, colors = rowColors, verticalAlignment = centred, content = headline)
     }
 }
 
@@ -391,8 +518,14 @@ private fun ConnectedBadge(offline: Boolean = false) {
     Surface(color = if (offline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.secondaryContainer,
         contentColor = if (offline) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSecondaryContainer,
         shape = RoundedCornerShape(50)) {
-        Text(if (offline) "Offline" else "Connected", style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            // The Refined mockup's status dot, in the text's colour: a word and a mark, never colour alone.
+            if (Expressive.motion) {
+                Box(Modifier.size(7.dp).background(LocalContentColor.current, CircleShape))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(if (offline) "Offline" else "Connected", style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
@@ -410,10 +543,10 @@ private fun PlaybackGroup() {
         LoudnessSource.Tagged -> "Uses this song's ReplayGain loudness data."
     }
     SettingsGroup {
-        SettingsRow(shape = rowShape(0, 1), headline = "Even out volume",
-            supporting = explanation, enabled = canToggle,
+        SettingsRow(index = 0, count = 1, headline = "Even out volume",
+            supporting = explanation, enabled = canToggle, leading = rowIcon("loudness"),
             trailing = { Switch(checked = loudness.enabled, enabled = canToggle, onCheckedChange = null) },
-            modifier = Modifier.toggleable(value = loudness.enabled, enabled = canToggle, role = Role.Switch) { loudness.choose(it) })
+            toggled = loudness.enabled, onToggle = { loudness.choose(it) })
     }
 }
 
@@ -425,23 +558,45 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
     SettingsGroup {
         PaletteChoice.entries.forEachIndexed { index, choice ->
             val enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable
-            SettingsRow(shape = rowShape(index, PaletteChoice.entries.size + 1),
+            SettingsRow(index = index, count = PaletteChoice.entries.size + 1,
                 headline = paletteLabel(choice), supporting = paletteDescription(choice), enabled = enabled,
+                leading = rowIcon(if (choice == PaletteChoice.MaterialYou) "palette" else "music"),
                 // A radio mark, not a tint, so the choice is readable without relying on colour.
                 trailing = { RadioButton(selected = shown == choice, onClick = null, enabled = enabled) },
-                modifier = Modifier.selectable(selected = shown == choice, enabled = enabled,
-                    role = Role.RadioButton) { appearance.choose(choice) })
+                selected = shown == choice, onClick = { appearance.choose(choice) })
         }
-        SettingsRow(shape = rowShape(PaletteChoice.entries.size, PaletteChoice.entries.size + 1),
-            headline = "Pure black", supporting = "Black backgrounds in dark mode",
+        SettingsRow(index = PaletteChoice.entries.size, count = PaletteChoice.entries.size + 1,
+            headline = "Pure black", supporting = "Black backgrounds in dark mode", leading = rowIcon("contrast"),
             trailing = { Switch(checked = appearance.amoled, onCheckedChange = null) },
-            modifier = Modifier.toggleable(value = appearance.amoled, role = Role.Switch) {
+            toggled = appearance.amoled, onToggle = {
                 appearance.chooseAmoled(it)
             })
     }
     if (!dynamicAvailable) Text("Material You needs Android 12 or newer, so this device uses the Muon palette.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
+}
+
+/** The Canary experiment's switches, so each part can be compared with it off on the same phone. */
+@Composable
+private fun ExpressiveGroup(appearance: AppearanceSettings) {
+    // Compose applies blur from Android 12; older phones keep the dimming alone.
+    val blurAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    SettingsGroup {
+        SettingsRow(index = 0, count = 2, headline = "Expressive motion", leading = rowIcon("motion"),
+            supporting = "Springy transitions, and Material's expressive motion for its own controls",
+            trailing = { Switch(checked = Expressive.motion, onCheckedChange = null) },
+            toggled = Expressive.motion, onToggle = {
+                appearance.chooseExpressiveMotion(it)
+            })
+        SettingsRow(index = 1, count = 2, headline = "Blur", leading = rowIcon("blur"),
+            supporting = if (blurAvailable) "Now Playing on a blurred cover, and the library blurred behind the player and the song menu"
+                else "Now Playing on a blurred cover. Blurring the library behind the player needs Android 12 or newer",
+            trailing = { Switch(checked = Expressive.blur, onCheckedChange = null) },
+            toggled = Expressive.blur, onToggle = {
+                appearance.chooseExpressiveBlur(it)
+            })
+    }
 }
 
 /** Disconnect clears the saved server and stops playback, so it asks first and names the server. */
@@ -475,6 +630,11 @@ internal fun PrivacyNote() {
     Text("Tauon's remote API is for trusted LANs. It has no login or encryption over HTTP. Never expose port 7814 to the Internet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
     Text("Streams the original audio · Downloads keep Opus copies\nAndroid playback · Desktop playback stays independent", style = MaterialTheme.typography.bodySmall)
 }
+
+/** The installed build, as the launcher's About screen would show it. */
+private fun appVersion(context: android.content.Context): String =
+    runCatching { "Version " + context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+        .getOrDefault("Muon")
 
 /** A stored amount's share of the storage bar: its true share, but never less than a visible sliver. */
 internal fun storageShare(bytes: Long, total: Long): Float =

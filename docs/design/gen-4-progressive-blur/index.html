@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Gen 4 - Progressive Blur mockups (proposal / target). Not the current app: see ../current/. -->
+<style>:root{color-scheme:light;box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Muon Gen 4 Progressive Blur</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,300..800&display=swap">
+<style>
+/* Layout: a review sheet. Sticky controls, then the navigation bar comparison, then ranked glass surfaces, then notes.
+   Phones are drawn from the Gen 3 baseline (docs/design/current, RC .1420): wallpaper rose palette, Pure black dark. */
+:root {
+  --page: #fbf4f2; --ink: #231918; --muted: #6d5b58; --rule: #ecdcd9; --pick: #8d4e45; --pick-ink: #ffffff; --pick-soft: #f6e3df; --card: #fffbfa;
+  --face: "Google Sans Flex", "Google Sans", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #0d0908; --ink: #f1dfdc; --muted: #b5a29f; --rule: #2f2321; --pick: #ffb4a9; --pick-ink: #561e19; --pick-soft: #2c1f1d; --card: #171110; color-scheme: dark } }
+:root[data-theme="dark"] { --page: #0d0908; --ink: #f1dfdc; --muted: #b5a29f; --rule: #2f2321; --pick: #ffb4a9; --pick-ink: #561e19; --pick-soft: #2c1f1d; --card: #171110; color-scheme: dark }
+body { background: var(--page); color: var(--ink); font-family: var(--face); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1440px; margin: 0 auto; padding-block: 32px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+h1 { font-weight: 700; font-size: clamp(30px, 4.4vw, 46px); line-height: 1.06; letter-spacing: -.015em; margin: 0; text-wrap: balance; }
+h2 { font-weight: 650; font-size: 23px; line-height: 1.2; margin: 0; text-wrap: balance; }
+p { margin: 0; }
+code { font-size: .9em; background: var(--pick-soft); padding: 1px 5px; border-radius: 6px; }
+a { color: var(--pick); }
+.eyebrow { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--pick); }
+.lede { color: var(--muted); max-width: 76ch; }
+.top { display: grid; gap: 10px; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 26px; align-items: center; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--page); padding-block: 10px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 21; background: var(--page); }
+.seg { display: inline-flex; gap: 2px; align-items: center; flex-wrap: wrap; }
+.seg-label { font-size: 13px; color: var(--muted); margin-right: 8px; }
+.seg button { font: 500 14px/1 var(--face); border: 0; padding: 11px 16px; background: var(--pick-soft); color: var(--ink); cursor: pointer; border-radius: 6px; transition: border-radius .25s; }
+.seg button:first-of-type { border-radius: 999px 6px 6px 999px; }
+.seg button:last-of-type { border-radius: 6px 999px 999px 6px; }
+.seg button[aria-pressed="true"] { background: var(--pick); color: var(--pick-ink); border-radius: 999px; }
+.seg button:focus-visible { outline: 2px solid var(--pick); outline-offset: 2px; }
+.section { display: grid; gap: 18px; }
+.section > p { color: var(--muted); max-width: 76ch; }
+.stage { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 40px 24px; align-items: start; }
+.phone-col { display: grid; gap: 12px; justify-items: center; min-width: 0; align-content: start; }
+.phone { width: 100%; max-width: 330px; border-radius: 40px; padding: 9px; background: #0e0b0c; box-shadow: 0 30px 60px -32px rgba(40, 10, 15, .45); box-sizing: border-box; }
+.cap { font-size: 14px; color: var(--muted); max-width: 40ch; display: grid; gap: 7px; }
+.cap h3 { margin: 0; color: var(--ink); font-size: 17px; font-weight: 600; line-height: 1.25; }
+.cap b { color: var(--ink); font-weight: 600; }
+.rank { justify-self: start; font-size: 12.5px; font-weight: 600; padding: 5px 11px; border-radius: 999px; background: var(--pick-soft); color: var(--ink); display: inline-flex; gap: 6px; align-items: center; letter-spacing: .01em; }
+.rank::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--muted)); }
+.rank.r0 { --dot: var(--pick); } .rank.r1 { --dot: #2e8b57; } .rank.r2 { --dot: #3f7fc4; } .rank.r3 { --dot: #c9881c; } .rank.r4 { --dot: #9b59b6; }
+.mode { font-size: 13px; padding: 9px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--rule); color: var(--ink); }
+.mode span { color: var(--muted); }
+.notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.note { background: var(--card); border: 1px solid var(--rule); border-radius: 24px; padding: 18px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.note h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.note p, .note li { color: var(--muted); font-size: 14px; }
+.note ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.sources { color: var(--muted); font-size: 13.5px; }
+
+/* ---------- phone screen (Gen 3 tokens come in as --vars per phone) ---------- */
+.scr { position: relative; height: 680px; border-radius: 31px; overflow: hidden; background: var(--bg); color: var(--on); font-family: var(--face); }
+.scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain; }
+.scroll::-webkit-scrollbar { display: none; }
+.sb { height: 30px; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; font-size: 12px; font-weight: 600; position: relative; }
+.ib { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; border: 0; background: transparent; color: var(--on); flex: none; }
+.backrow { display: flex; align-items: center; padding: 2px 6px; height: 52px; }
+.greet { padding: 34px 20px 4px; }
+.greet b { display: block; font-size: 36px; font-weight: 760; line-height: 1.04; letter-spacing: -.015em; }
+.greet span { display: block; font-size: 13px; color: var(--onv); margin-top: 6px; }
+.tabs { display: flex; gap: 2px; padding: 14px 14px 12px; }
+.tabs span { flex: 1; text-align: center; font-size: 13px; font-weight: 500; padding: 10px 0; background: var(--tonal); color: var(--on); border-radius: 8px; }
+.tabs span:first-child { border-radius: 999px 8px 8px 999px; }
+.tabs span:last-child { border-radius: 8px 999px 999px 8px; }
+.tabs span.on { background: var(--primary); color: var(--onprimary); border-radius: 999px; }
+.countrow { display: flex; justify-content: space-between; align-items: center; padding: 0 16px 10px 20px; font-size: 13px; color: var(--onv); }
+.sortpill { display: inline-flex; gap: 4px; align-items: center; background: var(--sec); color: var(--onsec); border-radius: 999px; padding: 8px 10px 8px 14px; font-weight: 500; }
+.grp-h { padding: 14px 20px 8px; font-size: 14px; font-weight: 600; color: var(--on); display: flex; justify-content: space-between; }
+.grp-h small { color: var(--onv); font-weight: 400; font-size: 12px; }
+.group { display: grid; gap: 2px; margin: 0 12px 4px; }
+.row { display: flex; align-items: center; gap: 12px; padding: 8px 2px 8px 10px; background: var(--rowbg); border-radius: 6px; min-width: 0; }
+.group .row:first-child { border-top-left-radius: 22px; border-top-right-radius: 22px; }
+.group .row:last-child { border-bottom-left-radius: 22px; border-bottom-right-radius: 22px; }
+.row.cur { background: var(--sec); border-radius: 22px !important; margin: 4px 0; }
+.row .t { flex: 1; min-width: 0; }
+.row .t b { display: block; font-size: 14.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .t i { display: block; font-style: normal; color: var(--onv); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .t em { display: flex; gap: 4px; align-items: center; font-style: normal; font-size: 12px; color: var(--onsec); margin-top: 2px; }
+.row.cur .t i { color: var(--onsec); }
+.row .num { width: 24px; text-align: center; color: var(--onv); font-size: 13px; font-variant-numeric: tabular-nums; flex: none; }
+.row .sz { font-size: 12px; color: var(--onv); font-variant-numeric: tabular-nums; }
+.row .grip { color: var(--onv); flex: none; }
+.row .keb { color: var(--onv); width: 34px; display: grid; place-items: center; flex: none; }
+.art { flex: none; width: 50px; height: 50px; border-radius: 10px; overflow: hidden; position: relative; }
+.eq { position: absolute; inset: 0; background: rgba(0,0,0,.38); display: grid; place-items: center; }
+
+/* Glass. --tint is the surface's own colour, --mix how much of it lies over the blur. */
+.glass { background: color-mix(in srgb, var(--tint) var(--mix, 55%), transparent);
+  backdrop-filter: blur(var(--r, 18px)) saturate(var(--sat, 1.5)); -webkit-backdrop-filter: blur(var(--r, 18px)) saturate(var(--sat, 1.5));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--on) 7%, transparent); }
+.scr.fb .glass { background: var(--tint); backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+
+/* A progressive edge: stacked blurs, each masked to a shorter band, so the blur ramps instead of stopping. */
+.pedge { position: absolute; left: 0; right: 0; pointer-events: none; }
+.pedge i { position: absolute; inset: 0; backdrop-filter: blur(var(--k)) saturate(1.25); -webkit-backdrop-filter: blur(var(--k)) saturate(1.25); }
+.pedge.down i { -webkit-mask-image: linear-gradient(to bottom, #000 var(--a), transparent var(--b)); mask-image: linear-gradient(to bottom, #000 var(--a), transparent var(--b)); }
+.pedge.up i { -webkit-mask-image: linear-gradient(to top, #000 var(--a), transparent var(--b)); mask-image: linear-gradient(to top, #000 var(--a), transparent var(--b)); }
+.scr.fb .pedge { display: none; }
+
+/* top bars over full screens (Queue, Lyrics) */
+.topov { position: absolute; left: 0; right: 0; top: 0; z-index: 4; }
+.topov .tint { position: absolute; left: 0; right: 0; top: 0; height: 112px; pointer-events: none; background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 80%, transparent) 0%, color-mix(in srgb, var(--bg) 62%, transparent) 55%, transparent 100%); }
+.scr.fb .topov .tint { height: 82px; background: var(--bg); box-shadow: 0 1px 0 color-mix(in srgb, var(--on) 8%, transparent); }
+.topov .barrow { position: relative; display: flex; align-items: center; gap: 2px; padding: 0 6px; height: 52px; }
+.topov .barrow b { flex: 1; font-size: 19px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bigttl { padding: 4px 20px 6px; }
+.bigttl b { display: block; font-size: 32px; font-weight: 500; line-height: 1.1; }
+.bigttl span { display: block; color: var(--onv); font-size: 14px; margin-top: 4px; }
+
+/* ---------- bottom chrome ---------- */
+.chrome { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; }
+.mini { display: flex; align-items: center; gap: 10px; padding: 9px 8px 9px 12px; position: relative; }
+.mini .t { flex: 1; min-width: 0; }
+.mini .t b { display: block; font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini .t i { display: block; font-style: normal; color: var(--onv); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini .art { width: 42px; height: 42px; border-radius: 9px; }
+.pp { width: 42px; height: 42px; border-radius: 13px; background: var(--cv); color: var(--oncv); display: grid; place-items: center; flex: none; }
+.skipb { width: 38px; height: 42px; display: grid; place-items: center; color: var(--on); flex: none; }
+.prog { position: absolute; left: 0; top: 0; height: 3px; width: 38%; background: var(--cv); border-radius: 0 2px 2px 0; }
+.nav { display: flex; justify-content: space-around; align-items: center; padding: 8px 4px 16px; position: relative; }
+.tab { display: grid; justify-items: center; gap: 3px; font-size: 11.5px; color: var(--onv); width: 33%; border: 0; background: transparent; font-family: var(--face); cursor: pointer; position: relative; z-index: 1; padding: 0; }
+.tab .pill { width: 56px; height: 30px; border-radius: 999px; display: grid; place-items: center; transition: background .3s; }
+.tab.on { color: var(--on); } .tab.on .pill { background: var(--navsel); }
+.tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 12px; }
+/* edge to edge, today's Frost: one even blur, a hard top edge */
+.chrome.edge { background: color-mix(in srgb, var(--bg) 66%, transparent); backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2); }
+.chrome.edge .mini { background: color-mix(in srgb, var(--cvbg) 60%, transparent); }
+/* edge to edge, Gen 4 on 37.2: the blur fades in above the mini player */
+.scr:not(.fb) .chrome.edge { backdrop-filter: none; -webkit-backdrop-filter: none; padding-top: 44px;
+  background: linear-gradient(to bottom, transparent 0, color-mix(in srgb, var(--bg) 46%, transparent) 44px, color-mix(in srgb, var(--bg) 70%, transparent) 100%); }
+.chrome.edge .pedge { inset: 0; }
+/* floating: two glass capsules */
+.chrome.float { left: 12px; right: 12px; bottom: 12px; display: grid; gap: 8px; justify-items: center; }
+.lg { position: relative; width: 100%; box-sizing: border-box; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, var(--bg) 26%, transparent);
+  backdrop-filter: blur(7px) saturate(1.9) brightness(1.04); -webkit-backdrop-filter: blur(7px) saturate(1.9) brightness(1.04);
+  box-shadow: inset 0 1px .5px rgba(255,255,255,.85), inset 0 -1px 1px rgba(0,0,0,.08), inset 0 0 0 .5px rgba(255,255,255,.45), 0 12px 30px -12px var(--shadow);
+  transition: width .5s cubic-bezier(.3, 1.3, .45, 1), padding .4s; }
+.lg::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(165deg, rgba(255,255,255,.45), rgba(255,255,255,0) 36%, rgba(255,255,255,0) 72%, rgba(255,255,255,.16)); mix-blend-mode: soft-light; }
+.scr.dark .lg { background: color-mix(in srgb, var(--bg) 34%, transparent); box-shadow: inset 0 1px .5px rgba(255,255,255,.32), inset 0 -1px 1px rgba(0,0,0,.35), inset 0 0 0 .5px rgba(255,255,255,.14), 0 12px 30px -10px rgba(0,0,0,.7); }
+.scr.fb .lg { background: color-mix(in srgb, var(--bg) 64%, transparent); backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2); }
+.scr.fb .lg::after { opacity: .5; }
+.chrome.float .mini { padding: 7px 7px 7px 8px; }
+.chrome.float .mini .art { border-radius: 50%; }
+.chrome.float .pp { border-radius: 50%; }
+.chrome.float .prog { display: none; }
+.chrome.float .ring { position: absolute; left: 22px; right: 22px; bottom: 0; height: 2.5px; border-radius: 2px; background: color-mix(in srgb, var(--on) 10%, transparent); }
+.chrome.float .ring::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 38%; border-radius: 2px; background: var(--cv); }
+.chrome.float .nav { padding: 6px; }
+.chrome.float .tab { width: auto; flex: 1; height: 52px; align-content: center; transition: font-size .3s; }
+.chrome.float .tab .pill { background: transparent !important; height: 26px; }
+.droplet { position: absolute; top: 6px; bottom: 6px; border-radius: 999px; z-index: 0; background: color-mix(in srgb, var(--primary) 16%, transparent);
+  box-shadow: inset 0 1px .5px rgba(255,255,255,.7), inset 0 -.5px 1px rgba(0,0,0,.1);
+  transition: left .55s cubic-bezier(.3, 1.45, .45, 1), width .4s, transform .55s cubic-bezier(.3, 1.45, .45, 1); }
+.scr.dark .droplet { background: color-mix(in srgb, var(--primary) 22%, transparent); box-shadow: inset 0 1px .5px rgba(255,255,255,.25); }
+.droplet.moving { transform: scaleX(1.25) scaleY(.88); }
+/* scrolling down tucks the tab labels away; scrolling up brings them back */
+.chrome.float.tucked:not(.tuckable) .nav-cap { width: 62%; }
+/* tuck-in variant: scrolling down shrinks the tabs to the current one, and the mini player slides down beside it */
+.chrome.float.tuckable { display: block; height: 128px; }
+.tuckable .mini { position: absolute; left: 0; right: 0; top: 0; width: auto; transition: top .55s cubic-bezier(.3, 1.25, .45, 1), left .55s cubic-bezier(.3, 1.25, .45, 1); }
+.tuckable .nav-cap { position: absolute; left: 0; bottom: 0; transition: width .55s cubic-bezier(.3, 1.25, .45, 1); }
+.tuckable .tab { min-width: 0; overflow: hidden; transition: flex .45s, opacity .25s, font-size .3s, height .3s; }
+.tuckable.tucked .nav-cap { width: 56px; }
+.tuckable.tucked .mini { top: 72px; left: 64px; }
+.tuckable.tucked .tab { font-size: 0; gap: 0; height: 44px; }
+.tuckable.tucked .tab:not(.on) { flex: 0 0 0px; opacity: 0; }
+.tuckable.tucked .droplet { opacity: 0; }
+.tuckable.tucked .mini .skipb { display: none; }
+.chrome.float.tucked .tab { font-size: 0; gap: 0; height: 44px; }
+@media (prefers-reduced-motion: reduce) { .droplet.moving { transform: none; } }
+
+/* floating page toolbar */
+.ftb { position: absolute; left: 50%; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; border-radius: 999px; color: var(--onpcont); --tint: var(--pcont); box-shadow: 0 14px 30px -16px var(--shadow), inset 0 0 0 1px color-mix(in srgb, var(--on) 7%, transparent); }
+.scr[data-nav="edge"] .ftb { bottom: 150px; } .scr[data-nav="float"] .ftb { bottom: 156px; }
+.ftb .ib { color: var(--onpcont); width: 46px; height: 46px; }
+.ftb .fabsq { width: 56px; height: 56px; border-radius: 18px; background: var(--primary); color: var(--onprimary); display: grid; place-items: center; margin-left: 4px; }
+
+/* artist page */
+.ahead { display: flex; gap: 16px; align-items: center; padding: 6px 20px 14px; }
+.mosaic { width: 72px; height: 72px; border-radius: 50%; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; flex: none; }
+.ahead b { display: block; font-size: 26px; font-weight: 500; line-height: 1.1; }
+.ahead span { display: block; color: var(--onv); font-size: 13px; }
+.bgrp { display: flex; gap: 2px; padding: 0 14px; }
+.bgrp span { flex: 1; height: 48px; display: inline-flex; gap: 6px; align-items: center; justify-content: center; background: var(--tonal); color: var(--on); border-radius: 8px; font-size: 14px; font-weight: 500; }
+.bgrp span:first-child { background: var(--primary); color: var(--onprimary); border-radius: 24px 8px 8px 24px; }
+.bgrp span:last-child { flex: 0 0 56px; border-radius: 8px 24px 24px 8px; }
+.hint { padding: 8px 20px 0; font-size: 12px; color: var(--onv); }
+.shelf { display: flex; gap: 10px; padding: 0 16px 6px; overflow: hidden; }
+.shelf div { flex: none; width: 112px; }
+.shelf .sq { width: 112px; height: 112px; border-radius: 16px; }
+.shelf b { display: block; font-size: 13px; font-weight: 500; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shelf i { display: block; font-style: normal; font-size: 12px; color: var(--onv); }
+
+/* search */
+.sbar { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 18px; border-radius: 999px; color: var(--onv); font-size: 14.5px; --tint: var(--cont); --mix: 62%; --r: 20px; }
+.searchtop { position: absolute; left: 0; right: 0; top: 0; z-index: 4; }
+.searchtop .tint { position: absolute; left: 0; right: 0; top: 0; height: 104px; pointer-events: none; background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 78%, transparent), color-mix(in srgb, var(--bg) 50%, transparent) 60%, transparent); }
+.scr.fb .searchtop .tint { height: 96px; background: var(--bg); }
+.searchtop .sbar { position: relative; margin: 6px 14px 0; }
+.circles { display: flex; gap: 12px; padding: 0 16px 4px; overflow: hidden; }
+.circles div { width: 64px; flex: none; text-align: center; font-size: 12px; }
+.circles span { display: block; width: 64px; height: 64px; border-radius: 50%; margin-bottom: 5px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 10px; padding: 0 16px 20px; }
+.grid3 .sq { aspect-ratio: 1; border-radius: 14px; }
+.grid3 b { display: block; font-size: 12.5px; font-weight: 500; margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid3 i { display: block; font-style: normal; font-size: 11.5px; color: var(--onv); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* now playing (cover-tinted, as in 09-now-playing) */
+.np-bg { position: absolute; inset: -60px; filter: blur(54px) saturate(1.3); opacity: .55; }
+.np-veil { position: absolute; inset: 0; background: color-mix(in srgb, var(--npbg) 70%, transparent); }
+.np { position: absolute; inset: 0; display: grid; align-content: start; gap: 12px; padding: 0 18px; }
+.np .hdr { display: flex; align-items: center; justify-content: space-between; margin: 0 -8px; }
+.np .hdr .chev { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--cvsoft) 80%, transparent); color: var(--on); }
+.np .hdr .handle { width: 32px; height: 4px; border-radius: 2px; background: var(--onv); opacity: .55; }
+.np .big { width: 100%; aspect-ratio: 1; border-radius: 26px; box-sizing: border-box; border: 5px solid color-mix(in srgb, #fff 75%, transparent); box-shadow: 0 24px 44px -28px var(--shadow); }
+.scr.dark .np .big { border-color: rgba(255,255,255,.08); }
+.np .meta b { display: block; font-size: 23px; font-weight: 500; line-height: 1.15; }
+.np .meta i { display: block; font-style: normal; color: var(--onv); font-size: 15px; }
+.np .meta small { display: block; color: var(--onv); font-size: 13px; }
+.times { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--onv); font-variant-numeric: tabular-nums; }
+.transport { display: flex; align-items: center; justify-content: space-between; }
+.transport .side { width: 36px; height: 40px; display: grid; place-items: center; color: var(--on); }
+.tg { display: flex; gap: 6px; align-items: center; }
+.tg .sk { width: 60px; height: 54px; border-radius: 27px; background: var(--cvsoft); color: var(--on); display: grid; place-items: center; }
+.tg .pl { width: 76px; height: 76px; border-radius: 22px; background: var(--cv); color: var(--oncv); display: grid; place-items: center; }
+.vol { display: flex; align-items: center; gap: 8px; color: var(--on); }
+.vol .tr { flex: 1; height: 14px; position: relative; }
+.vol .tr::before { content: ""; position: absolute; left: 0; width: 56%; top: 3px; bottom: 3px; border-radius: 4px; background: var(--cv); }
+.vol .tr::after { content: ""; position: absolute; left: calc(56% + 8px); right: 0; top: 4px; bottom: 4px; border-radius: 4px; background: var(--cvsoft); }
+.low { display: flex; justify-content: space-between; align-items: center; }
+.low span { display: inline-flex; gap: 8px; align-items: center; font-size: 14px; font-weight: 500; padding: 11px 18px; border-radius: 999px; background: var(--cvsoft); color: var(--on); }
+.low span.txt { background: transparent; color: var(--cv); }
+.snack { position: absolute; left: 12px; right: 12px; bottom: 24px; z-index: 7; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 16px; --tint: var(--inv); --mix: 72%; --r: 22px; --sat: 1.6; color: var(--oninv); font-size: 14px; box-shadow: 0 12px 26px -14px var(--shadow); transition: transform .35s cubic-bezier(.3, 1.3, .45, 1), opacity .25s; }
+.snack span { flex: 1; }
+.snack button { font: 600 14px/1 var(--face); border: 0; background: transparent; color: var(--invp); padding: 12px; border-radius: 999px; cursor: pointer; }
+.snack.away { transform: translateY(24px); opacity: 0; }
+
+/* lyrics, synced (an idea: Tauon gives Muon plain text today) */
+.lyr { padding: 176px 22px 300px; display: grid; gap: 14px; }
+.lyr p { font-size: 25px; font-weight: 650; line-height: 1.22; letter-spacing: -.01em; color: var(--onv); transition: filter .6s ease, color .4s, opacity .6s, transform .5s cubic-bezier(.3, 1.2, .45, 1); transform-origin: left center; cursor: pointer; }
+.lyr p.now { color: var(--on); transform: scale(1.03); }
+.lyr p.past { opacity: .55; }
+
+/* A–Z bubble */
+.rail { position: absolute; right: 0; top: 60px; bottom: 170px; width: 34px; z-index: 6; touch-action: none; cursor: grab; }
+.thumb { position: absolute; right: 5px; width: 8px; height: 56px; border-radius: 4px; background: var(--primary); }
+.lens { position: absolute; right: 44px; width: 86px; height: 86px; margin-top: -43px; border-radius: 50%; display: grid; place-items: center; font-size: 38px; font-weight: 700; z-index: 6; pointer-events: none; color: var(--onpcont);
+  --tint: var(--pcont); --mix: 36%; --r: 9px; --sat: 2; transition: opacity .2s, transform .3s cubic-bezier(.3, 1.4, .45, 1);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.55), inset 0 0 0 1.5px color-mix(in srgb, var(--primary) 35%, transparent), 0 14px 26px -14px var(--shadow); }
+.scr.fb .lens { background: var(--primary); color: var(--onprimary); box-shadow: 0 10px 20px -12px var(--shadow); }
+.lens.hide { opacity: 0; transform: scale(.7); }
+
+/* settings */
+.sttl { padding: 30px 20px 10px; }
+.sttl b { display: block; font-size: 32px; font-weight: 500; line-height: 1.1; }
+.sttl span { color: var(--onv); font-size: 13px; }
+.glabel { padding: 16px 22px 8px; font-size: 13.5px; font-weight: 600; color: var(--primary); }
+.sgroup { display: grid; gap: 2px; margin: 0 12px; }
+.sitem { display: flex; gap: 14px; align-items: center; padding: 13px 14px; background: var(--cont); border-radius: 6px; }
+.sgroup .sitem:first-child { border-radius: 22px 22px 6px 6px; }
+.sgroup .sitem:last-child { border-radius: 6px 6px 22px 22px; }
+.sgroup .sitem:only-child { border-radius: 22px; }
+.sitem > svg { color: var(--onv); flex: none; }
+.sitem .t { flex: 1; min-width: 0; }
+.sitem .t b { display: block; font-size: 14.5px; font-weight: 500; }
+.sitem .t i { display: block; font-style: normal; font-size: 12.5px; color: var(--onv); line-height: 1.35; }
+.sitem.new { outline: 2px dashed color-mix(in srgb, var(--primary) 55%, transparent); outline-offset: -2px; }
+.radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--onv); flex: none; box-sizing: border-box; display: grid; place-items: center; }
+.radio.on { border-color: var(--primary); }
+.radio.on::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--primary); }
+.sw { width: 50px; height: 30px; border-radius: 15px; background: var(--primary); position: relative; flex: none; }
+.sw::after { content: ""; position: absolute; top: 4px; left: 24px; width: 22px; height: 22px; border-radius: 50%; background: var(--onprimary); }
+.sw.off { background: var(--tonal); outline: 2px solid var(--onv); outline-offset: -2px; }
+.sw.off::after { left: 7px; top: 7px; width: 16px; height: 16px; background: var(--onv); }
+.navchoice { display: grid; gap: 10px; padding: 14px; background: var(--cont); }
+.navchoice .opts { display: flex; gap: 2px; }
+.navchoice button { flex: 1; border: 0; font: 500 13px/1.2 var(--face); padding: 10px 6px 9px; background: var(--rowbg); color: var(--on); border-radius: 8px; cursor: pointer; display: grid; justify-items: center; gap: 7px; transition: border-radius .25s, background .25s; }
+.navchoice button:first-child { border-radius: 20px 8px 8px 20px; }
+.navchoice button:last-child { border-radius: 8px 20px 20px 8px; }
+.navchoice button[aria-pressed="true"] { background: var(--sec); color: var(--onsec); border-radius: 20px; }
+.navchoice button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.navchoice svg rect, .navchoice svg path { transition: fill .25s; }
+.foot { padding: 10px 22px 0; font-size: 12px; color: var(--onv); }
+.sitem[data-pal] { cursor: pointer; }
+
+/* Bar surface. Tinted: the surface's own colour, see-through, nothing blurred. Solid: opaque palette colours. */
+.scr.s-tinted .glass { background: color-mix(in srgb, var(--tint) 84%, transparent); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.scr.s-tinted .pedge, .scr.s-solid .pedge { display: none; }
+.scr.s-tinted .chrome.edge { backdrop-filter: none; -webkit-backdrop-filter: none; padding-top: 0; background: color-mix(in srgb, var(--bg) 86%, transparent); }
+.scr.s-tinted .chrome.edge .mini { background: color-mix(in srgb, var(--cvbg) 70%, transparent); }
+.scr.s-tinted .lg { background: color-mix(in srgb, var(--cont) 84%, transparent); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.scr.s-tinted .topov .tint { height: 82px; background: color-mix(in srgb, var(--bg) 86%, transparent); }
+.scr.s-tinted .searchtop .tint { height: 96px; background: color-mix(in srgb, var(--bg) 86%, transparent); }
+.scr.s-solid .glass { background: var(--tint); backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+.scr.s-solid .chrome.edge { backdrop-filter: none; -webkit-backdrop-filter: none; padding-top: 0; background: var(--cont); }
+.scr.s-solid .chrome.edge .mini { background: var(--cvbg); }
+.scr.s-solid .lg { background: var(--cont); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.scr.s-solid .lg::after { display: none; }
+.scr.s-solid .topov .tint { height: 82px; background: var(--bg); box-shadow: 0 1px 0 color-mix(in srgb, var(--on) 8%, transparent); }
+.scr.s-solid .searchtop .tint { height: 96px; background: var(--bg); }
+.scr.s-solid .ftb { box-shadow: 0 14px 30px -16px var(--shadow); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="eyebrow">Gen 4 · Progressive Blur · proposal</span>
+    <h1>Muon with backdrop glass</h1>
+    <p class="lede">Drawn from the Gen 3 baseline (RC .1420 on the Pixel 8). Android 17 QPR2 (API 37.2) lets a surface blur whatever is drawn behind it, live, with <code>RenderNode.setBackdropRenderEffect</code>. First, a new choice for the navigation bar; then the surfaces that could turn to glass, ranked. Switch the device to see what an older phone gets, scroll the lists under the glass, tap the tabs, and drag the A–Z handle. The blur is the browser's approximation, and the songs are fictional.</p>
+  </div>
+
+  <div class="controls" role="group" aria-label="Preview settings">
+    <div class="seg" id="c-dev"><span class="seg-label">Device</span><button id="dv-new" data-v="new" aria-pressed="true">Pixel 8 · Android 17 QPR2</button><button id="dv-old" data-v="old" aria-pressed="false">Older Android · fallback</button></div>
+    <div class="seg" id="c-nav"><span class="seg-label">Navigation bar</span><button id="nv-edge" data-v="edge" aria-pressed="true">Edge to edge</button><button id="nv-float" data-v="float" aria-pressed="false">Floating</button></div>
+    <div class="seg" id="c-fstyle"><span class="seg-label">Floating style</span><button id="fs-s" data-v="stacked" aria-pressed="true">Stacked</button><button id="fs-t" data-v="tuck" aria-pressed="false">Tuck in</button></div>
+    <div class="seg" id="c-surf"><span class="seg-label">Bar surface</span><button id="sf-f" data-v="frosted" aria-pressed="true">Frosted</button><button id="sf-t" data-v="tinted" aria-pressed="false">Tinted</button><button id="sf-s" data-v="solid" aria-pressed="false">Solid</button></div>
+    <div class="seg" id="c-pal"><span class="seg-label">Palette</span><button id="pl-y" data-v="you" aria-pressed="true">Material You</button><button id="pl-m" data-v="muon" aria-pressed="false">Muon</button></div>
+    <div class="seg" id="c-theme"><span class="seg-label">Theme</span><button id="th-l" data-v="light" aria-pressed="true">Light</button><button id="th-d" data-v="dark" aria-pressed="false">Dark</button></div>
+  </div>
+
+  <section class="section">
+    <h2>A choice of navigation bar, and of what it's made of</h2>
+    <p>Edge to edge stays the default: today's Material bar with a softer top edge. Floating is opt-in and turns the mini player and the tabs into glass capsules, either stacked or, with <b>Tuck in while scrolling</b> on, sliding into one row as you scroll down. A second choice sets the surface for every bar and toolbar. <b>Frosted</b> blurs what's behind it. <b>Tinted</b> shows the content through the bar's own colour with nothing blurred, so it costs no more than a plain bar. <b>Solid</b> is opaque, in Material You or Muon colours, whichever palette is chosen. Both choices live in Settings › Appearance, and every phone on this page follows them.</p>
+    <div class="stage" id="stage-nav"></div>
+  </section>
+
+  <section class="section">
+    <h2>Surfaces that could turn to glass</h2>
+    <p>Ranked by value for cost. Each phone follows the navigation bar choice above.</p>
+    <div class="stage" id="stage"></div>
+  </section>
+
+  <section class="section">
+    <h2>Where it doesn't fit</h2>
+    <div class="notes">
+      <div class="note"><h3>Song actions sheet and ⋮ menus</h3><p>Sheets, dialogs and dropdown menus open in their own windows, and a backdrop only sees its own window. Muon already blurs the app behind the sheet from the app's side (13-song-actions), and that stays. Compose 1.13's <code>blurBehindRadius</code> on <code>DialogProperties</code> is the system route if it's ever wanted.</p></div>
+      <div class="note"><h3>Now Playing's glow</h3><p>The cover glow is blurred once per song from a 40-pixel copy of the cover, so it costs as much as drawing a picture. A live backdrop would look the same and re-blur every frame.</p></div>
+      <div class="note"><h3>The player while it grows</h3><p>A backdrop is cut off by any fading layer above it, and the mini player's morph into Now Playing fades. The growing panel keeps its Frost layer, whichever navigation bar is chosen.</p></div>
+      <div class="note"><h3>Landscape</h3><p>Sideways, the tabs become a rail and the player a side panel (landscape-01). Nothing scrolls under them, so the navigation bar choice applies to portrait only.</p></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>What building it would take</h2>
+    <div class="notes">
+      <div class="note"><h3>Floating bar, on every phone</h3><ul>
+        <li>No 37.2 needed. Frost already draws a blurred copy of the tab behind the bars, and it can clip that copy to capsules, so floating glass works from Android 12. On 37.2 the backdrop can take over if it measures better.</li>
+        <li>The choice is one more preference beside Pure black. The list already leaves room under glass bars (<code>LocalUnderBars</code>); the floating height just changes that number.</li>
+        <li>Stacked is the floating default; Tuck in while scrolling is a switch under it, so both ship.</li></ul></div>
+      <div class="note"><h3>Bar surface</h3><ul>
+        <li>Frosted, Tinted and Solid are one preference that every bar, toolbar, search pill and snackbar reads. Tinted and Solid skip the blur entirely, which is the answer to the cost note below.</li>
+        <li>Solid takes the chosen palette's container colours (Material You or Muon), so it needs no colours of its own.</li>
+        <li>The Blur switch narrows to Now Playing's cover and the blur behind the player and song menu.</li></ul></div>
+      <div class="note"><h3>Backdrop setup</h3><ul>
+        <li><code>compileSdkMinor = 2</code> in <code>app/build.gradle.kts</code> (it is 0 today), and a check of <code>SDK_INT &gt;= 36</code> before <code>SDK_INT_FULL</code>.</li>
+        <li>No Compose backdrop modifier exists yet, even in 1.13. One small helper owns a platform <code>RenderNode</code> and draws it with <code>drawRenderNode</code> under each surface.</li>
+        <li>Every glass surface follows the existing Blur switch and has the solid fallback shown here.</li></ul></div>
+      <div class="note"><h3>Progressive edges</h3><ul>
+        <li><code>BlurRadiusSpec</code> comes with Compose 1.13 (BOM 2026.11.01, Kotlin 2.2+, compileSdk 37.1). That upgrade is its own slice, done first.</li>
+        <li>Not yet checked: how a <code>BlurRadiusSpec</code> reaches the platform backdrop. Read the 1.13 sources before relying on it; a uniform blur works without it.</li></ul></div>
+      <div class="note"><h3>Synced lyrics</h3><ul>
+        <li>Lyrics in focus needs timed lines. Muon reads plain <code>lyrics_text</code> from Tauon today. Not checked yet: whether Tauon keeps LRC timestamps it could pass on.</li>
+        <li>The line blur itself is plain <code>Modifier.blur</code> (Android 12+), independent of the backdrop work.</li></ul></div>
+      <div class="note"><h3>Cost</h3><ul>
+        <li>The renderer re-samples and re-blurs a backdrop every frame, with no cache. Small, brief surfaces (toolbar, snackbar, bubble) are safe bets; full-width bars need a Pixel trace.</li>
+        <li>Early Haze benchmarks found its native-backdrop path used more CPU per frame than its copy-based one, which is the approach Frost already takes.</li></ul></div>
+    </div>
+    <p class="sources">Sources: <a href="https://developer.android.com/reference/android/graphics/RenderNode#setBackdropRenderEffect(android.graphics.RenderEffect)">RenderNode.setBackdropRenderEffect</a> · <a href="https://developer.android.com/develop/ui/compose/graphics/blur/overview">Blurring in Compose</a> · <a href="https://developer.android.com/blog/posts/jetpack-compose-november-2026-release">Compose November '26 release</a> · <a href="https://daily.dev/posts/compose-has-progressive-blur-do-you-still-need-haze--qcd6zjiti">Compose has progressive blur: do you still need Haze?</a></p>
+  </section>
+</div>
+
+<script>
+(() => {
+  // Gen 3 tokens, sampled from docs/design/current (wallpaper rose; dark is Pure black). cv* is the playing cover's tint (a blue cover).
+  // Material You is the wallpaper rose of the baseline; Muon is the app's own green (MuonTheme.kt), both with Pure black dark.
+  const BASE = {
+    you: {
+      light: { bg:"#fff8f6", on:"#231918", onv:"#534341", rowbg:"#fff0ed", cont:"#fbe3e1", tonal:"#fdeae6", sec:"#ffdad4", onsec:"#3a0905", primary:"#8d4e45", onprimary:"#ffffff", pcont:"#ffdad4", onpcont:"#723630", navsel:"#ffdad4", inv:"#392e2c", oninv:"#ffede9", invp:"#ffb4a9", shadow:"rgba(80,25,20,.5)" },
+      dark:  { bg:"#000000", on:"#f1dfdc", onv:"#d8c2be", rowbg:"#1b1110", cont:"#281d1b", tonal:"#2a1c1a", sec:"#523330", onsec:"#ffdad4", primary:"#ffb4a9", onprimary:"#561e19", pcont:"#73342d", onpcont:"#ffdad4", navsel:"#523331", inv:"#f1dfdc", oninv:"#392e2c", invp:"#8d4e45", shadow:"rgba(0,0,0,.75)" } },
+    muon: {
+      light: { bg:"#f9faf4", on:"#1a1c18", onv:"#454a40", rowbg:"#eff3e8", cont:"#e1e8da", tonal:"#e8eee0", sec:"#d9e7cb", onsec:"#172e0b", primary:"#3d6800", onprimary:"#ffffff", pcont:"#c6ef94", onpcont:"#2c4f00", navsel:"#d9e7cb", inv:"#2f312d", oninv:"#f1f1eb", invp:"#a8d872", shadow:"rgba(20,50,10,.45)" },
+      dark:  { bg:"#000000", on:"#f3f4ef", onv:"#a9b4a9", rowbg:"#101411", cont:"#1c231d", tonal:"#172019", sec:"#283e2a", onsec:"#d3f8b5", primary:"#bcf580", onprimary:"#152700", pcont:"#2c4f12", onpcont:"#d3f8b5", navsel:"#283e2a", inv:"#e3e3dd", oninv:"#2f312d", invp:"#3d6800", shadow:"rgba(0,0,0,.75)" } } };
+  // The playing cover's tint (a blue cover) for the mini player and Now Playing, whatever the palette.
+  const COVER = { light: { cv:"#236891", oncv:"#ffffff", cvbg:"#e3e6ea", cvsoft:"#d3e4f2", npbg:"#eef2f6" }, dark: { cv:"#a4cce6", oncv:"#0b3550", cvbg:"#17222a", cvsoft:"#1f3342", npbg:"#05080b" } };
+  const S = { dev: "new", theme: "light", nav: "edge", fstyle: "stacked", surf: "frosted", pal: "you", tab: {} };
+  try { Object.assign(S, JSON.parse(localStorage.getItem("muon-gen4") || "{}")); } catch (e) {}
+  const save = () => { try { localStorage.setItem("muon-gen4", JSON.stringify({ dev: S.dev, theme: S.theme, nav: S.nav, fstyle: S.fstyle, surf: S.surf, pal: S.pal })); } catch (e) {} };
+
+  const ICON = {
+    back:'<path d="M19 12H5M11 6l-6 6 6 6"/>', up:'<path d="M12 19V5M6 11l6-6 6 6"/>', down:'<path d="M6 9l6 6 6-6"/>', chev:'<path d="M6 9l6 6 6-6"/>', right:'<path d="M9 6l6 6-6 6"/>',
+    more:'<circle cx="12" cy="5.5" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="18.5" r="1.3" fill="currentColor"/>',
+    play:'<path d="M8 5.5v13l10-6.5z" fill="currentColor"/>', pause:'<path d="M8 5v14M16 5v14"/>', save:'<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    shuffle:'<path d="M3 7h3c5 0 7 10 12 10h3M3 17h3c2 0 3.4-1.6 4.6-3.6M14 9.6C15.2 8 16.4 7 18 7h3M18 4l3 3-3 3M18 14l3 3-3 3"/>', repeat:'<path d="M5 11V9a3 3 0 0 1 3-3h11M16 3l3 3-3 3M19 13v2a3 3 0 0 1-3 3H5M8 21l-3-3 3-3"/>',
+    prev:'<path d="M6 5v14M18 6l-9 6 9 6z" fill="currentColor"/>', skip:'<path d="M18 5v14M6 6l9 6-9 6z" fill="currentColor"/>', lyrics:'<path d="M5 5h14v10H10l-4 4v-4H5z"/><path d="M8.5 9h7M8.5 12h4.5"/>',
+    queue:'<path d="M4 7h11M4 12h11M4 17h6"/><path d="M17 18.5V11l3 1"/><circle cx="15.5" cy="18.5" r="1.6" fill="currentColor"/>', grip:'<path d="M6 10h12M6 14h12"/>',
+    lib:'<rect x="4" y="4" width="7" height="7" rx="2.5"/><rect x="13" y="4" width="7" height="7" rx="2.5"/><rect x="4" y="13" width="7" height="7" rx="2.5"/><rect x="13" y="13" width="7" height="7" rx="2.5"/>',
+    search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20"/>', set:'<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><path d="M15 5v4M9 10v4M17 15v4"/>',
+    palette:'<circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16" cy="10" r="1.2" fill="currentColor"/>',
+    note:'<path d="M11.7 17V4.8c.7 2.4 2.7 3.6 5.2 3.8"/><circle cx="9.5" cy="17" r="3.2" fill="currentColor" stroke="none"/>', contrast:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+    motion:'<path d="M4 16c3 0 4-8 8-8s5 8 8 8"/>', blur:'<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" stroke-dasharray="2 3"/>', navbar:'<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M4 16h16"/>',
+    vlow:'<path d="M5 10v4h3l4 3V7L8 10z" fill="currentColor"/>', vhigh:'<path d="M5 10v4h3l4 3V7L8 10z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 7a7 7 0 0 1 0 10"/>' };
+  const ic = (k, s = 22) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
+  function hash(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function polar(cx, cy, r, lobes, depth, steps = 140) { let d = ""; for (let i = 0; i <= steps; i++) { const a = i / steps * Math.PI * 2 - Math.PI / 2, rr = r * (1 + depth * Math.cos(lobes * a)); d += (i ? "L" : "M") + (cx + rr * Math.cos(a)).toFixed(2) + "," + (cy + rr * Math.sin(a)).toFixed(2); } return d + "Z"; }
+
+  const ART = { tide:"linear-gradient(150deg,#f2b36b 0%,#e06d55 38%,#3b4f7c 100%)", brine:"linear-gradient(170deg,#2d6a5f,#0f2b2a)", floor:"linear-gradient(140deg,#c9a7e8,#5b3f8c)", copper:"linear-gradient(150deg,#e8b04a,#8a3b1d)", orbit:"radial-gradient(circle at 30% 30%,#9fd3e6,#2f5d8a 60%,#14223d)", moss:"linear-gradient(160deg,#a3c47c,#3f6b3a 60%,#1f3320)", ember:"conic-gradient(from 200deg at 60% 40%,#ff9a62,#c2185b,#4a148c,#ff9a62)", dune:"linear-gradient(200deg,#f6d365,#fda085 50%,#7b4397)", tidepool:"linear-gradient(130deg,#43cea2,#185a9d)", rose:"radial-gradient(circle at 70% 30%,#ffc3a0,#d4567a 55%,#3a1c4a)",
+    bloom:"radial-gradient(circle at 50% 42%,#ff5f6d 0%,#ffc371 18%,#7ee8fa 34%,#a770ef 48%,#e9eef3 66%)" };
+  const ARTS = Object.values(ART);
+  // The cookie placeholder for songs without art (Gen 3).
+  function cookie(seed) {
+    const dark = S.theme === "dark", h = hash(seed) % 360;
+    const tile = dark ? `hsl(${h} 18% 22%)` : `hsl(${h} 36% 90%)`, g = dark ? `hsl(${h} 55% 78%)` : `hsl(${h} 42% 36%)`;
+    return `<svg width="100%" height="100%" viewBox="0 0 100 100" aria-hidden="true" style="display:block"><rect width="100" height="100" fill="${tile}"/><path d="${polar(50, 50, 33, 9, .075)}" fill="${g}" fill-opacity="${dark ? .2 : .14}"/><g transform="translate(32 32) scale(1.5)"><path d="M11.7 17V4.8c.7 2.4 2.7 3.6 5.2 3.8" fill="none" stroke="${g}" stroke-width="2" stroke-linecap="round"/><circle cx="9.5" cy="17" r="3.2" fill="${g}"/></g></svg>`;
+  }
+  const EQ = `<div class="eq"><svg width="20" height="20" viewBox="0 0 24 24"><rect x="5" y="9" width="3" height="10" rx="1.5" fill="#fff"/><rect x="10.5" y="5" width="3" height="14" rx="1.5" fill="#fff"/><rect x="16" y="11" width="3" height="8" rx="1.5" fill="#fff"/></svg></div>`;
+  const art = (bg, seed, cls = "art", eq = false) => `<div class="${cls}" style="${bg ? `background:${bg}` : ""}">${bg ? "" : cookie(seed)}${eq ? EQ : ""}</div>`;
+  const sb = () => `<div class="sb"><span>11:32</span><span>▾ ▮ 80</span></div>`;
+  function row(t, a, bg, x = {}) {
+    const lead = x.num != null ? `<span class="num">${x.num}</span>` : x.grip ? `<span class="grip">${ic("grip", 20)}</span>` : "";
+    const cover = x.num != null ? "" : art(bg, t, "art", x.cur);
+    return `<div class="row${x.cur ? " cur" : ""}">${lead}${cover}<div class="t"><b>${t}</b><i>${a}</i>${x.cur && !x.noPlaying ? `<em>${ic("pause", 12)}Playing</em>` : ""}</div>${x.d ? `<span class="sz">${x.d}</span>` : ""}<span class="keb">${ic("more", 20)}</span></div>`;
+  }
+  const group = (rows) => `<div class="group">${rows.join("")}</div>`;
+  // Stacked blur layers: stronger blur over shorter bands, so the edge ramps from sharp to soft.
+  const pedge = (dir, style, layers) => `<div class="pedge ${dir}" style="${style}" aria-hidden="true">${layers.map(([k, a, b]) => `<i style="--k:${k}px;--a:${a}%;--b:${b}%"></i>`).join("")}</div>`;
+  const TOP_EDGE = [[1, 70, 100], [2, 62, 92], [4, 50, 80], [8, 36, 66], [14, 20, 50]];
+  const BOTTOM_EDGE = [[1, 64, 100], [3, 56, 90], [6, 50, 80], [10, 44, 72], [16, 34, 64]];
+  const TABS = [["lib", "Library"], ["search", "Search"], ["set", "Settings"]];
+
+  function chrome(sid, tab, nav, tuck) {
+    const cur = S.tab[sid] ?? tab;
+    const miniBody = `${art(ART.bloom, "Bloom")}<div class="t"><b>Colour Theory</b><i>Ines Varga, Hollis Reed</i></div><div class="pp">${ic("pause", 18)}</div><span class="skipb">${ic("skip", 18)}</span>`;
+    const tabs = TABS.map(([i, l], n) => `<button type="button" class="tab${n === cur ? " on" : ""}" data-n="${n}" aria-label="${l}"><span class="pill">${ic(i)}</span>${l}</button>`).join("");
+    if (nav === "float") return `<div class="chrome float${tuck ? " tuckable" : ""}" data-sid="${sid}">
+        <div class="lg mini">${miniBody}<span class="ring"></span></div>
+        <div class="lg nav nav-cap"><span class="droplet"></span>${tabs}</div></div>`;
+    return `<div class="chrome edge" data-sid="${sid}">${pedge("up", "", BOTTOM_EDGE)}<div style="position:relative"><div class="mini"><span class="prog"></span>${miniBody}</div><div class="nav">${tabs}</div></div></div>`;
+  }
+
+  // ---------- screens ----------
+  const SONGS = [["Harbour Lights", "Mara Ellis · Tidewater", ART.tide, "3:48"], ["Paper Satellites", "The Glass Orchards · Paper Satellites", null, "4:12"], ["Seventh Floor", "Juno Park · Seventh Floor", ART.floor, "3:33"], ["Colour Theory", "Ines Varga, Hollis Reed · Bloom", ART.bloom, "3:59", true], ["Night Ferry", "Sable & Quay · Ember Season", ART.ember, "3:27"], ["Kilnwork", "Mara Osei · Kilnwork", null, "2:58"], ["Slow Tide", "Okonkwo & June · Brine", ART.brine, "5:06"], ["Glasshouse", "Ines Varga · Low Orbit", ART.orbit, "3:41"], ["Copper Weather", "Hollis Reed · Northbound", ART.copper, "3:12"], ["Sundial", "Wren Alder · Dune Songs", ART.dune, "3:19"], ["Moss and Mortar", "Fen Calder · Field Notes", ART.moss, "4:05"], ["Rockpool", "Ada Moreno · Tidepool", ART.tidepool, "2:51"], ["Petal Static", "Rosewire · Rosewire", ART.rose, "3:44"], ["Northbound (Live)", "Hollis Reed · Northbound", null, "4:40"]];
+  function libraryScreen(sid, nav, tuck) {
+    const rows = SONGS.map(([t, a, bg, d, cur]) => row(t, a, bg, { d, cur }));
+    return `<div class="scroll" data-start="250" data-sid="${sid}">${sb()}
+      <div class="greet"><b>Late-night<br>listening.</b><span>Streaming from Tauon on your desktop</span></div>
+      <div class="tabs"><span class="on">Songs</span><span>Albums</span><span>Artists</span><span>Playlists</span></div>
+      <div class="countrow"><span>963 songs</span><span class="sortpill">Recently added ${ic("chev", 16)}</span></div>
+      ${group(rows.slice(0, 3))}${rows[3]}${group(rows.slice(4))}<div style="height:190px"></div></div>
+      ${chrome(sid, 0, nav, tuck)}`;
+  }
+  function settingsScreen(sid, nav, tuck) {
+    const opt = (v, label) => {
+      const on = nav === v;
+      const pic = v === "edge"
+        ? `<svg width="44" height="30" viewBox="0 0 44 30" aria-hidden="true"><rect x="1" y="1" width="42" height="28" rx="6" fill="none" stroke="currentColor" stroke-opacity=".5"/><rect x="1.5" y="17" width="41" height="11.5" rx="0" fill="currentColor" fill-opacity="${on ? .55 : .3}"/></svg>`
+        : `<svg width="44" height="30" viewBox="0 0 44 30" aria-hidden="true"><rect x="1" y="1" width="42" height="28" rx="6" fill="none" stroke="currentColor" stroke-opacity=".5"/><rect x="6" y="15" width="32" height="5" rx="2.5" fill="currentColor" fill-opacity="${on ? .55 : .3}"/><rect x="6" y="22" width="32" height="5" rx="2.5" fill="currentColor" fill-opacity="${on ? .55 : .3}"/></svg>`;
+      return `<button type="button" data-nav="${v}" aria-pressed="${on}">${pic}${label}</button>`;
+    };
+    const surf = (v, label, op, dots) => {
+      const on = S.surf === v;
+      const pic = `<svg width="44" height="30" viewBox="0 0 44 30" aria-hidden="true"><rect x="3" y="4" width="10" height="22" rx="3" fill="currentColor" fill-opacity=".35"/><rect x="17" y="8" width="10" height="18" rx="3" fill="currentColor" fill-opacity=".55"/><rect x="31" y="2" width="10" height="24" rx="3" fill="currentColor" fill-opacity=".25"/><rect x="1" y="13" width="42" height="13" rx="6.5" fill="currentColor" fill-opacity="${op}"/>${dots ? `<rect x="1" y="13" width="42" height="13" rx="6.5" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="1.5 2"/>` : ""}</svg>`;
+      return `<button type="button" data-surf="${v}" aria-pressed="${on}">${pic}${label}</button>`;
+    };
+    return `<div class="scroll" data-start="0" data-sid="${sid}">${sb()}
+      <div class="sttl"><b>Settings</b><span>Version 0.1.0</span></div>
+      <div class="glabel">Appearance</div>
+      <div class="sgroup">
+        <div class="sitem" data-pal="you" role="radio" aria-checked="${S.pal === "you"}" tabindex="0">${ic("palette")}<div class="t"><b>Material You</b><i>Accents follow your wallpaper.</i></div><span class="radio${S.pal === "you" ? " on" : ""}"></span></div>
+        <div class="sitem" data-pal="muon" role="radio" aria-checked="${S.pal === "muon"}" tabindex="0">${ic("note")}<div class="t"><b>Muon</b><i>The app's own green palette.</i></div><span class="radio${S.pal === "muon" ? " on" : ""}"></span></div>
+        <div class="sitem">${ic("contrast")}<div class="t"><b>Pure black</b><i>Black backgrounds in dark mode</i></div><span class="sw${S.theme === "dark" ? "" : " off"}"></span></div>
+        <div class="sitem new" style="border-radius:6px">${ic("navbar")}<div class="t"><b>Navigation bar</b><i>Edge to edge is the default; floating sits over the list</i></div></div>
+        <div class="navchoice" style="border-radius:6px"><div class="opts">${opt("edge", "Edge to edge")}${opt("float", "Floating")}</div></div>
+        ${nav === "float" ? `<div class="sitem new" data-fstyle role="switch" aria-checked="${S.fstyle === "tuck"}" tabindex="0" style="border-radius:6px;cursor:pointer">${ic("motion")}<div class="t"><b>Tuck in while scrolling</b><i>The mini player slides down beside the current tab as you scroll</i></div><span class="sw${S.fstyle === "tuck" ? "" : " off"}"></span></div>` : ""}
+        <div class="sitem new" style="border-radius:6px">${ic("blur")}<div class="t"><b>Bar surface</b><i>Frosted blurs what's behind and uses the most power. Tinted and Solid don't blur at all.</i></div></div>
+        <div class="navchoice" style="border-radius:6px 6px 22px 22px"><div class="opts">${surf("frosted", "Frosted", .4, true)}${surf("tinted", "Tinted", .7, false)}${surf("solid", "Solid", 1, false)}</div></div>
+      </div>
+      <div class="glabel">Material 3 Expressive experiment</div>
+      <div class="sgroup">
+        <div class="sitem">${ic("motion")}<div class="t"><b>Expressive motion</b><i>Springy transitions, and Material's expressive motion for its own controls</i></div><span class="sw"></span></div>
+        <div class="sitem">${ic("blur")}<div class="t"><b>Blur</b><i>Now Playing on a blurred cover, and the library blurred behind the player and the song menu</i></div><span class="sw"></span></div>
+      </div>
+      <p class="foot">Dashed rows are new in Gen 4. Bars and toolbars now follow Bar surface; the Blur switch keeps Now Playing and the blur behind the player.</p><div style="height:190px"></div></div>
+      ${chrome(sid, 2, nav, tuck)}`;
+  }
+  const ARTIST = [["Colour Theory", "Ines Varga, Hollis Reed · Bloom", ART.bloom, "3:59"], ["Glasshouse", "Low Orbit", ART.orbit, "3:41"], ["Kilnwork", "Kilnwork", null, "2:58"], ["Seventh Floor", "Seventh Floor", ART.floor, "3:33"], ["Night Ferry", "Ember Season", ART.ember, "3:27"], ["Slow Tide", "Brine", ART.brine, "5:06"], ["Moss and Mortar", "Field Notes", ART.moss, "4:05"], ["Salt on the Glass", "Tidewater", ART.tide, "4:21"], ["Sundial", "Dune Songs", ART.dune, "3:19"], ["Rockpool", "Tidepool", ART.tidepool, "2:51"], ["Petal Static", "Rosewire", ART.rose, "3:44"], ["Fathom", "Tidewater", ART.tide, "3:57"]];
+  function toolbarScreen(sid, nav, tuck) {
+    return `<div class="scroll" data-start="420" data-sid="${sid}">${sb()}<div class="backrow"><span class="ib">${ic("back")}</span></div>
+      <div class="ahead"><div class="mosaic">${[ART.orbit, ART.bloom, ART.floor, ART.moss].map(b => `<i style="background:${b}"></i>`).join("")}</div><div><b>Ines Varga</b><span>4 albums, 42 songs</span></div></div>
+      <div class="bgrp"><span>${ic("play", 18)}Play</span><span>${ic("shuffle", 18)}Shuffle</span><span>${ic("save", 18)}</span></div>
+      <p class="hint">Save copies keeps 42 songs, about 99 MB on this phone.</p>
+      <div class="grp-h">Albums</div>
+      <div class="shelf">${[["Bloom", ART.bloom], ["Low Orbit", ART.orbit], ["Field Notes", ART.moss]].map(([t, b]) => `<div><div class="sq" style="background:${b}"></div><b>${t}</b><i>12 songs</i></div>`).join("")}</div>
+      <div class="grp-h">Songs</div>
+      ${group(ARTIST.map(([t, a, bg, d]) => row(t, a, bg, { d })))}<div style="height:240px"></div></div>
+      <div class="ftb glass"><span class="ib" aria-label="Back">${ic("back")}</span><span class="ib" aria-label="Back to top">${ic("up")}</span><span class="ib" aria-label="Shuffle">${ic("shuffle")}</span><span class="fabsq" aria-label="Play">${ic("play", 24)}</span></div>
+      ${chrome(sid, 0, nav, tuck)}`;
+  }
+  const QUEUE = [["Salt on the Glass", "Mara Ellis", ART.tide, "4:21"], ["Kilnwork", "Mara Osei", null, "2:58"], ["Copper Weather", "Hollis Reed", ART.copper, "3:12"], ["Paper Satellites", "The Glass Orchards", null, "4:12"], ["Moss and Mortar", "Fen Calder", ART.moss, "4:05"], ["Glasshouse", "Ines Varga", ART.orbit, "3:41"], ["Night Ferry", "Sable & Quay", ART.ember, "3:27"], ["Sundial", "Wren Alder", ART.dune, "3:19"], ["Petal Static", "Rosewire", ART.rose, "3:44"], ["Rockpool", "Ada Moreno", ART.tidepool, "2:51"], ["Seventh Floor", "Juno Park", ART.floor, "3:33"], ["Slow Tide", "Okonkwo & June", ART.brine, "5:06"], ["Northbound (Live)", "Hollis Reed", null, "4:40"]];
+  function queueScreen(sid) {
+    return `<div class="scroll" data-start="190" data-sid="${sid}"><div style="height:82px"></div>
+      <div class="bigttl"><b>Queue</b></div>
+      <div class="grp-h" style="font-size:12.5px;font-weight:500">Now playing</div>
+      <div class="group">${row("Colour Theory", "Ines Varga, Hollis Reed", ART.bloom, { cur: true, d: "3:59", noPlaying: true })}</div>
+      <div class="grp-h" style="font-size:12.5px;font-weight:500">Next up<small>958 songs, 56 hours 21 min</small></div>
+      ${group(QUEUE.map(([t, a, bg, d]) => row(t, a, bg, { grip: true, d })))}<div style="height:60px"></div></div>
+      <div class="topov">${pedge("down", "top:0;height:118px", TOP_EDGE)}<div class="tint"></div>${sb()}
+        <div class="barrow"><span class="ib">${ic("back")}</span><b>Queue</b><span class="ib">${ic("more")}</span></div></div>`;
+  }
+  const ALBUMS = [["Bloom", "Ines Varga", ART.bloom], ["Tidewater", "Mara Ellis", ART.tide], ["Ember Season", "Sable & Quay", ART.ember], ["Kilnwork", "Mara Osei", null], ["Low Orbit", "Ines Varga", ART.orbit], ["Field Notes", "Fen Calder", ART.moss], ["Seventh Floor", "Juno Park", ART.floor], ["Dune Songs", "Wren Alder", ART.dune], ["Tidepool", "Ada Moreno", ART.tidepool], ["Northbound", "Hollis Reed", ART.copper], ["Rosewire", "Rosewire", ART.rose], ["Brine", "Okonkwo & June", ART.brine], ["Paper Satellites", "The Glass Orchards", null], ["Harbour", "Mara Ellis", ART.tide], ["Night Shift", "Sable & Quay", ART.ember]];
+  function searchScreen(sid, nav, tuck) {
+    return `<div class="scroll" data-start="150" data-sid="${sid}"><div style="height:92px"></div>
+      <div class="grp-h">Artists</div>
+      <div class="circles">${[["Mara Ellis", ART.tide], ["Ines Varga", ART.orbit], ["Juno Park", ART.floor], ["Fen Calder", ART.moss]].map(([t, b]) => `<div><span style="background:${b}"></span>${t}</div>`).join("")}</div>
+      <div class="grp-h">Albums</div>
+      <div class="grid3">${ALBUMS.map(([t, a, bg]) => `<div>${art(bg, t, "sq")}<b>${t}</b><i>${a}</i></div>`).join("")}</div><div style="height:180px"></div></div>
+      <div class="searchtop">${pedge("down", "top:0;height:116px", TOP_EDGE)}<div class="tint"></div>${sb()}
+        <div class="sbar glass">${ic("search", 20)}Search songs, artists, albums</div></div>
+      ${chrome(sid, 1, nav, tuck)}`;
+  }
+  function nowPlayingScreen() {
+    let wave = "M4 8"; for (let x = 4; x <= 132; x++) wave += `L${x} ${(8 + 3 * Math.sin((x / 18) * Math.PI * 2)).toFixed(2)}`;
+    return `<div class="np-bg" style="background:${ART.bloom}"></div><div class="np-veil"></div>
+      <div class="np">${sb()}<div class="hdr"><span class="chev">${ic("down", 20)}</span><span class="handle"></span><span class="ib">${ic("more")}</span></div>
+        <div class="big" style="background:${ART.bloom}"></div>
+        <div class="meta"><b>Colour Theory</b><i>Ines Varga, Hollis Reed</i><small>Bloom</small></div>
+        <div><svg viewBox="0 0 290 16" width="100%" height="16" preserveAspectRatio="none" aria-hidden="true"><line x1="144" y1="8" x2="286" y2="8" stroke="var(--cvsoft)" stroke-width="5" stroke-linecap="round"/><path d="${wave}" fill="none" stroke="var(--cv)" stroke-width="4" stroke-linecap="round"/><rect x="136" y="0" width="4" height="16" rx="2" fill="var(--cv)"/><circle cx="286" cy="8" r="2" fill="var(--cv)"/></svg><div class="times"><span>1:58</span><span>3:59</span></div></div>
+        <div class="transport"><span class="side">${ic("shuffle", 20)}</span><div class="tg"><span class="sk">${ic("prev", 20)}</span><span class="pl">${ic("pause", 28)}</span><span class="sk">${ic("skip", 20)}</span></div><span class="side">${ic("repeat", 20)}</span></div>
+        <div class="vol">${ic("vlow", 18)}<div class="tr"></div>${ic("vhigh", 18)}</div>
+        <div class="low"><span>${ic("lyrics", 18)}Lyrics</span><span class="txt">${ic("queue", 18)}Queue</span></div></div>
+      <div class="snack glass" role="status"><span>Kilnwork plays next</span><button type="button" data-undo>Undo</button></div>`;
+  }
+  const LYRICS = ["Mix the blue into the morning", "till it's nearly something new", "every colour that I borrowed", "I was saving it for you", "Turn the light a little warmer", "let the shadows have their say", "we were paint across the window", "we were brighter than the day", "Colour theory, colour theory", "teach me how to blend", "every shade I never noticed", "running gold around the bend", "Colour theory, colour theory", "leave the last light on"];
+  function lyricsScreen(sid) {
+    return `<div class="scroll" data-lyrics data-sid="${sid}"><div class="lyr">${LYRICS.map((l, i) => `<p data-i="${i}">${l}</p>`).join("")}</div></div>
+      <div class="topov">${pedge("down", "top:0;height:118px", TOP_EDGE)}<div class="tint"></div>${sb()}
+        <div class="barrow"><span class="ib">${ic("back")}</span><b style="font-size:16px;line-height:1.2">Colour Theory<br><span style="font-size:12.5px;color:var(--onv);font-weight:400">Ines Varga, Hollis Reed · synced</span></b><span class="ib">${ic("more")}</span></div></div>`;
+  }
+  const AZ = ["Afterglow Ferry", "Amber Street", "Bellwether", "Brine and Bone", "Colour Theory", "Copper Weather", "Driftwood Choir", "Dune Songs", "Ebb", "Ember Season", "Fathom", "Field Notes", "Glasshouse", "Greenhouse Static", "Harbour Lights", "Hollow Bay", "Iron Lantern", "Juniper Wire", "Kilnwork", "Kite Season", "Low Water", "Lantern Row", "Moss and Mortar", "Marigold", "Night Ferry", "Northbound (Live)", "Orchard Radio", "Paper Satellites", "Petal Static", "Pilot Light", "Quarry Light", "Rockpool", "Rosewire", "Salt on the Glass", "Seventh Floor", "Slow Tide", "Sundial", "Tidewater", "Tin Roof Hymn", "Undertow", "Velvet Signal", "Willow Code", "Yellow Ferry", "Zephyr Lane"];
+  const ARTISTS = ["Mara Ellis", "Hollis Reed", "Juno Park", "Ines Varga", "Fen Calder", "Sable & Quay", "Okonkwo & June", "Wren Alder", "Rosewire", "Ada Moreno"];
+  function lensScreen(sid, nav, tuck) {
+    return `<div class="scroll" data-az data-sid="${sid}">${sb()}
+      <div class="countrow" style="padding-top:18px"><span>963 songs · A–Z</span><span class="sortpill">Title ${ic("chev", 16)}</span></div>
+      ${group(AZ.map(t => row(t, ARTISTS[hash(t) % ARTISTS.length], (hash(t) % 5 === 0) ? null : ARTS[hash(t + "a") % ARTS.length], { cur: t === "Colour Theory" })))}<div style="height:190px"></div></div>
+      <div class="rail" aria-label="A to Z handle (drag)"><div class="thumb"></div></div>
+      <div class="lens glass" aria-hidden="true">M</div>
+      ${chrome(sid, 0, nav, tuck)}`;
+  }
+
+  const NAV_SCREENS = [
+    { id: "nav-edge", fixed: "edge", rank: ["r0", "Edge to edge · default"], title: "Edge to edge, softened", render: libraryScreen,
+      now: "Today's Material bar, with the blur fading in above the mini player instead of starting at a hard line.",
+      old: "Today's Frost: one even blur and a hard top edge.",
+      why: "The default. The full-width blur needs a Pixel trace before it moves to the 37.2 backdrop; until then Frost draws it." },
+    { id: "nav-float", fixed: "float", tuck: false, rank: ["r0", "Floating · opt-in"], title: "Floating, stacked", render: libraryScreen,
+      now: "The mini player and the tabs become two glass capsules: a clear blur, a bright rim, and a selection droplet that stretches as it moves. Tap a tab. Scroll down and the tabs shrink to icons; scroll up and the labels return.",
+      old: "Still glass, a little frostier. Frost can draw its blurred copy into any shape, so the capsules work from Android 12.",
+      why: "The list shows around and below the bars, which suits cover-heavy pages. The mini player always keeps its full width." },
+    { id: "nav-tuck", fixed: "float", tuck: true, rank: ["r0", "Floating · opt-in"], title: "Floating, tucking in", render: libraryScreen,
+      now: "Scroll down and the tabs shrink to the one you're on, while the mini player drops into the same row beside it: one slim line of glass. Scroll up and both spread back out. It plays on its own until you scroll the list.",
+      old: "Same movement, frostier glass, from Android 12.",
+      why: "Gives the list the most room, but the song title gets shorter while tucked. A switch under Floating chooses it, off by default." },
+    { id: "settings", fixed: null, rank: ["r0", "Settings"], title: "Settings › Appearance", render: settingsScreen,
+      now: "New rows, laid out like Cache limit: Navigation bar and Bar surface, plus a Tuck in while scrolling switch that appears once Floating is chosen. Tap any of them, or Material You and Muon: every phone on this page follows.",
+      old: "The same rows. On an older phone, Frosted means Muon's Frost layer for the bars and solid for the smaller surfaces.",
+      why: "They sit beside Pure black because they're looks, not experiments. Landscape keeps the rail either way." } ];
+  const SURF_NOTE = {
+    tinted: "<b>Tinted.</b> <span>The same surface in its own colour at about 85%, so the content shows through faintly. Nothing is blurred, so it costs no more than a plain bar.</span>",
+    solid: () => `<b>Solid.</b> <span>Opaque, in the ${S.pal === "you" ? "Material You" : "Muon"} palette's container colours. No blur and no see-through: Gen 3's plainest look.</span>` };
+  const SCREENS = [
+    { id: "toolbar", rank: ["r1", "Build first"], title: "Floating toolbar on album and artist pages", render: toolbarScreen,
+      now: "Once Play and Shuffle scroll away, the toolbar returns as tinted glass, and the covers sliding under it show through. Play stays solid, so it still reads as the main action.",
+      old: "Today's solid toolbar.",
+      why: "One small surface in Muon's own window that only appears after a scroll, so the cost is bounded. A good first test of the helper." },
+    { id: "queue", rank: ["r2", "Build next"], title: "Queue and Lyrics top bars", render: queueScreen,
+      now: "Once the large title collapses, rows slide under the bar and dissolve. The blur is strongest behind the status bar and fades out just below the title, so there's no hard edge.",
+      old: "Today's solid bar with a straight edge.",
+      why: "Queue and Lyrics are full screens in Muon's window, so the backdrop sees the list. The soft edge needs Compose 1.13; a uniform blur doesn't." },
+    { id: "search", rank: ["r2", "Build next"], title: "Search bar over results", render: searchScreen,
+      now: "The search pill floats over the results as glass, with the same soft edge behind it, so covers stay visible right up to the top.",
+      old: "The pill on a solid band, as today.",
+      why: "Same helper and edge as the top bars, so it comes almost free once those land." },
+    { id: "snack", rank: ["r2", "Build next"], title: "Notices over Now Playing", render: nowPlayingScreen,
+      now: "“Plays next” and “Removed” float over the cover glow as tinted glass instead of a solid slab. Try Undo.",
+      old: "Today's inverse-colour snackbar.",
+      why: "Small and short-lived. Check text contrast over very bright covers; the tint stays at 72% for that reason." },
+    { id: "lyrics", rank: ["r3", "Idea · needs synced lyrics"], title: "Lyrics in focus", render: lyricsScreen,
+      now: "With timed lyrics, the sung line is sharp and lines further from it blur by distance. Tap a line to jump. Plain lyrics would stay as today: crisp and selectable.",
+      old: "The line blur stays: it blurs the lines themselves, so plain Modifier.blur covers it from Android 12. Only the top edge falls back to solid.",
+      why: "Not filed yet. It depends on Muon getting timed lines from Tauon, which it doesn't today." },
+    { id: "lens", rank: ["r4", "Playful"], title: "A–Z letter bubble as a lens", render: lensScreen,
+      now: "While you drag the A–Z handle, the letter bubble turns into a lens: blur plus a strong saturation boost over the rows beneath, chained the way Google's Dev Summit demo chained effects. Drag the handle on the right.",
+      old: "Today's solid bubble.",
+      why: "Shows for a second at a time, so cost doesn't matter, but it's rarely seen. Lowest priority." } ];
+
+  // ---------- render ----------
+  const intervals = [];
+  function setVars(el) { const p = { ...BASE[S.pal][S.theme], ...COVER[S.theme] }; for (const [k, v] of Object.entries(p)) el.style.setProperty("--" + k, v); }
+  function modeText(s) {
+    if (S.surf === "tinted" && s.id !== "lyrics" && s.id !== "settings") return SURF_NOTE.tinted;
+    if (S.surf === "solid" && s.id !== "lyrics" && s.id !== "settings") return SURF_NOTE.solid();
+    return S.dev === "new" ? `<b>Android 17 QPR2.</b> <span>${s.now}</span>` : `<b>Older Android.</b> <span>${s.old}</span>`;
+  }
+  function col(s, nav) {
+    return `<div class="phone-col">
+      <div class="phone"><div class="scr${S.dev === "old" ? " fb" : ""}${S.theme === "dark" ? " dark" : ""} s-${S.surf}" id="scr-${s.id}" data-nav="${nav}">${s.render(s.id, nav, s.tuck ?? (nav === "float" && S.fstyle === "tuck"))}</div></div>
+      <div class="cap"><span class="rank ${s.rank[0]}">${s.rank[1]}</span><h3>${s.title}</h3>
+        <div class="mode">${modeText(s)}</div>
+        <p>${s.why}</p></div></div>`;
+  }
+  function render() {
+    intervals.splice(0).forEach(clearInterval);
+    document.documentElement.setAttribute("data-theme", S.theme);
+    document.getElementById("stage-nav").innerHTML = NAV_SCREENS.map(s => col(s, s.fixed || S.nav)).join("");
+    document.getElementById("stage").innerHTML = SCREENS.map(s => col(s, S.nav)).join("");
+    document.querySelectorAll(".scr").forEach(setVars);
+    document.querySelectorAll("[data-start]").forEach(el => { el.scrollTop = +el.dataset.start; });
+    document.querySelectorAll(".chrome").forEach(wireChrome);
+    document.querySelectorAll(".navchoice button[data-nav]").forEach(b => b.addEventListener("click", () => setPref("nav", b.dataset.nav)));
+    document.querySelectorAll(".navchoice button[data-surf]").forEach(b => b.addEventListener("click", () => setPref("surf", b.dataset.surf)));
+    document.querySelectorAll(".sitem[data-fstyle]").forEach(r => {
+      const flip = () => setPref("fstyle", S.fstyle === "tuck" ? "stacked" : "tuck");
+      r.addEventListener("click", flip);
+      r.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } });
+    });
+    document.querySelectorAll(".sitem[data-pal]").forEach(r => {
+      r.addEventListener("click", () => setPref("pal", r.dataset.pal));
+      r.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPref("pal", r.dataset.pal); } });
+    });
+    wireSnack(); wireLyrics(); wireLens(); wireTuckDemo();
+  }
+  function setPref(k, v) { S[k] = v; save(); syncSegs(); render(); }
+  // The tuck-in phone demonstrates itself until someone scrolls or touches it.
+  function wireTuckDemo() {
+    const scr = document.getElementById("scr-nav-tuck"); if (!scr) return;
+    const ch = scr.querySelector(".chrome"), drop = ch.querySelector(".droplet");
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const id = setInterval(() => ch.classList.toggle("tucked"), 2600); intervals.push(id);
+    const stop = () => clearInterval(id);
+    scr.addEventListener("pointerdown", stop, { once: true }); scr.addEventListener("wheel", stop, { once: true, passive: true });
+  }
+  function wireChrome(ch) {
+    const sid = ch.dataset.sid, scr = ch.closest(".scr"), tabs = [...ch.querySelectorAll(".tab")], drop = ch.querySelector(".droplet");
+    const place = () => { if (!drop) return; const t = tabs.find(x => x.classList.contains("on")); drop.style.left = t.offsetLeft + "px"; drop.style.width = t.offsetWidth + "px"; };
+    tabs.forEach(t => t.addEventListener("click", () => {
+      tabs.forEach(x => x.classList.toggle("on", x === t)); S.tab[sid] = +t.dataset.n;
+      if (drop) { drop.classList.add("moving"); setTimeout(() => drop.classList.remove("moving"), 260); }
+      place();
+    }));
+    requestAnimationFrame(place);
+    if (ch.classList.contains("float")) {
+      const list = scr.querySelector(".scroll"); if (!list) return;
+      let last = list.scrollTop;
+      list.addEventListener("scroll", () => {
+        const y = list.scrollTop, d = y - last; if (Math.abs(d) < 6) return;
+        ch.classList.toggle("tucked", d > 0 && y > 80); last = y; setTimeout(place, 420);
+      }, { passive: true });
+    }
+  }
+  function wireSnack() {
+    const scr = document.getElementById("scr-snack"); if (!scr) return; const snack = scr.querySelector(".snack");
+    scr.querySelector("[data-undo]").addEventListener("click", () => { snack.classList.add("away"); setTimeout(() => snack.classList.remove("away"), 1800); });
+  }
+  function wireLyrics() {
+    const scr = document.getElementById("scr-lyrics"), box = scr.querySelector("[data-lyrics]"), lines = [...scr.querySelectorAll(".lyr p")];
+    let cur = 5;
+    const show = (smooth) => {
+      lines.forEach((p, i) => {
+        const d = Math.abs(i - cur), blur = i === cur ? 0 : Math.min(6, (i < cur ? 1.2 : 0.4) + d * 1.1);
+        p.style.filter = blur ? `blur(${blur.toFixed(1)}px)` : "none";
+        p.classList.toggle("now", i === cur); p.classList.toggle("past", i < cur);
+      });
+      box.scrollTo({ top: Math.max(0, lines[cur].offsetTop - 240), behavior: smooth ? "smooth" : "auto" });
+    };
+    lines.forEach((p, i) => p.addEventListener("click", () => { cur = i; show(true); }));
+    show(false);
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) intervals.push(setInterval(() => { cur = (cur + 1) % lines.length; show(true); }, 3200));
+  }
+  function wireLens() {
+    const scr = document.getElementById("scr-lens"), list = scr.querySelector("[data-az]"), rail = scr.querySelector(".rail"),
+      thumb = scr.querySelector(".thumb"), lens = scr.querySelector(".lens"), rows = [...list.querySelectorAll(".row")];
+    const place = (f) => {
+      const h = rail.clientHeight, y = f * (h - 56);
+      thumb.style.top = y + "px"; lens.style.top = (rail.offsetTop + y + 28) + "px";
+      list.scrollTop = f * (list.scrollHeight - list.clientHeight);
+      const top = list.scrollTop + 150, r = rows.find(x => x.offsetTop + x.offsetHeight > top) || rows[rows.length - 1];
+      lens.textContent = r.querySelector("b").textContent[0];
+    };
+    let dragging = false;
+    const at = (e) => { const b = rail.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientY - b.top - 28) / (b.height - 56))); };
+    rail.addEventListener("pointerdown", e => { dragging = true; rail.setPointerCapture(e.pointerId); lens.classList.remove("hide"); place(at(e)); });
+    rail.addEventListener("pointermove", e => { if (dragging) place(at(e)); });
+    const end = () => { if (!dragging) return; dragging = false; setTimeout(() => { if (!dragging) lens.classList.add("hide"); }, 900); };
+    rail.addEventListener("pointerup", end); rail.addEventListener("pointercancel", end);
+    // Resting state: held at M mid-drag, so the lens is visible in the first frame.
+    requestAnimationFrame(() => place(0.52));
+  }
+
+  const segs = [["c-dev", "dev"], ["c-nav", "nav"], ["c-fstyle", "fstyle"], ["c-surf", "surf"], ["c-pal", "pal"], ["c-theme", "theme"]];
+  function syncSegs() { for (const [id, key] of segs) document.getElementById(id).querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === S[key]))); }
+  for (const [id, key] of segs) document.getElementById(id).addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; S[key] = b.dataset.v; save(); syncSegs(); render(); });
+  syncSegs(); render();
+})();
+</script>
+</body>
+</html>

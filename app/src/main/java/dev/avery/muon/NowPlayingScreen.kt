@@ -8,6 +8,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,8 +25,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
@@ -48,7 +49,14 @@ import kotlinx.coroutines.launch
  */
 @Composable
 internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: () -> Int,
-    player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, queue: () -> Unit, lyrics: () -> Unit) {
+    player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, queue: () -> Unit,
+    morph: PlayerMorph? = null, lyricsAvailable: Boolean = false, more: (() -> Unit)? = null, lyrics: () -> Unit) {
+    // The song's panel from a ⋮ at the bar's end, as every song row has (the Refined mockup).
+    val menu: (@Composable RowScope.() -> Unit)? = if (more != null && Expressive.motion) ({
+        IconButton(onClick = more, modifier = Modifier.semantics { contentDescription = "More options for this song" }) {
+            MuonIcon("more", Modifier.size(20.dp))
+        }
+    }) else null
     if (p.item == null) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fontScale = LocalDensity.current.fontScale
@@ -81,9 +89,10 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                             IconButton(onClick = queue, modifier = Modifier.semantics { contentDescription = "Queue" }) {
                                 MuonIcon("queue", Modifier.size(20.dp))
                             }
+                            menu?.invoke(this)
                         }) { away() }
                         PlayerTitles(p)
-                        PlayerControls(p, position, player, narrow, queue, lyrics, actions = false)
+                        PlayerControls(p, position, player, narrow, queue, lyrics, actions = false, lyricsAvailable = lyricsAvailable)
                     }
                 }
             }
@@ -98,13 +107,15 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                PlayerBar(dismiss, dragHeight, collapse) { away() }
+                PlayerBar(dismiss, dragHeight, collapse, actions = menu) { away() }
                 Box((if (scrollable) Modifier.height(160.dp) else Modifier.weight(1f)).fillMaxWidth(),
                     contentAlignment = Alignment.Center) {
-                    SwipeableArtwork(p, player, revision, Modifier.widthIn(max = 400.dp).aspectRatio(1f))
+                    // The cover the mini player's flies to while the player grows (PlayerMorph).
+                    SwipeableArtwork(p, player, revision, Modifier.widthIn(max = 400.dp).aspectRatio(1f)
+                        .then(morph?.coverModifier() ?: Modifier))
                 }
                 PlayerTitles(p)
-                PlayerControls(p, position, player, narrow, queue, lyrics)
+                PlayerControls(p, position, player, narrow, queue, lyrics, lyricsAvailable = lyricsAvailable)
             }
         }
     }
@@ -157,15 +168,20 @@ private fun PlayerTitles(p: PlaybackUi) {
 /** Everything under the titles: seek, transport, volume, then Lyrics and Queue unless [actions] is false. */
 @Composable
 private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, player: MediaController?,
-    narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit, actions: Boolean = true) {
+    narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit, actions: Boolean = true, lyricsAvailable: Boolean = false) {
     val item = p.item ?: return
     if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
-    // Buffering occupies the existing seek slot; adding a row changes the weighted cover size.
-    SeekControls(item.mediaId, position, p.duration, p.seekable, p.buffering, player)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+    // Buffering shows in the seek bar's own place (SeekControls), not as a bar above it: inserting one
+    // pushed everything up and shrank the cover each time a track buffered.
+    SeekControls(item.mediaId, position, p.duration, p.seekable, p.buffering, player, p.playing)
+    if (Expressive.motion) ExpressiveTransport(p, player, toggles = !narrow)
+    else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically) {
         if (!narrow) ShuffleControl(p, player)
-        Control("previous", "Previous track", p.previous && player != null) { player?.seekToPreviousMediaItem() }
+        // The Previous button restarts the song first, and goes back a song when pressed again within
+        // Media3's three seconds (seekToPrevious); the swipes and their TalkBack actions still go
+        // straight to the song before, which is the cover they show.
+        Control("previous", "Previous", p.previousOrRestart && player != null) { player?.seekToPrevious() }
         // Round while paused, a rounded square while playing (motion pass 2).
         FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
             shape = playButtonShape(p.playing, 72.dp),
@@ -185,7 +201,14 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     // Wrapping preserves readable labels at large font/display sizes. Lyrics sits at the start
     // and Queue at the end, as in the mockup; on a narrow width they wrap rather than clip.
     if (actions) FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        TextButton(onClick = lyrics) {
+        // When Tauon has lyrics for the song, the button says so before it is opened (issue #661): a
+        // tonal pill rather than plain text. Synced or not, as most of the user's lyrics are plain.
+        if (lyricsAvailable && Expressive.motion) FilledTonalButton(onClick = lyrics,
+            modifier = Modifier.semantics { stateDescription = "Lyrics available" }) {
+            MuonIcon("lyrics", Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Lyrics")
+        } else TextButton(onClick = lyrics) {
             MuonIcon("lyrics", Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Lyrics")
@@ -454,6 +477,66 @@ private fun ArtworkGesture(p: PlaybackUi, player: MediaController?, shown: Int,
     }
 }
 
+/** The transport buttons' height, and the width of Previous and Next, which are wide pills. */
+private val TransportHeight = 64.dp
+private val TransportSideWidth = 72.dp
+private val PlaySide = 80.dp
+
+/**
+ * The Canary experiment's transport: Previous, Play and Next as a Material 3 Expressive button group,
+ * so the pressed button widens and squeezes its neighbours, with Shuffle and Repeat as toggle buttons
+ * either side that change shape when on. Play morphs between Material shapes ([playButtonShape]).
+ * Every button keeps the label and state a screen reader heard before.
+ */
+@Composable
+private fun ExpressiveTransport(p: PlaybackUi, player: MediaController?, toggles: Boolean) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (toggles) Arrangement.SpaceBetween else Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically) {
+        if (toggles) ShuffleControl(p, player)
+        ButtonGroup(
+            overflowIndicator = { menu -> TextButton(onClick = { menu.show() }) { Text("More") } },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            customItem({
+                val press = remember { MutableInteractionSource() }
+                FilledTonalIconButton(onClick = { player?.seekToPrevious() }, shapes = IconButtonDefaults.shapes(),
+                    enabled = p.previousOrRestart && player != null, interactionSource = press,
+                    modifier = Modifier.animateWidth(press).size(TransportSideWidth, TransportHeight)
+                        .semantics { contentDescription = "Previous" }) { MuonIcon("previous") }
+            }, { menu ->
+                DropdownMenuItem(text = { Text("Previous") }, enabled = p.previousOrRestart && player != null,
+                    onClick = { menu.dismiss(); player?.seekToPrevious() })
+            })
+            customItem({
+                val press = remember { MutableInteractionSource() }
+                FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
+                    shape = playButtonShape(p.playing, PlaySide), interactionSource = press,
+                    modifier = Modifier.animateWidth(press).size(PlaySide)
+                        .semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
+                    Crossfade(p.playing, animationSpec = motionShort(), label = "play/pause") { playing ->
+                        MuonIcon(if (playing) "pause" else "play", Modifier.size(32.dp))
+                    }
+                }
+            }, { menu ->
+                DropdownMenuItem(text = { Text(if (p.playing) "Pause" else "Play") }, enabled = player != null,
+                    onClick = { menu.dismiss(); if (p.playing) player?.pause() else player?.play() })
+            })
+            customItem({
+                val press = remember { MutableInteractionSource() }
+                FilledTonalIconButton(onClick = { player?.seekToNextMediaItem() }, shapes = IconButtonDefaults.shapes(),
+                    enabled = p.next && player != null, interactionSource = press,
+                    modifier = Modifier.animateWidth(press).size(TransportSideWidth, TransportHeight)
+                        .semantics { contentDescription = "Next track" }) { MuonIcon("next") }
+            }, { menu ->
+                DropdownMenuItem(text = { Text("Next track") }, enabled = p.next && player != null,
+                    onClick = { menu.dismiss(); player?.seekToNextMediaItem() })
+            })
+        }
+        if (toggles) RepeatControl(p, player)
+    }
+}
+
 @Composable
 private fun ShuffleControl(p: PlaybackUi, player: MediaController?) {
     ToggleControl("shuffle", "Shuffle", if (p.shuffle) "On" else "Off", p.shuffle, player != null) {
@@ -469,12 +552,20 @@ private fun RepeatControl(p: PlaybackUi, player: MediaController?) {
     }
 }
 
-/** Brief skips do not flash a new row or change artwork/controls height. */
+/**
+ * How long buffering must last before the seek bar shows it, so the brief stall at nearly every skip
+ * does not flicker the bar.
+ */
 private const val BUFFERING_SHOW_DELAY_MS = 300L
 
+/**
+ * The seek bar, which turns into a progress indicator in its own place while the track buffers and
+ * back again when it plays, so nothing around it moves (the bar used to be inserted above, pushing the
+ * cover smaller). A finger on the bar brings the seek bar back at once. The times stay put.
+ */
 @Composable
 private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, seekable: Boolean,
-    buffering: Boolean, player: MediaController?) {
+    buffering: Boolean, player: MediaController?, playing: Boolean = false) {
     var scrub by remember(mediaId) { mutableStateOf<Float?>(null) }
     val range = duration.coerceAtLeast(1).toFloat()
     val elapsed = scrub ?: position().toFloat().coerceIn(0f, range)
@@ -488,9 +579,17 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
     val seekPaint = remember { Paint() }
     Column {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Slider(value = elapsed, onValueChange = { scrub = it }, valueRange = 0f..range,
+            // With Expressive motion the track is wavy (WavySeekTrack); the slider itself is the stock one.
+            val state = remember(range) { SliderState(elapsed, 0, 0f..range) }
+            state.value = elapsed
+            val canSeek = seekable && player != null
+            Slider(state = state, onValueChange = { scrub = it },
                 onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
-                enabled = seekable && player != null,
+                enabled = canSeek,
+                track = { sliderState ->
+                    if (Expressive.motion) WavySeekTrack(sliderState, moving = playing && scrub == null && !waiting, enabled = canSeek)
+                    else SliderDefaults.Track(sliderState = sliderState, enabled = canSeek)
+                },
                 modifier = Modifier.drawWithContent {
                     // Fade only pixels. An alpha-zero layout layer would also hide the native
                     // SeekBar from TalkBack during sustained buffering.
@@ -510,7 +609,8 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
             if (waiting || shown > 0f) Box(Modifier.matchParentSize()
                 .graphicsLayer { alpha = shown }.clearAndSetSemantics {},
                 contentAlignment = Alignment.Center) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (Expressive.motion) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                else LinearProgressIndicator(Modifier.fillMaxWidth())
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

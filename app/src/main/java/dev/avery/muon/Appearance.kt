@@ -44,6 +44,18 @@ internal fun paletteDescription(choice: PaletteChoice): String = when (choice) {
 }
 
 /**
+ * The Material 3 Expressive experiment's two switches (Canary only; see docs/expressive-experiment.md).
+ * Held here rather than in [AppearanceSettings] because the motion specs in Motion.kt are built
+ * outside composition and read these directly; being snapshot state, a flip still re-animates.
+ */
+internal object Expressive {
+    /** Expressive springs for Material's components and Muon's own transitions, instead of eased tweens. */
+    var motion by mutableStateOf(true)
+    /** Blurs the library behind the player and the song actions sheet, as Android 17 does behind its shade. */
+    var blur by mutableStateOf(true)
+}
+
+/**
  * Stored apart from the connection preferences on purpose: disconnecting clears those, and an
  * appearance choice should survive changing servers.
  */
@@ -53,6 +65,11 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         private set
     var amoled by mutableStateOf(prefs.getBoolean(KEY_AMOLED, false))
         private set
+
+    init {
+        Expressive.motion = prefs.getBoolean(KEY_EXPRESSIVE_MOTION, true)
+        Expressive.blur = prefs.getBoolean(KEY_EXPRESSIVE_BLUR, true)
+    }
 
     fun choose(choice: PaletteChoice) {
         if (choice == palette) return
@@ -66,9 +83,21 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         prefs.edit().putBoolean(KEY_AMOLED, enabled).apply()
     }
 
+    fun chooseExpressiveMotion(enabled: Boolean) {
+        Expressive.motion = enabled
+        prefs.edit().putBoolean(KEY_EXPRESSIVE_MOTION, enabled).apply()
+    }
+
+    fun chooseExpressiveBlur(enabled: Boolean) {
+        Expressive.blur = enabled
+        prefs.edit().putBoolean(KEY_EXPRESSIVE_BLUR, enabled).apply()
+    }
+
     private companion object {
         const val KEY_PALETTE = "palette"
         const val KEY_AMOLED = "amoled"
+        const val KEY_EXPRESSIVE_MOTION = "expressive_motion"
+        const val KEY_EXPRESSIVE_BLUR = "expressive_blur"
     }
 }
 

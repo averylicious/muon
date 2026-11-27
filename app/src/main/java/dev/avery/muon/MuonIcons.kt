@@ -46,6 +46,14 @@ internal fun iconRes(kind: String): Int = when (kind) {
     "history" -> R.drawable.ic_history
     "storage-update" -> R.drawable.ic_storage_update
     "refresh" -> R.drawable.ic_refresh
+    "desktop" -> R.drawable.ic_desktop
+    "loudness" -> R.drawable.ic_loudness
+    "phone" -> R.drawable.ic_phone
+    "palette" -> R.drawable.ic_palette
+    "motion" -> R.drawable.ic_motion
+    "blur" -> R.drawable.ic_blur
+    "forward" -> R.drawable.ic_forward
+    "contrast" -> R.drawable.ic_contrast
     else -> R.drawable.ic_settings
 }
 
@@ -64,4 +72,5 @@ internal val ICON_KINDS = listOf(
     "back", "collapse", "close", "queue", "lyrics",
     "play-next", "add-queue", "album", "artist", "delete", "drag-handle", "download",
     "more", "info", "sd-card", "history", "storage-update", "refresh",
+    "desktop", "loudness", "phone", "palette", "motion", "blur", "forward", "contrast",
 )

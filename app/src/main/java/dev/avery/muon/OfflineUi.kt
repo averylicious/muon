@@ -51,6 +51,14 @@ internal fun DownloadAll(tracks: List<TauonTrack>, endpoint: ServerEndpoint?) {
     if (playable.isEmpty()) return
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
+    val estimate = "${playable.size} ${if (playable.size == 1) "song" else "songs"}, about ${formatBytes(downloadEstimate(playable))}"
+    // With Expressive motion, Save copies is the end of the connected Play and Shuffle group
+    // (PlayAllButtons), so only what it would keep is said here.
+    if (Expressive.motion) {
+        Text("Save copies keeps $estimate on this phone.", style = MaterialTheme.typography.bodySmall,
+            color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp))
+        return
+    }
     // Directly under Play and Shuffle, with the same gap below as above it. The details wrap under the
     // button when large text leaves no room beside it (#16 QA).
     FlowRow(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
