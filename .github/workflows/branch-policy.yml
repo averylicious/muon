@@ -2,7 +2,7 @@ name: Branch policy
 
 on:
   pull_request:
-    branches: [main, claude/m3-expressive-alpha]
+    branches: [main, claude/m3-expressive-alpha, gen-4-progressive-blur]
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions:
@@ -15,6 +15,7 @@ concurrency:
 jobs:
   direction:
     name: Branch direction
+    if: github.event.pull_request.state == 'open'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
