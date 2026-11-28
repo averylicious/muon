@@ -1,63 +1,44 @@
-# Independent audit and experiment tracks
+# Parallel tracks
 
-The user authorized these tracks on 2026-09-28. They replace routine live frontend/backend coordination for the current main audit. Read this with [AGENTS.md](../AGENTS.md), [STATE.md](STATE.md) and the [latest checkpoint](coordinator-handoff.md). Earlier handoffs describe history, not current ownership.
-
-## Release generations and frozen candidates
-
-Follow the [release sequence and finite current gate list](release-plan.md). Gen 3 (M3 Expressive, with stable Material 3 `1.5.0`) graduated from the retired `claude/m3-expressive-alpha` branch onto `main` (#801) and shipped as Stable `v0.3.0` (`89b933a7`). Active redesign work now lives on **`gen-4-progressive-blur`** (cut off `main` / `v0.3.0`, upgraded to Compose BOM `2026.11.01` / Compose `1.13.0` and Android SDK `37.2` in #802). Routine main-track audit automation should use the separate Diagnostic app when authorized so it does not replace the user's everyday experimental Canary. Release-configuration acceptance is still required.
-
-## Work without sharing sessions or checkouts
+Authorized by the user on 2026-09-28. Main and the experiment proceed independently, without routine live coordination. Current heads and permissions: [STATE.md](STATE.md).
 
 | Track | Destination | Default owner | Purpose |
 | --- | --- | --- | --- |
 | Main audit | `main` | Astra | Correctness, security, privacy, reliability and CI fixes in any component |
-| Gen 4 redesign (`Gen 4 - Progressive Blur`) | `gen-4-progressive-blur` | User and their Claude session | Gen 4 Compose `1.13` / SDK `37.2` and progressive/backdrop blur design; branch APKs only |
-| Forward integration | `gen-4-progressive-blur`, through a `sync/main-into-gen-4-<topic>` PR | One named integrator (lands via regular merge commit once verified) | Bring reviewed main fixes into the Gen 4 branch |
+| Gen 4 - Progressive Blur | `gen-4-progressive-blur` | User and their Claude session | Compose `1.13` / SDK `37.2` and progressive/backdrop blur; branch APKs only |
+| Forward integration | `gen-4-progressive-blur` via a `sync/main-into-gen-4-<topic>` PR | One named integrator | Bring reviewed main fixes into Gen 4 |
 
-- Each agent uses its own branch **and persistent worktree**, managed through its active harness whenever available (see [Worktree management by harness](../AGENTS.md#worktree-management-by-harness): T3 Code's native worktree tools when running inside T3 Code, or the harness's built-in worktree directory such as `~/.codex/worktrees/<topic>` when running in a native CLI/desktop app). Avoid creating loose sibling checkouts in `~/Projects/`. A nested ignored worktree is still vulnerable to a parent `git clean -x`; do not treat `.gitignore` as filesystem isolation. Inspect `git status --short` and `git worktree list` first. Do not switch, clean, reset, stash, remove or reuse another session's checkout. A clean checkout is not evidence its owner is idle. The original Muon checkout currently belongs to the experiment.
-- One writer per branch/worktree/session. Different tracks may change the same file independently; integration is where those changes are reconciled. This permits work without asking the other session before each edit.
-- Astra must not resume the user's experimental Claude session. The user may assign a **different audit Claude session**; verify that exact session is idle and assign it a separate worktree before use. A session ID from old logs is not authorization to take it over. Without an allocated idle session, continue independently and leave PR/issue evidence.
-- Within a track, claim the issue/slice and branch in its PR or issue before overlapping work. Check existing PRs before starting another. A successor verifies the previous writer has stopped; a user-directed takeover after a cutoff is sufficient, but dirty work must be preserved.
-- Record findings and cross-track dependencies on [#181](https://github.com/averylicious/muon/issues/181) or the relevant PR. Contact the other agent only for an unresolved behavioral decision or ownership collision, not for ordinary independent fixes.
+## Working without shared checkouts
+
+- Each agent uses its own branch and persistent worktree ([AGENTS.md](../AGENTS.md#worktrees-and-sessions)). One writer per branch/worktree/session; tracks may change the same file independently and reconcile in integration.
+- Claim the issue and branch in its PR or issue before overlapping work; check existing PRs first. A successor confirms the previous writer has stopped (a user-directed takeover is enough) and preserves dirty work.
+- Record cross-track dependencies on [#181](https://github.com/averylicious/muon/issues/181) or the relevant PR. Contact the other track only for an unresolved behavioural decision or ownership collision.
 
 ## Moving fixes between tracks
 
-**Main to experiment:** after a useful main fix lands, the experimental owner or a named integrator makes a separate integration branch from the current experimental head. Merge current main into that branch, resolve conflicts, review the combined diff against the experiment and run CI there. Open a PR into `gen-4-progressive-blur`. Do not open a direct main-to-experiment PR: the tested main APK does not test the combined experimental app.
-
-An integrator may prepare and land that PR autonomously once CI (and any requested QA) passes and no blockers remain, using a **regular merge commit** (`--merge`) so `main`'s ancestry is preserved; never squash, rebase, or force-push shared track history. Experimental sessions simply pull the updated remote branch at their next clean boundary rather than requiring a manual handoff to merge.
-
-**Experiment to main:** do not merge the experiment wholesale, even if Git reports no conflicts. For a generally useful fix, make a fresh branch from current main and port only that focused change and its tests. Cite the experimental source commit/PR and check it against main's pinned dependencies. #183 is an example of this pattern. Cherry-picking a reviewed isolated fix can help, but never take an alpha/dependency bundle along with it.
-
-Sync after a main fix that the experiment needs, before editing a shared state/API/storage contract, or before treating an experimental regression as unrelated to main. Batch independent small main fixes at the experimental owner's next boundary instead of interrupting every commit. Prefer a small integration PR over a large overdue merge.
+- **Main → Gen 4:** from the current Gen 4 head, make a `sync/main-into-gen-4-<topic>` branch, merge current `main`, resolve conflicts, review the combined diff and run CI there. Never open a direct `main` → experiment PR: the main APK does not test the combined app. Once CI (and any requested QA) passes, the integrator lands it with a **regular merge commit** (`--merge`); never squash, rebase or force-push shared history.
+- **Gen 4 → main:** never merge the experiment wholesale, even without conflicts. Port a focused fix and its tests onto a fresh branch from `main`, cite the source commit/PR, and check it against main's pinned dependencies. Never carry a dependency bundle along.
+- Sync after a main fix the experiment needs, before changing a shared state/API/storage contract, or before calling an experimental regression unrelated to main. Batch small fixes at the experimental owner's next clean boundary.
 
 ## Preflight and merge gates
 
-From the agent's own worktree, fetch complete current main and experimental histories. The local preflight is read-only and requires full SHAs and refreshed `origin` refs:
+From your own worktree, refresh both histories (HTTPS helper: [AGENTS.md](../AGENTS.md#git-and-github-access)) and run the read-only preflight. For a Gen 4 PR, pass `--base gen-4-progressive-blur`.
 
 ```sh
 git fetch origin main:refs/remotes/origin/main gen-4-progressive-blur:refs/remotes/origin/gen-4-progressive-blur
 python3 tools/check_branch_policy.py --base main --head "$(git rev-parse HEAD)" --source "$(git branch --show-current)"
 ```
 
-For a Gen 4 PR, pass `--base gen-4-progressive-blur`. Use the authorized HTTPS fetch/push helper in [CLAUDE.md](../CLAUDE.md) if SSH is unavailable. Never rewrite a tracked ref backwards to make the check pass.
+The **Branch policy / Branch direction** PR check rejects `gen-4-progressive-blur` or `sync/main-into-*` heads targeting `main`, requires the head to contain its current destination, requires forward-sync heads to contain current `main`, and fails when history cannot be verified. It has a read-only token and no signing secrets. Never move a ref backwards or disable the check to make it pass; change the policy only through a reviewed PR.
 
-The lightweight **Branch policy / Branch direction** PR check:
+Before merging, refresh the head, destination and CI. **Build, test and sign** and **Branch direction** must both pass on the final head. If the destination moved, merge it in, inspect the result and rerun CI. Record the head and destination on the PR and merge with the expected SHA:
 
-- rejects the experiment branch (`gen-4-progressive-blur`) or any `sync/main-into-*` forward-sync branch targeting `main`;
-- requires the tested head to contain the current destination (`main` or `gen-4-progressive-blur`);
-- additionally requires forward-sync heads targeting `gen-4-progressive-blur` to include current `main`;
-- fails when required history cannot be verified.
+```sh
+gh api -X PUT repos/averylicious/muon/pulls/<n>/merge -f merge_method=merge -f sha=<CI-verified head>
+```
 
-The check has a read-only token, no signing secrets and no Android build. It does not extend signed APK access to fork PRs. Missing anchor history needs investigation; do not silently replace the anchor or disable the check. If the experiment is retired, update this policy through a reviewed PR.
+The check is a snapshot, not a lock, and does not catch hand-copied changes or prove semantic compatibility. Review build/dependency, settings/schema migrations, storage, playback contracts and CI/signing in every integration; never resolve a conflict by taking a whole file from one side. Server-side protection on `main` must be verified live ([STATE.md](STATE.md)).
 
-Before merging, refresh the PR head, destination and CI. Both **Build, test and sign** and **Branch direction** must pass on the final head. If the destination changed, merge it into the isolated work branch, inspect the resolution and rerun CI. Record the exact head and destination on the PR and merge using the expected head SHA. Do not enable auto-merge or bypass failed/pending checks to save quota.
+## Evidence and builds
 
-The CI check is a snapshot, not a lock. GitHub branch protection with strict/up-to-date required checks is the server-side gate for main; inspect the live protection settings and latest checkpoint rather than assuming documentation enabled it. Main protection was enabled and read back on 2026-09-28: both checks are required from GitHub Actions, strict/up-to-date mode and admin enforcement are on, PRs require zero approving reviewers, and force-push/deletion are disabled. Verify these settings live before relying on them. Without protection, the preflight and merge procedure remain contributor-enforced. An experimental branch that the user updates directly is likewise not protected by PR-only checks.
-
-This guard prevents common accidental branch mixing. It does not detect a hand-copied/squashed alpha change, stop a trusted writer modifying the policy, or prove semantic compatibility. Review build/dependency changes, settings/schema migrations, storage ownership, playback contracts and CI/signing behavior in every relevant integration. Do not resolve a conflict by taking an entire file from either branch without checking both changes.
-
-## Evidence and stopping safely
-
-Each PR records destination/track, source and destination SHAs, any cross-track source/forward-sync need, actual model roles, checks, artifacts and remaining QA. A handoff records dirty work, running tasks and next owner. Preserve it before another implementation boundary or a quota cutoff; use [the template](handoffs/TEMPLATE.md). A checkpoint does not end a continuing turn; follow [continuous engineering](continuous-engineering.md) and continue actionable authorized work while capacity allows.
-
-Main still publishes the normal Canary feed with the repository's current visibility. Experimental APKs come from Actions and update the same Canary package/data. Installing a newer main APK can replace experimental features; identify the track and version before recommending a download. No Stable tag/release, signing change, phone access or feed change is implied by this protocol.
+Each PR records track, source and destination SHAs, cross-track needs, model roles, checks, artifacts and remaining QA. Main builds publish the Canary feed; experimental APKs are Actions artifacts that update the same Canary package, so a newer main APK can replace experimental features. Name the track and version before recommending a download. This protocol implies no Stable release, signing change, feed change or device access.
