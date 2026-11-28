@@ -58,8 +58,7 @@ fun MuonTheme(
         colors.copy(background = Color.Black, surface = Color.Black)
     } else colors
     // Material's own controls (switches, sliders, sheets, the pull-to-refresh indicator) take their
-    // springs from the motion scheme; the expressive one is springier (the Canary experiment).
-    MaterialTheme(colorScheme = scheme, typography = MuonTypography,
-        motionScheme = if (Expressive.motion) MotionScheme.expressive() else MotionScheme.standard(),
+    // springs from the motion scheme.
+    MaterialTheme(colorScheme = scheme, typography = MuonTypography, motionScheme = MotionScheme.expressive(),
         content = content)
 }

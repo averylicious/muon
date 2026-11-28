@@ -88,10 +88,8 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
             if (back != null) IconButton(onClick = back, modifier = Modifier.semantics { contentDescription = "Back" }) {
                 MuonIcon("back")
             }
-            // With Expressive motion the title is large, under the bar, with a summary (the Refined mockup).
-            if (Expressive.motion) Spacer(Modifier.weight(1f))
-            else Text("On this device", style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.weight(1f).padding(start = if (back != null) 4.dp else 0.dp).semantics { heading() })
+            // The title is large, under the bar, with a summary (the Refined mockup).
+            Spacer(Modifier.weight(1f))
             IconButton(enabled = !busy, onClick = refresh, modifier = Modifier.semantics { contentDescription = "Refresh list" }) {
                 MuonIcon("refresh")
             }
@@ -99,7 +97,7 @@ internal fun SavedCopies(entries: List<SavedEntry>, current: String?, ready: Boo
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Loading" })
         Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(bottom = 24.dp + LocalUnderBars.current)) {
-            if (Expressive.motion) item(key = "title") {
+            item(key = "title") {
                 SavedTitle(savedSummary(count, DownloadMarks.bytes.takeIf { DownloadMarks.bytesKnown }, PlayedCacheState.used,
                     onCard = store?.card != null))
             }
@@ -193,8 +191,7 @@ private fun PreparingPill(preparing: Boolean, cancel: () -> Unit, modifier: Modi
         Surface(shape = RoundedCornerShape(50), color = colors.inverseSurface, contentColor = colors.inverseOnSurface,
             shadowElevation = 6.dp) {
             Row(Modifier.padding(start = 14.dp, end = 4.dp).heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (Expressive.motion) LoadingIndicator(Modifier.size(28.dp), color = colors.inversePrimary)
-                else CircularProgressIndicator(Modifier.size(20.dp), color = colors.inversePrimary, strokeWidth = 2.dp)
+                LoadingIndicator(Modifier.size(28.dp), color = colors.inversePrimary)
                 Spacer(Modifier.width(10.dp))
                 Text("Preparing playback…", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.width(4.dp))
@@ -206,11 +203,10 @@ private fun PreparingPill(preparing: Boolean, cancel: () -> Unit, modifier: Modi
 
 /**
  * Text whose numbers change in place: the new value rolls up as the old one rolls away, as the Refined
- * mockup's counts do when a copy is deleted. Plain text with Expressive motion off.
+ * mockup's counts do when a copy is deleted.
  */
 @Composable
 private fun RollingText(text: String, style: TextStyle, color: Color) {
-    if (!Expressive.motion) { Text(text, style = style, color = color); return }
     AnimatedContent(text, transitionSpec = {
         (slideInVertically(motionSpatial()) { it / 2 } + fadeIn(motionMedium()))
             .togetherWith(slideOutVertically(motionSpatial()) { -it / 2 } + fadeOut(motionShort()))
@@ -276,7 +272,7 @@ private fun SavedRow(entry: SavedEntry, current: Boolean, ready: Boolean, place:
                 Text(artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = quiet)
                 status?.let { StatusLine(statusIcon(entry, current), it, strong = current || !entry.complete) }
             }
-            if (Expressive.motion && entry.bytes > 0) Text(songSize(entry.bytes), style = MaterialTheme.typography.labelSmall,
+            if (entry.bytes > 0) Text(songSize(entry.bytes), style = MaterialTheme.typography.labelSmall,
                 color = quiet, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
             IconButton(onClick = open, modifier = Modifier.size(48.dp).semantics { contentDescription = "More options for $title, $artist" }) {
                 MuonIcon("more")
@@ -328,16 +324,15 @@ private fun StorageCard(why: () -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             // Counts and sizes in the card's titles where they are known (the Refined mockup).
-            val downloads = DownloadMarks.done.takeIf { Expressive.motion && DownloadMarks.countsKnown }
+            val downloads = DownloadMarks.done.takeIf { DownloadMarks.countsKnown }
             CardLine("download", downloads?.let { "Downloads · $it" } ?: "Downloads",
-                if (Expressive.motion && DownloadMarks.bytesKnown && DownloadMarks.bytes > 0) "Stay until you delete them. ${formatBytes(DownloadMarks.bytes)}."
+                if (DownloadMarks.bytesKnown && DownloadMarks.bytes > 0) "Stay until you delete them. ${formatBytes(DownloadMarks.bytes)}."
                 else "Stay until you delete them.")
             CardLine("history", "Kept from listening",
                 "${formatBytes(used)} of ${formatBytes(limit)}. When it's full, the oldest make room.") {
                 // Still: the wave shows the fill, and nothing on this page moves on its own.
-                if (Expressive.motion) LinearWavyProgressIndicator(progress = { share }, waveSpeed = 0.dp,
+                LinearWavyProgressIndicator(progress = { share }, waveSpeed = 0.dp,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-                else LinearProgressIndicator(progress = { share }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
             }
             Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = "Why", onClick = why)
                 .heightIn(min = 40.dp).padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {

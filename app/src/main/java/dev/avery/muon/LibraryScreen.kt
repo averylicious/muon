@@ -205,11 +205,8 @@ internal fun LibraryPane(refreshing: Boolean, refresh: () -> Unit, content: @Com
         isRefreshing = refreshing,
         onRefresh = refresh,
         state = state,
-        // The Canary experiment: Material 3 Expressive's shape-morphing loader instead of the spinner.
-        indicator = {
-            if (Expressive.motion) PullToRefreshDefaults.LoadingIndicator(state, refreshing, Modifier.align(Alignment.TopCenter))
-            else PullToRefreshDefaults.Indicator(state, refreshing, Modifier.align(Alignment.TopCenter))
-        },
+        // Material 3 Expressive's shape-morphing loader instead of the spinner.
+        indicator = { PullToRefreshDefaults.LoadingIndicator(state, refreshing, Modifier.align(Alignment.TopCenter)) },
         modifier = Modifier.fillMaxSize().semantics {
             customActions = listOf(CustomAccessibilityAction("Refresh library") {
                 if (refreshing) false else { refresh(); true }
@@ -225,17 +222,7 @@ internal fun LibraryPane(refreshing: Boolean, refresh: () -> Unit, content: @Com
  */
 @Composable
 internal fun LibraryChips(view: LibraryView, choose: (LibraryView) -> Unit) {
-    if (Expressive.motion) { ConnectedViews(view, choose); return }
-    // Deliberately plain: an earlier edge fade used an offscreen compositing layer and a DstOut
-    // blend, which the user reported as a scroll regression. The chips overflow past the padding
-    // instead, which costs nothing to draw.
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-        .padding(horizontal = 24.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LibraryView.entries.forEach { choice ->
-            LibraryChip(choice.name, view == choice) { choose(choice) }
-        }
-    }
+    ConnectedViews(view, choose)
 }
 
 /**
@@ -263,13 +250,12 @@ internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T
                 MuonIcon("collapse", Modifier.size(18.dp))
             }
             val described = Modifier.semantics { contentDescription = "Order: ${label(current)}" }
-            // With Expressive motion, a tonal pill (the Refined mockup), so it reads as a control.
-            if (Expressive.motion) FilledTonalButton(onClick = { open = true }, modifier = described,
+            // A tonal pill (the Refined mockup), so it reads as a control.
+            FilledTonalButton(onClick = { open = true }, modifier = described,
                 contentPadding = PaddingValues(start = 16.dp, end = 12.dp), content = order)
-            else TextButton(onClick = { open = true }, modifier = described, content = order)
-            // The Canary experiment: Material 3 Expressive's menu, its choices in one rounded group,
-            // the chosen one filled and marked with a check.
-            if (Expressive.motion) DropdownMenuPopup(expanded = open, onDismissRequest = { open = false }) {
+            // Material 3 Expressive's menu, its choices in one rounded group, the chosen one filled and
+            // marked with a check.
+            DropdownMenuPopup(expanded = open, onDismissRequest = { open = false }) {
                 DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1)) {
                     options.forEachIndexed { index, option ->
                         SelectableDropdownMenuItem(selected = option == current,
@@ -284,16 +270,6 @@ internal fun <T> SortBar(count: String?, options: List<T>, current: T, label: (T
                                 selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer),
                             selectedLeadingIcon = { MuonIcon("check", Modifier.size(18.dp)) })
                     }
-                }
-            } else DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                options.forEach { option ->
-                    DropdownMenuItem(text = { Text(label(option)) },
-                        onClick = { open = false; choose(option) },
-                        leadingIcon = {
-                            if (option == current) MuonIcon("check", Modifier.size(18.dp))
-                            else Spacer(Modifier.size(18.dp))
-                        },
-                        modifier = Modifier.semantics { selected = option == current })
                 }
             }
         }
@@ -493,13 +469,6 @@ private fun ConnectedViews(view: LibraryView, choose: (LibraryView) -> Unit) {
             }
         }
     }
-}
-
-@Composable
-private fun LibraryChip(label: String, selected: Boolean, select: () -> Unit) {
-    FilterChip(selected, select, label = { Text(label, maxLines = 1) },
-        // A check mark, so the selected chip is not distinguished by its fill colour alone.
-        leadingIcon = if (selected) { { MuonIcon("check", Modifier.size(18.dp)) } } else null)
 }
 
 /** One cover filling [modifier]'s shape, or, given four or more, the first four as a 2x2 mosaic. */

@@ -1,6 +1,5 @@
 package dev.avery.muon
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -37,10 +36,9 @@ internal fun ArtistPage(artist: LibraryArtist?, name: String, albums: List<Libra
     playAll: (shuffle: Boolean) -> Unit, openAlbum: (LibraryAlbum) -> Unit, play: (TauonTrack, Int) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val playable = artist?.tracks?.any { it.playable } == true && ready
-    val toolbarRoom = if (Expressive.motion) PAGE_TOOLBAR_ROOM else 0.dp
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), state = state,
-            contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current + toolbarRoom)) {
+            contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current + PAGE_TOOLBAR_ROOM)) {
             item(key = "back", contentType = "back") {
                 IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
                     .semantics { contentDescription = backLabel }) { MuonIcon("back") }
@@ -99,8 +97,7 @@ internal fun SectionHeading(text: String) {
 }
 
 /**
- * A sideways row of albums, on an artist's page and in search results. With Expressive motion on,
- * each cover slides a little slower than the row inside its rounded frame as it nears either edge
+ * A sideways row of albums, on an artist's page and in search results. Each cover slides a little slower than the row inside its rounded frame as it nears either edge
  * (Material's `carouselParallaxScrollEffect`, the multi-aspect carousel's look on an ordinary row),
  * so the row reads as a carousel. Only the cover moves: the title under it stays put and readable.
  * [subtitle] replaces the song count under each title when given.
@@ -111,10 +108,9 @@ internal fun AlbumRow(albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
     subtitle: ((LibraryAlbum) -> String)? = null, open: (LibraryAlbum) -> Unit) {
     val state = rememberLazyListState()
     val parallax = remember(state) { CarouselParallaxScrollEffectState(state) }
-    val moving = Expressive.motion
     LazyRow(state = state, contentPadding = PaddingValues(horizontal = 12.dp)) {
         itemsIndexed(albums, key = { _, album -> album.key }, contentType = { _, _ -> "album" }) { index, album ->
-            val cover = if (moving) Modifier.carouselParallaxScrollEffect(index, parallax, COVER_SHAPE) else Modifier
+            val cover = Modifier.carouselParallaxScrollEffect(index, parallax, COVER_SHAPE)
             if (subtitle == null) AlbumTile(album, endpoint, cover = cover) { open(album) }
             else AlbumTile(album, endpoint, subtitle = subtitle(album), cover = cover) { open(album) }
         }

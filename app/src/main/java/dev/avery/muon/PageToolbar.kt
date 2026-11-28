@@ -42,8 +42,8 @@ internal fun pageActionsGone(firstVisibleIndex: Int, actionsIndex: Int): Boolean
  * The Canary experiment's floating toolbar for an album's or an artist's page: once Play and Shuffle
  * have scrolled off the top, Material 3 Expressive's `HorizontalFloatingToolbar` rises above the bars
  * with them again (Play as its vibrant button), with Back and a return to the top, which also left
- * with the header. It sinks away when the header's own buttons come back. Only with Expressive motion
- * on, and only when the songs can be played.
+ * with the header. It sinks away when the header's own buttons come back. Only when the songs can be
+ * played.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -53,7 +53,7 @@ internal fun BoxScope.PageToolbar(state: LazyListState, actionsIndex: Int, enabl
         derivedStateOf { pageActionsGone(state.firstVisibleItemIndex, actionsIndex) }
     }
     val scope = rememberCoroutineScope()
-    AnimatedVisibility(gone && enabled && Expressive.motion,
+    AnimatedVisibility(gone && enabled,
         Modifier.align(Alignment.BottomCenter).padding(bottom = LocalUnderBars.current + 16.dp),
         enter = fadeIn(motionShort()) + scaleIn(motionSpatial(), initialScale = 0.8f) +
             slideInVertically(motionSpatial()) { it / 2 },

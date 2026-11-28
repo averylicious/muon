@@ -59,7 +59,7 @@ internal fun PlayerPanel(p: PlaybackUi, position: () -> Long, revision: () -> In
                 verticalAlignment = Alignment.CenterVertically) {
                 Control("previous", "Previous", p.previousOrRestart && player != null) { player?.seekToPrevious() }
                 FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
-                    shape = playButtonShape(p.playing, 56.dp),
+                    shape = playButtonShape(p.playing),
                     modifier = Modifier.size(56.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
                     Crossfade(p.playing, animationSpec = motionShort(), label = "panel play/pause") { playing ->
                         MuonIcon(if (playing) "pause" else "play", Modifier.size(28.dp))
@@ -76,17 +76,13 @@ internal fun PlayerPanel(p: PlaybackUi, position: () -> Long, revision: () -> In
 @Composable
 private fun PanelProgress(position: () -> Long, duration: Long, playing: Boolean) {
     val at = position()
-    // The same wave as Now Playing's seek bar with Expressive motion: rolling while the song plays,
-    // eased flat when it pauses.
+    // The same wave as Now Playing's seek bar: rolling while the song plays, eased flat when it pauses.
     val wave by animateFloatAsState(if (playing) 1f else 0f, motionMedium(), label = "panel wave")
     Column {
-        if (Expressive.motion) LinearWavyProgressIndicator(progress = { progressFraction(at, duration) },
+        // The default track is the panel's own colour; a step darker keeps the bar readable.
+        LinearWavyProgressIndicator(progress = { progressFraction(at, duration) },
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             trackColor = MaterialTheme.colorScheme.outlineVariant, stopSize = 0.dp, amplitude = { wave })
-        else LinearProgressIndicator(progress = { progressFraction(at, duration) },
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(4.dp),
-            // The default track is the panel's own colour; a step darker keeps the bar readable.
-            trackColor = MaterialTheme.colorScheme.outlineVariant, drawStopIndicator = {})
         Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
             Text(formatTime(at), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)

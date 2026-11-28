@@ -47,10 +47,9 @@ internal fun ErrorCard(message: String, action: String? = null, quiet: Boolean =
 
 @Composable
 internal fun Control(kind: String, label: String, enabled: Boolean = true, action: () -> Unit) {
-    // The Canary experiment: Expressive's icon buttons squash towards a square while pressed.
-    if (Expressive.motion) IconButton(onClick = action, shapes = IconButtonDefaults.shapes(), enabled = enabled,
+    // Expressive's icon buttons squash towards a square while pressed.
+    IconButton(onClick = action, shapes = IconButtonDefaults.shapes(), enabled = enabled,
         modifier = Modifier.semantics { contentDescription = label }) { MuonIcon(kind) }
-    else IconButton(onClick = action, enabled = enabled, modifier = Modifier.semantics { contentDescription = label }) { MuonIcon(kind) }
 }
 
 @Composable
@@ -58,28 +57,18 @@ internal fun ToggleControl(kind: String, label: String, state: String, active: B
     // On is a tonal container behind the icon, Material's toggle, rather than a colour change and a
     // dot (#120). TalkBack hears the state either way.
     val colors = MaterialTheme.colorScheme
-    // The Canary experiment: a Material 3 Expressive toggle button, round while off and a rounded
-    // square while on, morphing between them (and squashing while pressed).
-    if (Expressive.motion) {
-        // Felt as well as seen: the system's toggle-on and toggle-off feedback as the shape morphs.
-        val haptics = LocalHapticFeedback.current
-        FilledTonalIconToggleButton(checked = active, onCheckedChange = { on ->
-            haptics.performHapticFeedback(if (on) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
-            action()
-        },
-            shapes = IconButtonDefaults.toggleableShapes(), enabled = enabled,
-            colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
-                containerColor = Color.Transparent, contentColor = colors.onSurfaceVariant,
-                checkedContainerColor = colors.secondaryContainer, checkedContentColor = colors.onSecondaryContainer),
-            modifier = Modifier.semantics { contentDescription = label; stateDescription = state }) {
-            MuonIcon(kind)
-        }
-        return
-    }
-    IconButton(onClick = action, enabled = enabled,
-        colors = IconButtonDefaults.iconButtonColors(
-            containerColor = if (active) colors.secondaryContainer else Color.Transparent,
-            contentColor = if (active) colors.onSecondaryContainer else colors.onSurfaceVariant),
+    // A Material 3 Expressive toggle button, round while off and a rounded square while on, morphing
+    // between them (and squashing while pressed).
+    // Felt as well as seen: the system's toggle-on and toggle-off feedback as the shape morphs.
+    val haptics = LocalHapticFeedback.current
+    FilledTonalIconToggleButton(checked = active, onCheckedChange = { on ->
+        haptics.performHapticFeedback(if (on) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
+        action()
+    },
+        shapes = IconButtonDefaults.toggleableShapes(), enabled = enabled,
+        colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
+            containerColor = Color.Transparent, contentColor = colors.onSurfaceVariant,
+            checkedContainerColor = colors.secondaryContainer, checkedContentColor = colors.onSecondaryContainer),
         modifier = Modifier.semantics { contentDescription = label; stateDescription = state }) {
         MuonIcon(kind)
     }

@@ -211,14 +211,8 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
             }
             val barColors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
                 scrolledContainerColor = colors.surfaceContainer)
-            // The Canary experiment: Material 3 Expressive's flexible bar, as in Settings.
-            if (Expressive.motion) LargeFlexibleTopAppBar(
-                title = { QueueTitle() },
-                navigationIcon = backButton,
-                colors = barColors,
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                scrollBehavior = scrollBehavior,
-            ) else LargeTopAppBar(
+            // Material 3 Expressive's flexible bar, as in Settings.
+            LargeFlexibleTopAppBar(
                 title = { QueueTitle() },
                 navigationIcon = backButton,
                 colors = barColors,
@@ -257,23 +251,23 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
                 val state = rememberSwipeToDismissBoxState()
                 val held = entry.key == dragKey
                 val position = rows.indexOf(entry)
-                // With Expressive motion, Next up is one joined group (the Refined mockup).
-                val place = if (Expressive.motion) groupPlace(position, rows.size) else null
-                val shape = place?.let { groupShape(it, current = held) }
-                val gap = if (place == null || place.startsGroup) Modifier else Modifier.padding(top = GROUP_GAP)
+                // Next up is one joined group (the Refined mockup).
+                val place = groupPlace(position, rows.size)
+                val shape = groupShape(place, current = held)
+                val gap = if (place.startsGroup) Modifier else Modifier.padding(top = GROUP_GAP)
                 SwipeToDismissBox(
                     state = state,
                     // The held row floats above the others and follows the finger; the rest slide
                     // aside. No swiping while any row is being dragged.
                     modifier = (if (held) Modifier.zIndex(1f).graphicsLayer {
                         // A joined row casts its own shadow, inside its inset (QueueRow).
-                        translationY = dragOffset; if (shape == null) shadowElevation = 8.dp.toPx()
+                        translationY = dragOffset
                     } else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)).then(gap),
                     gesturesEnabled = editable && dragKey == null,
                     // A refused removal (the queue changed under the finger) puts the row back.
                     onDismiss = { remove(entry) { scope.launch { state.reset() } } },
                     backgroundContent = {
-                        Box(Modifier.fillMaxSize().then(if (shape != null) Modifier.padding(horizontal = GROUP_INSET).clip(shape) else Modifier)
+                        Box(Modifier.fillMaxSize().padding(horizontal = GROUP_INSET).clip(shape)
                             .background(colors.errorContainer).padding(horizontal = 24.dp),
                             contentAlignment = if (state.dismissDirection == SwipeToDismissBoxValue.StartToEnd)
                                 Alignment.CenterStart else Alignment.CenterEnd) {
@@ -351,14 +345,14 @@ private fun QueueRow(item: MediaItem, playing: Boolean, onClick: (() -> Unit)?, 
     val meta = item.mediaMetadata
     // The playing song sits on the same tonal surface, with the same equalizer over its cover, as in
     // every song list (#136), rather than only changing colour.
-    // With Expressive motion the playing row takes the joined groups' rounder pill, and a Next up row
-    // its group's [shape] on a tonal ground.
-    val pill = if (Expressive.motion) RoundedCornerShape(GROUP_END) else RoundedCornerShape(16.dp)
+    // The playing row takes the joined groups' rounder pill, and a Next up row its group's [shape] on a
+    // tonal ground.
+    val pill = RoundedCornerShape(GROUP_END)
     // The page's ground hides a swipe's action behind the row; a joined row hides it with its own
     // ground, so it has none outside its shape (a held row's shadow would show a square edge).
     Row(Modifier.fillMaxWidth().then(if (shape == null) Modifier.background(colors.background) else Modifier)
         .then(when {
-            playing -> Modifier.padding(horizontal = if (Expressive.motion) GROUP_INSET else 12.dp).clip(pill)
+            playing -> Modifier.padding(horizontal = GROUP_INSET).clip(pill)
                 .background(colors.secondaryContainer)
             shape != null -> Modifier.padding(horizontal = GROUP_INSET).shadow(if (lifted) 8.dp else 0.dp, shape)
                 .clip(shape).background(colors.surfaceContainerLow)

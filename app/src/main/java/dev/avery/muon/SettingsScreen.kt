@@ -5,12 +5,9 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -22,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -38,7 +34,6 @@ import kotlinx.coroutines.launch
 
 /** Rows in a group share a shape family: the group's outer corners are large, the seams are small. */
 private val GroupOuterCorner = 20.dp
-private val GroupInnerCorner = 4.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,21 +53,14 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
     // The installed APK's own flag, not a build setting, so the banner cannot disagree with the app.
     val debuggable = remember(context) { (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 }
     Column(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
-        // The Canary experiment: Material 3 Expressive's flexible bar, which carries a subtitle, closer
-        // to Android 17's own Settings. The subtitle names the build, which is handy while testing.
-        if (Expressive.motion) LargeFlexibleTopAppBar(
+        // Material 3 Expressive's flexible bar, which carries a subtitle, closer to Android 17's own
+        // Settings. The subtitle names the build, which is handy while testing.
+        LargeFlexibleTopAppBar(
             title = { CollapsingTitle("Settings") },
             subtitle = { Text(appVersion(context), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
                 scrolledContainerColor = colors.background),
             expandedHeight = TopAppBarDefaults.LargeFlexibleAppBarWithSubtitleExpandedHeight * fontScale,
-            windowInsets = WindowInsets(0, 0, 0, 0),
-            scrollBehavior = scrollBehavior,
-        ) else LargeTopAppBar(
-            title = { CollapsingTitle("Settings") },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
-                scrolledContainerColor = colors.background),
-            expandedHeight = TopAppBarDefaults.LargeAppBarExpandedHeight * fontScale,
             // The scaffold already applied the status bar inset to this content.
             windowInsets = WindowInsets(0, 0, 0, 0),
             scrollBehavior = scrollBehavior,
@@ -97,11 +85,11 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
                         else if (model.offline) model.progress
                         else "$trackCount ${if (trackCount == 1) "track" else "tracks"} loaded",
                     enabled = !model.busy, leading = rowIcon("refresh"),
-                    clickLabel = "Refresh library", onClick = { model.connect() })
+                    onClick = { model.connect() })
                 SettingsRow(index = 2, count = 3, headline = "Disconnect",
                     supporting = "Stops playback and forgets this server",
                     headlineColor = colors.error, leading = rowIcon("close"),
-                    clickLabel = "Disconnect", onClick = { confirmDisconnect = true })
+                    onClick = { confirmDisconnect = true })
             }
 
             GroupLabel("Playback")
@@ -185,17 +173,17 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
             trailing = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (DownloadMarks.countsKnown && songs > 0) TextButton(onClick = clear) { Text("Clear") }
-                    if (Expressive.motion) MuonIcon("forward")
+                    MuonIcon("forward")
                 }
             },
-            clickLabel = "Open copies on this device", onClick = openSaved)
+            onClick = openSaved)
         // Full is not a fault: the oldest songs make room. It is said plainly, next to the way to keep more.
         SettingsRow(index = 1, count = rows, headline = "Played-song cache", leading = rowIcon("history"),
             supporting = (if (used == 0L) "Empty" else "${formatBytes(used)} of ${formatBytes(limit)}") +
                 if (full) { if(store.phone.partition==null) " · full, oldest songs make room" else " · full, existing copies kept" } else "",
             trailing = { if (used > 0) TextButton(onClick = { OfflineStore.clearPlayed(context) }) { Text("Clear") } },
-            // With Expressive motion, the same still wavy meter as On this device's storage card.
-            below = if (Expressive.motion) ({ CacheMeter(used, limit) }) else null)
+            // The same still wavy meter as On this device's storage card.
+            below = { CacheMeter(used, limit) })
         // The limit is chosen right here, from four sizes side by side, rather than in a dialog.
         ChoiceRow(index = 2, count = rows, headline = "Cache limit", supporting = "How much recent listening to keep",
             headlineColor = if (full) colors.primary else colors.onSurface,
@@ -274,8 +262,8 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
         modifier = Modifier.padding(horizontal = 16.dp))
 }
 
-/** A row's leading icon, which the Refined mockup gives every Settings row; only with Expressive motion. */
-private fun rowIcon(kind: String): (@Composable () -> Unit)? = if (Expressive.motion) ({ MuonIcon(kind) }) else null
+/** A row's leading icon, which the Refined mockup gives every Settings row. */
+private fun rowIcon(kind: String): @Composable () -> Unit = { MuonIcon(kind) }
 
 /** The played-song cache's fill as a still wavy meter, as on On this device (the Refined mockup). */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -375,9 +363,8 @@ private fun CollapsingTitle(text: String) {
 
 @Composable
 private fun GroupLabel(text: String) {
-    // In the accent colour with Expressive motion, as the Refined mockup's section headings are.
-    Text(text, style = MaterialTheme.typography.titleSmall,
-        color = if (Expressive.motion) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    // In the accent colour, as the Refined mockup's section headings are.
+    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, top = 8.dp).semantics { heading() })
 }
 
@@ -386,26 +373,17 @@ private fun GroupLabel(text: String) {
 private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) =
     Column(verticalArrangement = Arrangement.spacedBy(2.dp), content = content)
 
-private fun rowShape(index: Int, count: Int) = RoundedCornerShape(
-    topStart = if (index == 0) GroupOuterCorner else GroupInnerCorner,
-    topEnd = if (index == 0) GroupOuterCorner else GroupInnerCorner,
-    bottomStart = if (index == count - 1) GroupOuterCorner else GroupInnerCorner,
-    bottomEnd = if (index == count - 1) GroupOuterCorner else GroupInnerCorner,
-)
-
 /**
  * One row, number [index] of the [count] in its group. The whole row is the target, so any control
  * it carries is passive: [onClick] acts on the row, a row with [toggled] is a switch that calls
- * [onToggle] with its new value, and a row with [selected] is a radio choice.
- *
- * With [Expressive.motion] it is Material 3 Expressive's `SegmentedListItem`, whose corners morph
- * while pressed and whose selected row is tinted; otherwise the hand-built row it replaced.
+ * [onToggle] with its new value, and a row with [selected] is a radio choice. It is Material 3
+ * Expressive's `SegmentedListItem`, whose corners morph while pressed and whose selected row is tinted.
  */
 @Composable
 private fun SettingsRow(index: Int, count: Int, headline: String, supporting: String? = null,
     enabled: Boolean = true, headlineColor: Color = Color.Unspecified,
     trailing: @Composable (() -> Unit)? = null, leading: @Composable (() -> Unit)? = null,
-    onClick: (() -> Unit)? = null, clickLabel: String? = null,
+    onClick: (() -> Unit)? = null,
     toggled: Boolean? = null, onToggle: ((Boolean) -> Unit)? = null, selected: Boolean? = null,
     below: (@Composable () -> Unit)? = null) {
     val colors = MaterialTheme.colorScheme
@@ -420,30 +398,8 @@ private fun SettingsRow(index: Int, count: Int, headline: String, supporting: St
             }
         }
     }
-    if (Expressive.motion) {
-        ExpressiveSettingsRow(index, count, enabled, headlineText, supportingText, trailing, leading,
-            onClick, toggled, onToggle, selected)
-        return
-    }
-    val action = when {
-        toggled != null && onToggle != null ->
-            Modifier.toggleable(value = toggled, enabled = enabled, role = Role.Switch, onValueChange = onToggle)
-        selected != null && onClick != null ->
-            Modifier.selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
-        onClick != null -> Modifier.clickable(enabled = enabled, onClickLabel = clickLabel, onClick = onClick)
-        else -> Modifier
-    }
-    Surface(shape = rowShape(index, count), color = colors.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth().then(action)) {
-        ListItem(
-            // No fixed height: a long title or a large font scale grows the row instead of clipping.
-            headlineContent = headlineText,
-            supportingContent = supportingText,
-            leadingContent = leading,
-            trailingContent = trailing,
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        )
-    }
+    ExpressiveSettingsRow(index, count, enabled, headlineText, supportingText, trailing, leading,
+        onClick, toggled, onToggle, selected)
 }
 
 /** [SettingsRow] as a segmented list item, choosing the overload that matches what the row does. */
@@ -481,21 +437,20 @@ private fun ExpressiveSettingsRow(index: Int, count: Int, enabled: Boolean,
 }
 
 /**
- * A group row whose [options] sit side by side under its text and are chosen in place. With
- * [Expressive.motion], Material 3 Expressive's connected button group, whose chosen button rounds
- * fully; otherwise segmented buttons.
+ * A group row whose [options] sit side by side under its text and are chosen in place, as Material 3
+ * Expressive's connected button group, whose chosen button rounds fully.
  */
 @Composable
 private fun <T> ChoiceRow(index: Int, count: Int, headline: String, supporting: String, options: List<T>, chosen: T,
     label: (T) -> String, headlineColor: Color = MaterialTheme.colorScheme.onSurface,
     enabled: (T) -> Boolean = { true }, choose: (T) -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Surface(shape = if (Expressive.motion) ListItemDefaults.segmentedShapes(index, count).shape else rowShape(index, count),
+    Surface(shape = ListItemDefaults.segmentedShapes(index, count).shape,
         color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)) {
             Text(headline, style = MaterialTheme.typography.bodyLarge, color = headlineColor)
             Text(supporting, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-            if (Expressive.motion) Row(Modifier.fillMaxWidth().padding(top = 12.dp).selectableGroup(),
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp).selectableGroup(),
                 horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
                 options.forEachIndexed { i, option ->
                     ToggleButton(checked = option == chosen, onCheckedChange = { choose(option) }, enabled = enabled(option),
@@ -506,13 +461,6 @@ private fun <T> ChoiceRow(index: Int, count: Int, headline: String, supporting: 
                         },
                         contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.weight(1f).semantics { role = Role.RadioButton }) {
-                        Text(label(option), maxLines = 1, softWrap = false)
-                    }
-                }
-            } else SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                options.forEachIndexed { i, option ->
-                    SegmentedButton(selected = option == chosen, onClick = { choose(option) }, enabled = enabled(option),
-                        shape = SegmentedButtonDefaults.itemShape(i, options.size), icon = {}) {
                         Text(label(option), maxLines = 1, softWrap = false)
                     }
                 }
@@ -529,10 +477,8 @@ private fun ConnectedBadge(offline: Boolean = false) {
         shape = RoundedCornerShape(50)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             // The Refined mockup's status dot, in the text's colour: a word and a mark, never colour alone.
-            if (Expressive.motion) {
-                Box(Modifier.size(7.dp).background(LocalContentColor.current, CircleShape))
-                Spacer(Modifier.width(6.dp))
-            }
+            Box(Modifier.size(7.dp).background(LocalContentColor.current, CircleShape))
+            Spacer(Modifier.width(6.dp))
             Text(if (offline) "Offline" else "Connected", style = MaterialTheme.typography.labelLarge)
         }
     }

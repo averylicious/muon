@@ -64,7 +64,7 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
     Surface(color = color,
         shape = RoundedCornerShape(topStart = MINI_PLAYER_CORNER, topEnd = MINI_PLAYER_CORNER),
         modifier = Modifier.fillMaxWidth()
-            // Where the player grows from, with Expressive motion (PlayerMorph). While the panel that
+            // Where the player grows from (PlayerMorph). While the panel that
             // grew out of it is on screen, the panel is the mini player, so this one steps aside.
             .then(if (morph != null) Modifier.onGloballyPositioned { morph.mini = it }
                 .graphicsLayer { alpha = if (morph.covering()) 0f else 1f } else Modifier)
@@ -262,7 +262,7 @@ internal fun MiniPlayerFace(p: PlaybackUi, position: () -> Long, ready: Boolean,
             }
             // The primary action is filled in the primary colour, like Now Playing's, so it reads as
             // the control rather than blending into the mini player's own tonal surface (#123).
-            FilledIconButton(onClick = toggle, enabled = ready, shape = playButtonShape(p.playing, 40.dp),
+            FilledIconButton(onClick = toggle, enabled = ready, shape = playButtonShape(p.playing),
                 modifier = Modifier.semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
                 Crossfade(p.playing, animationSpec = motionShort(), label = "mini play/pause") { playing ->
                     MuonIcon(if (playing) "pause" else "play", Modifier.size(20.dp))

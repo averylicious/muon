@@ -6,20 +6,9 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
-
-/**
- * Muon's motion, defined once. Durations are deliberately short: the point is to show that a
- * surface changed, not to make the user wait for it.
- */
-internal const val MOTION_SHORT = 150
-internal const val MOTION_MEDIUM = 250
-
-/** Material's standard easing: quick to leave, gentle to arrive. */
-internal val MotionEasing: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
 /**
  * Predictive Back's numbers, in one place. Two kinds of surface preview it, and they are not yet
@@ -60,21 +49,18 @@ internal fun backFollow(drag: Float, height: Float): Float {
 }
 
 /**
- * For what fades or changes colour. With [Expressive.motion] these are Material 3 Expressive's
- * effects springs (fast and default), which never overshoot; otherwise the eased tweens above.
+ * For what fades or changes colour: Material 3 Expressive's effects springs (fast and default), which
+ * never overshoot.
  */
-internal fun <T> motionShort(): FiniteAnimationSpec<T> =
-    if (Expressive.motion) spring(dampingRatio = 1f, stiffness = 3800f) else tween(MOTION_SHORT, easing = MotionEasing)
-internal fun <T> motionMedium(): FiniteAnimationSpec<T> =
-    if (Expressive.motion) spring(dampingRatio = 1f, stiffness = 1600f) else tween(MOTION_MEDIUM, easing = MotionEasing)
+internal fun <T> motionShort(): FiniteAnimationSpec<T> = spring(dampingRatio = 1f, stiffness = 3800f)
+internal fun <T> motionMedium(): FiniteAnimationSpec<T> = spring(dampingRatio = 1f, stiffness = 1600f)
 
 /**
  * For what moves or changes size: Material 3 Expressive's default spatial spring, which overshoots a
- * little and settles, so a surface arrives with some life. Without [Expressive.motion], [motionMedium].
+ * little and settles, so a surface arrives with some life.
  * The values are material3 1.5.0-alpha29's `ExpressiveMotionTokens`, which are internal there.
  */
-internal fun <T> motionSpatial(): FiniteAnimationSpec<T> =
-    if (Expressive.motion) spring(dampingRatio = 0.8f, stiffness = 380f) else tween(MOTION_MEDIUM, easing = MotionEasing)
+internal fun <T> motionSpatial(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
 
 /**
  * The same spring without the overshoot, for motion that must not pass its target: a surface that
@@ -82,8 +68,7 @@ internal fun <T> motionSpatial(): FiniteAnimationSpec<T> =
  * size, padding or progress that settles at zero, where an overshoot goes negative. Negative padding
  * throws, which crashed Search as its bar widened (canary.297).
  */
-internal fun <T> motionSpatialFull(): FiniteAnimationSpec<T> =
-    if (Expressive.motion) spring(dampingRatio = 1f, stiffness = 380f) else tween(MOTION_MEDIUM, easing = MotionEasing)
+internal fun <T> motionSpatialFull(): FiniteAnimationSpec<T> = spring(dampingRatio = 1f, stiffness = 380f)
 
 /**
  * The player sheet's settle: a spring rather than a fixed curve, so a release hands on the finger's

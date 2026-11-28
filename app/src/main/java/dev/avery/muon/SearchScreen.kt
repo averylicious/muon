@@ -231,18 +231,8 @@ internal fun LazyListScope.searchCollection(artists: List<LibraryArtist>, albums
     if (artists.isEmpty() && albums.isEmpty()) return
     if (artists.isNotEmpty()) {
         item(key = "search:artists", contentType = "label") { SectionHeading("Artists") }
-        // With Expressive motion, the matched artists as the same row of avatars as at rest (the Refined mockup).
-        if (Expressive.motion) item(key = "search:artist-row", contentType = "artists") { ArtistAvatarRow(artists, endpoint, openArtist) }
-        else items(artists, key = { "search:${it.key}" }, contentType = { "artist" }) { artist ->
-            ListItem(
-                headlineContent = { Text(artistLabel(artist.name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                supportingContent = { Text("Artist · ${artistSongCount(artist.tracks.size)}") },
-                leadingContent = { ArtistAvatar(artist, endpoint = endpoint) },
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp))
-                    .clickable(onClickLabel = "Open artist") { openArtist(artist) },
-            )
-        }
+        // The matched artists as the same row of avatars as at rest (the Refined mockup).
+        item(key = "search:artist-row", contentType = "artists") { ArtistAvatarRow(artists, endpoint, openArtist) }
     }
     if (albums.isNotEmpty()) {
         item(key = "search:albums", contentType = "label") { SectionHeading("Albums") }

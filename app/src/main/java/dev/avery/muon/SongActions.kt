@@ -1,6 +1,5 @@
 package dev.avery.muon
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,33 +73,20 @@ internal fun SongActionsSheet(track: TauonTrack, endpoint: ServerEndpoint?, canQ
                 }
             }
         }
-        // The Canary experiment, as the Refined design has it (issue #661): Play, Play next and Add to
-        // queue lead the panel as one connected group, and the rest follow as one joined group of rows.
-        val grouped = canQueue && Expressive.motion
-        if (grouped) PlayGroup(play?.let { p -> { choose(p) } }, { choose { queue(true) } }, { choose { queue(false) } })
+        // As the Refined design has it (issue #661): Play, Play next and Add to queue lead the panel as
+        // one connected group, and the rest follow as one joined group of rows.
+        if (canQueue) PlayGroup(play?.let { p -> { choose(p) } }, { choose { queue(true) } }, { choose { queue(false) } })
         // Keeps a new copy on the phone (#112). A live song never removes or claims a copy saved
         // earlier under its track number (#213): those are managed in Saved copies.
         val rows = buildList<Triple<String, String, Pair<String?, () -> Unit>>> {
-            if (canQueue && !grouped) {
-                add(Triple("play-next", "Play next", null to { choose { queue(true) } }))
-                add(Triple("add-queue", "Add to queue", null to { choose { queue(false) } }))
-            }
             album?.let { a -> add(Triple("album", "Go to album", a.title.ifBlank { null } to { choose { goToAlbum(a) } })) }
             artists.forEach { a -> add(Triple("artist", "Go to artist", artistLabel(a.name) to { choose { goToArtist(a) } })) }
             if (canSave) add(Triple("download", "Save a copy", null to { choose(save) }))
         }
-        if (Expressive.motion) Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(GROUP_GAP)) {
             rows.forEachIndexed { i, (icon, label, rest) ->
                 GroupedSheetAction(icon, label, rest.first, groupPlace(i, rows.size), rest.second)
-            }
-        } else {
-            HorizontalDivider(Modifier.padding(horizontal = 24.dp))
-            Column(Modifier.padding(vertical = 8.dp)) {
-                // Without the group, an album or a single artist needs no second line.
-                rows.forEach { (icon, label, rest) ->
-                    SheetAction(icon, label, rest.first.takeIf { icon == "artist" && artists.size > 1 }, rest.second)
-                }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -159,15 +145,4 @@ private fun GroupedSheetAction(icon: String, label: String, detail: String?, pla
         leadingContent = { MuonIcon(icon) },
         supportingContent = detail?.let { { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) } },
         modifier = Modifier.fillMaxWidth()) { Text(label) }
-}
-
-@Composable
-private fun SheetAction(icon: String, label: String, detail: String? = null, onClick: () -> Unit) {
-    ListItem(
-        headlineContent = { Text(label) },
-        supportingContent = detail?.let { { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) } },
-        leadingContent = { MuonIcon(icon) },
-        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-        modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick),
-    )
 }

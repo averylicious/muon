@@ -11,7 +11,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 
@@ -39,35 +38,19 @@ internal fun DownloadBadge(mark: DownloadMark?) {
 }
 
 /**
- * Save copies, for an album's, an artist's or a playlist's songs (mockup 02): a tonal button with how
- * many songs and roughly how much space. Each press saves new copies (#213): whether a copy kept
- * earlier under the same track numbers is still these songs is not known, so this never says they are
- * already saved and never removes anything. Saved copies, their progress and Remove are in Saved copies.
+ * What Save copies keeps, for an album's, an artist's or a playlist's songs: how many songs and roughly
+ * how much space. The button itself ends the connected Play and Shuffle group ([PlayAllButtons]). Each
+ * press saves new copies (#213): whether a copy kept earlier under the same track numbers is still
+ * these songs is not known, so this never says they are already saved and never removes anything.
+ * Saved copies, their progress and Remove are in Saved copies.
  */
 @Composable
 internal fun DownloadAll(tracks: List<TauonTrack>, endpoint: ServerEndpoint?) {
     if (endpoint == null) return
     val playable = tracks.filter { it.playable }
     if (playable.isEmpty()) return
-    val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     val estimate = "${playable.size} ${if (playable.size == 1) "song" else "songs"}, about ${formatBytes(downloadEstimate(playable))}"
-    // With Expressive motion, Save copies is the end of the connected Play and Shuffle group
-    // (PlayAllButtons), so only what it would keep is said here.
-    if (Expressive.motion) {
-        Text("Save copies keeps $estimate on this phone.", style = MaterialTheme.typography.bodySmall,
-            color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp))
-        return
-    }
-    // Directly under Play and Shuffle, with the same gap below as above it. The details wrap under the
-    // button when large text leaves no room beside it (#16 QA).
-    FlowRow(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
-        itemVerticalAlignment = Alignment.CenterVertically) {
-        FilledTonalButton(onClick = { OfflineStore.add(context, endpoint, playable) }, modifier = Modifier.heightIn(min = 48.dp)) {
-            MuonIcon("download", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Save copies")
-        }
-        Text("${playable.size} ${if (playable.size == 1) "song" else "songs"}\nabout ${formatBytes(downloadEstimate(playable))}",
-            style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-    }
+    Text("Save copies keeps $estimate on this phone.", style = MaterialTheme.typography.bodySmall,
+        color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp))
 }
