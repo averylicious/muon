@@ -16,7 +16,7 @@ import java.io.IOException
  * store was made is known: one inserted later is not used until Muon restarts.
  *
  * The chosen shelf is checked again before its source is made, and before every read (#179 containment;
- * docs/audits/2026-10-06-card-reader-containment.md). Once it is found unavailable, this open fails
+ * docs/archive/audits/2026-10-06-card-reader-containment.md). Once it is found unavailable, this open fails
  * every later read, even if the shelf seems to come back: the caller closes and opens again, and that
  * open routes afresh. Each check is a snapshot, not a lock: storage can still go between a check and
  * the read after it, and nothing here closes or releases a cache or manager.

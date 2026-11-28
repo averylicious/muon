@@ -27,7 +27,7 @@ import java.io.IOException
 import java.security.MessageDigest
 
 /**
- * #213 preparation only (docs/audits/2026-10-05-saved-production-boundary.md, "Next bounded task"):
+ * #213 preparation only (docs/archive/audits/2026-10-05-saved-production-boundary.md, "Next bounded task"):
  * a prospective key/cover/alias ownership rule, exercised against real disposable Media3 index and
  * cache records and real DownloadArt files. Test-local; not an app API, schema, migration or #213 fix.
  * An opaque key or a matching tag is never identity, authentication or proof of the right artwork.

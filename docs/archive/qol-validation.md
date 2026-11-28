@@ -1,4 +1,4 @@
-> **Archived historical document:** an early Canary acceptance checklist, superseded by per-PR QA checklists and [issue state](../audits/issues/README.md).
+> **Archived historical document:** an early Canary acceptance checklist, superseded by per-PR QA checklists and [issue state](../issues/README.md).
 
 # Playback and appearance acceptance checks
 

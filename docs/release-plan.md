@@ -20,4 +20,4 @@ A confirmed security, privacy, data-loss or crash regression can block a release
 
 Active on `gen-4-progressive-blur` (#796, #797): Compose BOM `2026.11.01` / Compose `1.13.0`, Android SDK `37.2`, progressive/backdrop blur. It ships to `main` only through a reviewed promotion following [parallel tracks](parallel-tracks.md), with release-configuration acceptance and an explicit Stable request. Distribute candidates through existing Canary artifacts; no RC tags or new channels.
 
-Earlier gates and receipts: [v0.2.0 release](handoffs/2026-10-23-stable-020-release.md), [frozen M3E RC](handoffs/2026-10-24-frozen-m3e-rc.md), [issue state](audits/issues/README.md).
+Earlier gates and receipts: [v0.2.0 release](archive/handoffs/2026-10-23-stable-020-release.md), [frozen M3E RC](archive/handoffs/2026-10-24-frozen-m3e-rc.md), [issue state](issues/README.md).

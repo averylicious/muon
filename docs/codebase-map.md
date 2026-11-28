@@ -59,7 +59,7 @@ Saved copies (#112, #213): downloads, the played-song cache and SD card shelves.
 - **Legacy Media3 storage:** `Legacy*.kt`, `CacheMigration*.kt`, `Barrier*.kt`, `Download*.kt` — the default backend, its read-only projection, retirement journals and bounded byte/mark ledgers.
 - **Partition storage:** `Partition*.kt`, `OwnedPartitionShelf.kt`, `StorageBackendSelection.kt`, `StorageStartup*.kt` — an explicit opt-in backend (`PARTITION_OPT_IN_AVAILABLE`), chosen once at process start before any cache opens. No live swap, fallback or automatic opt-in.
 
-These files carry ownership, journal and cancellation contracts in their doc comments; read them before editing, and see the [issue-state index](audits/issues/README.md) for open storage work (#646, #401).
+These files carry ownership, journal and cancellation contracts in their doc comments; read them before editing, and see the [issue-state index](issues/README.md) for open storage work (#646, #401).
 
 ## State ownership
 

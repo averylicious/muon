@@ -44,7 +44,7 @@ internal fun paletteDescription(choice: PaletteChoice): String = when (choice) {
 }
 
 /**
- * The Material 3 Expressive experiment's two switches (Canary only; see docs/expressive-experiment.md).
+ * The Material 3 Expressive experiment's two switches (Canary only; see docs/archive/expressive-experiment.md).
  * Held here rather than in [AppearanceSettings] because the motion specs in Motion.kt are built
  * outside composition and read these directly; being snapshot state, a flip still re-animates.
  */

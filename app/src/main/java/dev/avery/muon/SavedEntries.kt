@@ -14,7 +14,7 @@ import androidx.media3.exoplayer.offline.DownloadIndex
 import java.util.UUID
 
 /**
- * Saved copies (#213; docs/handoffs/2026-10-07-saved-access-implementation.md). A copy kept on the phone
+ * Saved copies (#213; docs/archive/handoffs/2026-10-07-saved-access-implementation.md). A copy kept on the phone
  * or the card is named by where its bytes are (shelf, download row or played copy, request ID and cache
  * key), never by a Tauon track number, which the server may reuse for a different song. Nothing here
  * proves a copy is the song Tauon now has under any number: equal tags, IDs and keys are not audio

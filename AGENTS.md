@@ -66,6 +66,6 @@ Review the diff, surrounding code, latest-head CI and the user's QA results, and
 
 ## Portable issue state
 
-- Resume from [the issue-state index](docs/audits/issues/README.md), the relevant issue file and [STATE.md](docs/STATE.md), then verify live heads and checks; GitHub is the truth. Do not load whole issue timelines.
-- Keep one maintained Markdown file per active issue under `docs/audits/issues/`, edited in place and linked from a short issue/PR body. Comment on GitHub only for decisions, blockers, actionable review, material verification or merge/release changes. Preserve historical user decisions.
+- Resume from [the issue-state index](docs/issues/README.md), the relevant issue file and [STATE.md](docs/STATE.md), then verify live heads and checks; GitHub is the truth. Do not load whole issue timelines.
+- Keep one maintained Markdown file per active issue under `docs/issues/`, edited in place and linked from a short issue/PR body. Comment on GitHub only for decisions, blockers, actionable review, material verification or merge/release changes. Preserve historical user decisions.
 - Chat history and local session IDs are conveniences, never prerequisites. Starter prompts: [agent workflow](docs/agent-workflow.md).
