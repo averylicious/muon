@@ -49,21 +49,32 @@ internal fun rememberFrost(): Frost {
 }
 
 /**
- * Whether the bars are glass: only with the experiment's blur on, on Android 12 or newer (where
- * `RenderEffect` exists), and with the bars along the bottom. Sideways, the tabs are a rail and the
- * player a side panel, so there is nothing for content to scroll under.
+ * Whether the content runs on under the bars, for an [effectiveBarSurface]. Sideways, the tabs are a
+ * rail and the player a side panel, so there is nothing for content to scroll under.
  */
-internal fun frostedGlassOn(blur: Boolean, sdk: Int, sideways: Boolean): Boolean = blur && sdk >= 31 && !sideways
+internal fun barsSeeThrough(surface: BarSurface, sideways: Boolean): Boolean = surface != BarSurface.Solid && !sideways
+
+internal fun frostedGlassOn(surface: BarSurface, sideways: Boolean): Boolean = surface == BarSurface.Frosted && !sideways
+
+/** How much of the bars' own colour lies over the content when they are see-through. */
+internal fun barTint(surface: BarSurface): Float = when (surface) {
+    BarSurface.Frosted -> GLASS_TINT
+    BarSurface.Tinted -> TINTED_TINT
+    BarSurface.Solid -> 1f
+}
 
 /** How much of the bars' own colour lies over the blur: enough to read them, not so much it looks solid. */
 internal const val GLASS_TINT = 0.65f
+
+/** Over sharp, unblurred rows the bars need more of their colour to stay readable (the Gen 4 mockup's 85%). */
+internal const val TINTED_TINT = 0.85f
 
 /** How strongly the content blurs under the bars. */
 internal val GLASS_BLUR: Dp = 32.dp
 
 /**
- * The room at the bottom a scrolling list leaves for the bars when they are glass, so its last row can
- * scroll clear of them; zero with solid bars, whose space the scaffold already keeps free.
+ * The room at the bottom a scrolling list leaves for the bars when they are see-through, so its last
+ * row can scroll clear of them; zero with solid bars, whose space the scaffold already keeps free.
  */
 internal val LocalUnderBars = compositionLocalOf { 0.dp }
 

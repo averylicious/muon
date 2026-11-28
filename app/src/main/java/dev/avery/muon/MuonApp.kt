@@ -579,12 +579,13 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // under the player as it rises, and behind the song menu. Draw phase only (BlurBehind.kt).
             val menuBlur by animateFloatAsState(if (actionTrack != null) 1f else 0f, motionMedium(), label = "menu blur")
             val behind = Modifier.blurBehind(sheet) { menuBlur }
-            // Frosted glass (FrostedGlass.kt): with the experiment's blur on, Android 12 or newer and
-            // the bars along the bottom, the mini player and navigation bar show the tab under them,
-            // blurred, and the lists scroll on underneath. Otherwise the bars stay solid, as before.
+            // Bar surface (FrostedGlass.kt): with the bars along the bottom, Frosted and Tinted let the
+            // lists scroll on under the mini player and navigation bar, blurred or sharp; Solid covers them.
+            val surface = effectiveBarSurface(appearance.barSurface, Expressive.blur, Build.VERSION.SDK_INT)
+            val seeThrough = connected && barsSeeThrough(surface, rail)
             val glass = rememberFrost()
-            val frost = if (connected && frostedGlassOn(Expressive.blur, Build.VERSION.SDK_INT, rail)) glass else null
-            val barTint = if (frost != null) GLASS_TINT else 1f
+            val frost = if (seeThrough && frostedGlassOn(surface, rail)) glass else null
+            val barTint = if (seeThrough) barTint(surface) else 1f
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
             // out of the accessibility tree, so TalkBack cannot wander into hidden content.
             // A rising preview obscures them just the same, so they leave the tree for it too, and
@@ -679,14 +680,14 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         }
                     }
                 }) { padding ->
-                    // Under glass the content runs to the bottom, behind the bars, and each list adds the
-                    // bars' height to its own end padding instead (LocalUnderBars), so its last row can
+                    // Under see-through bars the content runs to the bottom, behind them, and each list adds
+                    // the bars' height to its own end padding instead (LocalUnderBars), so its last row can
                     // still scroll clear of them.
                     val direction = LocalLayoutDirection.current
-                    CompositionLocalProvider(LocalUnderBars provides if (frost != null) padding.calculateBottomPadding() else 0.dp,
+                    CompositionLocalProvider(LocalUnderBars provides if (seeThrough) padding.calculateBottomPadding() else 0.dp,
                         LocalQueueSong provides queueFromSwipe.takeIf { player != null && connected }) {
                     Column(Modifier.frostSource(frost)
-                        .then(if (frost != null) Modifier.padding(start = padding.calculateStartPadding(direction),
+                        .then(if (seeThrough) Modifier.padding(start = padding.calculateStartPadding(direction),
                             top = padding.calculateTopPadding(), end = padding.calculateEndPadding(direction))
                             else Modifier.padding(padding))
                         .fillMaxSize()) {
