@@ -55,4 +55,17 @@ class AppearanceSettingsTest {
         AppearanceSettings(prefs).chooseTuckIn(true)
         assertEquals(true, AppearanceSettings(prefs).tuckIn)
     }
+
+    @Test fun aFloatingSizeIsStoredOnlyWhenSaved() {
+        val settings = AppearanceSettings(prefs)
+        assertEquals(1f, settings.floatWidth, 0f)
+        assertEquals(FLOAT_TAB_HEIGHT_DEFAULT, settings.floatTabHeight)
+        settings.previewFloatWidth(0.75f)
+        settings.previewFloatTabHeight(44)
+        assertEquals(1f, AppearanceSettings(prefs).floatWidth, 0f)
+        settings.saveFloatSize()
+        val restarted = AppearanceSettings(prefs)
+        assertEquals(0.75f, restarted.floatWidth, 0f)
+        assertEquals(44, restarted.floatTabHeight)
+    }
 }

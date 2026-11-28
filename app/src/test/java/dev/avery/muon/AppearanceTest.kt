@@ -81,4 +81,19 @@ class AppearanceTest {
     @Test fun everyNavigationBarStyleHasALabel() {
         for (style in NavBarStyle.entries) assertEquals(true, navBarStyleLabel(style).isNotBlank())
     }
+
+    @Test fun floatingSizesOutsideTheirRangeFallBackIntoIt() {
+        assertEquals(1f, floatWidthFrom(Float.NaN), 0f)
+        assertEquals(FLOAT_WIDTH_MIN, floatWidthFrom(0.1f), 0f)
+        assertEquals(1f, floatWidthFrom(1.4f), 0f)
+        assertEquals(0.8f, floatWidthFrom(0.8f), 0f)
+        assertEquals(FLOAT_TAB_HEIGHT_MIN, floatTabHeightFrom(10))
+        assertEquals(FLOAT_TAB_HEIGHT_MAX, floatTabHeightFrom(200))
+        assertEquals(48, floatTabHeightFrom(48))
+    }
+
+    @Test fun theDefaultTabHeightIsAChoiceOnTheSlider() {
+        assertEquals(0, (FLOAT_TAB_HEIGHT_DEFAULT - FLOAT_TAB_HEIGHT_MIN) % FLOAT_TAB_HEIGHT_STEP)
+        assertEquals(0, (FLOAT_TAB_HEIGHT_MAX - FLOAT_TAB_HEIGHT_MIN) % FLOAT_TAB_HEIGHT_STEP)
+    }
 }

@@ -49,6 +49,21 @@ enum class NavBarStyle { EdgeToEdge, Floating }
 internal fun navBarStyleFrom(stored: String?): NavBarStyle =
     NavBarStyle.entries.firstOrNull { it.name == stored } ?: NavBarStyle.EdgeToEdge
 
+/** The floating bar's share of the width inside its margins, from [FLOAT_WIDTH_MIN] to all of it, in [FLOAT_WIDTH_STEP]s. */
+internal const val FLOAT_WIDTH_MIN = 0.6f
+internal const val FLOAT_WIDTH_STEP = 0.05f
+
+/** The floating tabs' height in dp, from [FLOAT_TAB_HEIGHT_MIN] to [FLOAT_TAB_HEIGHT_MAX] in [FLOAT_TAB_HEIGHT_STEP]s. */
+internal const val FLOAT_TAB_HEIGHT_MIN = 44
+internal const val FLOAT_TAB_HEIGHT_MAX = 60
+internal const val FLOAT_TAB_HEIGHT_STEP = 4
+internal const val FLOAT_TAB_HEIGHT_DEFAULT = 52
+
+/** A stored width outside the range, or unreadable, falls back into it rather than drawing a sliver. */
+internal fun floatWidthFrom(stored: Float): Float = if (stored.isNaN()) 1f else stored.coerceIn(FLOAT_WIDTH_MIN, 1f)
+
+internal fun floatTabHeightFrom(stored: Int): Int = stored.coerceIn(FLOAT_TAB_HEIGHT_MIN, FLOAT_TAB_HEIGHT_MAX)
+
 internal fun navBarStyleLabel(style: NavBarStyle): String = when (style) {
     NavBarStyle.EdgeToEdge -> "Edge to edge"
     NavBarStyle.Floating -> "Floating"
@@ -102,6 +117,10 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
     /** Floating only: scrolling down folds the tabs to the current one, with the mini player beside it. */
     var tuckIn by mutableStateOf(prefs.getBoolean(KEY_TUCK_IN, false))
         private set
+    var floatWidth by mutableStateOf(floatWidthFrom(prefs.getFloat(KEY_FLOAT_WIDTH, 1f)))
+        private set
+    var floatTabHeight by mutableStateOf(floatTabHeightFrom(prefs.getInt(KEY_FLOAT_TAB_HEIGHT, FLOAT_TAB_HEIGHT_DEFAULT)))
+        private set
 
     init {
         Expressive.blur = prefs.getBoolean(KEY_EXPRESSIVE_BLUR, true)
@@ -117,6 +136,15 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         if (enabled == tuckIn) return
         tuckIn = enabled
         prefs.edit().putBoolean(KEY_TUCK_IN, enabled).apply()
+    }
+
+    /** Shown at once, for a slider being dragged; [saveFloatSize] stores it when the finger lifts. */
+    fun previewFloatWidth(share: Float) { floatWidth = floatWidthFrom(share) }
+
+    fun previewFloatTabHeight(dp: Int) { floatTabHeight = floatTabHeightFrom(dp) }
+
+    fun saveFloatSize() {
+        prefs.edit().putFloat(KEY_FLOAT_WIDTH, floatWidth).putInt(KEY_FLOAT_TAB_HEIGHT, floatTabHeight).apply()
     }
 
     fun chooseBarSurface(choice: BarSurface) {
@@ -149,6 +177,8 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         const val KEY_BAR_SURFACE = "bar_surface"
         const val KEY_NAV_BAR = "nav_bar"
         const val KEY_TUCK_IN = "tuck_in"
+        const val KEY_FLOAT_WIDTH = "float_width"
+        const val KEY_FLOAT_TAB_HEIGHT = "float_tab_height"
     }
 }
 
