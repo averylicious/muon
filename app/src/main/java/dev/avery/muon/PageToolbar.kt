@@ -8,6 +8,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,7 @@ import androidx.compose.ui.graphics.blur.BlurRadiusSpec
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -66,8 +68,10 @@ internal fun BoxScope.PageToolbar(state: LazyListState, actionsIndex: Int, enabl
     }
     val scope = rememberCoroutineScope()
     val look = glassLook(LocalBarSurface.current, backdropOnThisPhone)
+    // Down with the floating bars as they tuck, so no empty room opens between them and the toolbar.
+    val drop = LocalBarsDrop.current
     AnimatedVisibility(gone && enabled,
-        Modifier.align(Alignment.BottomCenter).padding(bottom = LocalUnderBars.current + 16.dp),
+        Modifier.align(Alignment.BottomCenter).padding(bottom = LocalUnderBars.current + 16.dp).offset { IntOffset(0, drop.px) },
         enter = fadeIn(motionShort()) + scaleIn(motionSpatial(), initialScale = 0.8f) +
             slideInVertically(motionSpatial()) { it / 2 },
         exit = fadeOut(motionShort()) + scaleOut(motionShort(), targetScale = 0.8f) +
