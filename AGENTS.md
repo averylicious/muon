@@ -1,79 +1,71 @@
 # Muon contributor instructions
 
-These instructions apply to all coding agents working in this repository. Read them before making changes. The user's explicit instructions for the current task take precedence.
+For every coding agent in this repository. The user's explicit instructions for the current task take precedence. Current state, open work and **standing permissions** live in [`docs/STATE.md`](docs/STATE.md).
 
 ## Project boundaries
 
-- Muon is a Kotlin / Jetpack Compose / Media3 Android streaming client for Tauon. Keep the architecture small and dependencies minimal; follow the existing code before adding abstractions.
-- Tauon's unauthenticated HTTP API is trusted-LAN-only. Do not expose it publicly, open tunnels, or change the user's firewall/network configuration as part of feature work.
-- Hostile-media container pre-parsers and Media3-internal allocation wrappers are out of scope under the trusted-LAN model. Only add format-specific parser guards for bugs reproduced on real user files; prefer Media3's public APIs (such as extractor filtering and track-selection parameters) over duplicating extractor internals.
-- **Design baselines and generations:** Keep `docs/design/current/` strictly for real device screenshots of what the app draws today — never put unimplemented proposals or drawn mockups there. Name future redesigns sequentially by generation (`Gen N` or `Gen N - <optional descriptor>`, mapped to `docs/design/gen-N/` or `docs/design/gen-N-<slug>/`; never release-like numbers like `3.0`). Once a generation ships, retake `docs/design/current/` from real hardware and delete the superseded `docs/design/gen-N*/` folder so only one visual truth remains. Keep `docs/design/icons/` for the active drawable generator. See `docs/release-naming.md`.
-- Preserve package IDs, signing identities, and the Stable/Canary update paths unless explicitly asked to change them. See `docs/ci.md` and `docs/obtainium.md`.
-- Always use the **1Password MCP server** when working with 1Password developer Environments. If unavailable, report that limitation instead of silently switching to another access method. Never print or commit secrets or upload signing material as an artifact.
+- Muon is a Kotlin / Jetpack Compose / Media3 Android client for Tauon. Keep the architecture small and dependencies minimal; follow existing code before adding abstractions.
+- Tauon's unauthenticated HTTP API is **trusted-LAN-only**. Never expose Tauon publicly, open tunnels, or change the user's firewall/network configuration. This scope covers Tauon only: opt-in, off-by-default outbound lookups to external metadata or lyrics providers (such as synced lyrics, #797) are allowed behind a clear user toggle that discloses what metadata is sent.
+- Hostile-media container pre-parsers and Media3-internal allocation wrappers are out of scope under that model. Add format-specific parser guards only for bugs reproduced on real user files; prefer Media3's public APIs (extractor filtering, track-selection parameters).
+- Preserve package IDs, signing identities and the Stable/Canary update paths unless explicitly asked ([CI](docs/ci.md), [Obtainium](docs/obtainium.md)).
+- Use the **1Password MCP server** for 1Password developer Environments; if it is unavailable, say so rather than switching methods. Never print or commit secrets or upload signing material.
+- Design generations are named `Gen N` / `Gen N - <descriptor>`. `docs/design/current/` holds only real device screenshots; proposals go in `docs/design/gen-N*/`. Rules and the canonical table: [release naming](docs/release-naming.md).
 
-## Default role: implement and hand off
+## Git and GitHub access
 
-1. Confirm the requested scope from the task and inspect the relevant code. Preserve unrelated local changes. Do not expand a small fix into a general refactor or repository-wide audit.
-2. Work on a dedicated branch and its own persistent worktree (see [Worktree management by harness](#worktree-management-by-harness)). Audit fixes normally use `codex/<short-topic>` targeting `main`; experimental changes target `gen-4-progressive-blur`. Follow [the parallel-track protocol](docs/parallel-tracks.md) for destination checks and forward integration. Never reuse another session's checkout. Do not push feature changes directly to `main`.
-3. Add meaningful tests where behavior warrants them, and update relevant documentation. Prefer GitHub Actions for Android builds because the user's desktop is slow at building APKs. Run lightweight checks locally when useful.
-4. Push the branch and use the existing **Android APKs** workflow. For app/build changes it builds both signed variants, runs unit tests and lint, and checks publication safeguards and APK identities. Documentation-only branches run lightweight checks without APKs; report that outcome instead of promising an artifact. Manual workflow dispatch always requests the full build. Same-repository branch pushes trigger it; fork PRs do not currently receive this build. Do not broaden secret access to make an untrusted fork build.
-5. Inspect the run for the **latest PR head commit**. Fix failures within scope, push again, and refresh the build links. If a check is blocked or unavailable, report it accurately; never call an unrun check a pass.
-6. Complete the PR description using `.github/pull_request_template.md`, including model attribution, verification results, a test-build link, and a short manual QA checklist. Give the user the PR and test-build links in the handoff.
-7. **Leave the PR open,** unless the user's standing authorization in [`docs/STATE.md`](docs/STATE.md) covers it. Since 2026-09-27 that lets an agent merge its own blocker-free PR at the CI-verified head, recorded on the PR as a self-review. Forward-sync PRs into `gen-4-progressive-blur` follow the same standing authorization once CI (and any requested QA) passes; always land them with a **regular merge commit** (`--merge`, never squash or rebase) so `main` ancestry is preserved. Never enable auto-merge, publish a Stable release or create release tags without the user's explicit request. Astra reviews or audits when the user asks. Do not automatically start a review task or another agent.
+Prefer the **GitHub CLI (`gh`)** for PRs, issues, checks and API calls, and **HTTPS git with the gh credential helper** over SSH, so no SSH-agent approval prompt appears on the user's desktop:
 
-## Worktree management by harness
+```sh
+git -c credential.helper= -c 'credential.helper=!gh auth git-credential' fetch https://github.com/averylicious/muon.git +refs/heads/main:refs/remotes/origin/main
+git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push https://github.com/averylicious/muon.git HEAD:refs/heads/<branch>
+```
 
-Detect which harness you are running in before creating a worktree, and prefer its native worktree lifecycle over manual sibling checkouts in `~/Projects/`:
+## Workflow: implement and hand off
 
-- **T3 Code** (when T3 Code worktree/orchestration tools such as `t3_worktree_status` are available): check `t3_worktree_status` first. If this thread is already attached to its own worktree, work there. Otherwise use `t3_worktree_handoff` to move this thread into a T3-managed worktree for a single branch/PR, `delegate_task` with `isolation: "worktree"` to isolate separate child PRs, or `t3_thread_launch` with `workspaceStrategy: { type: "worktree" }` when the user explicitly asks for a new top-level thread.
-- **Native CLI / desktop apps** (Codex CLI/desktop, Claude Code CLI/desktop, Antigravity IDE/CLI outside T3 Code): use that harness's built-in worktree support and managed worktree directory (for example `~/.codex/worktrees/<topic>` or Claude Code's native worktree mode) rather than creating sibling directories next to `~/Projects/muon`.
-- **Manual `git worktree` fallback** (only when the current harness has no native worktree mechanism): place the worktree under a dedicated worktrees directory outside another session's checkout — not as loose siblings in `~/Projects/` and not inside a nested ignored directory vulnerable to `git clean -x` — and remove it once its PR merges.
-- **Across every harness:** keep one writer per branch/worktree/session, inspect `git worktree list` before acting, and never switch, clean, reset, stash, remove, or reuse another session's checkout. A clean checkout is not proof its owner is idle.
+1. Confirm scope and inspect the code. Preserve unrelated changes; do not grow a small fix into a refactor.
+2. Work on a dedicated branch in its own worktree. Main fixes use `codex/<topic>` or `claude/<topic>` targeting `main`; experimental work targets `gen-4-progressive-blur`. Follow [parallel tracks](docs/parallel-tracks.md) for destination checks and forward syncs. Never push feature changes directly to `main`.
+3. Add meaningful tests where behaviour warrants them and update relevant docs.
+4. Push and use the **Android APKs** workflow. App/build changes build both signed variants and run unit tests, lint and publication/identity checks. Docs-only branches run lightweight checks with no APK. Manual dispatch always forces a full build. Fork PRs get no signed build; do not broaden secret access for them.
+5. Inspect the run for the **latest PR head**. Fix in-scope failures and push again. Never call an unrun or blocked check a pass.
+6. Fill in [the PR template](.github/pull_request_template.md): attribution, verification, test build, manual QA checklist. Give the user the PR and test-build links.
+7. Merging follows the standing permissions in [`docs/STATE.md`](docs/STATE.md#standing-permissions). Never enable auto-merge, publish Stable or create release tags without the user's explicit request. Do not start review tasks or other agents automatically.
+
+## Worktrees and sessions
+
+- Use the harness's native worktrees: in **T3 Code**, `t3_worktree_status` then `t3_worktree_handoff` or `delegate_task` with `isolation: "worktree"`; in a native CLI/desktop app, its managed directory (e.g. `~/.codex/worktrees/<topic>`). Without either, use `git worktree` in a dedicated directory outside other checkouts (not loose in `~/Projects/`, not in an ignored folder `git clean -x` could remove) and remove it after merge.
+- One writer per branch/worktree/session. Inspect `git worktree list` first. Never switch, clean, reset, stash, remove or reuse another session's checkout; a clean checkout is not proof its owner is idle. The original `~/Projects/muon` checkout belongs to the experiment.
+- Never resume the user's Claude session. A separate audit session is usable only when the user explicitly assigns it and it is idle.
 
 ## Build and verification
 
-- Do not assume a local Android build. Agent environments on the user's desktop may lack the Gradle cache or Android SDK platform, and the desktop is slow at building APKs. The **Android APKs** workflow is normally the first real compile; say so rather than implying code was compiled or run locally.
-- Pinned versions live in the build files (`build.gradle.kts`, `app/build.gradle.kts` and the Compose BOM they name). Read them there; do not copy version numbers into documentation, where they go stale.
-- When unsure of a library API or its behaviour, check it against the pinned version's published sources (for AndroidX, the `-sources.jar` on Google's Maven), not memory or the latest docs. Record in the PR or handoff what was checked and where, and what remains unverified.
-- JVM unit tests cover pure logic. There are no Compose UI tests, and device testing is the user's. Say plainly which behaviour relies on the CI compile, source reading and manual QA.
+- Assume no local Android build: CI is normally the first compile. Say so rather than implying code was compiled or run.
+- Pinned versions live in `build.gradle.kts`, `app/build.gradle.kts` and the Compose BOM they name; do not copy them into docs.
+- Check library APIs against the pinned version's published sources (AndroidX `-sources.jar` on Google's Maven), not memory. Record what was checked and what remains unverified.
+- JVM unit tests cover pure logic; there are no Compose UI tests. Say which behaviour relies on CI compile, source reading and manual QA.
 
 ## Manual QA and test builds
 
-- The user performs phone QA. Do not use ADB, scrcpy, instrumentation on their phone, or change device settings unless the user explicitly asks for device testing in the current task. Historical device-debugging permission is not standing permission.
-- Provide the successful Actions run URL and the `app-debug-<full-commit-SHA>` artifact link/name. Record the commit, Canary version, and workflow run number. The artifact ZIP contains `app-debug.apk`, `SHA256SUMS`, and `BUILD.txt`.
-- This signed debug APK updates **Muon Canary** and preserves its data; it is not a separate per-PR app. Branch artifacts expire after 14 days and do not appear in Obtainium's GitHub Releases feed. The release-variant artifact is also available, but use Canary for routine manual QA.
-- Android prevents ordinary version-code downgrades. When testing several branches, use a fresh workflow run of the desired head if its APK is older than the installed build. Do not uninstall the user's app or change signing to bypass this.
-- Keep manual QA marked **pending user testing** until the user supplies results. Automated checks do not establish playback, visual quality, or real-device behavior. For documentation-only PRs, say that device QA is not needed. When CI selects documentation-only checks, provide the successful run and say no APK was generated. Do not add skip-CI commit markers; the workflow should report its check.
+- The user does phone QA. ADB, scrcpy, instrumentation or device-setting changes need **explicit authorization in the current task**; earlier permission is never standing.
+- Report the Actions run, `app-debug-<full-SHA>` artifact, commit, Canary version and run number. The APK updates **Muon Canary** in place and expires after 14 days; for an older head, rerun its build rather than uninstalling or changing signing.
+- Keep manual QA **pending user testing** until the user reports results. For docs-only PRs, link the successful lightweight run, say no APK was generated and that device QA is not needed. No skip-CI markers.
 
 ## Attribution on every PR
 
-- Identify each contributing agent's actual model and role: implementation, review, or integration. Include the tool/client and effort setting when known. Do not infer an unknown model from its display name; write `not reported` where necessary.
-- Name the reviewer only after a review has occurred. Before that, use `Pending user-requested Astra review`. An author's self-check is not independent review.
-- Keep attribution current when another agent fixes or reviews the PR, including Astra's own PRs. A later Astra review must distinguish its review from its own authorship or fixes.
+Name each contributing agent's actual model, role (implementation, review, integration), tool/client and effort if known; write `not reported` rather than guess. Use `Pending user-requested Astra review` until a review has happened; an author's self-check is not independent review. Keep attribution current when others fix or review.
 
-## Astra review and promotion cycle
+## Review and promotion
 
-When the user requests review, inspect the PR diff and relevant surrounding code, assess behavior and regressions, and check the latest head's CI and the user's QA results. Report specific findings and unresolved limitations. Keep review proportional to the change.
+Review the diff, surrounding code, latest-head CI and the user's QA results, and report specific findings; say what needs retesting if fixes change behaviour. After a `main` merge, verify the Canary prerelease and give its link. Stable tags need an explicit request. While the repository is public, releases and Actions logs are public.
 
-Review alone does not authorize merging. When the user requests review **and merge**, resolve blocking findings, ensure required checks pass on the final head, and merge that reviewed commit. If fixes change behavior after manual QA, identify what needs retesting. Update the PR's attribution and validation evidence.
+## Continuing work
 
-A successful APK-producing `main` build automatically publishes a Canary prerelease with the repository's current visibility. Verify that publication and provide its link; report build/publication failures without claiming an update is ready. Stable `vMAJOR.MINOR.PATCH` tags require an explicit stable-release request. Do not create per-PR prereleases under the existing Canary feed. While the repository is public, releases and Actions history/logs are public; a prerelease label does not provide access control. Do not upload signing material, credentials or private recovery data.
+- Loop: implement → verify → fix → record durable evidence → next authorized task. A merged PR, green CI or saved checkpoint does not by itself end the turn; there is no one-slice-per-turn cap.
+- Stop with a complete handoff when authorized work is done and only acceptance remains, a genuine blocker stops all useful work, remaining capacity is only enough for validation and handoff, or the user asks.
+- Check actual usage at meaningful boundaries; a missing reading is unavailable, not zero. Reloading a long session's history can cost more than the task itself.
+- Keep unanswered user questions in the current checkpoint (decision needed, why, what it blocks) and list them again at every final handoff. A missed notification or elapsed time is never approval.
 
-See `docs/agent-workflow.md` for starter prompts and the human handoff sequence.
+## Portable issue state
 
-## Resuming or coordinating across agents
-
-- For the main-branch audit authorized on 2026-09-27, start with [current issue state](docs/audits/issues/README.md) and the [release gate list](docs/release-plan.md); use the [audit map and reports](docs/audits/README.md) for targeted supporting evidence. Astra may review/fix any component while Claude and the user experiment off main. Workstreams organize resumable evidence, not rigid frontend/backend restrictions. Follow [the parallel-track protocol](docs/parallel-tracks.md) and preserve each branch's release behavior; apply the standing merge authorization above.
-
-- A user-selected successor Astra may take over backend work and coordination. Read [the coordinator runbook](docs/coordinator-handoff.md) and its linked latest checkpoint before broad exploration; verify live PR heads, checks, ownership and user authorization. A checkpoint records evidence, not new permission to merge or access devices.
-- Keep one writer per branch/worktree/session. Astra audits main; the user and their Claude session own the experiment. The same file may change independently on both tracks, with reconciliation in a separate integration PR. Do not resume the user's Claude session; an explicitly allocated, idle audit session is separate. Routine work does not require a live agent-to-agent handshake. CI-verified forward-sync PRs may be landed directly via a regular merge commit (retaining `main` ancestry) once clear of blockers and any requested QA.
-- Continue authorized actionable engineering across successive reviewable commits/PRs while capacity permits. Save durable commit/PR/check/QA evidence at each verified boundary, then proceed to the next useful task without requiring another user prompt. A completed PR, passing CI or saved checkpoint alone does not end the turn. Follow [continuous engineering](docs/continuous-engineering.md) for stopping conditions and quota reserves.
-- Put portable state in repository documents and PR/issue comments. Local chat history, temporary files, tool memories and local session IDs are optional conveniences, never prerequisites for another contributor. Follow the existing attribution, secret-access and fork-build boundaries.
-
-- Coordinator rotation is reciprocal: a returning Astra follows the same live-state takeover checks as a new contributor. Before yielding, update the runbook checkpoint with active/idle ownership, exact commits, outstanding checks and the next bounded slice; never rely on the previous chat alone.
-
-## Concise portable issue state
-
-- Keep one maintained Markdown current-state file per active issue under `docs/audits/issues/`, linked from a short existing GitHub issue/PR body. Edit current state in place; do not append every session summary to the same file or duplicate trackers. Follow [the reporting contract](docs/audits/issues/README.md).
-- Reserve GitHub comments for decisions/questions, blockers, actionable review feedback, material verification or merge/release results. Routine polling, quota updates and repeated checkpoints do not need comments. Preserve historical user decisions and evidence.
-- Resume from the issue-state index, relevant file and latest checkpoint, then verify live heads/checks. Open individual historical records only when needed; do not load an entire issue timeline or the full historical STATE/runbook by default. Record exact heads and CI/device/UAT distinctions, with no private dumps or secrets.
+- Resume from [the issue-state index](docs/issues/README.md), the relevant issue file and [STATE.md](docs/STATE.md), then verify live heads and checks; GitHub is the truth. Do not load whole issue timelines.
+- Keep one maintained Markdown file per active issue under `docs/issues/`, edited in place and linked from a short issue/PR body. Comment on GitHub only for decisions, blockers, actionable review, material verification or merge/release changes. Preserve historical user decisions.
+- Chat history and local session IDs are conveniences, never prerequisites. Starter prompts: [agent workflow](docs/agent-workflow.md).

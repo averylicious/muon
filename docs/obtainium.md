@@ -9,21 +9,9 @@ Muon publishes two independent apps from the same repository:
 
 Canary updates the original debug installation without uninstalling or losing settings. Stable updates previous “Muon Release” installations. Both keep their original certificates. They can coexist, but their server settings and app data are separate. Canary is built from the debug build type but is not debuggable, so it performs like stable (#125); stable is also minified. Canary's launcher label is "Muon β" (#29); release titles and APK names still say Muon Canary, so the filter below is unchanged.
 
-## 1. Give Obtainium read access when private
+## 1. Access token (only if the repository goes private)
 
-While Muon is public, its published release assets do not require a token just to access them. Existing channel/package/signing filters below are unchanged. The steps in this section apply when the repository is private again; do not create a broader token because its visibility changed. Actions artifact downloads still require a GitHub login with read access and are not the Obtainium Releases feed.
-
-For a private repository, edit or create a GitHub **fine-grained personal access token**:
-
-1. Resource owner: **averylicious**.
-2. Repository access: **Only select repositories → muon**.
-3. Repository permissions: **Contents → Read-only**. Keep the automatically required **Metadata → Read-only**.
-4. Remove **Variables** if selected. Actions, secrets, administration, workflow and write permissions are not needed.
-5. Save/update the token. If you created a new token, copy it into Obtainium's GitHub source settings. If you edited the existing token's permissions, its value is unchanged.
-
-Use the token in Obtainium's token field, never in the repository URL or an exported app configuration. It grants read access to this private repository, including source code, not just APKs. Leave any GitHub proxy prefix blank so Obtainium talks directly to GitHub. Keep your PAT out of Muon itself; GitHub Actions publishes with its own temporary token.
-
-[GitHub's release-asset permission requirements](https://docs.github.com/en/rest/releases/assets#get-a-release-asset).
+Muon is public, so Obtainium needs no token to read its releases. If the repository is ever switched back to private, give Obtainium a GitHub **fine-grained personal access token** for owner **averylicious**, scoped to **Only select repositories → muon** with **Contents → Read-only** (plus the automatic **Metadata → Read-only**) and nothing else. Put it in Obtainium's GitHub token field, never in the repository URL, an exported app configuration or Muon itself, and leave any GitHub proxy prefix blank. It can read the source too, not just APKs. CI never uses it. See [GitHub's release-asset permissions](https://docs.github.com/en/rest/releases/assets#get-a-release-asset). Actions artifacts are not the Obtainium feed and always need a GitHub login.
 
 ## 2. Add Canary
 
@@ -93,4 +81,4 @@ For maintainers, after validating the desired commit on `main`, publish a new st
 
 ## Verification status
 
-The setup follows [Obtainium's source/filter documentation](https://wiki.obtainium.imranr.dev/sources/) and its manual Add App behavior. CI verifies package IDs, labels, version codes and certificate fingerprints before publication. An actual private download and subsequent update on the user's Obtainium installation remain a device acceptance test; publication success alone does not prove those phone steps.
+The setup follows [Obtainium's source/filter documentation](https://wiki.obtainium.imranr.dev/sources/) and its manual Add App behavior. CI verifies package IDs, labels, version codes and certificate fingerprints before publication. An actual download and subsequent update on the user's Obtainium installation remain a device acceptance test; publication success alone does not prove those phone steps.

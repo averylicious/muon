@@ -10,10 +10,10 @@ Updated 2026-11-12. All checks below are pending. The user is using their phones
 
 | Scope | Verified build | Artifact and receipt |
 | --- | --- | --- |
-| Experimental resume, Previous and predictive Back | `b36b4b7ac293d3b5952b8fd5ffef997755630c80`, .1691 | [Canary .1691](https://github.com/averylicious/muon/actions/runs/43182415510/artifacts/13926634216) · [RC2 and later evidence](2026-11-10-m3e-rc2.md) |
-| Main audit candidate, including #770 artwork | `d9db04bf0c7a2ffc96ea401fa03317a89a4341d3`, .1694 | [Canary .1694](https://github.com/averylicious/muon/actions/runs/43193754370/artifacts/13933235719) · [40-topic receipt](2026-10-25-combined-post-rc-candidate.md) |
+| Experimental resume, Previous and predictive Back | `b36b4b7ac293d3b5952b8fd5ffef997755630c80`, .1691 | [Canary .1691](https://github.com/averylicious/muon/actions/runs/43182415510/artifacts/13926634216) · [RC2 and later evidence](archive/handoffs/2026-11-10-m3e-rc2.md) |
+| Main audit candidate, including #770 artwork | `d9db04bf0c7a2ffc96ea401fa03317a89a4341d3`, .1694 | [Canary .1694](https://github.com/averylicious/muon/actions/runs/43193754370/artifacts/13933235719) · [40-topic receipt](archive/handoffs/2026-10-25-combined-post-rc-candidate.md) |
 
-The experimental .1691 build includes RC2's player changes. Use the [original .1685 receipt](2026-11-10-m3e-rc2.md) if the session is specifically accepting RC2's exact release package.
+The experimental .1691 build includes RC2's player changes. Use the [original .1685 receipt](archive/handoffs/2026-11-10-m3e-rc2.md) if the session is specifically accepting RC2's exact release package.
 
 ## Experimental first pass
 
@@ -39,4 +39,4 @@ The experimental .1691 build includes RC2's player changes. Use the [original .1
 | Lyrics on reused IDs | Move between queued items with the same live ID and different title, artist or album. Try an identical duplicate and a saved copy. | Changed labels refresh the lyrics view. The identical duplicate preserves its view state. Saved-copy lyrics use the existing offline placeholder. |
 | Saved copies and Settings | Use disposable copies. Change the default destination while the Move count is pending, leave and return, then inspect a normal Move/Delete and recovery with the separately authorized storage fixture. | Stale offers are suppressed. Failures and empty shelves are distinguishable. Preserved copies retain their bytes and can still play. |
 
-Start with read-only observations and ordinary UI actions. Storage interruption, card eject, reset, lockscreen, headset and visual or listening judgments require their own agreed scope. Keep intermittent buffering capture and Baseline Profile recording in their existing follow-ups. [Buffering #671](../audits/issues/671.md) · [Baseline Profile #83](../audits/issues/83.md).
+Start with read-only observations and ordinary UI actions. Storage interruption, card eject, reset, lockscreen, headset and visual or listening judgments require their own agreed scope. Keep intermittent buffering capture and Baseline Profile recording in their existing follow-ups. [Buffering #671](issues/671.md) · [Baseline Profile #83](issues/83.md).

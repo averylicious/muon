@@ -34,7 +34,7 @@ internal class DownloadMoveOwnership {
  *
  * This orders commands that reach Muon's services and senders. It is not a lock on SimpleCache, on
  * Media3's internal handler or downloader threads, or on work Media3 starts by itself, and it is not a
- * transaction: see docs/handoffs/2026-10-08-move-command-admission.md for what it covers.
+ * transaction: see docs/archive/handoffs/2026-10-08-move-command-admission.md for what it covers.
  */
 internal class MoveExclusion {
     private var holder = false
