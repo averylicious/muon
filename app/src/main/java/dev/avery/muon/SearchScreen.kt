@@ -2,6 +2,7 @@ package dev.avery.muon
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,13 +15,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.blur.BlurRadiusSpec
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** Results plus enough state to tell "nothing typed" from "still searching" from "no matches". */
@@ -54,9 +59,25 @@ internal fun SearchScreen(query: String, onQuery: (String) -> Unit, expanded: Bo
     // A recent search runs again: its words go back in the field, which opens with them.
     val again = { text: String -> onQuery(text); onExpanded(true) }
     val inset by animateDpAsState(if (expanded) 0.dp else 16.dp, motionSpatialFull(), label = "search bar inset")
+    // Glass or see-through bars let the browse page scroll on under the pill (the Gen 4 mockup); a
+    // solid one keeps the page below it, as before.
+    val look = glassLook(LocalBarSurface.current, backdropOnThisPhone)
+    val under = look != GlassLook.Solid
+    val colors = MaterialTheme.colorScheme
     Box(Modifier.fillMaxSize()) {
         if (!expanded) SearchBrowse(topArtists, newAlbums, endpoint, toArtist, toAlbum,
-            Modifier.fillMaxSize().padding(top = SEARCH_BAR_ROOM), recent, again, clearRecent)
+            Modifier.fillMaxSize().padding(top = if (under) 0.dp else SEARCH_BAR_ROOM), recent, again, clearRecent,
+            top = if (under) SEARCH_BAR_ROOM else 0.dp)
+        // Behind the collapsed pill: on 37.2 a blur that fades out downwards, so rows dissolve into the
+        // top instead of meeting an edge; when Tinted, a band of the page's own colour.
+        if (under && !expanded) Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(SEARCH_BAR_ROOM + SEARCH_EDGE_FADE)
+            .backdropBlur(BlurRadiusSpec.verticalGradient(SEARCH_EDGE_BLUR, 0.dp), RectangleShape, enabled = look == GlassLook.Glass)
+            .background(if (look == GlassLook.Glass) Brush.verticalGradient(0f to colors.background.copy(alpha = 0.8f),
+                0.6f to colors.background.copy(alpha = 0.6f), 1f to Color.Transparent)
+                else Brush.verticalGradient(0f to colors.background.copy(alpha = TINTED_TINT),
+                    SEARCH_BAR_ROOM / (SEARCH_BAR_ROOM + SEARCH_EDGE_FADE) to colors.background.copy(alpha = TINTED_TINT),
+                    1f to Color.Transparent)))
+        val pill = SearchBarDefaults.colors().containerColor
         SearchBar(
             inputField = {
                 SearchBarDefaults.InputField(query = query, onQueryChange = onQuery,
@@ -73,9 +94,17 @@ internal fun SearchScreen(query: String, onQuery: (String) -> Unit, expanded: Bo
                     })
             },
             expanded = expanded, onExpandedChange = onExpanded,
+            // Opened, the bar is the whole page, so only the collapsed pill is see-through.
+            colors = SearchBarDefaults.colors(containerColor = if (expanded) pill else pill.copy(alpha = when (look) {
+                GlassLook.Glass -> SEARCH_PILL_GLASS_TINT
+                GlassLook.Tinted -> TINTED_TINT
+                GlassLook.Solid -> 1f
+            })),
             // The tab already sits inside the app's insets.
             windowInsets = WindowInsets(0),
-            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = inset),
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = inset)
+                .backdropBlur(BlurRadiusSpec.uniform(SEARCH_PILL_BLUR), SearchBarDefaults.inputFieldShape,
+                    enabled = look == GlassLook.Glass && !expanded),
         ) {
             // Reserved either way, so starting a search does not shift the results under the finger.
             Box(Modifier.fillMaxWidth().height(2.dp)) {
@@ -89,6 +118,12 @@ internal fun SearchScreen(query: String, onQuery: (String) -> Unit, expanded: Bo
 
 /** Room the collapsed bar takes at the top: its height and the space around it. */
 private val SEARCH_BAR_ROOM = 80.dp
+
+/** Below that room, how far the soft edge reaches before the page shows sharp, and its blur at the top. */
+private val SEARCH_EDGE_FADE = 24.dp
+private val SEARCH_EDGE_BLUR = 16.dp
+private val SEARCH_PILL_BLUR = 20.dp
+private const val SEARCH_PILL_GLASS_TINT = 0.62f
 
 /** Artists as round avatars in a row that scrolls sideways, each opening its page. */
 @Composable
@@ -111,14 +146,14 @@ private fun ArtistAvatarRow(artists: List<LibraryArtist>, endpoint: ServerEndpoi
 @Composable
 private fun SearchBrowse(artists: List<LibraryArtist>, albums: List<LibraryAlbum>, endpoint: ServerEndpoint?,
     openArtist: (LibraryArtist) -> Unit, openAlbum: (LibraryAlbum) -> Unit, modifier: Modifier,
-    recent: List<String>, again: (String) -> Unit, clearRecent: () -> Unit) {
+    recent: List<String>, again: (String) -> Unit, clearRecent: () -> Unit, top: Dp = 0.dp) {
     if (artists.isEmpty() && albums.isEmpty() && recent.isEmpty()) {
         Box(modifier.padding(bottom = LocalUnderBars.current).padding(32.dp), contentAlignment = Alignment.Center) {
             Text("Your collection, one search away.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
-    LazyColumn(modifier, contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current)) {
+    LazyColumn(modifier, contentPadding = PaddingValues(top = top, bottom = 16.dp + LocalUnderBars.current)) {
         if (recent.isNotEmpty()) item(key = "recent", contentType = "recent") { RecentSearchChips(recent, again, clearRecent) }
         if (artists.isNotEmpty()) {
             item(key = "artists-label", contentType = "label") { SectionHeading("Artists") }
