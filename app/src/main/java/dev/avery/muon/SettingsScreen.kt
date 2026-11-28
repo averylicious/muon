@@ -200,38 +200,9 @@ private fun StorageGroup(openSaved: () -> Unit, clear: () -> Unit) {
             // With Expressive motion, the same still wavy meter as On this device's storage card.
             below = if (Expressive.motion) ({ CacheMeter(used, limit) }) else null)
         // The limit is chosen right here, from four sizes side by side, rather than in a dialog.
-        Surface(shape = if (Expressive.motion) ListItemDefaults.segmentedShapes(2, rows).shape else rowShape(2, rows), color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)) {
-                Text("Cache limit", style = MaterialTheme.typography.bodyLarge,
-                    color = if (full) colors.primary else colors.onSurface)
-                Text("How much recent listening to keep", style = MaterialTheme.typography.bodyMedium,
-                    color = colors.onSurfaceVariant)
-                // The Canary experiment: Material 3 Expressive replaces segmented buttons with the
-                // connected button group, whose chosen button rounds fully.
-                if (Expressive.motion) Row(Modifier.fillMaxWidth().padding(top = 12.dp).selectableGroup(),
-                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-                    CACHE_LIMITS.forEachIndexed { index, option ->
-                        ToggleButton(checked = option == limit, onCheckedChange = { OfflineStore.setCacheLimit(context, option) },
-                            shapes = when (index) {
-                                0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                CACHE_LIMITS.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                                else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp),
-                            modifier = Modifier.weight(1f).semantics { role = Role.RadioButton }) {
-                            Text(formatBytes(option), maxLines = 1, softWrap = false)
-                        }
-                    }
-                } else SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                    CACHE_LIMITS.forEachIndexed { index, option ->
-                        SegmentedButton(selected = option == limit, onClick = { OfflineStore.setCacheLimit(context, option) },
-                            shape = SegmentedButtonDefaults.itemShape(index, CACHE_LIMITS.size), icon = {}) {
-                            Text(formatBytes(option), maxLines = 1, softWrap = false)
-                        }
-                    }
-                }
-            }
-        }
+        ChoiceRow(index = 2, count = rows, headline = "Cache limit", supporting = "How much recent listening to keep",
+            headlineColor = if (full) colors.primary else colors.onSurface,
+            options = CACHE_LIMITS, chosen = limit, label = ::formatBytes) { OfflineStore.setCacheLimit(context, it) }
         SettingsRow(index = 3, count = rows, headline = "Download quality", supporting = "Opus, 84 kbps · set by Tauon for now",
             leading = rowIcon("download"))
         if (card != null) {
@@ -512,6 +483,47 @@ private fun ExpressiveSettingsRow(index: Int, count: Int, enabled: Boolean,
     }
 }
 
+/**
+ * A group row whose [options] sit side by side under its text and are chosen in place. With
+ * [Expressive.motion], Material 3 Expressive's connected button group, whose chosen button rounds
+ * fully; otherwise segmented buttons.
+ */
+@Composable
+private fun <T> ChoiceRow(index: Int, count: Int, headline: String, supporting: String, options: List<T>, chosen: T,
+    label: (T) -> String, headlineColor: Color = MaterialTheme.colorScheme.onSurface,
+    enabled: (T) -> Boolean = { true }, choose: (T) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(shape = if (Expressive.motion) ListItemDefaults.segmentedShapes(index, count).shape else rowShape(index, count),
+        color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)) {
+            Text(headline, style = MaterialTheme.typography.bodyLarge, color = headlineColor)
+            Text(supporting, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            if (Expressive.motion) Row(Modifier.fillMaxWidth().padding(top = 12.dp).selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+                options.forEachIndexed { i, option ->
+                    ToggleButton(checked = option == chosen, onCheckedChange = { choose(option) }, enabled = enabled(option),
+                        shapes = when (i) {
+                            0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                            options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                            else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        modifier = Modifier.weight(1f).semantics { role = Role.RadioButton }) {
+                        Text(label(option), maxLines = 1, softWrap = false)
+                    }
+                }
+            } else SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                options.forEachIndexed { i, option ->
+                    SegmentedButton(selected = option == chosen, onClick = { choose(option) }, enabled = enabled(option),
+                        shape = SegmentedButtonDefaults.itemShape(i, options.size), icon = {}) {
+                        Text(label(option), maxLines = 1, softWrap = false)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ConnectedBadge(offline: Boolean = false) {
     // Offline is not an error: the downloads still play. It is set apart by a quieter colour.
@@ -555,24 +567,33 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
     val dynamicAvailable = dynamicColorAvailable(Build.VERSION.SDK_INT)
     // Show what will actually render: a device without dynamic colour cannot honour Material You.
     val shown = effectivePalette(appearance.palette, dynamicAvailable)
+    val frostAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val rows = PaletteChoice.entries.size + 2
     SettingsGroup {
         PaletteChoice.entries.forEachIndexed { index, choice ->
             val enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable
-            SettingsRow(index = index, count = PaletteChoice.entries.size + 1,
+            SettingsRow(index = index, count = rows,
                 headline = paletteLabel(choice), supporting = paletteDescription(choice), enabled = enabled,
                 leading = rowIcon(if (choice == PaletteChoice.MaterialYou) "palette" else "music"),
                 // A radio mark, not a tint, so the choice is readable without relying on colour.
                 trailing = { RadioButton(selected = shown == choice, onClick = null, enabled = enabled) },
                 selected = shown == choice, onClick = { appearance.choose(choice) })
         }
-        SettingsRow(index = PaletteChoice.entries.size, count = PaletteChoice.entries.size + 1,
+        SettingsRow(index = PaletteChoice.entries.size, count = rows,
             headline = "Pure black", supporting = "Black backgrounds in dark mode", leading = rowIcon("contrast"),
             trailing = { Switch(checked = appearance.amoled, onCheckedChange = null) },
             toggled = appearance.amoled, onToggle = {
                 appearance.chooseAmoled(it)
             })
+        ChoiceRow(index = rows - 1, count = rows, headline = "Bar surface",
+            supporting = "Frosted blurs what's behind and uses the most power. Tinted and Solid don't blur at all.",
+            options = BarSurface.entries, chosen = effectiveBarSurface(appearance.barSurface, Build.VERSION.SDK_INT),
+            label = ::barSurfaceLabel, enabled = { it != BarSurface.Frosted || frostAvailable }) { appearance.chooseBarSurface(it) }
     }
     if (!dynamicAvailable) Text("Material You needs Android 12 or newer, so this device uses the Muon palette.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp))
+    if (!frostAvailable) Text("Frosted bars need Android 12 or newer.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp))
 }

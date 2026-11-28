@@ -44,4 +44,28 @@ class AppearanceTest {
             assertEquals(true, paletteDescription(choice).isNotBlank())
         }
     }
+
+    @Test fun barSurfaceWithNothingStoredFollowsTheOldBlurSwitch() {
+        assertEquals(BarSurface.Frosted, barSurfaceFrom(null, legacyBlur = true))
+        assertEquals(BarSurface.Solid, barSurfaceFrom(null, legacyBlur = false))
+        assertEquals(BarSurface.Frosted, barSurfaceFrom("frosted", legacyBlur = true))
+    }
+
+    @Test fun storedBarSurfaceWinsOverTheOldBlurSwitch() {
+        for (choice in BarSurface.entries) {
+            assertEquals(choice, barSurfaceFrom(choice.name, legacyBlur = true))
+            assertEquals(choice, barSurfaceFrom(choice.name, legacyBlur = false))
+        }
+    }
+
+    @Test fun frostedBarsFallBackToSolidBeforeAndroid12() {
+        assertEquals(BarSurface.Solid, effectiveBarSurface(BarSurface.Frosted, 30))
+        assertEquals(BarSurface.Frosted, effectiveBarSurface(BarSurface.Frosted, 31))
+        assertEquals(BarSurface.Tinted, effectiveBarSurface(BarSurface.Tinted, 28))
+        assertEquals(BarSurface.Solid, effectiveBarSurface(BarSurface.Solid, 28))
+    }
+
+    @Test fun everyBarSurfaceHasALabel() {
+        for (choice in BarSurface.entries) assertEquals(true, barSurfaceLabel(choice).isNotBlank())
+    }
 }

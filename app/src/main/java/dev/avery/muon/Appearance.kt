@@ -43,6 +43,23 @@ internal fun paletteDescription(choice: PaletteChoice): String = when (choice) {
     PaletteChoice.Muon -> "The app's own green palette."
 }
 
+/** What the navigation bar and mini player are made of. The content scrolls on under Frosted and Tinted. */
+enum class BarSurface { Frosted, Tinted, Solid }
+
+/** Before Bar surface existed, the Blur switch decided whether the bars were frosted or solid. */
+internal fun barSurfaceFrom(stored: String?, legacyBlur: Boolean): BarSurface =
+    BarSurface.entries.firstOrNull { it.name == stored } ?: if (legacyBlur) BarSurface.Frosted else BarSurface.Solid
+
+/** Frost needs `RenderEffect`, from Android 12; older phones keep the solid bars they always had. */
+internal fun effectiveBarSurface(choice: BarSurface, sdkInt: Int): BarSurface =
+    if (choice == BarSurface.Frosted && sdkInt < Build.VERSION_CODES.S) BarSurface.Solid else choice
+
+internal fun barSurfaceLabel(choice: BarSurface): String = when (choice) {
+    BarSurface.Frosted -> "Frosted"
+    BarSurface.Tinted -> "Tinted"
+    BarSurface.Solid -> "Solid"
+}
+
 /**
  * The Material 3 Expressive experiment's two switches (Canary only; see docs/expressive-experiment.md).
  * Held here rather than in [AppearanceSettings] because the motion specs in Motion.kt are built
@@ -65,10 +82,20 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         private set
     var amoled by mutableStateOf(prefs.getBoolean(KEY_AMOLED, false))
         private set
+    var barSurface by mutableStateOf(barSurfaceFrom(prefs.getString(KEY_BAR_SURFACE, null), prefs.getBoolean(KEY_EXPRESSIVE_BLUR, true)))
+        private set
 
     init {
         Expressive.motion = prefs.getBoolean(KEY_EXPRESSIVE_MOTION, true)
         Expressive.blur = prefs.getBoolean(KEY_EXPRESSIVE_BLUR, true)
+        // Written once, so a later Blur switch flip cannot change the bars of someone who never chose.
+        if (!prefs.contains(KEY_BAR_SURFACE)) prefs.edit().putString(KEY_BAR_SURFACE, barSurface.name).apply()
+    }
+
+    fun chooseBarSurface(choice: BarSurface) {
+        if (choice == barSurface) return
+        barSurface = choice
+        prefs.edit().putString(KEY_BAR_SURFACE, choice.name).apply()
     }
 
     fun choose(choice: PaletteChoice) {
@@ -98,6 +125,7 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         const val KEY_AMOLED = "amoled"
         const val KEY_EXPRESSIVE_MOTION = "expressive_motion"
         const val KEY_EXPRESSIVE_BLUR = "expressive_blur"
+        const val KEY_BAR_SURFACE = "bar_surface"
     }
 }
 
