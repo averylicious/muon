@@ -1,5 +1,19 @@
 package dev.avery.muon
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.blur.BlurRadiusSpec
+import androidx.compose.ui.graphics.blur.BlurStop
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -47,10 +61,23 @@ import kotlinx.coroutines.launch
  * is emptied — pausing and reaching the end both keep the current track — so there is no empty
  * state here.
  */
+/** What Now Playing shows under its bar in portrait (Gen 4): the cover, or the lyrics or queue as views of the player. */
+enum class PlayerView { Cover, Lyrics, Queue }
+
+/** Room at each end of a view's body for its soft edge, so its first and last lines start clear of it. */
+internal val PLAYER_VIEW_EDGE: Dp = 24.dp
+
+/**
+ * [lyrics] and [queue] open those screens over the player, which only landscape still does; in
+ * portrait they are the player's own [view], switched by [setView] and drawn by [lyricsBody] and
+ * [queueBody].
+ */
 @Composable
 internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: () -> Int,
     player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, queue: () -> Unit,
-    morph: PlayerMorph? = null, lyricsAvailable: Boolean = false, more: (() -> Unit)? = null, lyrics: () -> Unit) {
+    morph: PlayerMorph? = null, lyricsAvailable: Boolean = false, more: (() -> Unit)? = null,
+    view: PlayerView = PlayerView.Cover, setView: (PlayerView) -> Unit = {},
+    lyricsBody: @Composable () -> Unit = {}, queueBody: @Composable () -> Unit = {}, lyrics: () -> Unit) {
     // The song's panel from a ⋮ at the bar's end, as every song row has (the Refined mockup).
     val menu: (@Composable RowScope.() -> Unit)? = if (more != null) ({
         IconButton(onClick = more, modifier = Modifier.semantics { contentDescription = "More options for this song" }) {
@@ -92,8 +119,21 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                             menu?.invoke(this)
                         }) { away() }
                         PlayerTitles(p)
-                        PlayerControls(p, position, player, narrow, queue, lyrics, actions = false, lyricsAvailable = lyricsAvailable)
+                        PlayerControls(p, position, player, narrow)
                     }
+                }
+            }
+        } else if (view != PlayerView.Cover) {
+            val narrow = maxWidth < 360.dp
+            // The body runs edge to edge so the queue's rows keep their own insets; the rest keeps the player's.
+            Column(Modifier.fillMaxSize().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.padding(horizontal = 16.dp)) { PlayerBar(dismiss, dragHeight, collapse, actions = menu) { away() } }
+                SongRow(p, Modifier.padding(horizontal = 16.dp))
+                Box(Modifier.weight(1f).fillMaxWidth().softEdges()) {
+                    if (view == PlayerView.Lyrics) lyricsBody() else queueBody()
+                }
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PlayerControls(p, position, player, narrow, volume = false) { ViewCapsule(view, setView, lyricsAvailable) }
                 }
             }
         } else {
@@ -115,7 +155,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
                         .then(morph?.coverModifier() ?: Modifier))
                 }
                 PlayerTitles(p)
-                PlayerControls(p, position, player, narrow, queue, lyrics, lyricsAvailable = lyricsAvailable)
+                PlayerControls(p, position, player, narrow) { ViewCapsule(view, setView, lyricsAvailable) }
             }
         }
     }
@@ -165,10 +205,10 @@ private fun PlayerTitles(p: PlaybackUi) {
     }
 }
 
-/** Everything under the titles: seek, transport, volume, then Lyrics and Queue unless [actions] is false. */
+/** Everything under the titles: seek, transport, volume unless [volume] is false, then [bottom]. */
 @Composable
 private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, player: MediaController?,
-    narrow: Boolean, queue: () -> Unit, lyrics: () -> Unit, actions: Boolean = true, lyricsAvailable: Boolean = false) {
+    narrow: Boolean, volume: Boolean = true, bottom: @Composable () -> Unit = {}) {
     val item = p.item ?: return
     if (p.error != null) ErrorCard(p.error, "Retry stream", modifier = Modifier) { player?.prepare(); player?.play() }
     // Buffering shows in the seek bar's own place (SeekControls), not as a bar above it: inserting one
@@ -179,29 +219,73 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
         ShuffleControl(p, player)
         RepeatControl(p, player)
     }
-    VolumeRow()
-    // Wrapping preserves readable labels at large font/display sizes. Lyrics sits at the start
-    // and Queue at the end, as in the mockup; on a narrow width they wrap rather than clip.
-    if (actions) FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        // When Tauon has lyrics for the song, the button says so before it is opened (issue #661): a
-        // tonal pill rather than plain text. Synced or not, as most of the user's lyrics are plain.
-        if (lyricsAvailable) FilledTonalButton(onClick = lyrics,
-            modifier = Modifier.semantics { stateDescription = "Lyrics available" }) {
-            MuonIcon("lyrics", Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Lyrics")
-        } else TextButton(onClick = lyrics) {
-            MuonIcon("lyrics", Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Lyrics")
-        }
-        TextButton(onClick = queue) {
-            MuonIcon("queue", Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Queue")
+    if (volume) VolumeRow()
+    bottom()
+}
+
+/** The song in one line under the bar, while a view has the cover's place. */
+@Composable
+private fun SongRow(p: PlaybackUi, modifier: Modifier) {
+    val item = p.item ?: return
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Artwork(item.mediaMetadata.artworkUri?.toString(), Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)))
+        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Text(item.mediaMetadata.title?.toString().orEmpty(), style = MaterialTheme.typography.titleMedium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.mediaMetadata.artist?.toString().orEmpty(), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
+
+/**
+ * Lyrics and Up next, side by side in one capsule; the chosen one sits on a tonal pill, and choosing
+ * it again goes back to the cover. Lyrics says when Tauon has some for the song before it is opened
+ * (issue #661).
+ */
+@Composable
+private fun ViewCapsule(view: PlayerView, setView: (PlayerView) -> Unit, lyricsAvailable: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().clip(CircleShape).background(colors.surfaceContainerHigh.copy(alpha = 0.7f))
+        .padding(5.dp).selectableGroup()) {
+        ViewButton("lyrics", "Lyrics", view == PlayerView.Lyrics, if (lyricsAvailable) "Lyrics available" else null) {
+            setView(if (view == PlayerView.Lyrics) PlayerView.Cover else PlayerView.Lyrics)
+        }
+        ViewButton("queue", "Up next", view == PlayerView.Queue, null) {
+            setView(if (view == PlayerView.Queue) PlayerView.Cover else PlayerView.Queue)
+        }
+    }
+}
+
+@Composable
+private fun RowScope.ViewButton(icon: String, label: String, chosen: Boolean, state: String?, choose: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val ground by animateColorAsState(if (chosen) colors.secondaryContainer else Color.Transparent, motionMedium(), label = "view")
+    Row(Modifier.weight(1f).heightIn(min = 44.dp).clip(CircleShape).background(ground)
+        .selectable(selected = chosen, role = Role.Tab, onClick = choose)
+        .semantics { if (state != null) stateDescription = state },
+        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        MuonIcon(icon, Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, color = if (chosen) colors.onSecondaryContainer else colors.onSurface)
+    }
+}
+
+/**
+ * The ends of a view's body soften instead of meeting the song row and the controls at an edge: the
+ * content fades out over [PLAYER_VIEW_EDGE] and, with the Blur switch on, also blurs there (Compose
+ * 1.13's progressive blur on its own content, Android 13 and newer).
+ */
+private fun Modifier.softEdges(): Modifier = this
+    .then(if (Expressive.blur) Modifier.blur(BlurRadiusSpec.verticalGradient(listOf(BlurStop(0f, 8.dp), BlurStop(0.08f, 0.dp),
+        BlurStop(0.92f, 0.dp), BlurStop(1f, 8.dp)))) else Modifier)
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val edge = PLAYER_VIEW_EDGE.toPx() / size.height.coerceAtLeast(1f)
+        drawRect(Brush.verticalGradient(0f to Color.Transparent, edge to Color.Black, 1f - edge to Color.Black, 1f to Color.Transparent),
+            blendMode = BlendMode.DstIn)
+    }
 
 /**
  * Volume lives in the player now rather than behind a dialog. The slider keeps its floating

@@ -74,7 +74,8 @@ private fun queueSnapshot(player: Player, revision: Int): QueueSnapshot {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding: Boolean, back: () -> Unit) {
+internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding: Boolean, embedded: Boolean = false,
+    back: () -> Unit) {
     val rev = revision()
     val snapshot = remember(player, rev) { player?.let { queueSnapshot(it, rev) } ?: QueueSnapshot(null, emptyList()) }
     val snackbar = remember { SnackbarHostState() }
@@ -199,11 +200,13 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
     }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = colors.background,
+        modifier = Modifier.fillMaxSize().then(if (embedded) Modifier else Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)),
+        // Embedded in Now Playing (its Up next view), the player's own ground and header stand in.
+        containerColor = if (embedded) Color.Transparent else colors.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) { data -> Snackbar(notices.observeAction(data)) } },
         topBar = {
+            if (embedded) return@Scaffold
             val backButton: @Composable () -> Unit = {
                 IconButton(onClick = back, modifier = Modifier.semantics { contentDescription = "Back to Now Playing" }) {
                     MuonIcon("back")
@@ -222,9 +225,10 @@ internal fun QueueScreen(player: MediaController?, revision: () -> Int, sounding
             )
         },
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
-            item(key = "now-label", contentType = "label") { SectionLabel("Now playing") }
-            snapshot.current?.let { current ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), state = listState,
+            contentPadding = PaddingValues(top = if (embedded) PLAYER_VIEW_EDGE else 0.dp, bottom = 24.dp)) {
+            if (!embedded) item(key = "now-label", contentType = "label") { SectionLabel("Now playing") }
+            if (!embedded) snapshot.current?.let { current ->
                 item(key = "now:${current.index}:${current.item.mediaId}", contentType = "now") {
                     QueueRow(current.item, playing = true, onClick = null, sounding = sounding)
                 }
