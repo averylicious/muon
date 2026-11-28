@@ -99,6 +99,9 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         private set
     var navBar by mutableStateOf(navBarStyleFrom(prefs.getString(KEY_NAV_BAR, null)))
         private set
+    /** Floating only: scrolling down folds the tabs to the current one, with the mini player beside it. */
+    var tuckIn by mutableStateOf(prefs.getBoolean(KEY_TUCK_IN, false))
+        private set
 
     init {
         Expressive.blur = prefs.getBoolean(KEY_EXPRESSIVE_BLUR, true)
@@ -108,6 +111,12 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         if (style == navBar) return
         navBar = style
         prefs.edit().putString(KEY_NAV_BAR, style.name).apply()
+    }
+
+    fun chooseTuckIn(enabled: Boolean) {
+        if (enabled == tuckIn) return
+        tuckIn = enabled
+        prefs.edit().putBoolean(KEY_TUCK_IN, enabled).apply()
     }
 
     fun chooseBarSurface(choice: BarSurface) {
@@ -139,6 +148,7 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         const val KEY_EXPRESSIVE_BLUR = "expressive_blur"
         const val KEY_BAR_SURFACE = "bar_surface"
         const val KEY_NAV_BAR = "nav_bar"
+        const val KEY_TUCK_IN = "tuck_in"
     }
 }
 

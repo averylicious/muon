@@ -49,4 +49,10 @@ class AppearanceSettingsTest {
         AppearanceSettings(prefs).chooseNavBar(NavBarStyle.Floating)
         assertEquals(NavBarStyle.Floating, AppearanceSettings(prefs).navBar)
     }
+
+    @Test fun tuckInIsOffUntilChosenAndSurvivesARestart() {
+        assertEquals(false, AppearanceSettings(prefs).tuckIn)
+        AppearanceSettings(prefs).chooseTuckIn(true)
+        assertEquals(true, AppearanceSettings(prefs).tuckIn)
+    }
 }

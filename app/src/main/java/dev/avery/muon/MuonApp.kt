@@ -39,9 +39,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -592,6 +596,19 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             val floating = connected && !rail && appearance.navBar == NavBarStyle.Floating
             val underBars = seeThrough || floating
             SideEffect { morph.floating = floating }
+            // Floating, a list scrolled down tucks the capsules (FloatingStack); scrolled up, or on
+            // another tab, they come back.
+            var tucked by remember { mutableStateOf(false) }
+            LaunchedEffect(tab, floating) { tucked = false }
+            val tuck by animateFloatAsState(if (floating && tucked) 1f else 0f, motionSpatialFull(), label = "tuck")
+            val tuckOnScroll = remember {
+                object : NestedScrollConnection {
+                    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                        tucked = tuckAfterScroll(tucked, consumed.y)
+                        return Offset.Zero
+                    }
+                }
+            }
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
             // out of the accessibility tree, so TalkBack cannot wander into hidden content.
             // A rising preview obscures them just the same, so they leave the tree for it too, and
@@ -627,12 +644,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         else ScaffoldDefaults.contentWindowInsets, bottomBar = {
                     // Without the navigation bar under it, the mini player keeps clear of the system
                     // bars itself; the bottom one, and the end one where three-button navigation sits.
-                    Column((if (rail) Modifier.windowInsetsPadding(
-                        WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier)
-                        .then(if (floating) Modifier.windowInsetsPadding(WindowInsets.navigationBars)
-                            .padding(start = FLOAT_MARGIN, end = FLOAT_MARGIN, bottom = FLOAT_MARGIN)
-                            else Modifier.frostedBehind(frost, frost?.bars, colors.background)),
-                        verticalArrangement = Arrangement.spacedBy(if (floating) FLOAT_GAP else 0.dp)) {
+                    val sides = if (rail) Modifier.windowInsetsPadding(
+                        WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier
+                    val miniBar: @Composable () -> Unit = {
                         // Sideways, the player is a panel beside the list instead (mockup B).
                         // It stays while the player is open, since the player grows out of it and shrinks
                         // back into it (PlayerMorph); the player covers it meanwhile.
@@ -656,6 +670,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     modifier = if (floating) Modifier.clip(CAPSULE).frostedBehind(frost, frost?.bars, colors.background) else Modifier)
                             }
                         }
+                    }
+                    val navBar: @Composable () -> Unit = {
                         AnimatedVisibility(visible = connected && !rail,
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
@@ -666,7 +682,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             // check on the Pixel). Added as an inset, so the bar's tint covers it.
                             // Floating, a container colour: the page's own would vanish into the list as Solid.
                             if (floating) FloatingTabs(Tab.entries.map { it.name }, tab.ordinal, colors.surfaceContainer.copy(alpha = barTint),
-                                select = { tab = Tab.entries[it]; fromSearch = false },
+                                select = { tab = Tab.entries[it]; fromSearch = false }, tuck = tuck, only = if (appearance.tuckIn) tuck else 0f,
                                 modifier = Modifier.clip(CAPSULE).frostedBehind(frost, frost?.tabs, colors.background)) { TabIcon(Tab.entries[it]) }
                             else ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint),
                                 windowInsets = ShortNavigationBarDefaults.windowInsets.add(WindowInsets(top = NAV_BAR_TOP_ROOM))) {
@@ -678,6 +694,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             }
                         }
                     }
+                    if (floating) FloatingStack({ tuck }, appearance.tuckIn, sides.windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(start = FLOAT_MARGIN, end = FLOAT_MARGIN, bottom = FLOAT_MARGIN), miniBar, navBar)
+                    else Column(sides.frostedBehind(frost, frost?.bars, colors.background)) { miniBar(); navBar() }
                 }) { padding ->
                     // Under see-through bars the content runs to the bottom, behind them, and each list adds
                     // the bars' height to its own end padding instead (LocalUnderBars), so its last row can
@@ -685,7 +704,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     val direction = LocalLayoutDirection.current
                     CompositionLocalProvider(LocalUnderBars provides if (underBars) padding.calculateBottomPadding() else 0.dp,
                         LocalQueueSong provides queueFromSwipe.takeIf { player != null && connected }) {
-                    Column(Modifier.frostSource(frost)
+                    Column(Modifier.frostSource(frost).nestedScroll(tuckOnScroll)
                         .then(if (underBars) Modifier.padding(start = padding.calculateStartPadding(direction),
                             top = padding.calculateTopPadding(), end = padding.calculateEndPadding(direction))
                             else Modifier.padding(padding))
