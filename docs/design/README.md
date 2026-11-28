@@ -14,9 +14,9 @@ Per [workstream names and release versions](../release-naming.md), name UI/UX re
 | --- | --- | --- | --- | --- | --- |
 | **Gen 1** | **Gen 1 — Initial** | MVP, v0.1 | `main` (`v0.1.0`) | Shipped & superseded | *(none)* |
 | **Gen 2** | **Gen 2 — Collection redesign** | "Muon 2.0", "UI 2.0" | `main` (`v0.2.0`, Canary `.276`) | Shipped on `main`; mockups retired | *(retired `2.0/`, `landscape/`, `offline/`)* |
-| **Gen 3** | **Gen 3 — M3 Expressive (Refined)** | "M3E", "Expressive alpha" | `claude/m3-expressive-alpha` (frozen RC `.1420`) | **Current implemented baseline** | [`current/`](current/README.md) |
-| **Gen 4** | **Gen 4 — Progressive Blur** | — | Planned branch `claude/gen-4-progressive-blur` off M3E | Proposal mockups | [`gen-4-progressive-blur/`](gen-4-progressive-blur/README.md) |
-| **Gen 5+** | **`Gen N`** or **`Gen N - <descriptor>`** | Never "Muon 3.0" / "UI 3.0" | Dedicated branch off `claude/m3-expressive-alpha` | Planned next redesign | `docs/design/gen-N/` or `docs/design/gen-N-<slug>/` |
+| **Gen 3** | **Gen 3 — M3 Expressive (Refined)** | "M3E", "Expressive alpha" | `main` (`v0.3.0`; retired `claude/m3-expressive-alpha`) | **Current shipped baseline** | [`current/`](current/README.md) |
+| **Gen 4** | **Gen 4 — Progressive Blur** | — | `gen-4-progressive-blur` (cut off `main` / `v0.3.0`) | Proposal mockups & active branch | [`gen-4-progressive-blur/`](gen-4-progressive-blur/README.md) |
+| **Gen 5+** | **`Gen N`** or **`Gen N - <descriptor>`** | Never "Muon 3.0" / "UI 3.0" | Dedicated branch off `main` | Planned next redesign | `docs/design/gen-N/` or `docs/design/gen-N-<slug>/` |
 
 ## Lifecycle rules for future mockups
 
