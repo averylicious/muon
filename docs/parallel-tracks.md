@@ -4,15 +4,15 @@ The user authorized these tracks on 2026-09-28. They replace routine live fronte
 
 ## Release generations and frozen candidates
 
-Follow the [release sequence and finite current gate list](release-plan.md). The user-approved sequence is current audit → frozen RC → explicitly approved Stable → checked forward integration into M3E → further experimentation and maintenance → next frozen candidate and delta-focused audit. Current alpha branch protections remain; future promotion requires a reviewed integration/policy change. Routine main-track audit automation should use the separate Diagnostic app when authorized so it does not replace the user's everyday experimental Canary. Release-configuration acceptance is still required.
+Follow the [release sequence and finite current gate list](release-plan.md). Gen 3 (M3 Expressive, with stable Material 3 `1.5.0`) graduated from the retired `claude/m3-expressive-alpha` branch onto `main` (#801) and shipped as Stable `v0.3.0` (`89b933a7`). Active redesign work now lives on **`gen-4-progressive-blur`** (cut off `main` / `v0.3.0`, upgraded to Compose BOM `2026.11.01` / Compose `1.13.0` and Android SDK `37.2` in #802). Routine main-track audit automation should use the separate Diagnostic app when authorized so it does not replace the user's everyday experimental Canary. Release-configuration acceptance is still required.
 
 ## Work without sharing sessions or checkouts
 
 | Track | Destination | Default owner | Purpose |
 | --- | --- | --- | --- |
 | Main audit | `main` | Astra | Correctness, security, privacy, reliability and CI fixes in any component |
-| Expressive experiment | `claude/m3-expressive-alpha` | User and their Claude session | Experimental libraries and design; branch APKs only |
-| Forward integration | Experimental branch, through a `sync/main-into-expressive-<topic>` PR | One named integrator (lands via regular merge commit once verified) | Bring reviewed main fixes into the experiment |
+| Gen 4 redesign (`Gen 4 - Progressive Blur`) | `gen-4-progressive-blur` | User and their Claude session | Gen 4 Compose `1.13` / SDK `37.2` and progressive/backdrop blur design; branch APKs only |
+| Forward integration | `gen-4-progressive-blur`, through a `sync/main-into-gen-4-<topic>` PR | One named integrator (lands via regular merge commit once verified) | Bring reviewed main fixes into the Gen 4 branch |
 
 - Each agent uses its own branch **and persistent worktree**, managed through its active harness whenever available (see [Worktree management by harness](../AGENTS.md#worktree-management-by-harness): T3 Code's native worktree tools when running inside T3 Code, or the harness's built-in worktree directory such as `~/.codex/worktrees/<topic>` when running in a native CLI/desktop app). Avoid creating loose sibling checkouts in `~/Projects/`. A nested ignored worktree is still vulnerable to a parent `git clean -x`; do not treat `.gitignore` as filesystem isolation. Inspect `git status --short` and `git worktree list` first. Do not switch, clean, reset, stash, remove or reuse another session's checkout. A clean checkout is not evidence its owner is idle. The original Muon checkout currently belongs to the experiment.
 - One writer per branch/worktree/session. Different tracks may change the same file independently; integration is where those changes are reconciled. This permits work without asking the other session before each edit.
@@ -22,7 +22,7 @@ Follow the [release sequence and finite current gate list](release-plan.md). The
 
 ## Moving fixes between tracks
 
-**Main to experiment:** after a useful main fix lands, the experimental owner or a named integrator makes a separate integration branch from the current experimental head. Merge current main into that branch, resolve conflicts, review the combined diff against the experiment and run CI there. Open a PR into `claude/m3-expressive-alpha`. Do not open a direct main-to-experiment PR: the tested main APK does not test the combined experimental app.
+**Main to experiment:** after a useful main fix lands, the experimental owner or a named integrator makes a separate integration branch from the current experimental head. Merge current main into that branch, resolve conflicts, review the combined diff against the experiment and run CI there. Open a PR into `gen-4-progressive-blur`. Do not open a direct main-to-experiment PR: the tested main APK does not test the combined experimental app.
 
 An integrator may prepare and land that PR autonomously once CI (and any requested QA) passes and no blockers remain, using a **regular merge commit** (`--merge`) so `main`'s ancestry is preserved; never squash, rebase, or force-push shared track history. Experimental sessions simply pull the updated remote branch at their next clean boundary rather than requiring a manual handoff to merge.
 
@@ -35,18 +35,17 @@ Sync after a main fix that the experiment needs, before editing a shared state/A
 From the agent's own worktree, fetch complete current main and experimental histories. The local preflight is read-only and requires full SHAs and refreshed `origin` refs:
 
 ```sh
-git fetch origin main:refs/remotes/origin/main claude/m3-expressive-alpha:refs/remotes/origin/claude/m3-expressive-alpha
+git fetch origin main:refs/remotes/origin/main gen-4-progressive-blur:refs/remotes/origin/gen-4-progressive-blur
 python3 tools/check_branch_policy.py --base main --head "$(git rev-parse HEAD)" --source "$(git branch --show-current)"
 ```
 
-For an experimental PR, pass `--base claude/m3-expressive-alpha`. Use the authorized HTTPS fetch/push helper in [CLAUDE.md](../CLAUDE.md) if SSH is unavailable. Never rewrite a tracked ref backwards to make the check pass.
+For a Gen 4 PR, pass `--base gen-4-progressive-blur`. Use the authorized HTTPS fetch/push helper in [CLAUDE.md](../CLAUDE.md) if SSH is unavailable. Never rewrite a tracked ref backwards to make the check pass.
 
 The lightweight **Branch policy / Branch direction** PR check:
 
-- rejects an experimental or forward-sync source targeting main;
-- rejects any main-targeted head descended from the first alpha-upgrade commit `454350a058fc4e272731afd0fff23bd9cd22e0f3`, even under a renamed branch;
-- requires the tested head to contain the current destination;
-- additionally requires forward-sync heads to include current main;
+- rejects the experiment branch (`gen-4-progressive-blur`) or any `sync/main-into-*` forward-sync branch targeting `main`;
+- requires the tested head to contain the current destination (`main` or `gen-4-progressive-blur`);
+- additionally requires forward-sync heads targeting `gen-4-progressive-blur` to include current `main`;
 - fails when required history cannot be verified.
 
 The check has a read-only token, no signing secrets and no Android build. It does not extend signed APK access to fork PRs. Missing anchor history needs investigation; do not silently replace the anchor or disable the check. If the experiment is retired, update this policy through a reviewed PR.

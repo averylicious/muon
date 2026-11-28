@@ -22,7 +22,7 @@ implementation/PR handoff workflow.
 Task: <feature request or bug, expected behavior, and scope limits>
 
 Implement a small, focused change on a dedicated branch and open a PR into
-<main or claude/m3-expressive-alpha, according to the assigned track>. Read
+<main or gen-4-progressive-blur, according to the assigned track>. Read
 docs/parallel-tracks.md and use a worktree/session separate from the other
 track. Add meaningful tests where needed and use the existing GitHub Actions
 build. Include your actual model, tool/client, effort if known, and role in

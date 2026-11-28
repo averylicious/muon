@@ -5,7 +5,7 @@ import subprocess
 
 
 EXPERIMENT = 'gen-4-progressive-blur'
-EXPERIMENTS = ('claude/m3-expressive-alpha', EXPERIMENT)
+EXPERIMENTS = (EXPERIMENT,)
 
 
 def git(*args):
