@@ -7,7 +7,7 @@ Workflow: [Android APKs](https://github.com/averylicious/muon/actions/workflows/
 
 Every push to any branch starts a check; **Actions → Android APKs → Run workflow** also works. A newer push to the same branch cancels an unfinished older run, so each pushed branch tip is built, not every intermediate commit. Successful `main` builds publish Canary prereleases with the repository's current visibility; pushed `vMAJOR.MINOR.PATCH` tags publish Stable releases; other branches only build artifacts. See [release channels and Obtainium setup](obtainium.md).
 
-While the repository is public, source, history, release assets and Actions logs are publicly readable; do not treat former private releases or logs as confidential, and switching back to private does not erase copies or forks. Signing keys remain GitHub secrets; never upload them or private recovery bundles. See [the scoped public-readiness check](audits/2026-09-30-public-readiness.md).
+While the repository is public, source, history, release assets and Actions logs are publicly readable; do not treat former private releases or logs as confidential, and switching back to private does not erase copies or forks. Signing keys remain GitHub secrets; never upload them or private recovery bundles. See [the scoped public-readiness check](archive/audits/2026-09-30-public-readiness.md).
 
 ### Documentation-only checks
 
@@ -31,8 +31,8 @@ Generated release notes describe access according to the repository's current vi
 
 ### Toolchain and signing boundaries
 
-- **JDK:** all three Java/Gradle workflows verify the downloaded Temurin archive's detached signature with the key bundled in the pinned Java setup action. A hosted-Linux-only helper first moves the preinstalled Temurin namespace out of tool-cache lookup, since the action would otherwise accept it unverified. Invalid or missing signatures stop setup before Gradle or signing. This does not authenticate the runner, action bundle, SDK or Gradle caches. [Review and limits](audits/2026-10-04-java-action-trust.md).
-- **Gradle wrapper:** restored `GRADLE_USER_HOME/wrapper/dists` is moved out of lookup before SDK setup, so the pinned wrapper reinstalls against the checked-in distribution checksum. Changed wrapper properties, unexpected paths and incomplete moves are rejected; wrapper upgrades must refresh the source-review receipt. Dependency caches remain and post-action cleanup is disabled. This does not authenticate plugins or dependencies. [Source and run evidence](audits/2026-10-05-gradle-distribution-refresh.md).
+- **JDK:** all three Java/Gradle workflows verify the downloaded Temurin archive's detached signature with the key bundled in the pinned Java setup action. A hosted-Linux-only helper first moves the preinstalled Temurin namespace out of tool-cache lookup, since the action would otherwise accept it unverified. Invalid or missing signatures stop setup before Gradle or signing. This does not authenticate the runner, action bundle, SDK or Gradle caches. [Review and limits](archive/audits/2026-10-04-java-action-trust.md).
+- **Gradle wrapper:** restored `GRADLE_USER_HOME/wrapper/dists` is moved out of lookup before SDK setup, so the pinned wrapper reinstalls against the checked-in distribution checksum. Changed wrapper properties, unexpected paths and incomplete moves are rejected; wrapper upgrades must refresh the source-review receipt. Dependency caches remain and post-action cleanup is disabled. This does not authenticate plugins or dependencies. [Source and run evidence](archive/audits/2026-10-05-gradle-distribution-refresh.md).
 - **Build order:** the Ubuntu 24.04 runner installs JDK 17 and the Android SDK named in the workflow, validates the wrapper, and runs the explicit checks before any signing material is restored:
 
 ```sh
@@ -125,7 +125,7 @@ For workstream names versus APK versions, see [workstream names and release vers
 
 ### Disposable media-entry QA helper
 
-An explicit manual diagnostic branch run also builds `mediaentryprobe`, a separate ordinary-app UID fixture for private-service denial checks. It has no network/storage/elevated permissions and refuses an exported target. It is compiled before Muon signing-key restoration with its own temporary debug key, uploaded as `media-entry-probe-<full-SHA>`, and never published; normal builds do not configure it. See [the probe boundaries and operation](audits/2026-10-06-media-entry-device-probe.md). It does not replace the Canary acceptance app or establish headset/controller compatibility.
+An explicit manual diagnostic branch run also builds `mediaentryprobe`, a separate ordinary-app UID fixture for private-service denial checks. It has no network/storage/elevated permissions and refuses an exported target. It is compiled before Muon signing-key restoration with its own temporary debug key, uploaded as `media-entry-probe-<full-SHA>`, and never published; normal builds do not configure it. See [the probe boundaries and operation](archive/audits/2026-10-06-media-entry-device-probe.md). It does not replace the Canary acceptance app or establish headset/controller compatibility.
 
 ## Packaged component access
 
@@ -133,7 +133,7 @@ The APK verifier checks both variants, including the diagnostic app, after manif
 
 ## Untrusted verification candidate (manual, unsigned)
 
-The **Dependency inventory** workflow accepts `verification_candidate=true` only on manual dispatch (default false). It runs unsigned compile/test/lint and baseline-generator compilation, then uploads `untrusted-verification-candidate-<full-SHA>` with bounded public `verification-metadata.xml` and `RECEIPT.json` for 14 days. It publishes no APK, restores no real keys and does not enable dependency verification: these are observed checksums needing independent review, not an allowlist. Non-Gradle test-runtime fetches (including Robolectric) are excluded. See [the candidate scope and trust limits](audits/2026-10-07-verification-candidate.md).
+The **Dependency inventory** workflow accepts `verification_candidate=true` only on manual dispatch (default false). It runs unsigned compile/test/lint and baseline-generator compilation, then uploads `untrusted-verification-candidate-<full-SHA>` with bounded public `verification-metadata.xml` and `RECEIPT.json` for 14 days. It publishes no APK, restores no real keys and does not enable dependency verification: these are observed checksums needing independent review, not an allowlist. Non-Gradle test-runtime fetches (including Robolectric) are excluded. See [the candidate scope and trust limits](archive/audits/2026-10-07-verification-candidate.md).
 
 ### Isolated Robolectric runtime inventory
 
@@ -151,6 +151,6 @@ Storage timing and debuggable builds may add capped, fixed-label numeric observa
 | `MuonSavedTiming` | Timing | Preparation/admission/route/open/first-read/ready stages, which may overlap; not host Playing latency. |
 | `MuonDigestTiming` | Timing, debuggable | One result per read after close and final binding check. Stages are disjoint at the wrapper; READ includes nested cache guards. |
 | Move verification phases | Debuggable only | Admission/open/metadata/audio/after/close/final totals; nested root/projection costs overlap. |
-| `MuonMoveBatch` | Debuggable only | Whole partition Move batch phases; result submission does not measure main-thread delivery. See [scope and acceptance boundaries](audits/2026-10-19-move-batch-timing.md). |
+| `MuonMoveBatch` | Debuggable only | Whole partition Move batch phases; result submission does not measure main-thread delivery. See [scope and acceptance boundaries](archive/audits/2026-10-19-move-batch-timing.md). |
 
 Buffer bounds that these observations touch: Move verification uses two fixed 256 KiB comparison buffers per comparison, at most two comparisons (1 MiB total), and compares every byte, so cancellation can wait through one bounded refill. Full saved-audio digests use one fixed 1 MiB buffer per active digest under the exclusive storage gate, with a fresh checkpoint, length/EOF and binding checks on every read; cancellation can wait through up to 1 MiB of one read. Ordinary playback read-ahead is unchanged. Record device results before claiming a speedup.
