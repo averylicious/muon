@@ -1129,7 +1129,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     collapse = { if (playerShown) playerOpen = false },
                     queue = { queueOpen = true }, morph = morph,
                     view = playerView, setView = { playerView = it },
-                    lyricsBody = { LyricsScreen(ui.item, embedded = true) { playerView = PlayerView.Cover } },
+                    lyricsBody = { LyricsScreen(ui.item, embedded = true, position = position, seek = { player?.seekTo(it) }) { playerView = PlayerView.Cover } },
                     queueBody = { QueueScreen(player, revision, ui.playing, embedded = true) { playerView = PlayerView.Cover } }) { lyricsOpen = true }
             }
             }
@@ -1137,7 +1137,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // shrinks, over both (PlayerMorph). Only while any of the player is on screen.
             if (!playerCovered && playerSheetPresent(playerShown, sheet.onScreen)) MorphingCover(morph, ui.item?.mediaMetadata?.artworkUri?.toString())
             FullScreenOverlay(lyricsCover, { overlayPeeking = it }, close = { lyricsOpen = false }) {
-                LyricsScreen(ui.item) { lyricsOpen = false }
+                LyricsScreen(ui.item, position = position, seek = { player?.seekTo(it) }) { lyricsOpen = false }
             }
             FullScreenOverlay(queueCover, { overlayPeeking = it }, close = { queueOpen = false }) {
                 QueueScreen(player, revision, ui.playing) { queueOpen = false }
