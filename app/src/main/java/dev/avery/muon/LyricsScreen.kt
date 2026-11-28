@@ -47,16 +47,16 @@ internal fun lyricsHeaderHeight(windowHeight: Float, fontScale: Float): Float? {
  * songs keep their place. Labels are a display revision, not proof of the server's audio identity.
  */
 @Composable
-internal fun LyricsScreen(item: MediaItem?, back: () -> Unit) {
+internal fun LyricsScreen(item: MediaItem?, embedded: Boolean = false, back: () -> Unit) {
     key(item?.mediaId, item?.mediaMetadata?.title?.toString(),
         item?.mediaMetadata?.artist?.toString(), item?.mediaMetadata?.albumTitle?.toString()) {
-        Lyrics(item, back)
+        Lyrics(item, embedded, back)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Lyrics(item: MediaItem?, back: () -> Unit) {
+private fun Lyrics(item: MediaItem?, embedded: Boolean, back: () -> Unit) {
     var lyrics by remember { mutableStateOf("Loading lyrics…") }
     var failure by remember { mutableStateOf(false) }
     // Whether there is real text to show; placeholders are set smaller and carry no footnote.
@@ -92,7 +92,8 @@ private fun Lyrics(item: MediaItem?, back: () -> Unit) {
     val barColors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background,
         scrolledContainerColor = colors.surfaceContainer)
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val header = lyricsHeaderHeight(maxHeight.value, LocalDensity.current.fontScale)
+        // Embedded in Now Playing (its Lyrics view), the player's own header names the song.
+        val header = if (embedded) null else lyricsHeaderHeight(maxHeight.value, LocalDensity.current.fontScale)
         Column(Modifier.fillMaxSize()
             .then(if (header != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)) {
             if (header != null) LargeTopAppBar(
@@ -102,7 +103,7 @@ private fun Lyrics(item: MediaItem?, back: () -> Unit) {
                 expandedHeight = header.dp,
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 scrollBehavior = scrollBehavior,
-            ) else TopAppBar(
+            ) else if (!embedded) TopAppBar(
                 // Too short a window for a large title and a useful amount of song. The same title
                 // and artist stay, in the compact form the large bar collapses to anyway, and every
                 // pixel saved goes to the words.
@@ -113,7 +114,7 @@ private fun Lyrics(item: MediaItem?, back: () -> Unit) {
             )
             // On the bar title's 16 dp keyline, so the words line up under the song's name.
             Column(Modifier.verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp).padding(bottom = 32.dp),
+                .padding(horizontal = 16.dp).padding(top = if (embedded) PLAYER_VIEW_EDGE else 0.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 if (failure) ErrorCard(lyrics, "Retry", modifier = Modifier) { attempt++ }
                 // Left aligned and large enough to read at arm's length, and selectable so a line can

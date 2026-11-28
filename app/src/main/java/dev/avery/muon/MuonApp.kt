@@ -92,6 +92,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         var lyricsOpen by rememberSaveable { mutableStateOf(false) }
         // Queue sits over the player exactly as Lyrics does; only one of the two is ever open.
         var queueOpen by rememberSaveable { mutableStateOf(false) }
+        // In portrait, Lyrics and Up next are views inside the player (Gen 4); each opening starts on the cover.
+        var playerView by rememberSaveable { mutableStateOf(PlayerView.Cover) }
+        LaunchedEffect(playerOpen) { if (!playerOpen) playerView = PlayerView.Cover }
         // Saved copies (#213), opened from Settings while Tauon is reachable; offline, they are the library.
         var savedOpen by rememberSaveable { mutableStateOf(false) }
         var savedQueueTooLarge by remember { mutableStateOf<SavedEntry?>(null) }
@@ -345,7 +348,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // decision, so they cannot disagree about where Back goes.
         val target = backTarget(connected, lyricsShown, overlayOpen,
             onLibraryTab = tab == Tab.Library, playlistOpen = openList != null || artistPage || albumPage,
-            queueShown = queueShown)
+            queueShown = queueShown, playerViewShown = playerView != PlayerView.Cover)
         // Leaves the library page on show: an album opened from an artist's page goes back to that
         // page; anything else goes to the top, or back to Search if it was opened from there.
         fun closePage() {
@@ -363,6 +366,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             when (target) {
                 BackTarget.Lyrics -> lyricsOpen = false
                 BackTarget.Queue -> queueOpen = false
+                BackTarget.PlayerView -> playerView = PlayerView.Cover
                 BackTarget.Player -> playerOpen = false
                 BackTarget.Tab -> tab = Tab.Library
                 BackTarget.Playlist -> closePage()
@@ -583,6 +587,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // A phone on its side: the tabs move to a rail at the start, so the height they took
             // along the bottom goes to the list instead, and the mini player keeps the bottom alone.
             val rail = sidewaysLayout(maxWidth.value, maxHeight.value)
+            // Sideways, the player has no views: it opens Lyrics and Queue over itself, as before.
+            LaunchedEffect(rail) { if (rail) playerView = PlayerView.Cover }
             // The Canary experiment's blur: the library, and the side panel in the same row, soften
             // under the player as it rises, and behind the song menu. Draw phase only (BlurBehind.kt).
             val menuBlur by animateFloatAsState(if (actionTrack != null) 1f else 0f, motionMedium(), label = "menu blur")
@@ -1105,7 +1111,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         }
                     }
                 }, preview = {
-                rememberPlayerBackPreview(playerShown) { if (playerGestureCommits(target)) goBack() }
+                // On a view, Back only returns to the cover, so the player does not shrink as if closing.
+                rememberPlayerBackPreview(playerShown && playerView == PlayerView.Cover) { if (playerGestureCommits(target)) goBack() }
             }) {
                 // Only a player that is actually on screen carries the drag: an outgoing one hands
                 // nothing down, so its detector goes with it rather than moving what comes next.
@@ -1115,7 +1122,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // Guarded, so a drag that ends after Lyrics opened over the player, or after
                     // the player has gone, cannot put away whatever took its place.
                     collapse = { if (playerShown) playerOpen = false },
-                    queue = { queueOpen = true }, morph = morph) { lyricsOpen = true }
+                    queue = { queueOpen = true }, morph = morph,
+                    view = playerView, setView = { playerView = it },
+                    lyricsBody = { LyricsScreen(ui.item, embedded = true) { playerView = PlayerView.Cover } },
+                    queueBody = { QueueScreen(player, revision, ui.playing, embedded = true) { playerView = PlayerView.Cover } }) { lyricsOpen = true }
             }
             }
             // The cover flying between the mini player and Now Playing while the player grows or
@@ -1146,13 +1156,15 @@ private fun TabIcon(destination: Tab) {
 }
 
 /** What a Back press acts on, named in the order the screens are stacked. */
-internal enum class BackTarget { None, Lyrics, Queue, Player, Tab, Playlist }
+internal enum class BackTarget { None, Lyrics, Queue, PlayerView, Player, Tab, Playlist }
 
+/** [playerViewShown]: the open player shows Lyrics or Up next in place of its cover, which Back returns to. */
 internal fun backTarget(connected: Boolean, lyricsShown: Boolean, overlayOpen: Boolean,
-    onLibraryTab: Boolean, playlistOpen: Boolean, queueShown: Boolean = false): BackTarget = when {
+    onLibraryTab: Boolean, playlistOpen: Boolean, queueShown: Boolean = false, playerViewShown: Boolean = false): BackTarget = when {
     !connected -> BackTarget.None
     lyricsShown -> BackTarget.Lyrics
     queueShown -> BackTarget.Queue
+    overlayOpen && playerViewShown -> BackTarget.PlayerView
     overlayOpen -> BackTarget.Player
     !onLibraryTab -> BackTarget.Tab
     playlistOpen -> BackTarget.Playlist
@@ -1170,7 +1182,7 @@ internal fun backTarget(connected: Boolean, lyricsShown: Boolean, overlayOpen: B
  * so the gesture is let go without navigating.
  */
 internal fun playerGestureCommits(target: BackTarget): Boolean =
-    target == BackTarget.Lyrics || target == BackTarget.Queue || target == BackTarget.Player
+    target == BackTarget.Lyrics || target == BackTarget.Queue || target == BackTarget.PlayerView || target == BackTarget.Player
 
 /** Material's modal-sheet scrim opacity (`ScrimTokens.ContainerOpacity` in material3 1.4.0). */
 private const val PLAYER_SCRIM_ALPHA = 0.32f
