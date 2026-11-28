@@ -1,3 +1,5 @@
+> **Archived historical document.** Gen 3 (M3 Expressive) shipped in `v0.3.0`; the retired `claude/m3-expressive-alpha` branch notes are kept for history. Current behaviour: [features](../features.md), [codebase map](../codebase-map.md).
+
 # Material 3 Expressive experiment (Canary only)
 
 This branch, `claude/m3-expressive-alpha`, tries Material 3 Expressive on Muon Canary. It never merges to `main`, and Stable is untouched. Test builds come from the branch's own **Android APKs** runs: the `app-debug-<commit>` artifact updates Muon Canary in place.

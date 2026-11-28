@@ -3,7 +3,7 @@
 `ServerDiscovery` performs one 10-second DNS-SD scan for `_tauon-remote._tcp.`.
 The existing manual Connect screen continues to use its name/address and message
 callbacks. The optional fourth callback supplies `DiscoverySnapshot` for the
-future Connect screen and connection policy. Call start/stop from the main thread;
+Connect screen and connection policy. Call start/stop from the main thread;
 all callbacks are delivered there. `stop()` invalidates the scan without invoking
 UI callbacks, so disposing the screen is safe.
 
@@ -19,7 +19,7 @@ Found services are queued and resolved serially instead of discarding discoverie
 while another resolve is running. Each scan and each occurrence of a service name
 has an identity, so callbacks from stopped scans or lost/reappearing services
 cannot add stale results. Lost services are removed from snapshots. The legacy
-append-only `found` callback cannot retract rows; the future Connect screen should
+append-only `found` callback cannot retract rows; the Connect screen should
 render the snapshot list instead. Manual selection still requires a real Tauon
 connection and remains available even if discovery fails.
 
