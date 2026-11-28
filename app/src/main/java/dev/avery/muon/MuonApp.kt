@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.session.MediaController
@@ -604,6 +605,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // under them, and around them, whatever their surface.
             val floating = connected && !rail && appearance.navBar == NavBarStyle.Floating
             val underBars = seeThrough || floating
+            val barsDrop = remember { BarsDrop() }
+            SideEffect { if (!floating) barsDrop.px = 0 }
             SideEffect { morph.floating = floating }
             // Floating, a list scrolled down tucks the capsules (FloatingStack); scrolled up, or on
             // another tab, they come back.
@@ -645,7 +648,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     }
                 }
                 // The rail takes the start inset itself, so the content leaves it out.
-                Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { if (!playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar) { data -> SurfaceSnackbar(queueNotices.observeAction(data), surface) } },
+                Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { if (!playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar,
+                    // Down with the floating bars as they tuck, as the page toolbar does.
+                    Modifier.offset { IntOffset(0, barsDrop.px) }) { data -> SurfaceSnackbar(queueNotices.observeAction(data), surface) } },
                     // The player panel, when it is there, takes the end inset in the same way.
                     contentWindowInsets = if (rail && connected) ScaffoldDefaults.contentWindowInsets
                         .only(if (ui.item != null) WindowInsetsSides.Top + WindowInsetsSides.Bottom
@@ -706,7 +711,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     }
                     if (floating) FloatingStack({ tuck }, appearance.tuckIn, sides.windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(start = FLOAT_MARGIN, end = FLOAT_MARGIN, bottom = FLOAT_MARGIN),
-                        appearance.floatWidth, appearance.floatTabHeight.dp, miniBar, navBar)
+                        appearance.floatWidth, appearance.floatTabHeight.dp, barsDrop, miniBar, navBar)
                     else Column(sides.frostedBehind(frost, frost?.bars, colors.background)) { miniBar(); navBar() }
                 }) { padding ->
                     // Under see-through bars the content runs to the bottom, behind them, and each list adds
@@ -714,7 +719,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // still scroll clear of them.
                     val direction = LocalLayoutDirection.current
                     CompositionLocalProvider(LocalUnderBars provides if (underBars) padding.calculateBottomPadding() else 0.dp,
-                        LocalBarSurface provides surface,
+                        LocalBarSurface provides surface, LocalBarsDrop provides barsDrop,
                         LocalQueueSong provides queueFromSwipe.takeIf { player != null && connected }) {
                     Column(Modifier.frostSource(frost).nestedScroll(tuckOnScroll)
                         .then(if (underBars) Modifier.padding(start = padding.calculateStartPadding(direction),

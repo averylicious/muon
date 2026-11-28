@@ -23,6 +23,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.Stable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -133,10 +137,11 @@ internal fun FloatingTabs(labels: List<String>, selected: Int, color: Color, sel
  * Its height stays the untucked stack's, so the lists' end padding (LocalUnderBars) never moves while
  * it tucks; the room left above a tucked row has nothing to touch, so taps there reach the list.
  * The capsules take [widthShare] of the width, centred, and the tabs are [tabHeight] tall untucked.
+ * How far the capsules' top has dropped into that room goes to [drop], for what floats above them.
  */
 @Composable
 internal fun FloatingStack(tuck: () -> Float, tuckIn: Boolean, modifier: Modifier = Modifier,
-    widthShare: Float = 1f, tabHeight: Dp = FLOAT_TAB_HEIGHT_DEFAULT.dp,
+    widthShare: Float = 1f, tabHeight: Dp = FLOAT_TAB_HEIGHT_DEFAULT.dp, drop: BarsDrop? = null,
     mini: @Composable () -> Unit, tabs: @Composable () -> Unit) {
     Layout({
         Box(Modifier.layoutId(MINI)) { mini() }
@@ -163,11 +168,22 @@ internal fun FloatingStack(tuck: () -> Float, tuckIn: Boolean, modifier: Modifie
             // Stacked, just above the tabs however short they have become; tucked in, centred on their row.
             val stackY = tabsY - gap - miniPlaced.height
             val rowY = tabsY + (tabsPlaced.height - miniPlaced.height) / 2
-            miniPlaced.placeRelative(side + if (tuckIn) androidx.compose.ui.util.lerp(0, besideTabs, t) else 0,
-                if (tuckIn) androidx.compose.ui.util.lerp(stackY, rowY, t) else stackY)
+            val miniY = if (tuckIn) androidx.compose.ui.util.lerp(stackY, rowY, t) else stackY
+            miniPlaced.placeRelative(side + if (tuckIn) androidx.compose.ui.util.lerp(0, besideTabs, t) else 0, miniY)
+            drop?.px = if (miniPlaced.height > 0) minOf(miniY, tabsY) else tabsY
         }
     }
 }
+
+/**
+ * How far below the room the floating bars keep their visible top sits, in pixels: tucked, they drop
+ * into one row and leave empty room above them. Written while the bars are placed and read while
+ * placing what floats above them, so neither recomposes as the bars tuck.
+ */
+@Stable
+internal class BarsDrop { var px by mutableIntStateOf(0) }
+
+internal val LocalBarsDrop = staticCompositionLocalOf { BarsDrop() }
 
 private const val MINI = "mini"
 private const val TABS = "tabs"
