@@ -12,7 +12,7 @@ Authorized by the user on 2026-09-28. Main and the experiment proceed independen
 
 - Each agent uses its own branch and persistent worktree ([AGENTS.md](../AGENTS.md#worktrees-and-sessions)). One writer per branch/worktree/session; tracks may change the same file independently and reconcile in integration.
 - Claim the issue and branch in its PR or issue before overlapping work; check existing PRs first. A successor confirms the previous writer has stopped (a user-directed takeover is enough) and preserves dirty work.
-- Record cross-track dependencies on [#181](https://github.com/averylicious/muon/issues/181) or the relevant PR. Contact the other track only for an unresolved behavioural decision or ownership collision.
+- Record cross-track dependencies on the relevant issue or PR. Contact the other track only for an unresolved behavioural decision or ownership collision.
 
 ## Moving fixes between tracks
 

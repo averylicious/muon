@@ -16,4 +16,4 @@
 - [Version naming](release-naming.md) and [CI/signing](ci.md)
 - [Third-party notices](licenses/README.md)
 
-Current audit work starts from the [issue-state index](audits/issues/README.md). Historical evidence remains linked from the relevant current page.
+History: [docs/archive/](archive/) (early validation, feasibility and the Gen 3 experiment notes).
