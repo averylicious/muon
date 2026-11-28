@@ -85,6 +85,9 @@ internal val GLASS_BLUR: Dp = 32.dp
  */
 internal val LocalUnderBars = compositionLocalOf { 0.dp }
 
+/** The [effectiveBarSurface] in force, for surfaces drawn deep inside a page, such as [PageToolbar]. */
+internal val LocalBarSurface = compositionLocalOf { BarSurface.Solid }
+
 /** Records everything this content draws, for the bars to show; the content is drawn as before. */
 internal fun Modifier.frostSource(frost: Frost?): Modifier = if (frost == null) this else this
     .onGloballyPositioned { frost.source = it }
