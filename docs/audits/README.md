@@ -1,6 +1,6 @@
 # Main-track audit
 
-Start with the [maintained issue-state index](issues/README.md), [finite release gates](../release-plan.md) and [coordinator entry point](../coordinator-handoff.md). These current summaries replace an append-only index of every session. Verify live heads/checks before resuming.
+Start with the [maintained issue-state index](issues/README.md), [finite release gates](../release-plan.md) and [current state](../STATE.md). These current summaries replace an append-only index of every session. Verify live heads/checks before resuming.
 
 ## Current release and audit boundary
 
@@ -17,7 +17,7 @@ Older reports retain their inspected commits and inventory counts as historical 
 
 For a finding, record inspected commit, affected symbols, trigger, actual/expected behavior, impact, confidence, supporting reproduction/source evidence, proposed fix and remaining verification. Separate confirmed defects from hypotheses. Reuse existing issues and [maintain their status files in place](issues/README.md). Do not automatically expand frozen release gates with speculative hardening.
 
-Phone QA needs current explicit authorization. Preserve originals, app identities and experimental ownership. Automated CI/source/selected device evidence does not replace user acceptance. See [AGENTS.md](../../AGENTS.md), [parallel tracks](../parallel-tracks.md) and [continuous engineering](../continuous-engineering.md).
+Phone QA needs current explicit authorization. Preserve originals, app identities and experimental ownership. Automated CI/source/selected device evidence does not replace user acceptance. See [AGENTS.md](../../AGENTS.md) and [parallel tracks](../parallel-tracks.md).
 
 ## Targeted historical references
 
