@@ -48,4 +48,17 @@ class BackTargetTest {
         assertFalse(playerGestureCommits(BackTarget.Playlist))
         assertFalse(playerGestureCommits(BackTarget.None))
     }
+
+    @Test fun backOnAPlayerViewReturnsToTheCoverBeforeClosingThePlayer() {
+        assertEquals(BackTarget.PlayerView, backTarget(connected = true, lyricsShown = false, overlayOpen = true,
+            onLibraryTab = true, playlistOpen = false, playerViewShown = true))
+        assertEquals(BackTarget.Player, backTarget(connected = true, lyricsShown = false, overlayOpen = true,
+            onLibraryTab = true, playlistOpen = false, playerViewShown = false))
+        assertTrue(playerGestureCommits(BackTarget.PlayerView))
+    }
+
+    @Test fun aViewLeftSetUnderAClosedPlayerTakesNoBack() {
+        assertEquals(BackTarget.Tab, backTarget(connected = true, lyricsShown = false, overlayOpen = false,
+            onLibraryTab = false, playlistOpen = false, playerViewShown = true))
+    }
 }
