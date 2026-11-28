@@ -551,7 +551,9 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
     val blurAvailable = sdk >= Build.VERSION_CODES.S
     val frosted = frostedAvailable(Expressive.blur, sdk)
     val floating = appearance.navBar == NavBarStyle.Floating
-    val rows = PaletteChoice.entries.size + if (floating) 7 else 4
+    // Slice 11's experiment, offered only where it does something: Frosted bars on Android 17 QPR2.
+    val systemBlurOffered = backdropOnThisPhone && effectiveBarSurface(appearance.barSurface, Expressive.blur, sdk) == BarSurface.Frosted
+    val rows = PaletteChoice.entries.size + (if (floating) 7 else 4) + (if (systemBlurOffered) 1 else 0)
     SettingsGroup {
         PaletteChoice.entries.forEachIndexed { index, choice ->
             val enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable
@@ -607,6 +609,10 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
             },
             options = BarSurface.entries, chosen = effectiveBarSurface(appearance.barSurface, Expressive.blur, sdk),
             label = ::barSurfaceLabel, enabled = { it != BarSurface.Frosted || frosted }) { appearance.chooseBarSurface(it) }
+        if (systemBlurOffered) SettingsRow(index = below + 2, count = rows, headline = "Android 17 backdrop blur", leading = rowIcon("blur"),
+            supporting = "Experimental: the system blurs what's behind the bars, instead of Muon's own copy of the page. The player's panel loses its glass while it grows",
+            trailing = { Switch(checked = appearance.backdropBars, onCheckedChange = null) },
+            toggled = appearance.backdropBars, onToggle = { appearance.chooseBackdropBars(it) })
     }
     if (!dynamicAvailable) Text("Material You needs Android 12 or newer, so this device uses the Muon palette.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

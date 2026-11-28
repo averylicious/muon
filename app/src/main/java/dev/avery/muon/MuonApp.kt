@@ -40,6 +40,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.blur.BlurRadiusSpec
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -599,7 +601,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             val surface = effectiveBarSurface(appearance.barSurface, Expressive.blur, Build.VERSION.SDK_INT)
             val seeThrough = connected && barsSeeThrough(surface, rail)
             val glass = rememberFrost()
-            val frost = if (seeThrough && frostedGlassOn(surface, rail)) glass else null
+            val frosted = seeThrough && frostedGlassOn(surface, rail)
+            // Slice 11's experiment: Android 17 QPR2's backdrop blurs behind the bars instead of Frost, which
+            // then records nothing, so the two can be traced against each other. The player's growing panel
+            // has no glass meanwhile: it needs Frost's copy of the page.
+            val systemBlur = frosted && appearance.backdropBars && backdropOnThisPhone
+            val frost = if (frosted && !systemBlur) glass else null
             val barTint = if (seeThrough) barTint(surface) else 1f
             // Floating (Gen 4): the mini player and the tabs are capsules over the list, which runs on
             // under them, and around them, whatever their surface.
@@ -681,7 +688,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     next = { player?.seekToNextMediaItem() },
                                     previous = { player?.seekToPreviousMediaItem() }, morph = morph,
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = barTint), floating = floating,
-                                    modifier = if (floating) Modifier.clip(CAPSULE).frostedBehind(frost, frost?.bars, colors.background) else Modifier)
+                                    modifier = if (floating) Modifier.clip(CAPSULE).frostedBehind(frost, frost?.bars, colors.background)
+                                        .backdropBlur(BlurRadiusSpec.uniform(GLASS_BLUR), CAPSULE, enabled = systemBlur) else Modifier)
                             }
                         }
                     }
@@ -698,7 +706,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             if (floating) FloatingTabs(Tab.entries.map { it.name }, tab.ordinal, colors.surfaceContainer.copy(alpha = barTint),
                                 select = { tab = Tab.entries[it]; fromSearch = false }, height = appearance.floatTabHeight.dp,
                                 tuck = tuck, only = if (appearance.tuckIn) tuck else 0f, expand = { tucked = false },
-                                modifier = Modifier.clip(CAPSULE).frostedBehind(frost, frost?.tabs, colors.background)) { TabIcon(Tab.entries[it]) }
+                                modifier = Modifier.clip(CAPSULE).frostedBehind(frost, frost?.tabs, colors.background)
+                                    .backdropBlur(BlurRadiusSpec.uniform(GLASS_BLUR), CAPSULE, enabled = systemBlur)) { TabIcon(Tab.entries[it]) }
                             else ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint),
                                 windowInsets = ShortNavigationBarDefaults.windowInsets.add(WindowInsets(top = NAV_BAR_TOP_ROOM))) {
                                 Tab.entries.forEach { destination ->
@@ -712,7 +721,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     if (floating) FloatingStack({ tuck }, appearance.tuckIn, sides.windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(start = FLOAT_MARGIN, end = FLOAT_MARGIN, bottom = FLOAT_MARGIN),
                         appearance.floatWidth, appearance.floatTabHeight.dp, barsDrop, miniBar, navBar)
-                    else Column(sides.frostedBehind(frost, frost?.bars, colors.background)) { miniBar(); navBar() }
+                    else Column(sides.frostedBehind(frost, frost?.bars, colors.background)
+                        .backdropBlur(BlurRadiusSpec.uniform(GLASS_BLUR), RectangleShape, enabled = systemBlur)) { miniBar(); navBar() }
                 }) { padding ->
                     // Under see-through bars the content runs to the bottom, behind them, and each list adds
                     // the bars' height to its own end padding instead (LocalUnderBars), so its last row can
