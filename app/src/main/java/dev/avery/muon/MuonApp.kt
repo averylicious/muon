@@ -645,7 +645,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     }
                 }
                 // The rail takes the start inset itself, so the content leaves it out.
-                Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { if (!playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar) { data -> Snackbar(queueNotices.observeAction(data)) } },
+                Scaffold(Modifier.weight(1f), containerColor = colors.background, snackbarHost = { if (!playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar) { data -> SurfaceSnackbar(queueNotices.observeAction(data), surface) } },
                     // The player panel, when it is there, takes the end inset in the same way.
                     contentWindowInsets = if (rail && connected) ScaffoldDefaults.contentWindowInsets
                         .only(if (ui.item != null) WindowInsetsSides.Top + WindowInsetsSides.Bottom
@@ -1140,7 +1140,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             // Overlay notices stay above the player instead of resizing artwork or hiding behind it.
             if (playerShown && !lyricsShown && !queueShown) SnackbarHost(snackbar,
                 Modifier.align(androidx.compose.ui.Alignment.BottomCenter).safeDrawingPadding().padding(12.dp)) { data ->
-                Snackbar(queueNotices.observeAction(data))
+                SurfaceSnackbar(queueNotices.observeAction(data), surface)
             }
             if (loudnessDetails) AlertDialog(onDismissRequest = { loudnessDetails = false },
                 title = { Text("Loudness tags missing") },

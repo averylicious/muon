@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.blur.BlurRadiusSpec
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +54,11 @@ internal fun scrollerIndex(fraction: Float, count: Int): Int =
 /** A resized viewport can be shorter than the handle/bubble; pin it at zero in that case. */
 internal fun scrollerOffset(center: Float, element: Float, viewport: Float): Float =
     (center - element / 2).coerceIn(0f, (viewport - element).coerceAtLeast(0f))
+
+/** The lens: a light blur, a strong saturation boost, and enough of its colour to read the letter. */
+private const val LENS_TINT = 0.5f
+private val LENS_BLUR = 9.dp
+private const val LENS_SATURATION = 2f
 
 /**
  * A draggable handle over the list's thumb, for jumping through an alphabetical list, and a bubble
@@ -121,6 +127,13 @@ internal fun BoxScope.AlphabetScroller(indicator: ScrollIndicator, count: Int, s
             })
         if (indicator.held && letter.isNotEmpty()) {
             val colors = MaterialTheme.colorScheme
+            // Glass on 37.2 (the Gen 4 mockup's lens): the rows under it blurred and their colours deepened.
+            val look = glassLook(LocalBarSurface.current, backdropOnThisPhone)
+            val tint = when (look) {
+                GlassLook.Glass -> LENS_TINT
+                GlassLook.Tinted -> TINTED_TINT
+                GlassLook.Solid -> 1f
+            }
             val bubble = with(density) { BUBBLE.toPx() }
             val gap = with(density) { (SCROLLER_TOUCH + 8.dp).toPx() }
             Box(Modifier.align(end)
@@ -128,7 +141,9 @@ internal fun BoxScope.AlphabetScroller(indicator: ScrollIndicator, count: Int, s
                     val x = if (end == Alignment.TopStart) gap else -gap
                     IntOffset(x.roundToInt(), scrollerOffset(center(height) ?: 0f, bubble, height).roundToInt())
                 }
-                .size(BUBBLE).clip(CircleShape).background(colors.primaryContainer)
+                .size(BUBBLE)
+                .backdropBlur(BlurRadiusSpec.uniform(LENS_BLUR), CircleShape, enabled = look == GlassLook.Glass, saturation = LENS_SATURATION)
+                .clip(CircleShape).background(colors.primaryContainer.copy(alpha = tint))
                 .clearAndSetSemantics {},
                 contentAlignment = Alignment.Center) {
                 Text(letter, style = MaterialTheme.typography.headlineSmall, color = colors.onPrimaryContainer)
