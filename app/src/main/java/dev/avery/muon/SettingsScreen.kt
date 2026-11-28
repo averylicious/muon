@@ -97,6 +97,9 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             GroupLabel("Playback")
             PlaybackGroup()
 
+            GroupLabel("Lyrics")
+            LyricsGroup()
+
             GroupLabel("Storage")
             StorageGroup(openSaved) { confirmClear = true }
 
@@ -506,6 +509,18 @@ private fun ConnectedBadge(offline: Boolean = false) {
 }
 
 /** Volume normalization (#97), off until chosen: it turns most songs down to meet the quieter ones. */
+/** Online lookups for synced lyrics (#797): off until chosen, and saying exactly what is sent and where. */
+@Composable
+private fun LyricsGroup() {
+    val prefs = rememberLyricsPreferences()
+    SettingsGroup {
+        SettingsRow(index = 0, count = 1, headline = "Find synced lyrics online", leading = rowIcon("lyrics"),
+            supporting = "Sends each song's title, artist, album and length to LRCLIB (lrclib.net) for timed lyrics. Tauon's lyrics show when it has none",
+            trailing = { Switch(checked = prefs.online, onCheckedChange = null) },
+            toggled = prefs.online, onToggle = { prefs.chooseOnline(it) })
+    }
+}
+
 @Composable
 private fun PlaybackGroup() {
     val loudness = rememberReplayGainSettings()
