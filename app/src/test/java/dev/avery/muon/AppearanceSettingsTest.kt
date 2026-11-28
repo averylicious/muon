@@ -31,14 +31,13 @@ class AppearanceSettingsTest {
         assertEquals(BarSurface.Frosted, AppearanceSettings(prefs).barSurface)
     }
 
-    @Test fun anUpgradeWithBlurOffKeepsSolidBars() {
+    /** An upgrade from Blur off keeps its solid bars, and turning Blur on brings Frosted back. */
+    @Test fun blurIsTheMasterSwitchForFrostedBars() {
         prefs.edit().putBoolean("expressive_blur", false).commit()
-        assertEquals(BarSurface.Solid, AppearanceSettings(prefs).barSurface)
-    }
-
-    @Test fun theMigratedSurfaceStaysWhenTheBlurSwitchLaterChanges() {
-        AppearanceSettings(prefs).chooseExpressiveBlur(false)
-        assertEquals(BarSurface.Frosted, AppearanceSettings(prefs).barSurface)
+        val settings = AppearanceSettings(prefs)
+        assertEquals(BarSurface.Solid, effectiveBarSurface(settings.barSurface, Expressive.blur, 34))
+        settings.chooseExpressiveBlur(true)
+        assertEquals(BarSurface.Frosted, effectiveBarSurface(settings.barSurface, Expressive.blur, 34))
     }
 
     @Test fun aChosenSurfaceSurvivesARestart() {

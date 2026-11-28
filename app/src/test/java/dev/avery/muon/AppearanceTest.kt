@@ -45,24 +45,27 @@ class AppearanceTest {
         }
     }
 
-    @Test fun barSurfaceWithNothingStoredFollowsTheOldBlurSwitch() {
-        assertEquals(BarSurface.Frosted, barSurfaceFrom(null, legacyBlur = true))
-        assertEquals(BarSurface.Solid, barSurfaceFrom(null, legacyBlur = false))
-        assertEquals(BarSurface.Frosted, barSurfaceFrom("frosted", legacyBlur = true))
+    @Test fun barSurfaceIsFrostedUntilChosen() {
+        assertEquals(BarSurface.Frosted, barSurfaceFrom(null))
+        assertEquals(BarSurface.Frosted, barSurfaceFrom("tinted"))
+        for (choice in BarSurface.entries) assertEquals(choice, barSurfaceFrom(choice.name))
     }
 
-    @Test fun storedBarSurfaceWinsOverTheOldBlurSwitch() {
-        for (choice in BarSurface.entries) {
-            assertEquals(choice, barSurfaceFrom(choice.name, legacyBlur = true))
-            assertEquals(choice, barSurfaceFrom(choice.name, legacyBlur = false))
+    @Test fun blurOffTurnsFrostedBarsSolid() {
+        assertEquals(BarSurface.Solid, effectiveBarSurface(BarSurface.Frosted, blur = false, sdkInt = 37))
+        assertEquals(BarSurface.Frosted, effectiveBarSurface(BarSurface.Frosted, blur = true, sdkInt = 37))
+    }
+
+    @Test fun frostedBarsAreSolidBeforeAndroid12() {
+        assertEquals(BarSurface.Solid, effectiveBarSurface(BarSurface.Frosted, blur = true, sdkInt = 30))
+        assertEquals(BarSurface.Frosted, effectiveBarSurface(BarSurface.Frosted, blur = true, sdkInt = 31))
+    }
+
+    @Test fun tintedAndSolidIgnoreBlurAndAndroidVersion() {
+        for (blur in listOf(true, false)) for (sdk in listOf(28, 37)) {
+            assertEquals(BarSurface.Tinted, effectiveBarSurface(BarSurface.Tinted, blur, sdk))
+            assertEquals(BarSurface.Solid, effectiveBarSurface(BarSurface.Solid, blur, sdk))
         }
-    }
-
-    @Test fun frostedBarsFallBackToSolidBeforeAndroid12() {
-        assertEquals(BarSurface.Solid, effectiveBarSurface(BarSurface.Frosted, 30))
-        assertEquals(BarSurface.Frosted, effectiveBarSurface(BarSurface.Frosted, 31))
-        assertEquals(BarSurface.Tinted, effectiveBarSurface(BarSurface.Tinted, 28))
-        assertEquals(BarSurface.Solid, effectiveBarSurface(BarSurface.Solid, 28))
     }
 
     @Test fun everyBarSurfaceHasALabel() {

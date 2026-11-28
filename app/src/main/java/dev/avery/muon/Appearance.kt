@@ -46,13 +46,18 @@ internal fun paletteDescription(choice: PaletteChoice): String = when (choice) {
 /** What the navigation bar and mini player are made of. The content scrolls on under Frosted and Tinted. */
 enum class BarSurface { Frosted, Tinted, Solid }
 
-/** Before Bar surface existed, the Blur switch decided whether the bars were frosted or solid. */
-internal fun barSurfaceFrom(stored: String?, legacyBlur: Boolean): BarSurface =
-    BarSurface.entries.firstOrNull { it.name == stored } ?: if (legacyBlur) BarSurface.Frosted else BarSurface.Solid
+internal fun barSurfaceFrom(stored: String?): BarSurface =
+    BarSurface.entries.firstOrNull { it.name == stored } ?: BarSurface.Frosted
 
-/** Frost needs `RenderEffect`, from Android 12; older phones keep the solid bars they always had. */
-internal fun effectiveBarSurface(choice: BarSurface, sdkInt: Int): BarSurface =
-    if (choice == BarSurface.Frosted && sdkInt < Build.VERSION_CODES.S) BarSurface.Solid else choice
+/**
+ * Frosted needs the Blur switch, which is the kill switch for phones that struggle with blur, and
+ * `RenderEffect` (Android 12). Without either the bars are Solid, the look they had with Blur off
+ * before Bar surface existed; the stored choice is kept for when Frosted is possible again.
+ */
+internal fun frostedAvailable(blur: Boolean, sdkInt: Int): Boolean = blur && sdkInt >= Build.VERSION_CODES.S
+
+internal fun effectiveBarSurface(choice: BarSurface, blur: Boolean, sdkInt: Int): BarSurface =
+    if (choice == BarSurface.Frosted && !frostedAvailable(blur, sdkInt)) BarSurface.Solid else choice
 
 internal fun barSurfaceLabel(choice: BarSurface): String = when (choice) {
     BarSurface.Frosted -> "Frosted"
@@ -61,14 +66,14 @@ internal fun barSurfaceLabel(choice: BarSurface): String = when (choice) {
 }
 
 /**
- * The Material 3 Expressive experiment's two switches (Canary only; see docs/expressive-experiment.md).
+ * Appearance's Expressive motion and Blur switches (see docs/expressive-experiment.md).
  * Held here rather than in [AppearanceSettings] because the motion specs in Motion.kt are built
  * outside composition and read these directly; being snapshot state, a flip still re-animates.
  */
 internal object Expressive {
     /** Expressive springs for Material's components and Muon's own transitions, instead of eased tweens. */
     var motion by mutableStateOf(true)
-    /** Blurs the library behind the player and the song actions sheet, as Android 17 does behind its shade. */
+    /** Every blur Muon draws: Frosted bars, Now Playing's cover, and the library behind the player and song menu. */
     var blur by mutableStateOf(true)
 }
 
@@ -82,14 +87,12 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         private set
     var amoled by mutableStateOf(prefs.getBoolean(KEY_AMOLED, false))
         private set
-    var barSurface by mutableStateOf(barSurfaceFrom(prefs.getString(KEY_BAR_SURFACE, null), prefs.getBoolean(KEY_EXPRESSIVE_BLUR, true)))
+    var barSurface by mutableStateOf(barSurfaceFrom(prefs.getString(KEY_BAR_SURFACE, null)))
         private set
 
     init {
         Expressive.motion = prefs.getBoolean(KEY_EXPRESSIVE_MOTION, true)
         Expressive.blur = prefs.getBoolean(KEY_EXPRESSIVE_BLUR, true)
-        // Written once, so a later Blur switch flip cannot change the bars of someone who never chose.
-        if (!prefs.contains(KEY_BAR_SURFACE)) prefs.edit().putString(KEY_BAR_SURFACE, barSurface.name).apply()
     }
 
     fun chooseBarSurface(choice: BarSurface) {

@@ -113,9 +113,6 @@ internal fun SettingsScreen(model: LibraryModel, appearance: AppearanceSettings,
             GroupLabel("Appearance")
             AppearanceGroup(appearance)
 
-            GroupLabel("Material 3 Expressive experiment")
-            ExpressiveGroup(appearance)
-
             PrivacyNote()
         }
     }
@@ -564,11 +561,14 @@ private fun PlaybackGroup() {
 
 @Composable
 private fun AppearanceGroup(appearance: AppearanceSettings) {
-    val dynamicAvailable = dynamicColorAvailable(Build.VERSION.SDK_INT)
+    val sdk = Build.VERSION.SDK_INT
+    val dynamicAvailable = dynamicColorAvailable(sdk)
     // Show what will actually render: a device without dynamic colour cannot honour Material You.
     val shown = effectivePalette(appearance.palette, dynamicAvailable)
-    val frostAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val rows = PaletteChoice.entries.size + 2
+    // Compose applies blur from Android 12; older phones keep the cover backdrop alone.
+    val blurAvailable = sdk >= Build.VERSION_CODES.S
+    val frosted = frostedAvailable(Expressive.blur, sdk)
+    val rows = PaletteChoice.entries.size + 4
     SettingsGroup {
         PaletteChoice.entries.forEachIndexed { index, choice ->
             val enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable
@@ -579,45 +579,39 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
                 trailing = { RadioButton(selected = shown == choice, onClick = null, enabled = enabled) },
                 selected = shown == choice, onClick = { appearance.choose(choice) })
         }
-        SettingsRow(index = PaletteChoice.entries.size, count = rows,
+        val after = PaletteChoice.entries.size
+        SettingsRow(index = after, count = rows,
             headline = "Pure black", supporting = "Black backgrounds in dark mode", leading = rowIcon("contrast"),
             trailing = { Switch(checked = appearance.amoled, onCheckedChange = null) },
             toggled = appearance.amoled, onToggle = {
                 appearance.chooseAmoled(it)
             })
-        ChoiceRow(index = rows - 1, count = rows, headline = "Bar surface",
-            supporting = "Frosted blurs what's behind and uses the most power. Tinted and Solid don't blur at all.",
-            options = BarSurface.entries, chosen = effectiveBarSurface(appearance.barSurface, Build.VERSION.SDK_INT),
-            label = ::barSurfaceLabel, enabled = { it != BarSurface.Frosted || frostAvailable }) { appearance.chooseBarSurface(it) }
-    }
-    if (!dynamicAvailable) Text("Material You needs Android 12 or newer, so this device uses the Muon palette.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp))
-    if (!frostAvailable) Text("Frosted bars need Android 12 or newer.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp))
-}
-
-/** The Canary experiment's switches, so each part can be compared with it off on the same phone. */
-@Composable
-private fun ExpressiveGroup(appearance: AppearanceSettings) {
-    // Compose applies blur from Android 12; older phones keep the dimming alone.
-    val blurAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    SettingsGroup {
-        SettingsRow(index = 0, count = 2, headline = "Expressive motion", leading = rowIcon("motion"),
+        SettingsRow(index = after + 1, count = rows, headline = "Expressive motion", leading = rowIcon("motion"),
             supporting = "Springy transitions, and Material's expressive motion for its own controls",
             trailing = { Switch(checked = Expressive.motion, onCheckedChange = null) },
             toggled = Expressive.motion, onToggle = {
                 appearance.chooseExpressiveMotion(it)
             })
-        SettingsRow(index = 1, count = 2, headline = "Blur", leading = rowIcon("blur"),
-            supporting = if (blurAvailable) "Now Playing on a blurred cover, and the library blurred behind the player and the song menu"
-                else "Now Playing on a blurred cover. Blurring the library behind the player needs Android 12 or newer",
+        SettingsRow(index = after + 2, count = rows, headline = "Blur", leading = rowIcon("blur"),
+            supporting = if (blurAvailable) "Frosted bars, Now Playing on a blurred cover, and the library blurred behind the player. Turn off if scrolling or opening the player stutters"
+                else "Now Playing on a blurred cover. Frosted bars and blurring the library need Android 12 or newer",
             trailing = { Switch(checked = Expressive.blur, onCheckedChange = null) },
             toggled = Expressive.blur, onToggle = {
                 appearance.chooseExpressiveBlur(it)
             })
+        // Right under Blur, so Frosted greying out when Blur goes off is seen happening.
+        ChoiceRow(index = after + 3, count = rows, headline = "Bar surface",
+            supporting = when {
+                frosted -> "Frosted blurs what's behind and uses the most power. Tinted and Solid don't blur at all."
+                !blurAvailable -> "Frosted needs Android 12 or newer. Tinted and Solid don't blur at all."
+                else -> "Frosted needs Blur on. Tinted and Solid don't blur at all."
+            },
+            options = BarSurface.entries, chosen = effectiveBarSurface(appearance.barSurface, Expressive.blur, sdk),
+            label = ::barSurfaceLabel, enabled = { it != BarSurface.Frosted || frosted }) { appearance.chooseBarSurface(it) }
     }
+    if (!dynamicAvailable) Text("Material You needs Android 12 or newer, so this device uses the Muon palette.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp))
 }
 
 /** Disconnect clears the saved server and stops playback, so it asks first and names the server. */

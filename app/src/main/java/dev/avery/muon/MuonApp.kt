@@ -581,7 +581,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             val behind = Modifier.blurBehind(sheet) { menuBlur }
             // Bar surface (FrostedGlass.kt): with the bars along the bottom, Frosted and Tinted let the
             // lists scroll on under the mini player and navigation bar, blurred or sharp; Solid covers them.
-            val surface = effectiveBarSurface(appearance.barSurface, Build.VERSION.SDK_INT)
+            val surface = effectiveBarSurface(appearance.barSurface, Expressive.blur, Build.VERSION.SDK_INT)
             val seeThrough = connected && barsSeeThrough(surface, rail)
             val glass = rememberFrost()
             val frost = if (seeThrough && frostedGlassOn(surface, rail)) glass else null
