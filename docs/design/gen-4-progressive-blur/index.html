@@ -310,10 +310,52 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .scr.s-solid .topov .tint { height: 82px; background: var(--bg); box-shadow: 0 1px 0 color-mix(in srgb, var(--on) 8%, transparent); }
 .scr.s-solid .searchtop .tint { height: 96px; background: var(--bg); }
 .scr.s-solid .ftb { box-shadow: 0 14px 30px -16px var(--shadow); }
+
+/* Now Playing, reworked: one player with Cover, Lyrics and Up next views (pm-cover / pm-lyrics / pm-queue on .scr). */
+.pm .phdr { position: absolute; top: 30px; left: 0; right: 0; height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; z-index: 7; }
+.pm .phdr .chev { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--cvsoft) 80%, transparent); color: var(--on); }
+.pm .src { font-size: 11.5px; color: var(--onv); text-align: center; line-height: 1.25; }
+.pm .src b { display: block; color: var(--on); font-size: 13px; font-weight: 600; }
+.pm .pcov { position: absolute; z-index: 6; left: 18px; top: 90px; width: calc(var(--sw, 312px) - 36px); aspect-ratio: 1; border-radius: 26px; box-sizing: border-box; border: 5px solid color-mix(in srgb, #fff 75%, transparent); box-shadow: 0 24px 44px -28px var(--shadow);
+  transition: width .55s cubic-bezier(.3, 1.15, .45, 1), border-radius .5s, border-width .4s, top .55s cubic-bezier(.3, 1.15, .45, 1); }
+.scr.dark.pm .pcov { border-color: rgba(255,255,255,.08); }
+.pm:not(.pm-cover) .pcov { width: 52px; border-radius: 12px; border-width: 0; top: 92px; }
+.pm .pmeta { position: absolute; z-index: 6; left: 18px; right: 18px; top: calc(var(--sw, 312px) + 68px); transition: top .55s cubic-bezier(.3, 1.15, .45, 1), left .55s cubic-bezier(.3, 1.15, .45, 1); }
+.pm:not(.pm-cover) .pmeta { top: 97px; left: 82px; right: 52px; }
+.pm .pmeta b { display: block; font-size: 23px; font-weight: 500; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: font-size .45s; }
+.pm .pmeta i { display: block; font-style: normal; color: var(--onv); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: font-size .45s; }
+.pm:not(.pm-cover) .pmeta b { font-size: 16px; } .pm:not(.pm-cover) .pmeta i { font-size: 13px; }
+.pm .pmeta em { display: block; font-style: normal; font-size: 11.5px; color: var(--cv); font-weight: 600; margin-top: 2px; opacity: 0; transition: opacity .3s; }
+.pm.pm-lyrics .pmeta em { opacity: 1; }
+.pm .pbody { position: absolute; left: 0; right: 0; top: 150px; bottom: 222px; overflow-y: auto; scrollbar-width: none; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 3; }
+.pm .pbody::-webkit-scrollbar { display: none; }
+.pm.pm-lyrics .pbody.lyr-b, .pm.pm-queue .pbody.q-b { opacity: 1; pointer-events: auto; transition: opacity .4s .18s; }
+.pm .pedge, .pm .pfade { opacity: 0; transition: opacity .3s; z-index: 4; }
+.pm:not(.pm-cover) .pedge, .pm:not(.pm-cover) .pfade { opacity: 1; }
+.pm .pfade { position: absolute; left: 0; right: 0; pointer-events: none; }
+.pm .pfade.t { top: 146px; height: 40px; background: linear-gradient(to bottom, color-mix(in srgb, var(--npbg) 70%, transparent), transparent); }
+.pm .pfade.b { bottom: 218px; height: 48px; background: linear-gradient(to top, color-mix(in srgb, var(--npbg) 70%, transparent), transparent); }
+.pm .pdock { position: absolute; left: 18px; right: 18px; bottom: 16px; z-index: 6; display: grid; gap: 10px; }
+.pm .pdock .vol { transition: opacity .3s, margin .4s; }
+.pm:not(.pm-cover) .pdock .vol { opacity: 0; margin-top: -30px; pointer-events: none; }
+.mcap { display: flex; padding: 5px; position: relative; overflow: hidden; }
+.mcap button { flex: 1; height: 42px; border: 0; background: transparent; font: 500 14px/1 var(--face); color: var(--on); border-radius: 999px; display: inline-flex; gap: 8px; align-items: center; justify-content: center; cursor: pointer; position: relative; z-index: 1; }
+.mcap button:focus-visible { outline: 2px solid var(--cv); outline-offset: -2px; }
+.mcap .droplet { top: 5px; bottom: 5px; background: color-mix(in srgb, var(--cv) 20%, transparent); transition: left .55s cubic-bezier(.3, 1.45, .45, 1), width .4s, opacity .3s; }
+.pm.pm-cover .mcap .droplet { opacity: 0; }
+.plyr { padding: 38px 22px 110px; display: grid; gap: 12px; }
+.plyr p { font-size: 22px; font-weight: 650; line-height: 1.22; letter-spacing: -.01em; color: var(--onv); transition: filter .6s ease, color .4s, opacity .6s, transform .5s cubic-bezier(.3, 1.2, .45, 1); transform-origin: left center; cursor: pointer; }
+.plyr p.now { color: var(--on); transform: scale(1.03); }
+.plyr p.past { opacity: .55; }
+.plyr.plain p { font-size: 17px; font-weight: 450; line-height: 1.45; color: var(--on); filter: none !important; transform: none; opacity: 1; cursor: text; user-select: text; }
+.phint { margin: 30px 16px -18px; display: flex; gap: 10px; align-items: center; padding: 10px 6px 10px 14px; border-radius: 20px; background: color-mix(in srgb, var(--cvsoft) 88%, transparent); font-size: 13px; line-height: 1.3; }
+.phint span { flex: 1; } .phint span b { display: block; font-weight: 600; }
+.phint button { font: 600 13px/1 var(--face); border: 0; border-radius: 999px; padding: 10px 12px; cursor: pointer; background: var(--cv); color: var(--oncv); }
+.phint button.x { background: transparent; color: var(--onv); padding: 8px; }
+.pq { padding: 26px 0 110px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
 </style>
-</head>
-<body>
+
 <div class="wrap">
   <div class="top">
     <span class="eyebrow">Gen 4 · Progressive Blur · proposal</span>
@@ -340,6 +382,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     <h2>Surfaces that could turn to glass</h2>
     <p>Ranked by value for cost. Each phone follows the navigation bar choice above.</p>
     <div class="stage" id="stage"></div>
+  </section>
+
+  <section class="section">
+    <h2>Now Playing, reworked</h2>
+    <p>With synced lyrics on the way (#797), Lyrics and Queue fit better as views inside Now Playing than as screens of their own. Tap <b>Lyrics</b> or <b>Up next</b> in the capsule at the bottom: the cover shrinks into the header, the view scrolls in between soft edges, and the controls stay where they are. Tap it again for the cover. These edges blur the player's own text, not what's behind another surface, so they need no Android 17 backdrop.</p>
+    <div class="stage" id="stage-np"></div>
   </section>
 
   <section class="section">
@@ -370,9 +418,14 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       <div class="note"><h3>Progressive edges</h3><ul>
         <li><code>BlurRadiusSpec</code> comes with Compose 1.13 (BOM 2026.11.01, Kotlin 2.2+, compileSdk 37.1). That upgrade is its own slice, done first.</li>
         <li>Not yet checked: how a <code>BlurRadiusSpec</code> reaches the platform backdrop. Read the 1.13 sources before relying on it; a uniform blur works without it.</li></ul></div>
-      <div class="note"><h3>Synced lyrics</h3><ul>
-        <li>Lyrics in focus needs timed lines. Muon reads plain <code>lyrics_text</code> from Tauon today. Not checked yet: whether Tauon keeps LRC timestamps it could pass on.</li>
-        <li>The line blur itself is plain <code>Modifier.blur</code> (Android 12+), independent of the backdrop work.</li></ul></div>
+      <div class="note"><h3>Synced lyrics (#797)</h3><ul>
+        <li>Tauon mostly sends plain <code>lyrics_text</code>. #797 adds online sources (LRCLIB first), <b>off by default</b>; when on, online comes first and Tauon's text is the fallback. Which sources ship waits on the desktop lookup tally.</li>
+        <li>The line blur is plain <code>Modifier.blur</code> (Android 12+), independent of the backdrop work.</li></ul></div>
+      <div class="note"><h3>Now Playing rework</h3><ul>
+        <li>Lyrics and Queue stop being overlays of their own and become views of the player, so Back from either goes to the cover first, then closes the player.</li>
+        <li>The soft edges are Compose 1.13's progressive blur on the player's own scrolling content (Android 13+), with a plain fade below that. No 37.2 needed.</li>
+        <li>The cover's shrink into the header reuses the flying-cover morph that already carries it between the mini player and Now Playing.</li>
+        <li>Landscape keeps today's side-by-side player; the views take the right-hand side there.</li></ul></div>
       <div class="note"><h3>Cost</h3><ul>
         <li>The renderer re-samples and re-blurs a backdrop every frame, with no cache. Small, brief surfaces (toolbar, snackbar, bubble) are safe bets; full-width bars need a Pixel trace.</li>
         <li>Early Haze benchmarks found its native-backdrop path used more CPU per frame than its copy-based one, which is the approach Frost already takes.</li></ul></div>
@@ -473,6 +526,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       const pic = `<svg width="44" height="30" viewBox="0 0 44 30" aria-hidden="true"><rect x="3" y="4" width="10" height="22" rx="3" fill="currentColor" fill-opacity=".35"/><rect x="17" y="8" width="10" height="18" rx="3" fill="currentColor" fill-opacity=".55"/><rect x="31" y="2" width="10" height="24" rx="3" fill="currentColor" fill-opacity=".25"/><rect x="1" y="13" width="42" height="13" rx="6.5" fill="currentColor" fill-opacity="${op}"/>${dots ? `<rect x="1" y="13" width="42" height="13" rx="6.5" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="1.5 2"/>` : ""}</svg>`;
       return `<button type="button" data-surf="${v}" aria-pressed="${on}">${pic}${label}</button>`;
     };
+    const slider = (label, value, at) => `<div><div class="t"><b>${label}</b><i>${value}</i></div><svg width="100%" height="20" viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="8" width="${200 * at - 6}" height="4" rx="2" fill="var(--primary)"/><rect x="${200 * at + 6}" y="8" width="${194 - 200 * at}" height="4" rx="2" fill="var(--tonal)"/><rect x="${200 * at - 2}" y="0" width="4" height="20" rx="2" fill="var(--primary)"/></svg></div>`;
     return `<div class="scroll" data-start="0" data-sid="${sid}">${sb()}
       <div class="sttl"><b>Settings</b><span>Version 0.1.0</span></div>
       <div class="glabel">Appearance</div>
@@ -482,16 +536,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         <div class="sitem">${ic("contrast")}<div class="t"><b>Pure black</b><i>Black backgrounds in dark mode</i></div><span class="sw${S.theme === "dark" ? "" : " off"}"></span></div>
         <div class="sitem new" style="border-radius:6px">${ic("navbar")}<div class="t"><b>Navigation bar</b><i>Edge to edge is the default; floating sits over the list</i></div></div>
         <div class="navchoice" style="border-radius:6px"><div class="opts">${opt("edge", "Edge to edge")}${opt("float", "Floating")}</div></div>
-        ${nav === "float" ? `<div class="sitem new" data-fstyle role="switch" aria-checked="${S.fstyle === "tuck"}" tabindex="0" style="border-radius:6px;cursor:pointer">${ic("motion")}<div class="t"><b>Tuck in while scrolling</b><i>The mini player slides down beside the current tab as you scroll</i></div><span class="sw${S.fstyle === "tuck" ? "" : " off"}"></span></div>` : ""}
+        ${nav === "float" ? `<div class="sitem new" style="border-radius:6px;display:grid;gap:8px">${slider("Bar width", "90% of the screen's width", .75)}${slider("Tab height", "52 dp", .5)}</div>
+        <div class="sitem new" data-fstyle role="switch" aria-checked="${S.fstyle === "tuck"}" tabindex="0" style="border-radius:6px;cursor:pointer">${ic("motion")}<div class="t"><b>Tuck in while scrolling</b><i>The mini player slides down beside the current tab as you scroll</i></div><span class="sw${S.fstyle === "tuck" ? "" : " off"}"></span></div>` : ""}
+        <div class="sitem" style="border-radius:6px">${ic("blur")}<div class="t"><b>Blur</b><i>Frosted bars, Now Playing on a blurred cover, and the library blurred behind the player. Turn off if scrolling or opening the player stutters</i></div><span class="sw"></span></div>
         <div class="sitem new" style="border-radius:6px">${ic("blur")}<div class="t"><b>Bar surface</b><i>Frosted blurs what's behind and uses the most power. Tinted and Solid don't blur at all.</i></div></div>
         <div class="navchoice" style="border-radius:6px 6px 22px 22px"><div class="opts">${surf("frosted", "Frosted", .4, true)}${surf("tinted", "Tinted", .7, false)}${surf("solid", "Solid", 1, false)}</div></div>
       </div>
-      <div class="glabel">Material 3 Expressive experiment</div>
-      <div class="sgroup">
-        <div class="sitem">${ic("motion")}<div class="t"><b>Expressive motion</b><i>Springy transitions, and Material's expressive motion for its own controls</i></div><span class="sw"></span></div>
-        <div class="sitem">${ic("blur")}<div class="t"><b>Blur</b><i>Now Playing on a blurred cover, and the library blurred behind the player and the song menu</i></div><span class="sw"></span></div>
-      </div>
-      <p class="foot">Dashed rows are new in Gen 4. Bars and toolbars now follow Bar surface; the Blur switch keeps Now Playing and the blur behind the player.</p><div style="height:190px"></div></div>
+      <p class="foot">As built on the Gen 4 branch (Canary .1791). Dashed rows are new in Gen 4. Blur is the switch for every blur: off greys out Frosted. The Material 3 Expressive experiment section is gone.</p><div style="height:190px"></div></div>
       ${chrome(sid, 2, nav, tuck)}`;
   }
   const ARTIST = [["Colour Theory", "Ines Varga, Hollis Reed · Bloom", ART.bloom, "3:59"], ["Glasshouse", "Low Orbit", ART.orbit, "3:41"], ["Kilnwork", "Kilnwork", null, "2:58"], ["Seventh Floor", "Seventh Floor", ART.floor, "3:33"], ["Night Ferry", "Ember Season", ART.ember, "3:27"], ["Slow Tide", "Brine", ART.brine, "5:06"], ["Moss and Mortar", "Field Notes", ART.moss, "4:05"], ["Salt on the Glass", "Tidewater", ART.tide, "4:21"], ["Sundial", "Dune Songs", ART.dune, "3:19"], ["Rockpool", "Tidepool", ART.tidepool, "2:51"], ["Petal Static", "Rosewire", ART.rose, "3:44"], ["Fathom", "Tidewater", ART.tide, "3:57"]];
@@ -542,10 +593,24 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       <div class="snack glass" role="status"><span>Kilnwork plays next</span><button type="button" data-undo>Undo</button></div>`;
   }
   const LYRICS = ["Mix the blue into the morning", "till it's nearly something new", "every colour that I borrowed", "I was saving it for you", "Turn the light a little warmer", "let the shadows have their say", "we were paint across the window", "we were brighter than the day", "Colour theory, colour theory", "teach me how to blend", "every shade I never noticed", "running gold around the bend", "Colour theory, colour theory", "leave the last light on"];
-  function lyricsScreen(sid) {
-    return `<div class="scroll" data-lyrics data-sid="${sid}"><div class="lyr">${LYRICS.map((l, i) => `<p data-i="${i}">${l}</p>`).join("")}</div></div>
-      <div class="topov">${pedge("down", "top:0;height:118px", TOP_EDGE)}<div class="tint"></div>${sb()}
-        <div class="barrow"><span class="ib">${ic("back")}</span><b style="font-size:16px;line-height:1.2">Colour Theory<br><span style="font-size:12.5px;color:var(--onv);font-weight:400">Ines Varga, Hollis Reed · synced</span></b><span class="ib">${ic("more")}</span></div></div>`;
+  // Now Playing, reworked: one player whose body is the cover, the lyrics or the queue.
+  function playerScreen(sid, opts) {
+    let wave = "M4 8"; for (let x = 4; x <= 132; x++) wave += `L${x} ${(8 + 3 * Math.sin((x / 18) * Math.PI * 2)).toFixed(2)}`;
+    const lyr = LYRICS.map((l, i) => `<p data-i="${i}">${l}</p>`).join("");
+    const hint = opts.plain ? `<div class="phint"><span><b>These lyrics aren't synced</b>Find synced lyrics online</span><button type="button" data-on>Turn on</button><button type="button" class="x" data-x aria-label="Dismiss">✕</button></div>` : "";
+    return `<div class="np-bg" style="background:${ART.bloom}"></div><div class="np-veil"></div>${sb()}
+      <div class="phdr"><span class="chev">${ic("down", 20)}</span><span class="src">Playing from<b>Library · Songs</b></span><span class="ib">${ic("more")}</span></div>
+      <div class="pcov" style="background:${ART.bloom}"></div>
+      <div class="pmeta"><b>Colour Theory</b><i>Ines Varga, Hollis Reed</i><em data-credit>${opts.plain ? "Lyrics from Tauon" : "Synced lyrics from LRCLIB"}</em></div>
+      <div class="pbody lyr-b" data-plyr>${hint}<div class="plyr${opts.plain ? " plain" : ""}">${lyr}</div></div>
+      <div class="pbody q-b"><div class="pq"><div class="grp-h" style="font-size:12.5px;font-weight:500">Up next<small>958 songs, 56 hours 21 min</small></div>${group(QUEUE.map(([t, a, bg, d]) => row(t, a, bg, { grip: true, d })))}</div></div>
+      ${pedge("down", "top:146px;height:60px", TOP_EDGE)}${pedge("up", "bottom:216px;height:66px", BOTTOM_EDGE)}<div class="pfade t"></div><div class="pfade b"></div>
+      <div class="pdock">
+        <div><svg viewBox="0 0 290 16" width="100%" height="16" preserveAspectRatio="none" aria-hidden="true"><line x1="144" y1="8" x2="286" y2="8" stroke="var(--cvsoft)" stroke-width="5" stroke-linecap="round"/><path d="${wave}" fill="none" stroke="var(--cv)" stroke-width="4" stroke-linecap="round"/><rect x="136" y="0" width="4" height="16" rx="2" fill="var(--cv)"/><circle cx="286" cy="8" r="2" fill="var(--cv)"/></svg><div class="times"><span>1:58</span><span>3:59</span></div></div>
+        <div class="transport"><span class="side">${ic("shuffle", 20)}</span><div class="tg"><span class="sk">${ic("prev", 20)}</span><span class="pl">${ic("pause", 28)}</span><span class="sk">${ic("skip", 20)}</span></div><span class="side">${ic("repeat", 20)}</span></div>
+        <div class="vol">${ic("vlow", 18)}<div class="tr"></div>${ic("vhigh", 18)}</div>
+        <div class="lg mcap" role="group" aria-label="Player view"><span class="droplet"></span><button type="button" data-view="lyrics" aria-pressed="false">${ic("lyrics", 18)}Lyrics</button><button type="button" data-view="queue" aria-pressed="false">${ic("queue", 18)}Up next</button></div>
+      </div>`;
   }
   const AZ = ["Afterglow Ferry", "Amber Street", "Bellwether", "Brine and Bone", "Colour Theory", "Copper Weather", "Driftwood Choir", "Dune Songs", "Ebb", "Ember Season", "Fathom", "Field Notes", "Glasshouse", "Greenhouse Static", "Harbour Lights", "Hollow Bay", "Iron Lantern", "Juniper Wire", "Kilnwork", "Kite Season", "Low Water", "Lantern Row", "Moss and Mortar", "Marigold", "Night Ferry", "Northbound (Live)", "Orchard Radio", "Paper Satellites", "Petal Static", "Pilot Light", "Quarry Light", "Rockpool", "Rosewire", "Salt on the Glass", "Seventh Floor", "Slow Tide", "Sundial", "Tidewater", "Tin Roof Hymn", "Undertow", "Velvet Signal", "Willow Code", "Yellow Ferry", "Zephyr Lane"];
   const ARTISTS = ["Mara Ellis", "Hollis Reed", "Juno Park", "Ines Varga", "Fen Calder", "Sable & Quay", "Okonkwo & June", "Wren Alder", "Rosewire", "Ada Moreno"];
@@ -575,6 +640,23 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       now: "New rows, laid out like Cache limit: Navigation bar and Bar surface, plus a Tuck in while scrolling switch that appears once Floating is chosen. Tap any of them, or Material You and Muon: every phone on this page follows.",
       old: "The same rows. On an older phone, Frosted means Muon's Frost layer for the bars and solid for the smaller surfaces.",
       why: "They sit beside Pure black because they're looks, not experiments. Landscape keeps the rail either way." } ];
+  const NP_SCREENS = [
+    { id: "np-cover", cls: "pm pm-cover", keep: true, rank: ["r0", "Rework · proposal"], title: "One player, three views", render: (id) => playerScreen(id, {}),
+      now: "Today's Now Playing, with Lyrics and Up next in a glass capsule instead of two text buttons. Tap either: the cover shrinks into the header and the view slides in between soft edges. Tap it again for the cover.",
+      old: "The same moves. The edges fade without blurring.",
+      why: "Lyrics and Queue are full screens of their own today, each with its own bar and Back. As views of the player they share the cover glow, one header and the controls, and the player stays one surface that grows from the mini player." },
+    { id: "np-lyrics", cls: "pm pm-lyrics", keep: true, start: "lyrics", rank: ["r0", "Rework · with #797"], title: "Lyrics in Focus, inside the player", render: (id) => playerScreen(id, {}),
+      now: "Synced lines from #797's online sources scroll between the header and the controls. The sung line is sharp and lines further from it blur by distance; tap one to jump. The header credits the source.",
+      old: "Lines still blur by distance (Android 12+); only the edges become a plain fade.",
+      why: "Reading along with the controls in reach, which a separate Lyrics screen can't do. The line blur and the edges both blur the player's own content: Compose 1.13, no backdrop." },
+    { id: "np-plain", cls: "pm pm-lyrics", keep: true, start: "lyrics", plain: true, rank: ["r0", "Rework · with #797"], title: "Plain lyrics, and the online hint", render: (id) => playerScreen(id, { plain: true }),
+      now: "Tauon's plain lyrics stay crisp and selectable. With online lookups off, a one-line hint offers synced lyrics: Turn on flips this phone to synced; ✕ hides the hint for good.",
+      old: "The same: nothing here blurs.",
+      why: "#797's decisions: online lookups off by default, found in context, never a dialog, and one tap after a clean install." },
+    { id: "np-queue", cls: "pm pm-queue", keep: true, start: "queue", rank: ["r0", "Rework · proposal"], title: "Up next, inside the player", render: (id) => playerScreen(id, {}),
+      now: "The queue's joined group scrolls under the same edges. Drag, swipe to remove and the playing row stay as they are today.",
+      old: "The same, with a plain fade at the edges.",
+      why: "One fewer full-screen overlay to keep in step with the player: Back, predictive Back and the morph all have one surface to handle." } ];
   const SURF_NOTE = {
     tinted: "<b>Tinted.</b> <span>The same surface in its own colour at about 85%, so the content shows through faintly. Nothing is blurred, so it costs no more than a plain bar.</span>",
     solid: () => `<b>Solid.</b> <span>Opaque, in the ${S.pal === "you" ? "Material You" : "Muon"} palette's container colours. No blur and no see-through: Gen 3's plainest look.</span>` };
@@ -586,7 +668,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     { id: "queue", rank: ["r2", "Build next"], title: "Queue and Lyrics top bars", render: queueScreen,
       now: "Once the large title collapses, rows slide under the bar and dissolve. The blur is strongest behind the status bar and fades out just below the title, so there's no hard edge.",
       old: "Today's solid bar with a straight edge.",
-      why: "Queue and Lyrics are full screens in Muon's window, so the backdrop sees the list. The soft edge needs Compose 1.13; a uniform blur doesn't." },
+      why: "Queue and Lyrics are full screens in Muon's window, so the backdrop sees the list. If they become views inside Now Playing (below), the player's own soft edges replace these bars." },
     { id: "search", rank: ["r2", "Build next"], title: "Search bar over results", render: searchScreen,
       now: "The search pill floats over the results as glass, with the same soft edge behind it, so covers stay visible right up to the top.",
       old: "The pill on a solid band, as today.",
@@ -595,10 +677,6 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       now: "“Plays next” and “Removed” float over the cover glow as tinted glass instead of a solid slab. Try Undo.",
       old: "Today's inverse-colour snackbar.",
       why: "Small and short-lived. Check text contrast over very bright covers; the tint stays at 72% for that reason." },
-    { id: "lyrics", rank: ["r3", "Idea · needs synced lyrics"], title: "Lyrics in focus", render: lyricsScreen,
-      now: "With timed lyrics, the sung line is sharp and lines further from it blur by distance. Tap a line to jump. Plain lyrics would stay as today: crisp and selectable.",
-      old: "The line blur stays: it blurs the lines themselves, so plain Modifier.blur covers it from Android 12. Only the top edge falls back to solid.",
-      why: "Not filed yet. It depends on Muon getting timed lines from Tauon, which it doesn't today." },
     { id: "lens", rank: ["r4", "Playful"], title: "A–Z letter bubble as a lens", render: lensScreen,
       now: "While you drag the A–Z handle, the letter bubble turns into a lens: blur plus a strong saturation boost over the rows beneath, chained the way Google's Dev Summit demo chained effects. Drag the handle on the right.",
       old: "Today's solid bubble.",
@@ -608,13 +686,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   const intervals = [];
   function setVars(el) { const p = { ...BASE[S.pal][S.theme], ...COVER[S.theme] }; for (const [k, v] of Object.entries(p)) el.style.setProperty("--" + k, v); }
   function modeText(s) {
-    if (S.surf === "tinted" && s.id !== "lyrics" && s.id !== "settings") return SURF_NOTE.tinted;
-    if (S.surf === "solid" && s.id !== "lyrics" && s.id !== "settings") return SURF_NOTE.solid();
+    if (S.surf === "tinted" && !s.keep && s.id !== "settings") return SURF_NOTE.tinted;
+    if (S.surf === "solid" && !s.keep && s.id !== "settings") return SURF_NOTE.solid();
     return S.dev === "new" ? `<b>Android 17 QPR2.</b> <span>${s.now}</span>` : `<b>Older Android.</b> <span>${s.old}</span>`;
   }
   function col(s, nav) {
     return `<div class="phone-col">
-      <div class="phone"><div class="scr${S.dev === "old" ? " fb" : ""}${S.theme === "dark" ? " dark" : ""} s-${S.surf}" id="scr-${s.id}" data-nav="${nav}">${s.render(s.id, nav, s.tuck ?? (nav === "float" && S.fstyle === "tuck"))}</div></div>
+      <div class="phone"><div class="scr${S.dev === "old" ? " fb" : ""}${S.theme === "dark" ? " dark" : ""} s-${S.surf}${s.cls ? " " + s.cls : ""}" id="scr-${s.id}" data-nav="${nav}">${s.render(s.id, nav, s.tuck ?? (nav === "float" && S.fstyle === "tuck"))}</div></div>
       <div class="cap"><span class="rank ${s.rank[0]}">${s.rank[1]}</span><h3>${s.title}</h3>
         <div class="mode">${modeText(s)}</div>
         <p>${s.why}</p></div></div>`;
@@ -624,6 +702,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     document.documentElement.setAttribute("data-theme", S.theme);
     document.getElementById("stage-nav").innerHTML = NAV_SCREENS.map(s => col(s, s.fixed || S.nav)).join("");
     document.getElementById("stage").innerHTML = SCREENS.map(s => col(s, S.nav)).join("");
+    document.getElementById("stage-np").innerHTML = NP_SCREENS.map(s => col(s, S.nav)).join("");
     document.querySelectorAll(".scr").forEach(setVars);
     document.querySelectorAll("[data-start]").forEach(el => { el.scrollTop = +el.dataset.start; });
     document.querySelectorAll(".chrome").forEach(wireChrome);
@@ -638,8 +717,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       r.addEventListener("click", () => setPref("pal", r.dataset.pal));
       r.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPref("pal", r.dataset.pal); } });
     });
-    wireSnack(); wireLyrics(); wireLens(); wireTuckDemo();
+    wireSnack(); wireLens(); wireTuckDemo(); NP_SCREENS.forEach(wirePlayer);
   }
+  addEventListener("resize", () => document.querySelectorAll(".scr.pm").forEach(el => el.style.setProperty("--sw", el.clientWidth + "px")));
   function setPref(k, v) { S[k] = v; save(); syncSegs(); render(); }
   // The tuck-in phone demonstrates itself until someone scrolls or touches it.
   function wireTuckDemo() {
@@ -672,20 +752,42 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     const scr = document.getElementById("scr-snack"); if (!scr) return; const snack = scr.querySelector(".snack");
     scr.querySelector("[data-undo]").addEventListener("click", () => { snack.classList.add("away"); setTimeout(() => snack.classList.remove("away"), 1800); });
   }
-  function wireLyrics() {
-    const scr = document.getElementById("scr-lyrics"), box = scr.querySelector("[data-lyrics]"), lines = [...scr.querySelectorAll(".lyr p")];
-    let cur = 5;
+  // Sung line sharp, the rest blurred by distance; [lines] advance on their own unless motion is reduced.
+  function focusLyrics(box, lines, start) {
+    let cur = start;
     const show = (smooth) => {
       lines.forEach((p, i) => {
         const d = Math.abs(i - cur), blur = i === cur ? 0 : Math.min(6, (i < cur ? 1.2 : 0.4) + d * 1.1);
         p.style.filter = blur ? `blur(${blur.toFixed(1)}px)` : "none";
         p.classList.toggle("now", i === cur); p.classList.toggle("past", i < cur);
       });
-      box.scrollTo({ top: Math.max(0, lines[cur].offsetTop - 240), behavior: smooth ? "smooth" : "auto" });
+      box.scrollTo({ top: Math.max(0, lines[cur].offsetTop - 110), behavior: smooth ? "smooth" : "auto" });
     };
     lines.forEach((p, i) => p.addEventListener("click", () => { cur = i; show(true); }));
     show(false);
     if (!matchMedia("(prefers-reduced-motion: reduce)").matches) intervals.push(setInterval(() => { cur = (cur + 1) % lines.length; show(true); }, 3200));
+  }
+  function wirePlayer(s) {
+    const scr = document.getElementById("scr-" + s.id); if (!scr) return;
+    // The cover is as wide as the screen less its margins; CSS can't place the title under a width-sized box by itself.
+    scr.style.setProperty("--sw", scr.clientWidth + "px");
+    const cap = scr.querySelector(".mcap"), drop = cap.querySelector(".droplet"), btns = [...cap.querySelectorAll("button")];
+    const view = (v) => {
+      scr.classList.remove("pm-cover", "pm-lyrics", "pm-queue"); scr.classList.add("pm-" + v);
+      btns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === v)));
+      const on = btns.find(b => b.dataset.view === v);
+      if (on) { drop.style.left = on.offsetLeft + "px"; drop.style.width = on.offsetWidth + "px"; }
+    };
+    btns.forEach(b => b.addEventListener("click", () => view(scr.classList.contains("pm-" + b.dataset.view) ? "cover" : b.dataset.view)));
+    requestAnimationFrame(() => view(s.start || "cover"));
+    const box = scr.querySelector("[data-plyr]"), lyr = box.querySelector(".plyr"), lines = [...lyr.querySelectorAll("p")];
+    const synced = () => focusLyrics(box, lines, 5);
+    if (!s.plain) synced();
+    const hint = box.querySelector(".phint"); if (!hint) return;
+    hint.querySelector("[data-x]").addEventListener("click", () => hint.remove());
+    hint.querySelector("[data-on]").addEventListener("click", () => {
+      hint.remove(); lyr.classList.remove("plain"); scr.querySelector("[data-credit]").textContent = "Synced lyrics from LRCLIB"; synced();
+    });
   }
   function wireLens() {
     const scr = document.getElementById("scr-lens"), list = scr.querySelector("[data-az]"), rail = scr.querySelector(".rail"),
