@@ -68,4 +68,10 @@ class AppearanceSettingsTest {
         assertEquals(0.75f, restarted.floatWidth, 0f)
         assertEquals(44, restarted.floatTabHeight)
     }
+
+    @Test fun theBackdropExperimentIsOffUntilChosen() {
+        assertEquals(false, AppearanceSettings(prefs).backdropBars)
+        AppearanceSettings(prefs).chooseBackdropBars(true)
+        assertEquals(true, AppearanceSettings(prefs).backdropBars)
+    }
 }

@@ -117,6 +117,9 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
     /** Floating only: scrolling down folds the tabs to the current one, with the mini player beside it. */
     var tuckIn by mutableStateOf(prefs.getBoolean(KEY_TUCK_IN, false))
         private set
+    /** Slice 11's experiment ([backdropOnThisPhone] only): Frosted bars blurred by the system's backdrop, not Frost. */
+    var backdropBars by mutableStateOf(prefs.getBoolean(KEY_BACKDROP_BARS, false))
+        private set
     var floatWidth by mutableStateOf(floatWidthFrom(prefs.getFloat(KEY_FLOAT_WIDTH, 1f)))
         private set
     var floatTabHeight by mutableStateOf(floatTabHeightFrom(prefs.getInt(KEY_FLOAT_TAB_HEIGHT, FLOAT_TAB_HEIGHT_DEFAULT)))
@@ -145,6 +148,12 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
 
     fun saveFloatSize() {
         prefs.edit().putFloat(KEY_FLOAT_WIDTH, floatWidth).putInt(KEY_FLOAT_TAB_HEIGHT, floatTabHeight).apply()
+    }
+
+    fun chooseBackdropBars(enabled: Boolean) {
+        if (enabled == backdropBars) return
+        backdropBars = enabled
+        prefs.edit().putBoolean(KEY_BACKDROP_BARS, enabled).apply()
     }
 
     fun chooseBarSurface(choice: BarSurface) {
@@ -177,6 +186,7 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         const val KEY_BAR_SURFACE = "bar_surface"
         const val KEY_NAV_BAR = "nav_bar"
         const val KEY_TUCK_IN = "tuck_in"
+        const val KEY_BACKDROP_BARS = "backdrop_bars"
         const val KEY_FLOAT_WIDTH = "float_width"
         const val KEY_FLOAT_TAB_HEIGHT = "float_tab_height"
     }
