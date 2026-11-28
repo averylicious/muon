@@ -47,6 +47,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +55,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -64,6 +66,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /**
  * The three tabs. Now Playing is not one of them: it is an overlay that grows out of the mini
@@ -682,7 +685,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             // check on the Pixel). Added as an inset, so the bar's tint covers it.
                             // Floating, a container colour: the page's own would vanish into the list as Solid.
                             if (floating) FloatingTabs(Tab.entries.map { it.name }, tab.ordinal, colors.surfaceContainer.copy(alpha = barTint),
-                                select = { tab = Tab.entries[it]; fromSearch = false }, tuck = tuck, only = if (appearance.tuckIn) tuck else 0f,
+                                select = { tab = Tab.entries[it]; fromSearch = false }, height = appearance.floatTabHeight.dp,
+                                tuck = tuck, only = if (appearance.tuckIn) tuck else 0f, expand = { tucked = false },
                                 modifier = Modifier.clip(CAPSULE).frostedBehind(frost, frost?.tabs, colors.background)) { TabIcon(Tab.entries[it]) }
                             else ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint),
                                 windowInsets = ShortNavigationBarDefaults.windowInsets.add(WindowInsets(top = NAV_BAR_TOP_ROOM))) {
@@ -695,7 +699,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         }
                     }
                     if (floating) FloatingStack({ tuck }, appearance.tuckIn, sides.windowInsetsPadding(WindowInsets.navigationBars)
-                        .padding(start = FLOAT_MARGIN, end = FLOAT_MARGIN, bottom = FLOAT_MARGIN), miniBar, navBar)
+                        .padding(start = FLOAT_MARGIN, end = FLOAT_MARGIN, bottom = FLOAT_MARGIN),
+                        appearance.floatWidth, appearance.floatTabHeight.dp, miniBar, navBar)
                     else Column(sides.frostedBehind(frost, frost?.bars, colors.background)) { miniBar(); navBar() }
                 }) { padding ->
                     // Under see-through bars the content runs to the bottom, behind them, and each list adds
@@ -1283,8 +1288,12 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean, covered: Boolean, back
         // Playing, fading out as that fades in. It is a picture of the mini player: it takes no touch
         // and says nothing to a screen reader.
         Box(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxWidth().padding(horizontal = if (morph.floating) FLOAT_MARGIN else 0.dp)
-                .graphicsLayer { alpha = morph.faceAlpha() }.clearAndSetSemantics {}) {
+            // Floating, where the capsule is, however wide it was chosen and wherever a tuck put it.
+            Box(Modifier.fillMaxWidth().layout { measurable, constraints ->
+                val box = if (morph.floating) morph.miniBox() else null
+                val placeable = measurable.measure(if (box != null) Constraints.fixedWidth(box.width.roundToInt()) else constraints)
+                layout(constraints.maxWidth, placeable.height) { placeable.place(box?.left?.roundToInt() ?: 0, 0) }
+            }.graphicsLayer { alpha = morph.faceAlpha() }.clearAndSetSemantics {}) {
                 face()
                 Box(Modifier.matchParentSize().pointerInput(Unit) {})
             }

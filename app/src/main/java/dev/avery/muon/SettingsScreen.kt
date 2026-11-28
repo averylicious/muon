@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +32,7 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** Rows in a group share a shape family: the group's outer corners are large, the seams are small. */
 private val GroupOuterCorner = 20.dp
@@ -469,6 +471,25 @@ private fun <T> ChoiceRow(index: Int, count: Int, headline: String, supporting: 
     }
 }
 
+/**
+ * A group row with a stepped slider under its text. [change] follows the finger, so what it sizes can
+ * be watched changing; [done] runs once the finger lifts, which is when a value is worth storing.
+ */
+@Composable
+private fun SliderRow(index: Int, count: Int, headline: String, supporting: String, value: Float,
+    range: ClosedFloatingPointRange<Float>, steps: Int, change: (Float) -> Unit, done: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(shape = ListItemDefaults.segmentedShapes(index, count).shape,
+        color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)) {
+            Text(headline, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface)
+            Text(supporting, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            Slider(value = value, onValueChange = change, valueRange = range, steps = steps,
+                onValueChangeFinished = done, modifier = Modifier.semantics { contentDescription = headline })
+        }
+    }
+}
+
 @Composable
 private fun ConnectedBadge(offline: Boolean = false) {
     // Offline is not an error: the downloads still play. It is set apart by a quieter colour.
@@ -515,7 +536,7 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
     val blurAvailable = sdk >= Build.VERSION_CODES.S
     val frosted = frostedAvailable(Expressive.blur, sdk)
     val floating = appearance.navBar == NavBarStyle.Floating
-    val rows = PaletteChoice.entries.size + if (floating) 5 else 4
+    val rows = PaletteChoice.entries.size + if (floating) 7 else 4
     SettingsGroup {
         PaletteChoice.entries.forEachIndexed { index, choice ->
             val enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable
@@ -527,8 +548,8 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
                 selected = shown == choice, onClick = { appearance.choose(choice) })
         }
         val after = PaletteChoice.entries.size
-        // Blur and Bar surface move down one while Navigation bar's Tuck in switch shows.
-        val below = after + if (floating) 3 else 2
+        // Blur and Bar surface move down while Floating's own rows show under Navigation bar.
+        val below = after + if (floating) 5 else 2
         SettingsRow(index = after, count = rows,
             headline = "Pure black", supporting = "Black backgrounds in dark mode", leading = rowIcon("contrast"),
             trailing = { Switch(checked = appearance.amoled, onCheckedChange = null) },
@@ -538,7 +559,20 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
         ChoiceRow(index = after + 1, count = rows, headline = "Navigation bar",
             supporting = "Edge to edge is the default; floating sits over the list",
             options = NavBarStyle.entries, chosen = appearance.navBar, label = ::navBarStyleLabel) { appearance.chooseNavBar(it) }
-        if (floating) SettingsRow(index = after + 2, count = rows, headline = "Tuck in while scrolling", leading = rowIcon("motion"),
+        if (floating) {
+            val widthSteps = ((1f - FLOAT_WIDTH_MIN) / FLOAT_WIDTH_STEP).roundToInt() - 1
+            SliderRow(index = after + 2, count = rows, headline = "Bar width",
+                supporting = "${(appearance.floatWidth * 100).roundToInt()}% of the screen's width",
+                value = appearance.floatWidth, range = FLOAT_WIDTH_MIN..1f, steps = widthSteps,
+                change = { appearance.previewFloatWidth(it) }, done = { appearance.saveFloatSize() })
+            val heightSteps = (FLOAT_TAB_HEIGHT_MAX - FLOAT_TAB_HEIGHT_MIN) / FLOAT_TAB_HEIGHT_STEP - 1
+            SliderRow(index = after + 3, count = rows, headline = "Tab height",
+                supporting = "${appearance.floatTabHeight} dp",
+                value = appearance.floatTabHeight.toFloat(),
+                range = FLOAT_TAB_HEIGHT_MIN.toFloat()..FLOAT_TAB_HEIGHT_MAX.toFloat(), steps = heightSteps,
+                change = { appearance.previewFloatTabHeight(it.roundToInt()) }, done = { appearance.saveFloatSize() })
+        }
+        if (floating) SettingsRow(index = after + 4, count = rows, headline = "Tuck in while scrolling", leading = rowIcon("motion"),
             supporting = "The mini player slides down beside the current tab as you scroll",
             trailing = { Switch(checked = appearance.tuckIn, onCheckedChange = null) },
             toggled = appearance.tuckIn, onToggle = { appearance.chooseTuckIn(it) })
