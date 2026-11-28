@@ -514,7 +514,8 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
     // Compose applies blur from Android 12; older phones keep the cover backdrop alone.
     val blurAvailable = sdk >= Build.VERSION_CODES.S
     val frosted = frostedAvailable(Expressive.blur, sdk)
-    val rows = PaletteChoice.entries.size + 4
+    val floating = appearance.navBar == NavBarStyle.Floating
+    val rows = PaletteChoice.entries.size + if (floating) 5 else 4
     SettingsGroup {
         PaletteChoice.entries.forEachIndexed { index, choice ->
             val enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable
@@ -526,6 +527,8 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
                 selected = shown == choice, onClick = { appearance.choose(choice) })
         }
         val after = PaletteChoice.entries.size
+        // Blur and Bar surface move down one while Navigation bar's Tuck in switch shows.
+        val below = after + if (floating) 3 else 2
         SettingsRow(index = after, count = rows,
             headline = "Pure black", supporting = "Black backgrounds in dark mode", leading = rowIcon("contrast"),
             trailing = { Switch(checked = appearance.amoled, onCheckedChange = null) },
@@ -535,7 +538,11 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
         ChoiceRow(index = after + 1, count = rows, headline = "Navigation bar",
             supporting = "Edge to edge is the default; floating sits over the list",
             options = NavBarStyle.entries, chosen = appearance.navBar, label = ::navBarStyleLabel) { appearance.chooseNavBar(it) }
-        SettingsRow(index = after + 2, count = rows, headline = "Blur", leading = rowIcon("blur"),
+        if (floating) SettingsRow(index = after + 2, count = rows, headline = "Tuck in while scrolling", leading = rowIcon("motion"),
+            supporting = "The mini player slides down beside the current tab as you scroll",
+            trailing = { Switch(checked = appearance.tuckIn, onCheckedChange = null) },
+            toggled = appearance.tuckIn, onToggle = { appearance.chooseTuckIn(it) })
+        SettingsRow(index = below, count = rows, headline = "Blur", leading = rowIcon("blur"),
             supporting = if (blurAvailable) "Frosted bars, Now Playing on a blurred cover, and the library blurred behind the player. Turn off if scrolling or opening the player stutters"
                 else "Now Playing on a blurred cover. Frosted bars and blurring the library need Android 12 or newer",
             trailing = { Switch(checked = Expressive.blur, onCheckedChange = null) },
@@ -543,7 +550,7 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
                 appearance.chooseExpressiveBlur(it)
             })
         // Right under Blur, so Frosted greying out when Blur goes off is seen happening.
-        ChoiceRow(index = after + 3, count = rows, headline = "Bar surface",
+        ChoiceRow(index = below + 1, count = rows, headline = "Bar surface",
             supporting = when {
                 frosted -> "Frosted blurs what's behind and uses the most power. Tinted and Solid don't blur at all."
                 !blurAvailable -> "Frosted needs Android 12 or newer. Tinted and Solid don't blur at all."
