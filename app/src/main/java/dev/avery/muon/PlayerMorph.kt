@@ -91,8 +91,7 @@ internal fun morphContentAlpha(open: Float): Float = ((open - MORPH_CONTENT_FROM
 internal fun morphTravel(miniTop: Float, topInset: Float): Float? = (miniTop - topInset).takeIf { it > 0f }
 
 /**
- * The mini player growing into Now Playing, and shrinking back into it (the Canary experiment, with
- * Expressive motion on): Material's container transform. The player no longer rises from below the
+ * The mini player growing into Now Playing, and shrinking back into it: Material's container transform. The player no longer rises from below the
  * screen as a separate sheet: the mini player itself becomes the player. The panel starts as the mini
  * player's own rectangle, in its colour and showing its content (the real mini player steps aside
  * meanwhile), and grows to the whole screen. As it grows its colour turns into Now Playing's, the mini
@@ -102,8 +101,8 @@ internal fun morphTravel(miniTop: Float, topInset: Float): Float? = (miniTop - t
  * The sheet's one position ([PlayerSheet.position]) still drives everything, so opening, closing, the
  * drag up from the mini player and the drag down from the player's bar all morph, and following a
  * finger still recomposes nothing: every part reads the position in the draw phase. This only measures
- * where things are. Sideways, where the player is a panel rather than a mini player, and with
- * Expressive motion off, the player rises from below the screen as before.
+ * where things are. Sideways, where the player is a panel rather than a mini player, the player rises
+ * from below the screen.
  */
 internal class PlayerMorph(private val sheet: PlayerSheet) {
     /** The app's root, which every position here is measured in. */
@@ -129,7 +128,6 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
 
     /** How far the player's edge travels, if it grows out of the mini player; null if it rises from below. */
     fun travel(): Float? {
-        if (!Expressive.motion) return null
         val root = root.live() ?: return null
         val mini = mini.live() ?: return null
         return morphTravel(root.localPositionOf(mini, Offset.Zero).y, topInset)

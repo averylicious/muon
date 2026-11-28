@@ -52,7 +52,7 @@ internal fun NowPlayingOverlay(p: PlaybackUi, position: () -> Long, revision: ()
     player: MediaController?, dismiss: PlayerSheet?, collapse: () -> Unit, queue: () -> Unit,
     morph: PlayerMorph? = null, lyricsAvailable: Boolean = false, more: (() -> Unit)? = null, lyrics: () -> Unit) {
     // The song's panel from a ⋮ at the bar's end, as every song row has (the Refined mockup).
-    val menu: (@Composable RowScope.() -> Unit)? = if (more != null && Expressive.motion) ({
+    val menu: (@Composable RowScope.() -> Unit)? = if (more != null) ({
         IconButton(onClick = more, modifier = Modifier.semantics { contentDescription = "More options for this song" }) {
             MuonIcon("more", Modifier.size(20.dp))
         }
@@ -174,25 +174,7 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     // Buffering shows in the seek bar's own place (SeekControls), not as a bar above it: inserting one
     // pushed everything up and shrank the cover each time a track buffered.
     SeekControls(item.mediaId, position, p.duration, p.seekable, p.buffering, player, p.playing)
-    if (Expressive.motion) ExpressiveTransport(p, player, toggles = !narrow)
-    else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically) {
-        if (!narrow) ShuffleControl(p, player)
-        // The Previous button restarts the song first, and goes back a song when pressed again within
-        // Media3's three seconds (seekToPrevious); the swipes and their TalkBack actions still go
-        // straight to the song before, which is the cover they show.
-        Control("previous", "Previous", p.previousOrRestart && player != null) { player?.seekToPrevious() }
-        // Round while paused, a rounded square while playing (motion pass 2).
-        FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
-            shape = playButtonShape(p.playing, 72.dp),
-            modifier = Modifier.size(72.dp).semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
-            Crossfade(p.playing, animationSpec = motionShort(), label = "play/pause") { playing ->
-                MuonIcon(if (playing) "pause" else "play", Modifier.size(32.dp))
-            }
-        }
-        Control("next", "Next track", p.next && player != null) { player?.seekToNextMediaItem() }
-        if (!narrow) RepeatControl(p, player)
-    }
+    ExpressiveTransport(p, player, toggles = !narrow)
     if (narrow) Row(Modifier.align(Alignment.CenterHorizontally), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
         ShuffleControl(p, player)
         RepeatControl(p, player)
@@ -203,7 +185,7 @@ private fun ColumnScope.PlayerControls(p: PlaybackUi, position: () -> Long, play
     if (actions) FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         // When Tauon has lyrics for the song, the button says so before it is opened (issue #661): a
         // tonal pill rather than plain text. Synced or not, as most of the user's lyrics are plain.
-        if (lyricsAvailable && Expressive.motion) FilledTonalButton(onClick = lyrics,
+        if (lyricsAvailable) FilledTonalButton(onClick = lyrics,
             modifier = Modifier.semantics { stateDescription = "Lyrics available" }) {
             MuonIcon("lyrics", Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
@@ -511,7 +493,7 @@ private fun ExpressiveTransport(p: PlaybackUi, player: MediaController?, toggles
             customItem({
                 val press = remember { MutableInteractionSource() }
                 FilledIconButton(onClick = { if (p.playing) player?.pause() else player?.play() }, enabled = player != null,
-                    shape = playButtonShape(p.playing, PlaySide), interactionSource = press,
+                    shape = playButtonShape(p.playing), interactionSource = press,
                     modifier = Modifier.animateWidth(press).size(PlaySide)
                         .semantics { contentDescription = if (p.playing) "Pause" else "Play" }) {
                     Crossfade(p.playing, animationSpec = motionShort(), label = "play/pause") { playing ->
@@ -579,7 +561,7 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
     val seekPaint = remember { Paint() }
     Column {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            // With Expressive motion the track is wavy (WavySeekTrack); the slider itself is the stock one.
+            // The track is wavy (WavySeekTrack); the slider itself is the stock one.
             val state = remember(range) { SliderState(elapsed, 0, 0f..range) }
             state.value = elapsed
             val canSeek = seekable && player != null
@@ -587,8 +569,7 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
                 onValueChangeFinished = { scrub?.let { player?.seekTo(it.toLong()) }; scrub = null },
                 enabled = canSeek,
                 track = { sliderState ->
-                    if (Expressive.motion) WavySeekTrack(sliderState, moving = playing && scrub == null && !waiting, enabled = canSeek)
-                    else SliderDefaults.Track(sliderState = sliderState, enabled = canSeek)
+                    WavySeekTrack(sliderState, moving = playing && scrub == null && !waiting, enabled = canSeek)
                 },
                 modifier = Modifier.drawWithContent {
                     // Fade only pixels. An alpha-zero layout layer would also hide the native
@@ -609,8 +590,7 @@ private fun SeekControls(mediaId: String, position: () -> Long, duration: Long, 
             if (waiting || shown > 0f) Box(Modifier.matchParentSize()
                 .graphicsLayer { alpha = shown }.clearAndSetSemantics {},
                 contentAlignment = Alignment.Center) {
-                if (Expressive.motion) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
-                else LinearProgressIndicator(Modifier.fillMaxWidth())
+                LinearWavyProgressIndicator(Modifier.fillMaxWidth())
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

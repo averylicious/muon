@@ -1,9 +1,7 @@
 package dev.avery.muon
 
-import androidx.compose.ui.graphics.Color
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -89,18 +87,17 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
     val colors = MaterialTheme.colorScheme
     val playable = album?.tracks?.any { it.playable } == true && ready
     val state = rememberLazyListState()
-    val toolbarRoom = if (Expressive.motion) PAGE_TOOLBAR_ROOM else 0.dp
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), state = state,
-            contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current + toolbarRoom)) {
+            contentPadding = PaddingValues(bottom = 16.dp + LocalUnderBars.current + PAGE_TOOLBAR_ROOM)) {
             item(key = "back", contentType = "back") {
                 IconButton(onClick = back, modifier = Modifier.padding(start = 8.dp)
                     .semantics { contentDescription = backLabel }) { MuonIcon("back") }
             }
             item(key = "header", contentType = "header") {
-                // With Expressive motion the cover leads, large and centred, with the title and a line
-                // of artist and length under it (the Refined mockup).
-                if (Expressive.motion) Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp),
+                // The cover leads, large and centred, with the title and a line of artist and length
+                // under it (the Refined mockup).
+                Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Artwork(album?.let { albumArt(endpoint, it) },
                         (album?.let { sharedPicture(albumPictureKey(it.key)) } ?: Modifier).fillMaxWidth(0.62f).aspectRatio(1f)
@@ -111,20 +108,6 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                     if (album != null) Text("${artistLabel(displayCredits(album.artist))} · ${albumSummary(album.tracks)}",
                         style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, maxLines = 2,
                         overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
-                } else Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Artwork(album?.let { albumArt(endpoint, it) },
-                        (album?.let { sharedPicture(albumPictureKey(it.key)) } ?: Modifier).size(140.dp).clip(RoundedCornerShape(16.dp)))
-                    Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                        Text(albumLabel(album?.title ?: title), style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                        if (album != null) {
-                            Text(artistLabel(displayCredits(album.artist)), style = MaterialTheme.typography.titleMedium,
-                                color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(top = 4.dp))
-                            Text(albumSummary(album.tracks), style = MaterialTheme.typography.bodySmall,
-                                color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
-                        }
-                    }
                 }
             }
             item(key = "actions", contentType = "actions") { PlayAllButtons(playable, playAll, album?.tracks.orEmpty(), endpoint) }
@@ -133,19 +116,15 @@ internal fun AlbumPage(album: LibraryAlbum?, title: String, endpoint: ServerEndp
                 Text("Loading album…", color = colors.onSurfaceVariant, modifier = Modifier.padding(24.dp))
             } else itemsIndexed(album.tracks, key = { i, t -> "${t.id}#$i" }, contentType = { _, _ -> "track" }) { i, track ->
                 val current = i == currentIndex
-                // With Expressive motion the tracks are one joined group, numbered (the Refined mockup).
-                val place = if (Expressive.motion) groupPlace(i, album.tracks.size) else null
-                val shape = place?.let { groupShape(it, current) } ?: RoundedCornerShape(16.dp)
-                val ground by animateColorAsState(when {
-                    current -> colors.secondaryContainer
-                    place != null -> colors.surfaceContainerLow
-                    else -> Color.Transparent
-                }, motionMedium(), label = "track ground")
+                // The tracks are one joined group, numbered (the Refined mockup).
+                val place = groupPlace(i, album.tracks.size)
+                val shape = groupShape(place, current)
+                val ground by animateColorAsState(if (current) colors.secondaryContainer else colors.surfaceContainerLow,
+                    motionMedium(), label = "track ground")
                 // The playing song sits on its own tonal surface, its number replaced by the moving
                 // equalizer, so it stands out from the list rather than only changing colour.
                 Row(Modifier.fillMaxWidth()
-                    .padding(start = place?.let { GROUP_INSET } ?: 12.dp, end = place?.let { GROUP_INSET } ?: 12.dp,
-                        top = if (place == null || place.startsGroup) 0.dp else GROUP_GAP)
+                    .padding(start = GROUP_INSET, end = GROUP_INSET, top = if (place.startsGroup) 0.dp else GROUP_GAP)
                     .heightIn(min = 56.dp)
                     .clip(shape)
                     .background(ground)
@@ -201,27 +180,15 @@ private fun openWhole(state: LazyGridState, album: LibraryAlbum, open: (LibraryA
 /** Whether a grid tile at [offsetY] from the top of the grid's viewport starts above it, partly hidden. */
 internal fun tileHiddenAbove(offsetY: Int): Boolean = offsetY < 0
 
-/** Play, filled, and Shuffle, tonal: the pair under an album's, an artist's or a playlist's header. */
+/**
+ * Play, filled, Shuffle, tonal, and Save copies as one connected group under an album's, an artist's
+ * or a playlist's header (issue #661): round at the outer ends and tight between, each fully round
+ * while pressed.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun PlayAllButtons(enabled: Boolean, playAll: (shuffle: Boolean) -> Unit,
     saveTracks: List<TauonTrack> = emptyList(), endpoint: ServerEndpoint? = null) {
-    // The Canary experiment: Play, Shuffle and Save copies as one connected group (issue #661), round
-    // at the outer ends and tight between, each fully round while pressed.
-    if (Expressive.motion) { ConnectedPageActions(enabled, playAll, saveTracks, endpoint); return }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Button(onClick = { playAll(false) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-            MuonIcon("play", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Play")
-        }
-        FilledTonalButton(onClick = { playAll(true) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-            MuonIcon("shuffle", Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Shuffle")
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ConnectedPageActions(enabled: Boolean, playAll: (shuffle: Boolean) -> Unit,
-    saveTracks: List<TauonTrack>, endpoint: ServerEndpoint?) {
     val context = LocalContext.current
     val saveable = remember(saveTracks) { saveTracks.filter { it.playable } }
     val canSave = endpoint != null && saveable.isNotEmpty()

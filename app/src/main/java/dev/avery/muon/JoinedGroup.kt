@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 /**
  * Where a row sits in a joined group (the Refined mockup): the ends of a group are well rounded, the
  * joins between rows only slightly, and the current row becomes its own rounded pill. Used by On this
- * device and, with Expressive motion, by every song list.
+ * device and every song list.
  */
 internal enum class GroupPlace { Only, First, Middle, Last }
 

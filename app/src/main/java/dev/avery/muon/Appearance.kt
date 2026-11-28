@@ -66,15 +66,10 @@ internal fun barSurfaceLabel(choice: BarSurface): String = when (choice) {
 }
 
 /**
- * Held here rather than in [AppearanceSettings] because the motion specs in Motion.kt are built
- * outside composition and read these directly; being snapshot state, a Blur flip still redraws.
+ * Held here rather than in [AppearanceSettings] because the draw-phase blur code reads it outside
+ * composition; being snapshot state, a flip still redraws.
  */
 internal object Expressive {
-    /**
-     * Expressive springs for Material's components and Muon's own transitions. Always on since Gen 4
-     * retired its switch; the branches that still test it go in a follow-up cleanup.
-     */
-    val motion = true
     /** Every blur Muon draws: Frosted bars, Now Playing's cover, and the library behind the player and song menu. */
     var blur by mutableStateOf(true)
 }

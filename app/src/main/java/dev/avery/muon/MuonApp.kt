@@ -317,8 +317,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
         // closing animation. Opening and closing drive it from the logical state; progress never
         // decides where Back goes.
         val sheet = rememberPlayerSheet(openAtStart = overlayOpen)
-        // With Expressive motion the player grows out of the mini player rather than rising from
-        // below the screen (PlayerMorph), which changes how far its edge travels.
+        // The player grows out of the mini player rather than rising from below the screen
+        // (PlayerMorph), which changes how far its edge travels.
         val morph = remember(sheet) { PlayerMorph(sheet).also { m -> sheet.morphTravel = { m.travel() } } }
         val topInset = WindowInsets.safeDrawing.getTop(LocalDensity.current).toFloat()
         SideEffect { morph.topInset = topInset }
@@ -598,9 +598,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                 AnimatedVisibility(visible = connected && rail,
                     enter = slideInHorizontally(motionSpatial()) { -it } + fadeIn(motionShort()),
                     exit = slideOutHorizontally(motionSpatial()) { -it } + fadeOut(motionShort())) {
-                    // The Canary experiment: Material 3 Expressive's navigation rail, collapsed, with
-                    // the same pill behind the chosen tab as the flexible navigation bar.
-                    if (Expressive.motion) WideNavigationRail(
+                    // Material 3 Expressive's navigation rail, collapsed, with the same pill behind the
+                    // chosen tab as the flexible navigation bar.
+                    WideNavigationRail(
                         colors = WideNavigationRailDefaults.colors(containerColor = colors.background),
                         // Centred, where a thumb holding the phone sideways reaches them.
                         arrangement = Arrangement.Center) {
@@ -610,15 +610,6 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                 icon = { TabIcon(destination) }, label = { Text(destination.name) },
                                 railExpanded = false)
                         }
-                    } else NavigationRail(containerColor = colors.background) {
-                        // Centred, where a thumb holding the phone sideways reaches them.
-                        Spacer(Modifier.weight(1f))
-                        Tab.entries.forEach { destination ->
-                            NavigationRailItem(selected = tab == destination,
-                                onClick = { tab = destination; fromSearch = false },
-                                icon = { TabIcon(destination) }, label = { Text(destination.name) })
-                        }
-                        Spacer(Modifier.weight(1f))
                     }
                 }
                 // The rail takes the start inset itself, so the content leaves it out.
@@ -634,9 +625,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier)
                         .frostedBehind(frost, backdrop = colors.background)) {
                         // Sideways, the player is a panel beside the list instead (mockup B).
-                        // With Expressive motion it stays while the player is open, since the player grows
-                        // out of it and shrinks back into it (PlayerMorph); the player covers it meanwhile.
-                        AnimatedVisibility(visible = ui.item != null && (!overlayOpen || Expressive.motion) && !(rail && connected),
+                        // It stays while the player is open, since the player grows out of it and shrinks
+                        // back into it (PlayerMorph); the player covers it meanwhile.
+                        AnimatedVisibility(visible = ui.item != null && !(rail && connected),
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
                             // In the song cover's colours, as Now Playing is, so the player grows out of a
@@ -658,21 +649,15 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                         AnimatedVisibility(visible = connected && !rail,
                             enter = slideInVertically(motionSpatial()) { it } + fadeIn(motionShort()),
                             exit = slideOutVertically(motionSpatial()) { it } + fadeOut(motionShort())) {
-                            // The Canary experiment: Material 3 Expressive's flexible navigation bar,
-                            // shorter, with a pill behind the chosen tab's icon.
+                            // Material 3 Expressive's flexible navigation bar, shorter, with a pill behind
+                            // the chosen tab's icon.
                             // 6 dp more room above the pill than the flexible bar's own: with no edge to the
                             // glass, its tight top made the bar look cut short (the user's layout-bounds
                             // check on the Pixel). Added as an inset, so the bar's tint covers it.
-                            if (Expressive.motion) ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint),
+                            ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint),
                                 windowInsets = ShortNavigationBarDefaults.windowInsets.add(WindowInsets(top = NAV_BAR_TOP_ROOM))) {
                                 Tab.entries.forEach { destination ->
                                     ShortNavigationBarItem(selected = tab == destination,
-                                        onClick = { tab = destination; fromSearch = false },
-                                        icon = { TabIcon(destination) }, label = { Text(destination.name) })
-                                }
-                            } else NavigationBar(containerColor = colors.background.copy(alpha = barTint), tonalElevation = 0.dp) {
-                                Tab.entries.forEach { destination ->
-                                    NavigationBarItem(selected = tab == destination,
                                         onClick = { tab = destination; fromSearch = false },
                                         icon = { TabIcon(destination) }, label = { Text(destination.name) })
                                 }
@@ -923,11 +908,9 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                                                         library.chooseAlbumOrder(it); albumGrid = LazyGridState()
                                                                     }
                                                                 }
-                                                                // With Expressive motion the order sits under Jump back in, inside the grid.
-                                                                if (!Expressive.motion) albumSort(0.dp)
+                                                                // The order sits under Jump back in, inside the grid.
                                                                 AlbumGrid(sortedAlbums, model.busy, model.endpoint, albumGrid,
-                                                                    recent = if (Expressive.motion) recent else emptyList(),
-                                                                    sortBar = if (Expressive.motion) ({ albumSort(12.dp) }) else null) {
+                                                                    recent = recent, sortBar = { albumSort(12.dp) }) {
                                                                     albumOrigin = origin; albumKey = it.key; albumTitle = it.title
                                                                 }
                                                             }
@@ -1051,13 +1034,12 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     save = { model.endpoint?.let { endpoint -> OfflineStore.add(context, endpoint, listOf(track)) } })
             }
             // Dims the library under the player, so a player being dragged, closed or previewed
-            // by Back reads as a sheet over it rather than more of the same surface. It stays
-            // put while the sheet moves, follows only the player's own visibility, and is gone
+            // by Back reads as a sheet over it rather than more of the same surface, and is gone
             // entirely once the player has closed.
             // Also shown while a preview is rising, so new touches cannot reach the library under
             // it; a finger already down keeps its own stream, so the drag itself carries on.
-            // With Expressive motion it deepens with the player's growth instead (PlayerMorph), so a drag
-            // that has barely begun, or has come back down, dims nothing, the mini player included.
+            // It deepens with the player's growth (PlayerMorph), so a drag that has barely begun,
+            // or has come back down, dims nothing, the mini player included.
             AnimatedVisibility(visible = (overlayOpen && !playerCovered) || sheet.previewing, enter = fadeIn(motionMedium()),
                 exit = fadeOut(motionMedium())) {
                 PlayerScrim { morph.scrimFactor() }
@@ -1267,7 +1249,7 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean, covered: Boolean, back
         // The mini player's own content, where it was, while the panel grows out of it; beneath Now
         // Playing, fading out as that fades in. It is a picture of the mini player: it takes no touch
         // and says nothing to a screen reader.
-        if (Expressive.motion) Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxWidth().graphicsLayer { alpha = morph.faceAlpha() }.clearAndSetSemantics {}) {
                 face()
                 Box(Modifier.matchParentSize().pointerInput(Unit) {})

@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -75,55 +74,20 @@ internal fun TrackList(tracks: List<TauonTrack>, endpoint: ServerEndpoint?, curr
 
 /**
  * One song: cover, title, a line under it, and length. The current song sits on a tonal surface with
- * the equalizer over its cover. [subtitle] defaults to the credits and album. With Expressive motion
- * and a [place], the song is a row of its list's joined group (the Refined mockup), like On this device.
+ * the equalizer over its cover. [subtitle] defaults to the credits and album. With a [place], the song
+ * is a row of its list's joined group (the Refined mockup), like On this device.
  */
 @Composable
 internal fun TrackRow(t: TauonTrack, endpoint: ServerEndpoint?, current: Boolean, playing: Boolean, ready: Boolean,
     modifier: Modifier = Modifier, subtitle: String = trackSubtitle(t.artist, t.album, t.playable),
     actions: (() -> Unit)? = null, place: GroupPlace? = null, play: () -> Unit) {
-    if (Expressive.motion) {
-        val group = place?.let { groupShape(it, current) }
-        // The item's own modifier (its placement animation) goes on the outermost layout, the swipe's,
-        // and so does the gap above a joined row, so the swipe's action fills only the row itself.
-        val outer = if (place == null || place.startsGroup) modifier else modifier.padding(top = GROUP_GAP)
-        SwipeToQueue(t, t.playable && ready, outer, shape = group ?: RoundedCornerShape(16.dp),
-            inset = if (group != null) GROUP_INSET else 12.dp) {
-            ExpressiveTrackRow(t, endpoint, current, playing, ready, Modifier, subtitle, actions, group, play)
-        }
-        return
-    }
-    val colors = MaterialTheme.colorScheme
-    Row(modifier.fillMaxWidth().heightIn(min = 64.dp)
-        .padding(horizontal = 12.dp)
-        // The current track sits on its own tonal surface, with the equalizer over its cover, so it
-        // is marked by something appearing and moving rather than only by a change of hue.
-        .clip(RoundedCornerShape(16.dp))
-        .then(if (current) Modifier.background(colors.secondaryContainer) else Modifier)
-        // A long press opens the song's actions (#46).
-        .combinedClickable(enabled = t.playable && ready, onLongClickLabel = if (actions != null) "Song actions" else null,
-            onLongClick = actions, onClick = play)
-        .padding(start = 12.dp, end = if (actions != null) 0.dp else 12.dp, top = 8.dp, bottom = 8.dp)
-        .then(if (current) Modifier.semantics { stateDescription = "Now playing" } else Modifier),
-        verticalAlignment = Alignment.CenterVertically) {
-        TrackCover(t, endpoint, current, playing)
-        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-            Text(t.title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (current) colors.onSecondaryContainer else colors.onSurface,
-                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium)
-            // An untagged file has nothing to say here, so the line is left out rather than
-            // printed as a stray separator.
-            if (subtitle.isNotEmpty()) Text(subtitle,
-                color = if (current) colors.onSecondaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
-        }
-        // A minimum width keeps the durations on one right edge; a long duration or a large font
-        // scale grows the column instead of clipping, taking the space from the title beside it.
-        Text(formatTime(t.durationMs), style = MaterialTheme.typography.labelSmall,
-            color = if (current) colors.onSecondaryContainer else colors.onSurfaceVariant, textAlign = TextAlign.End,
-            maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
-        // No saved-copy badge on a live song (#213): a copy kept under its number may be another song.
-        actions?.let { SongMenuButton(t.title, t.artist, if (current) colors.onSecondaryContainer else colors.onSurfaceVariant, it) }
+    val group = place?.let { groupShape(it, current) }
+    // The item's own modifier (its placement animation) goes on the outermost layout, the swipe's,
+    // and so does the gap above a joined row, so the swipe's action fills only the row itself.
+    val outer = if (place == null || place.startsGroup) modifier else modifier.padding(top = GROUP_GAP)
+    SwipeToQueue(t, t.playable && ready, outer, shape = group ?: RoundedCornerShape(16.dp),
+        inset = if (group != null) GROUP_INSET else 12.dp) {
+        ExpressiveTrackRow(t, endpoint, current, playing, ready, Modifier, subtitle, actions, group, play)
     }
 }
 
