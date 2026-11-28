@@ -43,6 +43,17 @@ internal fun paletteDescription(choice: PaletteChoice): String = when (choice) {
     PaletteChoice.Muon -> "The app's own green palette."
 }
 
+/** Edge to edge is Material's bar along the bottom; Floating puts the mini player and the tabs in capsules over the list. */
+enum class NavBarStyle { EdgeToEdge, Floating }
+
+internal fun navBarStyleFrom(stored: String?): NavBarStyle =
+    NavBarStyle.entries.firstOrNull { it.name == stored } ?: NavBarStyle.EdgeToEdge
+
+internal fun navBarStyleLabel(style: NavBarStyle): String = when (style) {
+    NavBarStyle.EdgeToEdge -> "Edge to edge"
+    NavBarStyle.Floating -> "Floating"
+}
+
 /** What the navigation bar and mini player are made of. The content scrolls on under Frosted and Tinted. */
 enum class BarSurface { Frosted, Tinted, Solid }
 
@@ -86,9 +97,17 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         private set
     var barSurface by mutableStateOf(barSurfaceFrom(prefs.getString(KEY_BAR_SURFACE, null)))
         private set
+    var navBar by mutableStateOf(navBarStyleFrom(prefs.getString(KEY_NAV_BAR, null)))
+        private set
 
     init {
         Expressive.blur = prefs.getBoolean(KEY_EXPRESSIVE_BLUR, true)
+    }
+
+    fun chooseNavBar(style: NavBarStyle) {
+        if (style == navBar) return
+        navBar = style
+        prefs.edit().putString(KEY_NAV_BAR, style.name).apply()
     }
 
     fun chooseBarSurface(choice: BarSurface) {
@@ -119,6 +138,7 @@ class AppearanceSettings(private val prefs: SharedPreferences) {
         const val KEY_AMOLED = "amoled"
         const val KEY_EXPRESSIVE_BLUR = "expressive_blur"
         const val KEY_BAR_SURFACE = "bar_surface"
+        const val KEY_NAV_BAR = "nav_bar"
     }
 }
 

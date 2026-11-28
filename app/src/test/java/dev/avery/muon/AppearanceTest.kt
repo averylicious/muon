@@ -71,4 +71,14 @@ class AppearanceTest {
     @Test fun everyBarSurfaceHasALabel() {
         for (choice in BarSurface.entries) assertEquals(true, barSurfaceLabel(choice).isNotBlank())
     }
+
+    @Test fun navigationBarIsEdgeToEdgeUntilFloatingIsChosen() {
+        assertEquals(NavBarStyle.EdgeToEdge, navBarStyleFrom(null))
+        assertEquals(NavBarStyle.EdgeToEdge, navBarStyleFrom("floating"))
+        for (style in NavBarStyle.entries) assertEquals(style, navBarStyleFrom(style.name))
+    }
+
+    @Test fun everyNavigationBarStyleHasALabel() {
+        for (style in NavBarStyle.entries) assertEquals(true, navBarStyleLabel(style).isNotBlank())
+    }
 }

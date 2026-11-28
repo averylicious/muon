@@ -123,6 +123,8 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
      * so the cover is placed through it here.
      */
     var back: PlayerBackPreview? by mutableStateOf(null)
+    /** Floating (FloatingNav.kt), the mini player is a capsule inset from the sides, and the panel grows from that. */
+    var floating by mutableStateOf(false)
 
     private fun LayoutCoordinates?.live(): LayoutCoordinates? = this?.takeIf { it.isAttached }
 
@@ -131,6 +133,13 @@ internal class PlayerMorph(private val sheet: PlayerSheet) {
         val root = root.live() ?: return null
         val mini = mini.live() ?: return null
         return morphTravel(root.localPositionOf(mini, Offset.Zero).y, topInset)
+    }
+
+    /** The mini player's box in the app's root, or null before it is placed. */
+    fun miniBox(): Rect? {
+        val root = root.live() ?: return null
+        val mini = mini.live() ?: return null
+        return root.localBoundingBoxOf(mini, clipBounds = false)
     }
 
     /** Where the growing player's bottom is when it is [open] of the way open, or null if it is not growing. */
@@ -277,6 +286,27 @@ internal fun MorphingCover(morph: PlayerMorph, url: String?) {
 internal class TopRoundedClip(private val corner: Float, private val height: Float) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
         Outline.Rounded(topRoundedRect(size, corner, height))
+}
+
+/** A clip whose outline is worked out from the layer's size when it is drawn. */
+internal class RoundRectClip(private val rect: (Size) -> RoundRect) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
+        Outline.Rounded(rect(size))
+}
+
+/**
+ * The growing player's outline when it grows out of the floating capsule: [open] of the way from the
+ * mini player's [box] to the layer's full width, [height] tall. Its top corners go from the capsule's
+ * to [sheetCorner], never more than the edge has [dropped] below the top, and its bottom ones from the
+ * capsule's to square; none is larger than half the height.
+ */
+internal fun capsuleGrowRect(size: Size, box: Rect, open: Float, height: Float, sheetCorner: Float, dropped: Float): RoundRect {
+    val bottom = height.coerceIn(0f, size.height)
+    val capsule = box.height / 2f
+    val top = CornerRadius(minOf(dropped, lerp(capsule, sheetCorner, open)).coerceIn(0f, bottom / 2f))
+    val low = CornerRadius(lerp(capsule, 0f, open).coerceIn(0f, bottom / 2f))
+    return RoundRect(lerp(box.left, 0f, open), 0f, lerp(box.right, size.width, open), bottom,
+        topLeftCornerRadius = top, topRightCornerRadius = top, bottomRightCornerRadius = low, bottomLeftCornerRadius = low)
 }
 
 /** [TopRoundedClip]'s rectangle: within the layer, and with corners no larger than half its height. */

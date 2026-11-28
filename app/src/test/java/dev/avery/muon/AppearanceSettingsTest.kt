@@ -43,4 +43,10 @@ class AppearanceSettingsTest {
         AppearanceSettings(prefs).chooseBarSurface(BarSurface.Tinted)
         assertEquals(BarSurface.Tinted, AppearanceSettings(prefs).barSurface)
     }
+
+    @Test fun aChosenNavigationBarSurvivesARestart() {
+        assertEquals(NavBarStyle.EdgeToEdge, AppearanceSettings(prefs).navBar)
+        AppearanceSettings(prefs).chooseNavBar(NavBarStyle.Floating)
+        assertEquals(NavBarStyle.Floating, AppearanceSettings(prefs).navBar)
+    }
 }

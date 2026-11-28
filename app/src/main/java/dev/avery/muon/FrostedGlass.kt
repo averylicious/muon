@@ -30,22 +30,29 @@ import androidx.compose.ui.unit.dp
  * list re-records the content and the bars show it without being recorded again.
  */
 @Stable
-internal class Frost(val content: GraphicsLayer, val blurred: GraphicsLayer, val panel: GraphicsLayer) {
+internal class Frost(val content: GraphicsLayer, val bars: FrostSpot, val tabs: FrostSpot, val panel: FrostSpot) {
     /** Where the content is, so a bar can find its own place over it. Read in the draw phase only. */
     var source: LayoutCoordinates? = null
-    /** Where the bars are. Kept here rather than in the modifier, which a recomposition replaces. */
-    var bars: LayoutCoordinates? = null
-    /** Where the player's panel is, while it grows out of the mini player ([frostedPanel]). */
-    var panelAt: LayoutCoordinates? = null
+}
+
+/**
+ * One surface the glass is drawn behind: the edge-to-edge bars, the floating tabs (the floating mini
+ * player uses [Frost.bars]), or the player's panel while it grows ([frostedPanel]). Each has its own
+ * layer: one layer recorded twice in a frame would show the second recording in both places.
+ */
+@Stable
+internal class FrostSpot(val layer: GraphicsLayer) {
+    /** Kept here rather than in the modifier, which a recomposition replaces. */
+    var at: LayoutCoordinates? = null
 }
 
 @Composable
 internal fun rememberFrost(): Frost {
     val content = rememberGraphicsLayer()
-    val blurred = rememberGraphicsLayer()
-    // Its own layer: one layer recorded twice in a frame would show the second recording in both places.
+    val bars = rememberGraphicsLayer()
+    val tabs = rememberGraphicsLayer()
     val panel = rememberGraphicsLayer()
-    return remember(content, blurred, panel) { Frost(content, blurred, panel) }
+    return remember(content, bars, tabs, panel) { Frost(content, FrostSpot(bars), FrostSpot(tabs), FrostSpot(panel)) }
 }
 
 /**
@@ -93,11 +100,9 @@ internal fun Modifier.frostSource(frost: Frost?): Modifier = if (frost == null) 
  * straight through the bar (seen on the Pixel with Canary .327). Nothing is drawn until both have been
  * placed, so a first frame is simply the bar's own colour.
  */
-internal fun Modifier.frostedBehind(frost: Frost?, backdrop: Color, radius: Dp = GLASS_BLUR): Modifier {
-    if (frost == null) return this
-    return this.onGloballyPositioned { frost.bars = it }.drawBehind {
-        drawFrosted(frost, frost.blurred, frost.bars, backdrop, radius)
-    }
+internal fun Modifier.frostedBehind(frost: Frost?, spot: FrostSpot?, backdrop: Color, radius: Dp = GLASS_BLUR): Modifier {
+    if (frost == null || spot == null) return this
+    return this.onGloballyPositioned { spot.at = it }.drawBehind { drawFrosted(frost, spot, backdrop, radius) }
 }
 
 /**
@@ -108,18 +113,20 @@ internal fun Modifier.frostedBehind(frost: Frost?, backdrop: Color, radius: Dp =
  */
 internal fun Modifier.frostedPanel(frost: Frost?, backdrop: Color, growing: () -> Boolean): Modifier {
     if (frost == null) return this
-    return this.onGloballyPositioned { frost.panelAt = it }.drawBehind {
-        if (growing()) drawFrosted(frost, frost.panel, frost.panelAt, backdrop, GLASS_BLUR)
+    return this.onGloballyPositioned { frost.panel.at = it }.drawBehind {
+        if (growing()) drawFrosted(frost, frost.panel, backdrop, GLASS_BLUR)
     }
 }
 
 /**
- * Draws the recorded content into [layer], moved to where [here] sits over it and blurred by
- * [radius], on the page's [backdrop], then draws that layer here. Nothing is drawn until both have
+ * Draws the recorded content into [spot]'s layer, moved to where the spot sits over it and blurred
+ * by [radius], on the page's [backdrop], then draws that layer here. Nothing is drawn until both have
  * been placed, so a first frame is simply the caller's own colour.
  */
-private fun DrawScope.drawFrosted(frost: Frost, layer: GraphicsLayer, here: LayoutCoordinates?, backdrop: Color, radius: Dp) {
+private fun DrawScope.drawFrosted(frost: Frost, spot: FrostSpot, backdrop: Color, radius: Dp) {
     val source = frost.source ?: return
+    val here = spot.at
+    val layer = spot.layer
     if (here == null || !source.isAttached || !here.isAttached) return
     val at = source.localPositionOf(here, Offset.Zero)
     val px = radius.toPx()
