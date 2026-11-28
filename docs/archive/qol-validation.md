@@ -1,3 +1,5 @@
+> **Archived historical document:** an early Canary acceptance checklist, superseded by per-PR QA checklists and [issue state](../audits/issues/README.md).
+
 # Playback and appearance acceptance checks
 
 Use a Canary APK from the reviewed commit. Record the APK version, Android version,
