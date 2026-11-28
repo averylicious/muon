@@ -18,7 +18,7 @@ import androidx.media3.exoplayer.offline.WritableDownloadIndex
  * through unchanged, which keeps today's retention rather than omitting more. In the pinned sources an
  * omitted row is still read from the index by addDownload and removeDownload (loadFromIndex = true). The
  * commands that would treat it differently, setStopReason and removeAllDownloads, are refused before Media3
- * by [OfflineStore.admitCommand]; see docs/handoffs/2026-10-08-manager-startup-view.md.
+ * by [OfflineStore.admitCommand]; see docs/archive/handoffs/2026-10-08-manager-startup-view.md.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class ManagerStartupIndex(private val actual: WritableDownloadIndex) : WritableDownloadIndex by actual {

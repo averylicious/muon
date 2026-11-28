@@ -1,3 +1,5 @@
+> **Archived historical document:** the September 2026 Tauon → Android feasibility decision. Current state: [STATE](../STATE.md).
+
 # Tauon → Android feasibility — 2026-09-11
 
 **Decision: feasible and demonstrated. Original FLAC streamed directly from the running Tauon instance to Media3 on the Pixel 8; decoding, progress and seeking passed before full UI work began.** No old Android implementation is reused. A compiler success or a simulated server is not proof of that milestone.

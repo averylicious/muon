@@ -30,7 +30,7 @@ import java.io.File
 import java.io.IOException
 
 /**
- * #179 containment in the production OfflineDataSource (docs/audits/2026-10-06-card-reader-containment.md):
+ * #179 containment in the production OfflineDataSource (docs/archive/audits/2026-10-06-card-reader-containment.md):
  * the actual route, Shelf, CacheDataSource and FileDataSource over disposable cached bytes and native
  * SQLite, for a phone and a card shelf. The card's availability is a switch flipped by the test. That
  * shows what the reader does once [Shelf.available] answers false; it does not establish what a real

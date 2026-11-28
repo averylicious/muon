@@ -4,7 +4,7 @@ import android.os.Environment
 import java.io.File
 
 /**
- * Card availability containment (#179, slice S1; docs/audits/2026-10-01-card-availability-containment.md).
+ * Card availability containment (#179, slice S1; docs/archive/audits/2026-10-01-card-availability-containment.md).
  *
  * A card shelf whose storage is observably gone is **unavailable**: new decisions skip it, and it is not
  * treated as empty, cleared, or quietly replaced by the phone. These decisions do not release, recreate

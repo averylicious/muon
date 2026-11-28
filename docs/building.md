@@ -38,4 +38,4 @@ Canary is built non-debuggable on purpose, so phone testing sees real performanc
 - **Tauon's range handling:** `python3 tools/test_tauon_ranges.py` tests the installed Tauon's `send_file` on its own.
 - **CI's own tests:** `tools/test_ci_scope.py` and `tools/test_release.py` guard the workflow's scope and publication rules.
 
-The first real-track milestone was proved this way on the Pixel 8 before the full UI existed. See [validation](validation.md).
+The first real-track milestone was proved this way on the Pixel 8 before the full UI existed. See the archived [validation record](archive/validation.md).

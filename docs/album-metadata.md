@@ -1,4 +1,4 @@
-# Album metadata for the 2.0 library
+# Album metadata for the library (Collection redesign, Gen 2)
 
 `TauonTrack` now retains two optional tags from `/api1/tracklist/{playlistId}`:
 

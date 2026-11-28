@@ -2,21 +2,13 @@
 
 This directory separates what the app draws today from proposals, so coding and design agents always know which is which:
 
-- [`current/`](current/README.md) — **Real device screenshots** of the currently implemented app (Pixel 8, frozen M3 Expressive RC `.1420`). Always treat `current/` — then the Compose code — as ground truth for the existing UI. **Never place unimplemented proposals or drawn mockups inside `current/`.**
+- [`current/`](current/README.md) — **Real device screenshots** of the currently implemented app (Pixel 8, Gen 3 — M3 Expressive, frozen RC `.1420`). Always treat `current/` — then the Compose code — as ground truth for the existing UI. **Never place unimplemented proposals or drawn mockups inside `current/`.**
 - [`icons/`](icons/README.md) — **Active vector icon generator** (`muon_icons.py`) that produces `app/src/main/res/drawable/ic_*.xml`.
 - [`gen-4-progressive-blur/`](gen-4-progressive-blur/README.md) — **Proposal / target mockups** for Gen 4 - Progressive Blur (plan: [#796](https://github.com/averylicious/muon/issues/796)). Not the current app.
 
-## Design generations & naming convention
+## Design generations
 
-Per [workstream names and release versions](../release-naming.md), name UI/UX redesigns sequentially by generation (**`Gen N`** or **`Gen N - <optional descriptor>`**), never by a release-like number (`Muon 3.0`, `UI 3.0`, `docs/design/3.0/`), so design generations are never confused with APK semver tags. The generation number is the canonical identifier; adding a descriptor is optional (e.g., `Gen 4` → `docs/design/gen-4/`, or `Gen 4 - Bouncy Animations` → `docs/design/gen-4-bouncy-animations/`).
-
-| Generation | Canonical name | Retired aliases (do not reuse) | Track / baseline | Status | Folder |
-| --- | --- | --- | --- | --- | --- |
-| **Gen 1** | **Gen 1 — Initial** | MVP, v0.1 | `main` (`v0.1.0`) | Shipped & superseded | *(none)* |
-| **Gen 2** | **Gen 2 — Collection redesign** | "Muon 2.0", "UI 2.0" | `main` (`v0.2.0`, Canary `.276`) | Shipped on `main`; mockups retired | *(retired `2.0/`, `landscape/`, `offline/`)* |
-| **Gen 3** | **Gen 3 — M3 Expressive (Refined)** | "M3E", "Expressive alpha" | `main` (`v0.3.0`; retired `claude/m3-expressive-alpha`) | **Current shipped baseline** | [`current/`](current/README.md) |
-| **Gen 4** | **Gen 4 — Progressive Blur** | — | `gen-4-progressive-blur` (cut off `main` / `v0.3.0`) | Proposal mockups & active branch | [`gen-4-progressive-blur/`](gen-4-progressive-blur/README.md) |
-| **Gen 5+** | **`Gen N`** or **`Gen N - <descriptor>`** | Never "Muon 3.0" / "UI 3.0" | Dedicated branch off `main` | Planned next redesign | `docs/design/gen-N/` or `docs/design/gen-N-<slug>/` |
+Redesigns are named **`Gen N`** or **`Gen N - <descriptor>`** (folders `gen-N/` or `gen-N-<slug>/`), never release-like numbers. The canonical generation table lives in [workstream names and release versions](../release-naming.md#design-generations).
 
 ## Lifecycle rules for future mockups
 
