@@ -8,18 +8,34 @@ import android.graphics.RenderNode
 import android.os.Build
 import androidx.annotation.ChecksSdkIntAtLeast
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarData
-import androidx.compose.material3.SnackbarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.blur.BlurRadiusSpec
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
@@ -58,7 +74,8 @@ internal fun Modifier.backdropBlur(blur: BlurRadiusSpec, shape: Shape, enabled: 
     if (!enabled || !backdropOnThisPhone) this else drawWithCache {
         val backdrop = Backdrop(blur.createRenderEffect(size, this).asAndroidRenderEffect(), saturation)
         val outline = shape.createOutline(size, layoutDirection, this)
-        onDrawBehind { backdrop.draw(this, outline) }
+        val edge = Path().apply { addOutline(outline) }
+        onDrawBehind { backdrop.draw(this, outline, edge) }
     }
 
 // The backdrop effect is 37.2, a minor release lint can't tell from 36; only backdropBlur builds this,
@@ -73,7 +90,7 @@ private class Backdrop(blur: RenderEffect, saturation: Float) {
     }
     private val clip = android.graphics.Outline()
 
-    fun draw(scope: DrawScope, outline: Outline) {
+    fun draw(scope: DrawScope, outline: Outline, edge: Path) {
         node.setPosition(0, 0, scope.size.width.toInt(), scope.size.height.toInt())
         when (outline) {
             is Outline.Rectangle -> clip.setRect(0, 0, scope.size.width.toInt(), scope.size.height.toInt())
@@ -86,23 +103,43 @@ private class Backdrop(blur: RenderEffect, saturation: Float) {
         // One recorded op, so the node is not dropped as empty before its backdrop is drawn.
         node.beginRecording().drawColor(android.graphics.Color.TRANSPARENT)
         node.endRecording()
-        scope.drawContext.canvas.nativeCanvas.drawRenderNode(node)
+        // The node's own outline clip did not hold the blurred backdrop on the Pixel (.1802): it spread in
+        // a full-width band around a notice. Clipping where it is drawn keeps it to the shape.
+        scope.clipPath(edge) { drawContext.canvas.nativeCanvas.drawRenderNode(node) }
     }
 }
 
-/** The tints over a glass or see-through notice: enough of the inverse colour to read its text on any cover. */
-private const val NOTICE_GLASS_TINT = 0.72f
+/**
+ * A see-through notice's tints. It takes the surface's own colours rather than Material's inverse ones:
+ * the inverse is pale in dark mode, and at these tints it turned into a murky grey slab there (.1802).
+ */
+private const val NOTICE_GLASS_TINT = 0.78f
 private val NOTICE_BLUR = 22.dp
+private val NOTICE_SHAPE = RoundedCornerShape(16.dp)
 
-/** A notice in Bar surface's material ([glassLook]): glass over the backdrop on 37.2 when Frosted. */
+/**
+ * A notice in Bar surface's material ([glassLook]): glass over the backdrop on 37.2 when Frosted,
+ * see-through when Tinted, Material's own snackbar when Solid. The see-through ones are drawn here,
+ * because Material's always casts a shadow, which showed through as a darker box inside it (.1802).
+ */
 @Composable
 internal fun SurfaceSnackbar(data: SnackbarData, surface: BarSurface) {
     val look = glassLook(surface, backdropOnThisPhone)
-    val tint = when (look) {
-        GlassLook.Glass -> NOTICE_GLASS_TINT
-        GlassLook.Tinted -> TINTED_TINT
-        GlassLook.Solid -> 1f
+    if (look == GlassLook.Solid) { Snackbar(data); return }
+    val colors = MaterialTheme.colorScheme
+    val tint = if (look == GlassLook.Glass) NOTICE_GLASS_TINT else TINTED_TINT
+    Surface(shape = NOTICE_SHAPE, color = colors.surfaceContainerHighest.copy(alpha = tint), contentColor = colors.onSurface,
+        border = BorderStroke(0.5.dp, colors.onSurface.copy(alpha = 0.12f)),
+        modifier = Modifier.padding(12.dp)
+            .backdropBlur(BlurRadiusSpec.uniform(NOTICE_BLUR), NOTICE_SHAPE, enabled = look == GlassLook.Glass)) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f).padding(vertical = 12.dp))
+            data.visuals.actionLabel?.let { label ->
+                TextButton(onClick = data::performAction, colors = ButtonDefaults.textButtonColors(contentColor = colors.primary)) { Text(label) }
+            }
+            if (data.visuals.withDismissAction) IconButton(onClick = data::dismiss,
+                modifier = Modifier.semantics { contentDescription = "Dismiss" }) { MuonIcon("close") }
+        }
     }
-    Snackbar(data, Modifier.backdropBlur(BlurRadiusSpec.uniform(NOTICE_BLUR), SnackbarDefaults.shape, enabled = look == GlassLook.Glass),
-        containerColor = SnackbarDefaults.color.copy(alpha = tint))
 }
