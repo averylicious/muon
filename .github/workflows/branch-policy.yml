@@ -2,7 +2,7 @@ name: Branch policy
 
 on:
   pull_request:
-    branches: [main, claude/m3-expressive-alpha, gen-4-progressive-blur]
+    branches: [main, gen-4-progressive-blur]
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions:
