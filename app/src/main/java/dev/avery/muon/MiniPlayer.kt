@@ -45,7 +45,8 @@ internal val MINI_SWIPE_FLICK = 700.dp
 @Composable
 internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, active: Boolean,
     sheet: PlayerSheet?, open: () -> Unit, toggle: () -> Unit, next: () -> Unit, previous: () -> Unit,
-    morph: PlayerMorph? = null, color: Color = MaterialTheme.colorScheme.surfaceVariant) {
+    morph: PlayerMorph? = null, color: Color = MaterialTheme.colorScheme.surfaceVariant,
+    floating: Boolean = false, modifier: Modifier = Modifier) {
     val canOpen by rememberUpdatedState(active)
     // A drag hands the player over when it ends, which can be a long time after it began, so the
     // action is read then rather than captured when the gesture detector was set up.
@@ -58,12 +59,12 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
     val swipe = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    // Attached to the navigation bar rather than floating above it: it was a card wedged against
-    // the bottom chrome, so it now shares an edge with it and only rounds its top corners.
-    // [color] is translucent when the bars are frosted glass (FrostedGlass.kt).
-    Surface(color = color,
-        shape = RoundedCornerShape(topStart = MINI_PLAYER_CORNER, topEnd = MINI_PLAYER_CORNER),
-        modifier = Modifier.fillMaxWidth()
+    // Edge to edge, attached to the navigation bar rather than floating above it: it was a card
+    // wedged against the bottom chrome, so it shares an edge with it and only rounds its top corners.
+    // [color] is translucent when the bars are see-through (FrostedGlass.kt).
+    Surface(color = color, shape = if (floating) CAPSULE else RoundedCornerShape(topStart = MINI_PLAYER_CORNER, topEnd = MINI_PLAYER_CORNER),
+        border = if (floating) capsuleEdge() else null,
+        modifier = modifier.fillMaxWidth()
             // Where the player grows from (PlayerMorph). While the panel that
             // grew out of it is on screen, the panel is the mini player, so this one steps aside.
             .then(if (morph != null) Modifier.onGloballyPositioned { morph.mini = it }
@@ -223,7 +224,7 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
                     if (owned()) sheet.endPreview()
                 }
             }) {
-        MiniPlayerFace(p, position, ready, toggle, next, swipe = { swipe.value },
+        MiniPlayerFace(p, position, ready, toggle, next, swipe = { swipe.value }, floating = floating,
             cover = morph?.miniCoverModifier() ?: Modifier)
     }
 }
@@ -236,10 +237,11 @@ internal fun MiniPlayer(p: PlaybackUi, position: () -> Long, ready: Boolean, act
  */
 @Composable
 internal fun MiniPlayerFace(p: PlaybackUi, position: () -> Long, ready: Boolean, toggle: () -> Unit,
-    next: () -> Unit, swipe: () -> Float = { 0f }, cover: Modifier? = Modifier) {
+    next: () -> Unit, swipe: () -> Float = { 0f }, cover: Modifier? = Modifier, floating: Boolean = false) {
     Column {
         LinearProgressIndicator(progress = { progressFraction(position(), p.duration) },
-            modifier = Modifier.fillMaxWidth().height(2.dp).clearAndSetSemantics {})
+            modifier = Modifier.fillMaxWidth().padding(horizontal = if (floating) FLOAT_PROGRESS_INSET else 0.dp)
+                .height(2.dp).clearAndSetSemantics {})
         Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             // Only the song slides; the controls stay where the thumb expects them. The song is

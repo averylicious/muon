@@ -412,8 +412,10 @@ internal fun Modifier.playerSheet(state: PlayerSheet, insets: WindowInsets, edge
                 // Growing out of the mini player (PlayerMorph): only the part down to the growing
                 // bottom edge shows, and its corners start as the mini player's. It is opaque from
                 // the start: it is the mini player, not something fading in over it.
-                val corner = minOf(dropped, lerp(MINI_PLAYER_CORNER.toPx(), PLAYER_SHEET_CORNER.toPx(), open))
-                shape = TopRoundedClip(corner, bottom - dropped)
+                val box = morph?.takeIf { it.floating }?.miniBox()
+                val sheetCorner = PLAYER_SHEET_CORNER.toPx()
+                shape = if (box != null) RoundRectClip { capsuleGrowRect(it, box, open, bottom - dropped, sheetCorner, dropped) }
+                    else TopRoundedClip(minOf(dropped, lerp(MINI_PLAYER_CORNER.toPx(), sheetCorner, open)), bottom - dropped)
             } else {
                 val corner = minOf(dropped, PLAYER_SHEET_CORNER.toPx())
                 shape = RoundedCornerShape(topStart = corner, topEnd = corner)
@@ -425,6 +427,8 @@ internal fun Modifier.playerSheet(state: PlayerSheet, insets: WindowInsets, edge
             drawContent()
             val dropped = playerSheetEdgeDrop(state.position.value * state.travel, insets.getTop(this).toFloat())
             if (!playerSheetEdgeShown(dropped, pureBlack = edge != null) || edge == null) return@drawWithContent
+            // The edge traces the full-width sheet; a panel still narrower than the screen has none.
+            if (morph != null && morph.floating && morph.growing()) return@drawWithContent
             drawTopEdge(outline, edge, minOf(dropped, PLAYER_SHEET_CORNER.toPx()), PLAYER_SHEET_EDGE.toPx())
         }
     }

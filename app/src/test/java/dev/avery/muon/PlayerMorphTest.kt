@@ -72,4 +72,37 @@ class PlayerMorphTest {
         assertEquals(15f, topRoundedRect(Size(1080f, 2400f), corner = 40f, height = 30f).topLeftCornerRadius.x, 0f)
         assertEquals(0f, topRoundedRect(Size(1080f, 2400f), corner = 40f, height = -10f).bottom, 0f)
     }
+
+    /** A 1080 px screen with a 66 px-tall capsule 36 px in from each side, its top 2000 px down. */
+    private val capsule = Rect(36f, 2000f, 1044f, 2066f)
+    private val screen = Size(1080f, 2400f)
+
+    @Test fun aClosedPanelIsTheFloatingCapsule() {
+        val rect = capsuleGrowRect(screen, capsule, open = 0f, height = 66f, sheetCorner = 84f, dropped = 2000f)
+        assertEquals(36f, rect.left, 0f)
+        assertEquals(1044f, rect.right, 0f)
+        assertEquals(66f, rect.bottom, 0f)
+        assertEquals(33f, rect.topLeftCornerRadius.x, 0f)
+        assertEquals(33f, rect.bottomRightCornerRadius.x, 0f)
+    }
+
+    @Test fun anOpenPanelFillsTheWidthWithSquareBottomCorners() {
+        val rect = capsuleGrowRect(screen, capsule, open = 1f, height = 2400f, sheetCorner = 84f, dropped = 2000f)
+        assertEquals(0f, rect.left, 0f)
+        assertEquals(1080f, rect.right, 0f)
+        assertEquals(84f, rect.topLeftCornerRadius.x, 0f)
+        assertEquals(0f, rect.bottomLeftCornerRadius.x, 0f)
+    }
+
+    @Test fun theTopCornersFlattenAsTheEdgeReachesTheTop() {
+        val rect = capsuleGrowRect(screen, capsule, open = 1f, height = 2400f, sheetCorner = 84f, dropped = 10f)
+        assertEquals(10f, rect.topRightCornerRadius.x, 0f)
+    }
+
+    @Test fun halfwayTheCapsuleIsHalfwayToTheEdges() {
+        val rect = capsuleGrowRect(screen, capsule, open = 0.5f, height = 1000f, sheetCorner = 84f, dropped = 1000f)
+        assertEquals(18f, rect.left, 0f)
+        assertEquals(1062f, rect.right, 0f)
+        assertEquals(16.5f, rect.bottomLeftCornerRadius.x, 0f)
+    }
 }

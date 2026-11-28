@@ -38,6 +38,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -586,6 +587,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
             val glass = rememberFrost()
             val frost = if (seeThrough && frostedGlassOn(surface, rail)) glass else null
             val barTint = if (seeThrough) barTint(surface) else 1f
+            // Floating (Gen 4): the mini player and the tabs are capsules over the list, which runs on
+            // under them, and around them, whatever their surface.
+            val floating = connected && !rail && appearance.navBar == NavBarStyle.Floating
+            val underBars = seeThrough || floating
+            SideEffect { morph.floating = floating }
             // While the overlay covers the screen, the tabs behind it stay composed but are taken
             // out of the accessibility tree, so TalkBack cannot wander into hidden content.
             // A rising preview obscures them just the same, so they leave the tree for it too, and
@@ -623,7 +629,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // bars itself; the bottom one, and the end one where three-button navigation sits.
                     Column((if (rail) Modifier.windowInsetsPadding(
                         WindowInsets.systemBars.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)) else Modifier)
-                        .frostedBehind(frost, backdrop = colors.background)) {
+                        .then(if (floating) Modifier.windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(start = FLOAT_MARGIN, end = FLOAT_MARGIN, bottom = FLOAT_MARGIN)
+                            else Modifier.frostedBehind(frost, frost?.bars, colors.background)),
+                        verticalArrangement = Arrangement.spacedBy(if (floating) FLOAT_GAP else 0.dp)) {
                         // Sideways, the player is a panel beside the list instead (mockup B).
                         // It stays while the player is open, since the player grows out of it and shrinks
                         // back into it (PlayerMorph); the player covers it meanwhile.
@@ -643,7 +652,8 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                                     toggle = { if (ui.playing) player?.pause() else player?.play() },
                                     next = { player?.seekToNextMediaItem() },
                                     previous = { player?.seekToPreviousMediaItem() }, morph = morph,
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = barTint))
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = barTint), floating = floating,
+                                    modifier = if (floating) Modifier.clip(CAPSULE).frostedBehind(frost, frost?.bars, colors.background) else Modifier)
                             }
                         }
                         AnimatedVisibility(visible = connected && !rail,
@@ -654,7 +664,11 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             // 6 dp more room above the pill than the flexible bar's own: with no edge to the
                             // glass, its tight top made the bar look cut short (the user's layout-bounds
                             // check on the Pixel). Added as an inset, so the bar's tint covers it.
-                            ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint),
+                            // Floating, a container colour: the page's own would vanish into the list as Solid.
+                            if (floating) FloatingTabs(Tab.entries.map { it.name }, tab.ordinal, colors.surfaceContainer.copy(alpha = barTint),
+                                select = { tab = Tab.entries[it]; fromSearch = false },
+                                modifier = Modifier.clip(CAPSULE).frostedBehind(frost, frost?.tabs, colors.background)) { TabIcon(Tab.entries[it]) }
+                            else ShortNavigationBar(containerColor = colors.background.copy(alpha = barTint),
                                 windowInsets = ShortNavigationBarDefaults.windowInsets.add(WindowInsets(top = NAV_BAR_TOP_ROOM))) {
                                 Tab.entries.forEach { destination ->
                                     ShortNavigationBarItem(selected = tab == destination,
@@ -669,10 +683,10 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // the bars' height to its own end padding instead (LocalUnderBars), so its last row can
                     // still scroll clear of them.
                     val direction = LocalLayoutDirection.current
-                    CompositionLocalProvider(LocalUnderBars provides if (seeThrough) padding.calculateBottomPadding() else 0.dp,
+                    CompositionLocalProvider(LocalUnderBars provides if (underBars) padding.calculateBottomPadding() else 0.dp,
                         LocalQueueSong provides queueFromSwipe.takeIf { player != null && connected }) {
                     Column(Modifier.frostSource(frost)
-                        .then(if (seeThrough) Modifier.padding(start = padding.calculateStartPadding(direction),
+                        .then(if (underBars) Modifier.padding(start = padding.calculateStartPadding(direction),
                             top = padding.calculateTopPadding(), end = padding.calculateEndPadding(direction))
                             else Modifier.padding(padding))
                         .fillMaxSize()) {
@@ -1061,7 +1075,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                             // Its cover shows until the flying one takes over, which needs Now
                             // Playing laid out first: without it, the first frame of a drag
                             // showed an empty space where the cover had been.
-                            MiniPlayerFace(ui, position, ready = player != null, toggle = {}, next = {},
+                            MiniPlayerFace(ui, position, ready = player != null, toggle = {}, next = {}, floating = floating,
                                 cover = Modifier.graphicsLayer { alpha = if (morph.frame() != null) 0f else 1f })
                         }
                     }
@@ -1250,7 +1264,8 @@ private fun PlayerHost(sheet: PlayerSheet, open: Boolean, covered: Boolean, back
         // Playing, fading out as that fades in. It is a picture of the mini player: it takes no touch
         // and says nothing to a screen reader.
         Box(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxWidth().graphicsLayer { alpha = morph.faceAlpha() }.clearAndSetSemantics {}) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = if (morph.floating) FLOAT_MARGIN else 0.dp)
+                .graphicsLayer { alpha = morph.faceAlpha() }.clearAndSetSemantics {}) {
                 face()
                 Box(Modifier.matchParentSize().pointerInput(Unit) {})
             }
