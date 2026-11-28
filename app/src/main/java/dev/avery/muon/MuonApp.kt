@@ -708,6 +708,7 @@ fun MuonApp(player: MediaController?, controllerError: String?, model: LibraryMo
                     // still scroll clear of them.
                     val direction = LocalLayoutDirection.current
                     CompositionLocalProvider(LocalUnderBars provides if (underBars) padding.calculateBottomPadding() else 0.dp,
+                        LocalBarSurface provides surface,
                         LocalQueueSong provides queueFromSwipe.takeIf { player != null && connected }) {
                     Column(Modifier.frostSource(frost).nestedScroll(tuckOnScroll)
                         .then(if (underBars) Modifier.padding(start = padding.calculateStartPadding(direction),

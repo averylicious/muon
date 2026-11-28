@@ -9,11 +9,15 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -38,12 +42,19 @@ internal val PAGE_TOOLBAR_ROOM: Dp = 88.dp
  */
 internal fun pageActionsGone(firstVisibleIndex: Int, actionsIndex: Int): Boolean = firstVisibleIndex > actionsIndex
 
+/** Over the backdrop blur, enough of the toolbar's colour to read its icons on any cover. */
+private const val TOOLBAR_GLASS_TINT = 0.6f
+private val TOOLBAR_BLUR = 24.dp
+
 /**
- * The Canary experiment's floating toolbar for an album's or an artist's page: once Play and Shuffle
- * have scrolled off the top, Material 3 Expressive's `HorizontalFloatingToolbar` rises above the bars
- * with them again (Play as its vibrant button), with Back and a return to the top, which also left
- * with the header. It sinks away when the header's own buttons come back. Only when the songs can be
- * played.
+ * The floating toolbar for an album's or an artist's page: once Play and Shuffle have scrolled off the
+ * top, Material 3 Expressive's `HorizontalFloatingToolbar` rises above the bars with them again, with
+ * Back and a return to the top, which also left with the header. It sinks away when the header's own
+ * buttons come back. Only when the songs can be played.
+ *
+ * Its surface follows Bar surface ([toolbarLook]): glass over a live backdrop blur on Android 17 QPR2,
+ * see-through when Tinted, opaque otherwise. Play sits inside the pill (the Gen 4 mockup), so the blur
+ * fills exactly the pill's shape.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -53,6 +64,7 @@ internal fun BoxScope.PageToolbar(state: LazyListState, actionsIndex: Int, enabl
         derivedStateOf { pageActionsGone(state.firstVisibleItemIndex, actionsIndex) }
     }
     val scope = rememberCoroutineScope()
+    val look = toolbarLook(LocalBarSurface.current, backdropOnThisPhone)
     AnimatedVisibility(gone && enabled,
         Modifier.align(Alignment.BottomCenter).padding(bottom = LocalUnderBars.current + 16.dp),
         enter = fadeIn(motionShort()) + scaleIn(motionSpatial(), initialScale = 0.8f) +
@@ -60,15 +72,23 @@ internal fun BoxScope.PageToolbar(state: LazyListState, actionsIndex: Int, enabl
         exit = fadeOut(motionShort()) + scaleOut(motionShort(), targetScale = 0.8f) +
             slideOutVertically(motionShort()) { it / 2 },
         label = "page toolbar") {
-        // Vibrant, but with Play in the primary colour every other Play button in Muon wears; Material's
-        // own vibrant button is tertiary, which on the Pixel read as a mustard stranger beside it.
         val colors = MaterialTheme.colorScheme
-        HorizontalFloatingToolbar(expanded = true, colors = FloatingToolbarDefaults.vibrantFloatingToolbarColors(
-            fabContainerColor = colors.primary, fabContentColor = colors.onPrimary),
-            floatingActionButton = {
-                FloatingToolbarDefaults.VibrantFloatingActionButton(onClick = { playAll(false) },
-                    containerColor = colors.primary, contentColor = colors.onPrimary,
-                    modifier = Modifier.semantics { contentDescription = "Play" }) { MuonIcon("play") }
+        val tint = when (look) {
+            ToolbarLook.Glass -> TOOLBAR_GLASS_TINT
+            ToolbarLook.Tinted -> TINTED_TINT
+            ToolbarLook.Solid -> 1f
+        }
+        // A see-through toolbar's shadow would show through it as a dark smudge.
+        HorizontalFloatingToolbar(expanded = true,
+            modifier = Modifier.backdropBlur(TOOLBAR_BLUR, FloatingToolbarDefaults.ContainerShape, enabled = look == ToolbarLook.Glass),
+            colors = FloatingToolbarDefaults.vibrantFloatingToolbarColors(toolbarContainerColor = colors.primaryContainer.copy(alpha = tint)),
+            expandedShadowElevation = if (look == ToolbarLook.Solid) FloatingToolbarDefaults.ContainerExpandedElevationWithFab else 0.dp,
+            trailingContent = {
+                // Play in the primary colour every other Play button in Muon wears; Material's vibrant
+                // button is tertiary, which on the Pixel read as a mustard stranger beside it.
+                FilledIconButton(onClick = { playAll(false) }, shape = RoundedCornerShape(16.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = colors.primary, contentColor = colors.onPrimary),
+                    modifier = Modifier.padding(start = 4.dp).size(48.dp).semantics { contentDescription = "Play" }) { MuonIcon("play") }
             }) {
             IconButton(onClick = back, modifier = Modifier.semantics { contentDescription = backLabel }) { MuonIcon("back") }
             IconButton(onClick = { scope.launch { state.animateScrollToItem(0) } },
