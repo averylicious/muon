@@ -22,8 +22,7 @@ class AppearanceSettingsTest {
     }
 
     // Expressive is process-wide, and other tests run in this same process.
-    @After fun restoreSwitches() {
-        Expressive.motion = true
+    @After fun restoreBlur() {
         Expressive.blur = true
     }
 

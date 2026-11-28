@@ -568,7 +568,7 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
     // Compose applies blur from Android 12; older phones keep the cover backdrop alone.
     val blurAvailable = sdk >= Build.VERSION_CODES.S
     val frosted = frostedAvailable(Expressive.blur, sdk)
-    val rows = PaletteChoice.entries.size + 4
+    val rows = PaletteChoice.entries.size + 3
     SettingsGroup {
         PaletteChoice.entries.forEachIndexed { index, choice ->
             val enabled = choice != PaletteChoice.MaterialYou || dynamicAvailable
@@ -586,13 +586,7 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
             toggled = appearance.amoled, onToggle = {
                 appearance.chooseAmoled(it)
             })
-        SettingsRow(index = after + 1, count = rows, headline = "Expressive motion", leading = rowIcon("motion"),
-            supporting = "Springy transitions, and Material's expressive motion for its own controls",
-            trailing = { Switch(checked = Expressive.motion, onCheckedChange = null) },
-            toggled = Expressive.motion, onToggle = {
-                appearance.chooseExpressiveMotion(it)
-            })
-        SettingsRow(index = after + 2, count = rows, headline = "Blur", leading = rowIcon("blur"),
+        SettingsRow(index = after + 1, count = rows, headline = "Blur", leading = rowIcon("blur"),
             supporting = if (blurAvailable) "Frosted bars, Now Playing on a blurred cover, and the library blurred behind the player. Turn off if scrolling or opening the player stutters"
                 else "Now Playing on a blurred cover. Frosted bars and blurring the library need Android 12 or newer",
             trailing = { Switch(checked = Expressive.blur, onCheckedChange = null) },
@@ -600,7 +594,7 @@ private fun AppearanceGroup(appearance: AppearanceSettings) {
                 appearance.chooseExpressiveBlur(it)
             })
         // Right under Blur, so Frosted greying out when Blur goes off is seen happening.
-        ChoiceRow(index = after + 3, count = rows, headline = "Bar surface",
+        ChoiceRow(index = after + 2, count = rows, headline = "Bar surface",
             supporting = when {
                 frosted -> "Frosted blurs what's behind and uses the most power. Tinted and Solid don't blur at all."
                 !blurAvailable -> "Frosted needs Android 12 or newer. Tinted and Solid don't blur at all."

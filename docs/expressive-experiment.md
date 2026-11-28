@@ -10,7 +10,7 @@ This branch, `claude/m3-expressive-alpha`, tries Material 3 Expressive on Muon C
 
 ## What to try on the phone
 
-**Settings → Appearance** has a switch for each of Expressive motion and Blur, so each can be compared with it off on the same phone. (They sat in their own *Material 3 Expressive experiment* section until Gen 4.)
+Expressive motion is always on: its switch was retired in Gen 4 (#796), along with the *Material 3 Expressive experiment* settings section. **Blur** moved to Settings → Appearance.
 
 - **Expressive motion** covers the motion and every Expressive component:
   - Material's own controls use `MotionScheme.expressive()`. Muon's transitions use Expressive's springs instead of eased tweens: what moves or resizes (overlays, pages, the rail, the mini player, list reordering) uses the default spatial spring, which overshoots a little; what fades or changes colour uses the effects springs, which don't. Full-screen overlays (Lyrics, Queue) use the spatial stiffness without the overshoot, so their far edge never lifts off the screen. The player sheet's own settle spring is unchanged.
